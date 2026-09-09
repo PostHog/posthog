@@ -144,10 +144,14 @@ describe('taskConnectorsPickerLogic', () => {
         // grant the gateway refuses (server disabled for the project, or the sharing member revoked).
         expect(logic.values.teamWorkflowServers).toEqual([datadog, teamIncident])
         expect(logic.values.serviceAccountsFailed).toBe(false)
-        // Every reachable team share behind a server is credited, the viewer's own share as "you".
-        expect(logic.values.sharedByLabelByServer).toEqual({
-            'incident-id': 'Shared by you and 1 other',
-            'datadog-id': 'Shared by Ada Lovelace',
+        // The note names every ready team share a run mounts, the viewer's own as "you", and says
+        // when no share is ready rather than crediting a member whose connection a run drops.
+        expect(logic.values.mountedConnectionsByServer).toEqual({
+            'incident-id': {
+                text: 'Shared by you and Ada Lovelace. Task runs get each connection as a separate server.',
+                ready: true,
+            },
+            'datadog-id': { text: "No shared connection is ready, so task runs can't use this server.", ready: false },
         })
         // Agent-scope tool approvals load for exactly the offered servers; a failed load is marked
         // rather than mistaken for a server with no tools.

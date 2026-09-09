@@ -72,7 +72,7 @@ function workflowAccount(servers: MCPServiceAccountServerApi[]): MCPServiceAccou
     }
 }
 
-// Two members team-share Incident.io, so its row names one and counts the other.
+// Two members team-share Incident.io, so a run gets both connections and the row names both.
 const SERVERS = [
     server('incident-id', 'Incident.io'),
     server('incident-id', 'Incident.io', 'ready', ALSO_SHARED_BY),
@@ -151,6 +151,11 @@ export const Selection: Story = {
 // An enabled server with nothing approved warns that task runs can't use it yet.
 export const NoApprovedTools: Story = {
     render: () => <Picker initialValue={['linear-id']} />,
+}
+
+// The only share needs reconnecting, so a run mounts nothing for the server.
+export const NoReadyConnection: Story = {
+    render: () => <Picker initialValue={['datadog-id']} />,
 }
 
 // A saved id that no team share backs anymore keeps a row, so it can be switched off.

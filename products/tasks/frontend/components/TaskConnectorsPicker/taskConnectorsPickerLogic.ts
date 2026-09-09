@@ -8,8 +8,9 @@ import { userLogic } from 'scenes/userLogic'
 import type { UserType } from '~/types'
 
 import {
-    sharedByLabel,
-    teamShareMembers,
+    MountedConnectionsNote,
+    mountedConnectionsNote,
+    mountedTeamShareMembers,
     teamSharedAgentServers,
 } from 'products/mcp_store/frontend/gateway/agentServerUtils'
 import {
@@ -29,10 +30,10 @@ export type ServerToolPolicyCounts = Record<MCPToolApprovalStateEnumApi, number>
 export interface taskConnectorsPickerLogicValues {
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
+    mountedConnectionsByServer: Record<string, MountedConnectionsNote>
     serviceAccounts: MCPServiceAccountApi[]
     serviceAccountsFailed: boolean
     serviceAccountsLoading: boolean
-    sharedByLabelByServer: Record<string, string>
     teamWorkflowServers: MCPServiceAccountServerApi[]
     toolPoliciesByServer: Record<string, ResolvedToolPolicyApi[] | 'error'>
     toolPolicyCountsByServer: Record<string, ServerToolPolicyCounts | 'error'>
@@ -76,11 +77,11 @@ export interface taskConnectorsPickerLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         workflowAccount: (serviceAccounts: MCPServiceAccountApi[]) => MCPServiceAccountApi | null
         teamWorkflowServers: (workflowAccount: MCPServiceAccountApi | null) => MCPServiceAccountServerApi[]
-        sharedByLabelByServer: (
+        mountedConnectionsByServer: (
             workflowAccount: MCPServiceAccountApi | null,
             teamWorkflowServers: MCPServiceAccountServerApi[],
-            user: any
-        ) => Record<string, string>
+            user: UserType | null
+        ) => Record<string, MountedConnectionsNote>
         toolPolicyCountsByServer: (
             toolPoliciesByServer: Record<string, ResolvedToolPolicyApi[] | 'error'>
         ) => Record<string, ServerToolPolicyCounts | 'error'>
@@ -150,22 +151,22 @@ export const taskConnectorsPickerLogic = kea<taskConnectorsPickerLogicType>([
             (workflowAccount: MCPServiceAccountApi | null): MCPServiceAccountServerApi[] =>
                 teamSharedAgentServers(workflowAccount?.servers ?? []),
         ],
-        // Several members can team-share one server; the row names them all, with the viewer as "you".
-        sharedByLabelByServer: [
+        // Mirrors the run-path mount rule, so the note names exactly the connections a run gets.
+        mountedConnectionsByServer: [
             (s) => [s.workflowAccount, s.teamWorkflowServers, s.user],
             (
                 workflowAccount: MCPServiceAccountApi | null,
                 teamWorkflowServers: MCPServiceAccountServerApi[],
                 user: UserType | null
-            ): Record<string, string> =>
+            ): Record<string, MountedConnectionsNote> =>
                 Object.fromEntries(
-                    teamWorkflowServers.flatMap((server) => {
-                        const label = sharedByLabel(
-                            teamShareMembers(workflowAccount?.servers ?? [], server.id),
+                    teamWorkflowServers.map((server) => [
+                        server.id,
+                        mountedConnectionsNote(
+                            mountedTeamShareMembers(workflowAccount?.servers ?? [], server.id),
                             user?.id ?? null
-                        )
-                        return label === null ? [] : [[server.id, label]]
-                    })
+                        ),
+                    ])
                 ),
         ],
         toolPolicyCountsByServer: [

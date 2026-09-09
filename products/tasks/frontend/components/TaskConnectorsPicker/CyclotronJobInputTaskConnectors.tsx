@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { agentServerConnectionIssue } from 'products/mcp_store/frontend/gateway/agentServerUtils'
+import type { MountedConnectionsNote } from 'products/mcp_store/frontend/gateway/agentServerUtils'
 
 import { ServerToolPolicyCounts, taskConnectorsPickerLogic } from './taskConnectorsPickerLogic'
 
@@ -42,7 +43,7 @@ function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JS
         serviceAccountsLoading,
         serviceAccountsFailed,
         toolPolicyCountsByServer,
-        sharedByLabelByServer,
+        mountedConnectionsByServer,
     } = useValues(taskConnectorsPickerLogic)
 
     const selectedIds: string[] = Array.isArray(value) ? value : []
@@ -99,7 +100,7 @@ function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JS
                                     {selected && workflowAccount && (
                                         <ServerToolPolicyNote
                                             counts={toolPolicyCountsByServer[server.id]}
-                                            sharedBy={sharedByLabelByServer[server.id]}
+                                            connections={mountedConnectionsByServer[server.id]}
                                             serverId={server.id}
                                             accountId={workflowAccount.id}
                                         />
@@ -159,17 +160,17 @@ function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JS
 }
 
 /**
- * Per-state tool counts and the sharing members under an enabled server, so a selection with no
- * approved tools, and whose connection a run rides, are both visible here.
+ * Per-state tool counts and the connections a run mounts, under an enabled server, so a selection
+ * with no approved tools or no ready connection is visible here.
  */
 function ServerToolPolicyNote({
     counts,
-    sharedBy,
+    connections,
     serverId,
     accountId,
 }: {
     counts: ServerToolPolicyCounts | 'error' | undefined
-    sharedBy: string | undefined
+    connections: MountedConnectionsNote | undefined
     serverId: string
     accountId: string
 }): JSX.Element | null {
@@ -192,11 +193,6 @@ function ServerToolPolicyNote({
                         )}
                     </span>
                 )}
-                {sharedBy && (
-                    <span className="whitespace-nowrap" data-attr="task-connectors-picker-shared-by">
-                        {sharedBy}
-                    </span>
-                )}
                 <Link
                     to={urls.mcpGatewayServer(serverId, `agent:${accountId}`)}
                     className="shrink-0"
@@ -205,6 +201,14 @@ function ServerToolPolicyNote({
                     Tool policies
                 </Link>
             </div>
+            {connections && (
+                <div
+                    className={`mt-0.5 text-xs ${connections.ready ? 'text-secondary' : 'text-warning'}`}
+                    data-attr="task-connectors-picker-shared-by"
+                >
+                    {connections.text}
+                </div>
+            )}
             {counts !== 'error' && counts.approved === 0 && (
                 <div className="mt-0.5 text-xs text-warning">
                     No tools approved yet, so task runs can't use this server.

@@ -43,38 +43,70 @@ export function agentServerConnectionIssue(
     }
 }
 
-/** The members whose reachable team shares back one server, one entry per member. */
-export function teamShareMembers(servers: readonly MCPServiceAccountServerApi[], serverId: string): UserBasicApi[] {
+/**
+ * The members whose team shares an ownerless agent run mounts for one server, one entry per
+ * member. Mirrors the run-path health filter: a share drops out when the gateway cannot reach
+ * it or its credential is not ready. With no credential owner the run gets every survivor.
+ */
+export function mountedTeamShareMembers(
+    servers: readonly MCPServiceAccountServerApi[],
+    serverId: string
+): UserBasicApi[] {
     const byMember = new Map<number, UserBasicApi>()
     for (const server of servers) {
-        if (server.id === serverId && server.scope === 'team' && server.reachable) {
+        if (
+            server.id === serverId &&
+            server.scope === 'team' &&
+            server.reachable &&
+            server.connection_state === 'ready'
+        ) {
             byMember.set(server.shared_by.id, server.shared_by)
         }
     }
     return [...byMember.values()]
 }
 
-function othersSuffix(count: number): string {
-    if (count === 0) {
-        return ''
-    }
-    return ` and ${count} other${count === 1 ? '' : 's'}`
-}
-
 /** The first member by name, or email when the profile has none, with the rest folded into a count. */
 export function memberNames(users: readonly UserBasicApi[]): string {
     const [first, ...rest] = users
-    return `${fullName(first) || first.email}${othersSuffix(rest.length)}`
+    const name = fullName(first) || first.email
+    if (rest.length === 0) {
+        return name
+    }
+    return `${name} and ${rest.length} other${rest.length === 1 ? '' : 's'}`
 }
 
-/** Who backs a server an agent run mounts. The viewer reads their own share as "you", never as a name. */
-export function sharedByLabel(members: readonly UserBasicApi[], currentUserId: number | null): string | null {
+function joinNames(names: readonly string[]): string {
+    if (names.length <= 2) {
+        return names.join(' and ')
+    }
+    return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`
+}
+
+export interface MountedConnectionsNote {
+    text: string
+    /** False when no share is ready, so runs cannot use the server until someone reconnects. */
+    ready: boolean
+}
+
+/**
+ * Whose connections a task run rides for a server. Every ready team share mounts as its own
+ * server, so each member is named rather than counted, and the viewer reads as "you".
+ */
+export function mountedConnectionsNote(
+    members: readonly UserBasicApi[],
+    currentUserId: number | null
+): MountedConnectionsNote {
     if (members.length === 0) {
-        return null
+        return { text: "No shared connection is ready, so task runs can't use this server.", ready: false }
     }
-    const others = members.filter((member) => member.id !== currentUserId)
-    if (others.length === members.length) {
-        return `Shared by ${memberNames(others)}`
+    const you = members.some((member) => member.id === currentUserId)
+    const others = members
+        .filter((member) => member.id !== currentUserId)
+        .map((member) => fullName(member) || member.email)
+    const names = joinNames(you ? ['you', ...others] : others)
+    if (members.length === 1) {
+        return { text: `Shared by ${names}`, ready: true }
     }
-    return `Shared by you${othersSuffix(others.length)}`
+    return { text: `Shared by ${names}. Task runs get each connection as a separate server.`, ready: true }
 }
