@@ -20,5 +20,6 @@ Kafka consumption primitives shared by stateful services.
 | `kafka_consumer_ledger_uncommitted_offsets` (gauge) | `topic`, `partition` | Offsets the partition's window holds. |
 | `kafka_consumer_ledger_uncommitted_events` (gauge) | `topic`, `partition` | Events those offsets carry. |
 | `kafka_consumer_ledger_uncommitted_bytes` (gauge) | `topic`, `partition` | Bytes those offsets carry (payload plus key plus headers). |
+| `kafka_consumer_ledger_deduplicated_total` (counter) | `topic`, `partition` | Redelivered offsets the window already held. The ledger charges them once and the caller drops the repeated messages. |
 | `kafka_consumer_ledger_stale_slices_total` (counter) | `stage` | Charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected. |
 | `kafka_consumer_ledger_errors_total` (counter) | `stage`, `kind` | Contract violations in the accounting; must stay 0. A violation resets that partition's ledger and the consumer keeps running. |
