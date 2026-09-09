@@ -423,6 +423,44 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
 /**
+ * * `auto` - auto
+ * * `manual` - manual
+ */
+export type BreakdownColorConfigSourceEnumApi =
+    (typeof BreakdownColorConfigSourceEnumApi)[keyof typeof BreakdownColorConfigSourceEnumApi]
+
+export const BreakdownColorConfigSourceEnumApi = {
+    Auto: 'auto',
+    Manual: 'manual',
+} as const
+
+export interface BreakdownColorConfigApi {
+    /** The breakdown value this color applies to, as it appears in the chart legend. */
+    breakdownValue: string
+    /**
+     * Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.
+     * @nullable
+     * @pattern ^preset-[1-9][0-9]*$
+     */
+    colorToken: string | null
+    /**
+     * Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.
+     * @nullable
+     */
+    breakdownType?: string | null
+    /**
+     * Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.
+     * @nullable
+     */
+    breakdownProperty?: string | null
+    /** `manual` for a color a person picked, `auto` for one the dashboard assigned.
+     *
+     * * `auto` - auto
+     * * `manual` - manual */
+    source?: BreakdownColorConfigSourceEnumApi | null
+}
+
+/**
  * * `tight` - tight
  * * `condensed` - condensed
  * * `standard` - standard
@@ -508,8 +546,11 @@ export interface DashboardApi {
     readonly filters: DashboardApiFilters
     /** @nullable */
     readonly variables: DashboardApiVariables
-    /** Custom color mapping for breakdown values. */
-    breakdown_colors?: unknown
+    /**
+     * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+     * @nullable
+     */
+    breakdown_colors?: BreakdownColorConfigApi[] | null
     /**
      * ID of the color theme used for chart visualizations.
      * @nullable
@@ -1112,8 +1153,11 @@ export interface PatchedPatchedDashboardOpenApiApi {
     pinned?: boolean
     /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
     filters?: DashboardFiltersOpenApiApi
-    /** Custom color mapping for breakdown values. */
-    breakdown_colors?: unknown
+    /**
+     * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+     * @nullable
+     */
+    breakdown_colors?: BreakdownColorConfigApi[] | null
     /**
      * ID of the color theme used for chart visualizations.
      * @nullable
@@ -7661,6 +7705,8 @@ export const MarketingAnalyticsDrillDownLevelApi = {
 } as const
 
 export interface IntegrationFilterApi {
+    /** Keep rows that no integration reports cost for, such as organic, email or an unmapped source. Defaults to true. */
+    includeNonIntegrated?: boolean | null
     /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
     integrationSourceIds?: string[] | null
 }
@@ -8837,6 +8883,31 @@ export interface YAxisSettingsApi {
     startAtZero?: boolean | null
 }
 
+export type SummaryApi = (typeof SummaryApi)[keyof typeof SummaryApi]
+
+export const SummaryApi = {
+    Total: 'total',
+    Average: 'average',
+    Latest: 'latest',
+} as const
+
+export interface MetricChartSettingsApi {
+    /** Change pill color when the series went down. Defaults to red. */
+    changeDecreaseColor?: string | null
+    /** Change pill color when the series went up. Defaults to green. */
+    changeIncreaseColor?: string | null
+    /** Color the sparkline by whether the series went up or down. */
+    colorByDirection?: boolean | null
+    /** Sparkline color when the series went down. Defaults to red. */
+    lineDecreaseColor?: string | null
+    /** Sparkline color when the series went up. Defaults to green. */
+    lineIncreaseColor?: string | null
+    /** Show the change pill comparing the first point to the latest point. */
+    showChange?: boolean | null
+    /** Which value the resting headline shows: the latest point, the total, or the average of the returned points. */
+    summary?: SummaryApi | null
+}
+
 export type SliceContentApi = (typeof SliceContentApi)[keyof typeof SliceContentApi]
 
 export const SliceContentApi = {
@@ -8941,6 +9012,7 @@ export interface ChartSettingsApi {
     leftYAxisSettings?: YAxisSettingsApi | null
     /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
     legendPosition?: LegendPositionApi | null
+    metric?: MetricChartSettingsApi | null
     pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations

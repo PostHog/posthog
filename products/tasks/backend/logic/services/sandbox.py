@@ -498,9 +498,9 @@ class SandboxBase(ABC):
         )
         return result.exit_code == 0
 
-    def agent_server_supports_prewarmed_resume_idle(self) -> bool:
+    def agent_server_supports_prewarmed_resume_message_driven(self) -> bool:
         result = self.execute(
-            "grep -q prewarmedResumeIdle /scripts/node_modules/.bin/agent-server",
+            "grep -q prewarmedResumeMessageDriven /scripts/node_modules/.bin/agent-server",
             timeout_seconds=10,
         )
         return result.exit_code == 0

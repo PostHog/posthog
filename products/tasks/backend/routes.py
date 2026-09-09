@@ -3,7 +3,6 @@ from posthog.api.routing import RouterRegistry
 import products.tasks.backend.presentation.views.api as tasks
 import products.tasks.backend.presentation.views.loops as loops
 import products.tasks.backend.presentation.views.desktop as desktop
-import products.tasks.backend.presentation.views.seat_api as seats
 import products.tasks.backend.presentation.views.config_api as config
 import products.tasks.backend.presentation.views.channels_api as channels
 import products.tasks.backend.presentation.views.desktop_access as desktop_access
@@ -60,5 +59,4 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.root.register(
         r"code/sandbox-pricing", sandbox_pricing.SandboxComputePricingViewSet, "sandbox_compute_pricing"
     )
-    routers.root.register(r"seats", seats.SeatViewSet, "seats")
     routers.root.register(r"code/internal/task_usage", task_usage.InternalTaskUsageViewSet, "internal_task_usage")

@@ -30,6 +30,21 @@ To retire a model/table:
 
 Full guide: `safe-django-migrations.md` (`## Dropping Tables`, `### Removing a whole product or app`). Deleting a migration your branch added but never merged to master is allowed (regenerating).
 
+## Retire a column in two phases
+
+Deleting the field and running `makemigrations` is not the first phase.
+Django generates a plain `RemoveField`, which drops the column in the same deploy that removes the code.
+Old pods still write to that column, and a rollback finds it gone.
+
+1. Remove all usage and the field from the model. `makemigrations`, then wrap the generated `RemoveField` in `migrations.SeparateDatabaseAndState(state_operations=[...], database_operations=[])`. The column stays in Postgres. Example: `posthog/migrations/1328_remove_userproductlist_reason_state.py`.
+2. Deploy, wait at least one full deploy cycle, and confirm no deployed code reads the column.
+3. Drop the column in a NEW `RunSQL` migration with `ALTER TABLE ... DROP COLUMN IF EXISTS`. Example: `posthog/migrations/1340_drop_userproductlist_reason_columns.py`.
+
+`RemoveFieldAnalyzer` scores a bare `RemoveField` at 5, the highest risk the "Migration Risk Analysis" CI job reports.
+The phase 2 drop scores low only when `check_drop_properly_staged` finds the phase 1 state removal in an ancestor migration, so the two phases must land in that order and never in one migration.
+
+Full guide: `safe-django-migrations.md` (`## Dropping Columns`).
+
 ## Retire dedicated migration tests
 
 A data migration test protects the rollout, not the permanent behavior of the product. Remove the dedicated test after all supported environments have applied the migration, the rollback window has closed, and no supported upgrade still relies on the old data state.

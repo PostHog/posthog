@@ -8,6 +8,8 @@ import {
   canvasActionInvokeInput,
   canvasActionResultSchema,
   canvasBuildsInput,
+  canvasConnectorCallResultSchema,
+  canvasConnectorCallServiceInput,
   canvasDraftSchema,
   canvasSourceInput,
   canvasSourceSchema,
@@ -215,6 +217,14 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .invokeAction(input),
+    ),
+  callConnector: publicProcedure
+    .input(canvasConnectorCallServiceInput)
+    .output(canvasConnectorCallResultSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .callConnector(input),
     ),
   rename: publicProcedure
     .input(renameDashboardInput)

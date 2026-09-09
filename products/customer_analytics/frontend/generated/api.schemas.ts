@@ -822,6 +822,13 @@ export interface PaginatedMeetingListApi {
     results: MeetingApi[]
 }
 
+export interface AccountPresenceViewerApi {
+    /** PostHog user ID of the teammate viewing this account. */
+    readonly user_id: number
+    /** Display name of the teammate viewing this account. */
+    readonly display_name: string
+}
+
 /**
  * Metadata for one message a channel summary covered — never the message text.
  */
@@ -2194,12 +2201,13 @@ export interface CalendarSyncStatusApi {
     readonly is_syncing: boolean
 }
 
-/**
- * Request body of the calendar sync-now trigger.
- */
-export interface CalendarSyncTriggerApi {
-    /** Id of the google-calendar integration to sync. */
+export interface CalendarSyncBackfillApi {
+    /** Id of the Google account integration to backfill. */
     integration_id: number
+    /** First UTC date to include. Must be within the last 365 days. */
+    start_date: string
+    /** Final UTC date to include. Cannot be after today. */
+    end_date: string
 }
 
 /**
@@ -2223,6 +2231,14 @@ export interface CalendarSyncTriggerResponseApi {
      * * `started` - started
      * * `already_running` - already_running */
     status: CalendarSyncTriggerResponseStatusEnumApi
+}
+
+/**
+ * Request body of the calendar sync-now trigger.
+ */
+export interface CalendarSyncTriggerApi {
+    /** Id of the google-calendar integration to sync. */
+    integration_id: number
 }
 
 /**
