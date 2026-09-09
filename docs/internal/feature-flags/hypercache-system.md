@@ -363,17 +363,18 @@ happened.
 
 Query the replica of the cluster the gauge named.
 That endpoint answered the read the metric counted, and that cluster's primary can hold a key the replica does not.
-Either reader URL can be unset, in which case reads go to the matching writer URL and that cluster's two commands return the same answer.
+Either reader URL can be unset, in which case reads go to the matching writer URL.
+The replica commands fall back the same way, so that cluster's two commands then return the same answer.
 
 ```bash
 # Shared replica, served to pods reporting reason="disabled" or reason="no_dedicated_client"
-redis-cli -u "$REDIS_READER_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+redis-cli -u "${REDIS_READER_URL:-$REDIS_URL}" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
 
 # Shared primary, which the mirror writes
 redis-cli -u "$REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
 
 # Dedicated replica, served to pods reporting reason="dedicated"
-redis-cli -u "$FLAGS_REDIS_READER_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+redis-cli -u "${FLAGS_REDIS_READER_URL:-$FLAGS_REDIS_URL}" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
 
 # Dedicated primary, which Django writes first
 redis-cli -u "$FLAGS_REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
