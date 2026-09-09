@@ -15,7 +15,7 @@ import {
   Skeleton,
   Text,
 } from "@posthog/quill";
-import { describeRegion } from "@posthog/shared";
+import { REGION_LABELS } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { OAuthControls } from "@posthog/ui/features/auth/OAuthControls";
@@ -53,7 +53,7 @@ interface ProjectSelectStepProps {
 /** The sign-in button resolves into this, so signing in reads as a completed line. */
 function SignedInRow({ email }: { email: string | undefined }) {
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
-  const region = cloudRegion ? describeRegion(cloudRegion).label : null;
+  const region = cloudRegion ? REGION_LABELS[cloudRegion].label : null;
   return (
     <Flex
       align="center"

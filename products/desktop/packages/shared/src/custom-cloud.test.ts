@@ -3,7 +3,6 @@ import {
   configureCustomCloud,
   customCloudGatewayToken,
   getCustomCloud,
-  hasCustomCloud,
   normalizeCustomCloud,
 } from "./custom-cloud";
 
@@ -68,7 +67,6 @@ describe("custom cloud", () => {
         oauthClientId: "env-client-id",
         gatewayUrl: undefined,
       });
-      expect(hasCustomCloud()).toBe(true);
     });
   });
 

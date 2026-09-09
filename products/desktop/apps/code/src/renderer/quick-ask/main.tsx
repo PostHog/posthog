@@ -11,6 +11,7 @@ import { QuickAsk } from "@posthog/quick-ask/panel/QuickAsk";
 import { getAuthIdentity, useAuthStore } from "@posthog/ui/features/auth/store";
 import { ThemeWrapper } from "@posthog/ui/primitives/ThemeWrapper";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
+import { hydrateCustomCloud } from "@renderer/custom-cloud";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createTRPCClient } from "@trpc/client";
 import { Container } from "inversify";
@@ -29,6 +30,8 @@ const hostTrpcClient = createTRPCClient<HostRouter>({
 // through the shared service locator.
 const container = new Container();
 container.bind(HOST_TRPC_CLIENT).toConstantValue(hostTrpcClient);
+hydrateCustomCloud();
+
 setRootContainer(container);
 
 const queryClient = new QueryClient({

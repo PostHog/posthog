@@ -11,7 +11,7 @@ import {
   ItemDescription,
   ItemTitle,
 } from "@posthog/quill";
-import { describeRegion } from "@posthog/shared";
+import { REGION_LABELS } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import {
   useAuthStateValue,
@@ -345,7 +345,7 @@ function EnvironmentBadge() {
 function RegionBadge() {
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   if (!cloudRegion) return null;
-  const entry = describeRegion(cloudRegion);
+  const entry = REGION_LABELS[cloudRegion];
   return (
     <Flex align="center" gap="1" aria-label={entry.label}>
       <span className="text-[12px] leading-none">{entry.flag}</span>

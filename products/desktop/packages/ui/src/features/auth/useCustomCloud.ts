@@ -31,7 +31,6 @@ export function useCustomCloud() {
 
   useEffect(() => {
     if (!stored.data) return;
-    configureCustomCloud(stored.data);
     setDraft({
       url: stored.data.url,
       oauthClientId: stored.data.oauthClientId ?? "",

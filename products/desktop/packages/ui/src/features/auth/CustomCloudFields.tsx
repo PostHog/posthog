@@ -70,7 +70,10 @@ export function CustomCloudFields({
             onChange={(event) => onChange({ [key]: event.target.value })}
             onBlur={onBlur}
           />
-          <Tooltip content={help} side="right">
+          <Tooltip
+            content={<span className="block max-w-[240px]">{help}</span>}
+            side="right"
+          >
             <button
               type="button"
               aria-label={`About ${label}`}

@@ -51,6 +51,6 @@ export function describeRegion(region: CloudRegion): RegionLabel {
 }
 
 export function formatRegionBadge(region: CloudRegion): string {
-  const entry = describeRegion(region);
+  const entry = REGION_LABELS[region];
   return `${entry.flag} ${entry.label}`;
 }

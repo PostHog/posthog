@@ -70,7 +70,3 @@ export function configureCustomCloud(target: CustomCloud | null): void {
 export function getCustomCloud(): CustomCloud | null {
   return configured ?? fromEnv();
 }
-
-export function hasCustomCloud(): boolean {
-  return getCustomCloud() !== null;
-}

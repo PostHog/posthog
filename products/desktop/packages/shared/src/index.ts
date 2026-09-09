@@ -100,7 +100,6 @@ export {
   customCloudGatewayToken,
   customCloudSchema,
   getCustomCloud,
-  hasCustomCloud,
   normalizeCustomCloud,
 } from "./custom-cloud";
 export {
