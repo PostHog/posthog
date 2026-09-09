@@ -210,7 +210,7 @@ const TREND_LENSES: Record<ScannerTypeEnumApi, TrendLens> = {
     scorer: {
         description: "Watches this scanner's mean score for shifts against its own baseline.",
         metric: 'the mean score',
-        seriesSelect: 'round(avg(toFloat64OrNull(properties.scanner_output_score)), 2) AS mean_score',
+        seriesSelect: 'round(avg(toFloatOrNull(properties.scanner_output_score)), 2) AS mean_score',
         notable:
             "The scanner's mean score stepping up or down against its own prior weeks, on enough volume to mean something (roughly 30+ sessions in the week). Report the direction in plain terms: say whether the move is better or worse for the people in these sessions, since a scorer's scale is the scanner's own.",
         skip: '- A mean that moves inside its usual week-to-week wobble — compare against the spread of the prior weeks, not just their average.\n- A shift driven by a handful of extreme scores rather than the distribution moving.',
