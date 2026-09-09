@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use common_kafka::config::KafkaConfig;
-use common_kafka::kafka_producer::create_kafka_producer;
+use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 use common_liveness::SyncLivenessReporter;
 use prost::Message;
@@ -102,6 +102,19 @@ pub async fn create_topic(name: &str, partitions: i32) {
     }
 }
 
+pub async fn dead_letter_producer() -> FutureProducer<KafkaContext> {
+    create_kafka_producer(
+        &KafkaConfig {
+            kafka_hosts: kafka_hosts(),
+            kafka_client_id: "usage-ingestion-e2e-dlq".to_string(),
+            ..Default::default()
+        },
+        TestLiveness,
+    )
+    .await
+    .expect("failed to create the dead-letter producer")
+}
+
 pub fn clickhouse_url() -> String {
     env_or(
         "USAGE_INGESTION_E2E_CLICKHOUSE_URL",
@@ -188,6 +201,7 @@ impl KafkaService {
         let transport = KafkaUsageIngestion::new(
             &consumer_config,
             &input_topic,
+            dead_letter_producer().await,
             dead_letter_topic,
             service,
             KafkaBatchConfig {

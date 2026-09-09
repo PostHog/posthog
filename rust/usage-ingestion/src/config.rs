@@ -250,14 +250,36 @@ impl Config {
         }
     }
 
-    pub fn kafka_consumer_config(&self) -> ClientConfig {
-        let hosts = if self.kafka_input_hosts.is_empty() {
+    fn input_hosts(&self) -> &str {
+        if self.kafka_input_hosts.is_empty() {
             &self.kafka_hosts
         } else {
             &self.kafka_input_hosts
-        };
-        ConsumerConfigBuilder::for_batch_consumer(hosts, &self.kafka_consumer_group)
-            .with_tls(self.kafka_input_tls.unwrap_or(self.kafka_tls))
+        }
+    }
+
+    fn input_tls(&self) -> bool {
+        self.kafka_input_tls.unwrap_or(self.kafka_tls)
+    }
+
+    /// The dead-letter producer writes to the input cluster next to the topic it drains.
+    /// It uses the shared producer defaults, so delivery fails after `message.timeout.ms`
+    /// instead of stalling a batch behind librdkafka's five-minute default.
+    pub fn kafka_dead_letter_config(&self) -> KafkaConfig {
+        KafkaConfig {
+            kafka_hosts: self.input_hosts().to_string(),
+            kafka_tls: self.input_tls(),
+            kafka_client_id: "usage-ingestion-dlq".to_string(),
+            kafka_message_timeout_ms: self.kafka_dead_letter_message_timeout_ms,
+            // A dead-lettered payload is whatever the consumer fetched, so it has to fit.
+            kafka_producer_message_max_bytes: Some(self.kafka_consumer_max_partition_fetch_bytes),
+            ..Default::default()
+        }
+    }
+
+    pub fn kafka_consumer_config(&self) -> ClientConfig {
+        ConsumerConfigBuilder::for_batch_consumer(self.input_hosts(), &self.kafka_consumer_group)
+            .with_tls(self.input_tls())
             .with_offset_reset("earliest")
             .with_sticky_partition_assignment(None, false)
             .with_topic_metadata_refresh_interval_ms(
@@ -281,10 +303,6 @@ impl Config {
             )
             .set("statistics.interval.ms", "10000")
             .set("allow.auto.create.topics", "false")
-            .set(
-                "message.timeout.ms",
-                &self.kafka_dead_letter_message_timeout_ms.to_string(),
-            )
             .build()
     }
 
@@ -413,12 +431,33 @@ mod tests {
         assert_eq!(kafka.get("retry.backoff.max.ms"), Some("60000"));
         assert_eq!(kafka.get("statistics.interval.ms"), Some("10000"));
         assert_eq!(kafka.get("allow.auto.create.topics"), Some("false"));
-        assert_eq!(kafka.get("message.timeout.ms"), Some("20000"));
+        assert_eq!(kafka.get("message.timeout.ms"), None);
 
         let batch = config.kafka_batch_config();
         assert_eq!(batch.max_messages, 100);
         assert_eq!(batch.max_wait, Duration::from_millis(10));
         assert_eq!(batch.concurrency, 16);
+    }
+
+    #[test]
+    fn the_dead_letter_producer_targets_the_input_cluster_with_a_bounded_timeout() {
+        let config = Config {
+            kafka_input_hosts: "ingestion:9092".to_string(),
+            kafka_input_tls: Some(true),
+            kafka_dead_letter_message_timeout_ms: 5_000,
+            ..config()
+        };
+
+        let dlq = config.kafka_dead_letter_config();
+
+        assert_eq!(dlq.kafka_hosts, "ingestion:9092");
+        assert!(dlq.kafka_tls);
+        assert_eq!(dlq.kafka_message_timeout_ms, 5_000);
+        // Anything the consumer can fetch must be producible to the dead-letter topic.
+        assert_eq!(
+            dlq.kafka_producer_message_max_bytes,
+            Some(config.kafka_consumer_max_partition_fetch_bytes)
+        );
     }
 
     #[test]

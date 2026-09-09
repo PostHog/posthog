@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use common_kafka::kafka_producer::KafkaContext;
 use common_liveness::SyncLivenessReporter;
 use futures::{stream, StreamExt, TryStreamExt};
 use prost::Message;
@@ -24,7 +25,7 @@ pub struct KafkaBatchConfig {
 
 pub struct KafkaUsageIngestion {
     consumer: StreamConsumer<KafkaConsumerContext>,
-    dead_letter_producer: FutureProducer,
+    dead_letter_producer: FutureProducer<KafkaContext>,
     dead_letter_topic: String,
     service: Arc<UsageIngestionService>,
     batch: KafkaBatchConfig,
@@ -58,6 +59,7 @@ impl KafkaUsageIngestion {
     pub fn new(
         config: &ClientConfig,
         input_topic: &str,
+        dead_letter_producer: FutureProducer<KafkaContext>,
         dead_letter_topic: String,
         service: Arc<UsageIngestionService>,
         batch: KafkaBatchConfig,
@@ -65,9 +67,11 @@ impl KafkaUsageIngestion {
     ) -> Result<Self, KafkaUsageIngestionError> {
         let consumer: StreamConsumer<KafkaConsumerContext> =
             config.create_with_context(KafkaConsumerContext::new(liveness.clone()))?;
-        verify_input_topic(&consumer, input_topic)?;
+        verify_topic(&consumer, input_topic)?;
+        // A missing dead-letter topic would otherwise fail every dead-letter send, which
+        // replays the same batch forever without ever committing.
+        verify_topic(&consumer, &dead_letter_topic)?;
         consumer.subscribe(&[input_topic])?;
-        let dead_letter_producer = config.create()?;
         liveness.report_healthy();
         Ok(Self {
             consumer,
@@ -213,9 +217,11 @@ impl KafkaUsageIngestion {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_supervised(
     config: &ClientConfig,
     input_topic: &str,
+    dead_letter_producer: FutureProducer<KafkaContext>,
     dead_letter_topic: &str,
     service: Arc<UsageIngestionService>,
     batch: KafkaBatchConfig,
@@ -228,6 +234,7 @@ pub async fn run_supervised(
         let result = match KafkaUsageIngestion::new(
             config,
             input_topic,
+            dead_letter_producer.clone(),
             dead_letter_topic.to_string(),
             Arc::clone(&service),
             batch,
@@ -254,7 +261,7 @@ pub async fn run_supervised(
     }
 }
 
-fn verify_input_topic(
+fn verify_topic(
     consumer: &StreamConsumer<KafkaConsumerContext>,
     topic: &str,
 ) -> Result<(), KafkaUsageIngestionError> {
@@ -263,14 +270,14 @@ fn verify_input_topic(
         .topics()
         .iter()
         .find(|candidate| candidate.name() == topic)
-        .ok_or_else(|| KafkaUsageIngestionError::InputTopic(format!("{topic} is missing")))?;
+        .ok_or_else(|| KafkaUsageIngestionError::Topic(format!("{topic} is missing")))?;
     if let Some(error) = topic_metadata.error() {
-        return Err(KafkaUsageIngestionError::InputTopic(format!(
+        return Err(KafkaUsageIngestionError::Topic(format!(
             "broker returned {error:?} for {topic}"
         )));
     }
     if topic_metadata.partitions().is_empty() {
-        return Err(KafkaUsageIngestionError::InputTopic(format!(
+        return Err(KafkaUsageIngestionError::Topic(format!(
             "{topic} has no partitions"
         )));
     }
@@ -299,8 +306,8 @@ pub enum KafkaUsageIngestionError {
     Kafka(#[from] KafkaError),
     #[error("usage processing failed before the input offsets were committed: {0}")]
     Processing(#[from] ProcessingError),
-    #[error("Kafka input topic is unavailable: {0}")]
-    InputTopic(String),
+    #[error("Kafka topic is unavailable: {0}")]
+    Topic(String),
 }
 
 #[cfg(test)]

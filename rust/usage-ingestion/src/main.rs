@@ -79,14 +79,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .register("kafka_producer".to_string(), Duration::from_secs(30))
         .await;
     let producer = create_kafka_producer(&kafka_config, producer_liveness).await?;
-    let consumer_liveness = if config.transport_mode == TransportMode::Grpc {
-        None
+    let (consumer_liveness, dead_letter_producer) = if config.transport_mode == TransportMode::Grpc
+    {
+        (None, None)
     } else {
-        Some(
-            health
-                .register("kafka_consumer".to_string(), Duration::from_secs(30))
-                .await,
-        )
+        let consumer_liveness = health
+            .register("kafka_consumer".to_string(), Duration::from_secs(30))
+            .await;
+        let dead_letter_liveness = health
+            .register(
+                "kafka_dead_letter_producer".to_string(),
+                Duration::from_secs(30),
+            )
+            .await;
+        let dead_letter_producer =
+            create_kafka_producer(&config.kafka_dead_letter_config(), dead_letter_liveness).await?;
+        (Some(consumer_liveness), Some(dead_letter_producer))
     };
     let grpc_max_connection_age = config.grpc_max_connection_age();
     let redis_counter_config = config.redis_counter_config();
@@ -178,6 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         run_supervised(
             &kafka_config,
             &config.kafka_input_topic,
+            dead_letter_producer.expect("Kafka modes create the dead-letter producer"),
             &config.kafka_dead_letter_topic,
             service,
             kafka_batch_config,
