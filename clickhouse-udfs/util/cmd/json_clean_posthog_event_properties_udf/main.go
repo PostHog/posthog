@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/bits"
 	"os"
 	"runtime/pprof"
 	"slices"
@@ -43,32 +44,40 @@ const (
 	// Nested arrays can amplify ClickHouse type inference even for small documents.
 	maxJSONArrayDepth        = 8
 	unparseablePropertiesKey = "$unparseable_properties"
+	maxRecycledValues        = 4096
 )
 
 var errMaxJSONDepth = errors.New("maximum JSON depth exceeded")
 
-var droppedEventPropertyKeys = map[string]struct{}{
-	"$ai_input":                          {},
-	"$ai_output":                         {},
-	"$ai_output_choices":                 {},
-	"$ai_input_state":                    {},
-	"$ai_output_state":                   {},
-	"$ai_tools":                          {},
-	"ph_product_tours":                   {},
-	"$product_tours_activated":           {},
-	"$product_tours_enabled_server_side": {},
-	"$surveys_activated":                 {},
-	"$active_feature_flags":              {},
-	"$feature_flag_payload":              {},
-	"$feature_flag_bootstrapped_payload": {},
-	"$feature_flag_original_payload":     {},
-	"$feature_flag_payloads":             {},
-	"$transformations_succeeded":         {},
-	"$transformations_skipped":           {},
-	unparseablePropertiesKey:             {},
+func isDroppedEventProperty(key string) bool {
+	switch key {
+	case "$ai_input",
+		"$ai_output",
+		"$ai_output_choices",
+		"$ai_input_state",
+		"$ai_output_state",
+		"$ai_tools",
+		"ph_product_tours",
+		"$product_tours_activated",
+		"$product_tours_enabled_server_side",
+		"$surveys_activated",
+		"$active_feature_flags",
+		"$feature_flag_payload",
+		"$feature_flag_bootstrapped_payload",
+		"$feature_flag_original_payload",
+		"$feature_flag_payloads",
+		"$transformations_succeeded",
+		"$transformations_skipped",
+		unparseablePropertiesKey:
+		return true
+	}
+	return false
 }
 
 func isTemporaryProperty(key string) bool {
+	if len(key) == 0 || key[0] != '$' {
+		return false
+	}
 	root, _, _ := strings.Cut(key, ".")
 	switch root {
 	case "$set", "$set_once", "$unset", "$group_set", "$feature_flag_request_id",
@@ -157,16 +166,20 @@ type mergeKey struct {
 }
 
 type processor struct {
-	data      []byte
-	pos       int
-	kind      propertiesKind
-	mutated   bool
-	rawSafe   bool
-	free      []*value
-	info      map[string]entryInfo
-	index     map[mergeKey]*value
-	stringBuf bytes.Buffer
-	depth     int
+	data            []byte
+	pos             int
+	kind            propertiesKind
+	mutated         bool
+	rawSafe         bool
+	free            []*value
+	info            map[string]entryInfo
+	index           map[mergeKey]*value
+	entriesBuf      []entry
+	entryBuffers    [8][]entry
+	entryBufferMask uint8
+	stringBuf       bytes.Buffer
+	tooDeepArrays   bool
+	discard         bool
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -175,13 +188,27 @@ func processLine(rawLine []byte, buf *bytes.Buffer) error {
 }
 
 func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
+	for p.entryBufferMask != 0 {
+		i := bits.Len8(p.entryBufferMask) - 1
+		if cap(p.entryBuffers[i]) <= max(16, len(rawLine)) {
+			break
+		}
+		p.entryBuffers[i] = nil
+		p.entryBufferMask &^= 1 << i
+	}
+	if buf.Cap() > max(64*1024, 2*len(rawLine)) {
+		*buf = bytes.Buffer{}
+	}
+	if p.stringBuf.Cap() > max(64*1024, 2*len(rawLine)) {
+		p.stringBuf = bytes.Buffer{}
+	}
 	p.data = rawLine
 	p.pos = 0
 	p.mutated = false
 	p.rawSafe = true
-	p.depth = 0
+	p.tooDeepArrays = false
 
-	parsed, err := p.parseValue()
+	parsed, err := p.parseValue(1, 0)
 	if err != nil {
 		if errors.Is(err, errMaxJSONDepth) {
 			p.writeUnparseableProperties(buf, rawLine)
@@ -194,8 +221,8 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 		p.recycle(parsed)
 		return fmt.Errorf("json parse error: trailing data at byte %d", p.pos)
 	}
-	// Check before filtering so the permanent cleaner preserves rejected temporary properties.
-	if exceedsJSONArrayDepth(parsed, 0) {
+	// Parsing counts arrays inside discarded properties so quarantine preserves rejected inputs.
+	if p.tooDeepArrays {
 		p.recycle(parsed)
 		p.writeUnparseableProperties(buf, rawLine)
 		return nil
@@ -211,14 +238,13 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 		return fmt.Errorf("json clean error: %w", err)
 	}
 	// Normalization can decode stringified JSON and wrap objects in arrays.
-	if exceedsJSONArrayDepth(cleaned, 0) {
+	if p.mutated && exceedsJSONArrayDepth(cleaned, 0) {
 		p.recycle(cleaned)
 		p.writeUnparseableProperties(buf, rawLine)
 		return nil
 	}
 
 	buf.Reset()
-	buf.Grow(len(rawLine))
 	if !p.mutated && p.rawSafe {
 		buf.Write(rawLine)
 	} else {
@@ -254,7 +280,7 @@ func (p *processor) cleanProperties(v *value) (*value, error) {
 		return p.cleanTemporaryProperties(v)
 	}
 	if p.kind == personProperties {
-		return p.cleanNode(nil, v)
+		return p.cleanNode(nil, v, 1)
 	}
 	return p.cleanEventProperties(v)
 }
@@ -263,33 +289,30 @@ func (p *processor) cleanTemporaryProperties(v *value) (*value, error) {
 	if v.kind != kindObject {
 		return nil, fmt.Errorf("temporary properties must be a JSON object")
 	}
-	writeIdx := 0
-	for _, property := range v.entries {
-		if !isTemporaryProperty(property.key) {
-			p.mutated = true
-			p.recycle(property.value)
-			continue
-		}
-		v.entries[writeIdx] = property
-		writeIdx++
-	}
-	v.entries = v.entries[:writeIdx]
-	return p.cleanNode(nil, v)
+	return p.cleanNode(nil, v, 1)
 }
 
 func (p *processor) cleanEventProperties(v *value) (*value, error) {
 	if v.kind != kindObject {
-		return p.cleanNode(eventPropertyRules, v)
+		return p.cleanNode(eventPropertyRules, v, 1)
 	}
 
 	var featureFlags *value
 	hasFeatureProperties := false
+	hasFeatureKeys := false
 	for _, property := range v.entries {
+		if !strings.HasPrefix(property.key, "$feature") {
+			continue
+		}
+		hasFeatureKeys = true
 		if strings.HasPrefix(property.key, "$feature/") {
 			hasFeatureProperties = true
 		} else if property.key == "$feature_flags" && property.value.kind == kindObject && featureFlags == nil {
 			featureFlags = property.value
 		}
+	}
+	if !hasFeatureKeys {
+		return p.cleanNode(eventPropertyRules, v, 1)
 	}
 	createdFeatureFlags := hasFeatureProperties && featureFlags == nil
 	if createdFeatureFlags {
@@ -298,8 +321,7 @@ func (p *processor) cleanEventProperties(v *value) (*value, error) {
 
 	writeIdx := 0
 	for _, property := range v.entries {
-		_, drop := droppedEventPropertyKeys[property.key]
-		if drop || isTemporaryProperty(property.key) || hasFeatureProperties && property.key == "$feature_flags" && property.value != featureFlags {
+		if hasFeatureProperties && property.key == "$feature_flags" && property.value != featureFlags {
 			p.mutated = true
 			p.recycle(property.value)
 			continue
@@ -316,7 +338,7 @@ func (p *processor) cleanEventProperties(v *value) (*value, error) {
 	if createdFeatureFlags {
 		v.entries = append(v.entries, entry{key: "$feature_flags", value: featureFlags})
 	}
-	cleaned, err := p.cleanNode(eventPropertyRules, v)
+	cleaned, err := p.cleanNode(eventPropertyRules, v, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -333,22 +355,30 @@ func (p *processor) cleanEventProperties(v *value) (*value, error) {
 }
 
 func (p *processor) newValue(kind valueKind) *value {
+	if p.discard {
+		return nil
+	}
 	n := len(p.free)
 	if n == 0 {
 		return &value{kind: kind}
 	}
 	v := p.free[n-1]
+	p.free[n-1] = nil
 	p.free = p.free[:n-1]
 	v.kind = kind
-	v.s = ""
-	v.b = false
-	v.entries = v.entries[:0]
-	v.values = v.values[:0]
 	return v
 }
 
 func (p *processor) recycle(v *value) {
 	if v == nil {
+		return
+	}
+	if v.kind < kindObject && cap(v.entries) <= 16 && cap(v.values) <= 16 {
+		if len(p.free) < maxRecycledValues {
+			v.s = ""
+			v.b = false
+			p.free = append(p.free, v)
+		}
 		return
 	}
 	for _, entry := range v.entries {
@@ -357,28 +387,48 @@ func (p *processor) recycle(v *value) {
 	for _, child := range v.values {
 		p.recycle(child)
 	}
+	// A single large retained property must not pin its entire tree in an executable pool worker.
+	if len(p.free) >= maxRecycledValues {
+		return
+	}
 	v.s = ""
 	v.b = false
 	// Keep small arrays for reuse; bound clearing work for larger ones by this row's size.
 	if cap(v.entries) > max(16, 2*len(v.entries)) {
+		p.cacheEntries(v.entries)
 		v.entries = nil
 	}
 	if cap(v.values) > max(16, 2*len(v.values)) {
 		v.values = nil
 	}
 	// Truncated entries can still hold borrowed keys that retain entire input rows.
-	clear(v.entries[:cap(v.entries)])
-	clear(v.values[:cap(v.values)])
+	if v.kind == kindObject {
+		clear(v.entries[:cap(v.entries)])
+	} else if v.kind == kindArray {
+		clear(v.values[:cap(v.values)])
+	}
 	v.entries = v.entries[:0]
 	v.values = v.values[:0]
 	p.free = append(p.free, v)
 }
 
-func (p *processor) parseValue() (*value, error) {
-	if err := p.enterJSONDepth(); err != nil {
-		return nil, err
+func (p *processor) cacheEntries(entries []entry) {
+	if cap(entries) <= 16 || cap(entries) > min(maxRecycledValues, len(p.data)) {
+		return
 	}
-	defer p.leaveJSONDepth()
+	// One buffer per size class retains fewer than 8,192 entries across all classes.
+	i := bits.Len(uint(cap(entries)-1)) - 5
+	if cap(entries) > cap(p.entryBuffers[i]) {
+		clear(entries[:cap(entries)])
+		p.entryBuffers[i] = entries[:0]
+		p.entryBufferMask |= 1 << i
+	}
+}
+
+func (p *processor) parseValue(depth, arrayDepth int) (*value, error) {
+	if depth > maxJSONDepth {
+		return nil, errMaxJSONDepth
+	}
 
 	p.skipWS()
 	if p.pos >= len(p.data) {
@@ -387,23 +437,27 @@ func (p *processor) parseValue() (*value, error) {
 
 	switch p.data[p.pos] {
 	case '{':
-		return p.parseObject()
+		return p.parseObject(depth, arrayDepth)
 	case '[':
-		return p.parseArray()
+		return p.parseArray(depth, arrayDepth)
 	case '"':
 		s, err := p.parseString()
 		if err != nil {
 			return nil, err
 		}
 		v := p.newValue(kindString)
-		v.s = s
+		if v != nil {
+			v.s = s
+		}
 		return v, nil
 	case 't':
 		if !p.consumeLiteral("true") {
 			return nil, fmt.Errorf("invalid literal at byte %d", p.pos)
 		}
 		v := p.newValue(kindBool)
-		v.b = true
+		if v != nil {
+			v.b = true
+		}
 		return v, nil
 	case 'f':
 		if !p.consumeLiteral("false") {
@@ -422,6 +476,9 @@ func (p *processor) parseValue() (*value, error) {
 				return nil, err
 			}
 			v := p.newValue(kindNumber)
+			if v == nil {
+				return nil, nil
+			}
 			if shouldStringifyNumber(num) {
 				p.mutated = true
 				v.kind = kindString
@@ -433,9 +490,12 @@ func (p *processor) parseValue() (*value, error) {
 	}
 }
 
-func (p *processor) parseObject() (*value, error) {
+func (p *processor) parseObject(depth, arrayDepth int) (*value, error) {
 	p.pos++
 	obj := p.newValue(kindObject)
+	if obj != nil && cap(p.entriesBuf) > cap(obj.entries) {
+		obj.entries, p.entriesBuf = p.entriesBuf, obj.entries
+	}
 	p.skipWS()
 	if p.consumeByte('}') {
 		return obj, nil
@@ -457,12 +517,26 @@ func (p *processor) parseObject() (*value, error) {
 			p.recycle(obj)
 			return nil, fmt.Errorf("expected ':' at byte %d", p.pos)
 		}
-		child, err := p.parseValue()
+		discard := p.discard
+		if depth == 1 {
+			switch p.kind {
+			case eventProperties:
+				p.discard = isDroppedEventProperty(key) || isTemporaryProperty(key)
+			case temporaryProperties:
+				p.discard = !isTemporaryProperty(key)
+			}
+			p.mutated = p.mutated || p.discard
+		}
+		// Discarded properties still pass the same syntax and depth validation.
+		child, err := p.parseValue(depth+1, arrayDepth)
+		p.discard = discard
 		if err != nil {
 			p.recycle(obj)
 			return nil, err
 		}
-		obj.entries = append(obj.entries, entry{key: key, value: child})
+		if obj != nil && child != nil {
+			obj.entries = append(obj.entries, entry{key: key, value: child})
+		}
 		p.skipWS()
 		if p.consumeByte('}') {
 			return obj, nil
@@ -474,7 +548,11 @@ func (p *processor) parseObject() (*value, error) {
 	}
 }
 
-func (p *processor) parseArray() (*value, error) {
+func (p *processor) parseArray(depth, arrayDepth int) (*value, error) {
+	arrayDepth++
+	if arrayDepth > maxJSONArrayDepth {
+		p.tooDeepArrays = true
+	}
 	p.pos++
 	arr := p.newValue(kindArray)
 	p.skipWS()
@@ -483,12 +561,14 @@ func (p *processor) parseArray() (*value, error) {
 	}
 
 	for {
-		child, err := p.parseValue()
+		child, err := p.parseValue(depth+1, arrayDepth)
 		if err != nil {
 			p.recycle(arr)
 			return nil, err
 		}
-		arr.values = append(arr.values, child)
+		if arr != nil {
+			arr.values = append(arr.values, child)
+		}
 		p.skipWS()
 		if p.consumeByte(']') {
 			return arr, nil
@@ -500,80 +580,101 @@ func (p *processor) parseArray() (*value, error) {
 	}
 }
 
+var stringSpecialBytes = func() (special [256]bool) {
+	for i := range 0x20 {
+		special[i] = true
+	}
+	special['"'], special['\\'] = true, true
+	return
+}()
+
 func (p *processor) parseString() (string, error) {
 	quote := p.pos
-	p.pos++
-	start := p.pos
-	for p.pos < len(p.data) {
-		c := p.data[p.pos]
+	start := quote + 1
+	for i, c := range p.data[start:] {
+		if !stringSpecialBytes[c] {
+			continue
+		}
 		switch {
 		case c == '"':
-			s := borrowedString(p.data[start:p.pos])
-			p.pos++
+			s := borrowedString(p.data[start : start+i])
+			p.pos = start + i + 1
 			return s, nil
 		case c == '\\':
+			p.pos = start + i
 			return p.parseEscapedString(quote)
 		case c < 0x20:
-			return "", fmt.Errorf("invalid control character at byte %d", p.pos)
-		default:
-			p.pos++
+			return "", fmt.Errorf("invalid control character at byte %d", start+i)
 		}
 	}
 	return "", fmt.Errorf("unterminated string at byte %d", quote)
 }
 
 func (p *processor) parseEscapedString(quote int) (string, error) {
-	p.pos = quote + 1
 	p.stringBuf.Reset()
-
+	if !p.discard {
+		p.stringBuf.Write(p.data[quote+1 : p.pos])
+	}
 	for p.pos < len(p.data) {
-		c := p.data[p.pos]
-		switch {
-		case c == '"':
+		start := p.pos
+		p.pos = len(p.data)
+		for i, c := range p.data[start:] {
+			if stringSpecialBytes[c] {
+				p.pos = start + i
+				break
+			}
+		}
+		if !p.discard {
+			p.stringBuf.Write(p.data[start:p.pos])
+		}
+		if p.pos == len(p.data) {
+			break
+		}
+		switch p.data[p.pos] {
+		case '"':
 			p.pos++
 			return p.stringBuf.String(), nil
-		case c == '\\':
+		case '\\':
 			p.pos++
 			if p.pos >= len(p.data) {
 				return "", fmt.Errorf("unterminated escape at byte %d", p.pos)
 			}
+			var decoded byte
 			switch p.data[p.pos] {
 			case '"', '\\', '/':
-				if p.data[p.pos] == '/' {
+				decoded = p.data[p.pos]
+				if decoded == '/' {
 					p.rawSafe = false
 				}
-				p.stringBuf.WriteByte(p.data[p.pos])
-				p.pos++
 			case 'b':
-				p.stringBuf.WriteByte('\b')
-				p.pos++
+				decoded = '\b'
 			case 'f':
-				p.stringBuf.WriteByte('\f')
-				p.pos++
+				decoded = '\f'
 			case 'n':
-				p.stringBuf.WriteByte('\n')
-				p.pos++
+				decoded = '\n'
 			case 'r':
-				p.stringBuf.WriteByte('\r')
-				p.pos++
+				decoded = '\r'
 			case 't':
-				p.stringBuf.WriteByte('\t')
-				p.pos++
+				decoded = '\t'
 			case 'u':
 				p.rawSafe = false
 				r, err := p.parseUnicodeEscape()
 				if err != nil {
 					return "", err
 				}
-				p.stringBuf.WriteRune(r)
+				if !p.discard {
+					p.stringBuf.WriteRune(r)
+				}
+				continue
 			default:
 				return "", fmt.Errorf("invalid escape at byte %d", p.pos)
 			}
-		case c < 0x20:
-			return "", fmt.Errorf("invalid control character at byte %d", p.pos)
-		default:
-			p.stringBuf.WriteByte(c)
+			if !p.discard {
+				p.stringBuf.WriteByte(decoded)
+			}
 			p.pos++
+		default:
+			return "", fmt.Errorf("invalid control character at byte %d", p.pos)
 		}
 	}
 	return "", fmt.Errorf("unterminated string at byte %d", quote)
@@ -622,48 +723,49 @@ func hexRune(b []byte) (rune, bool) {
 }
 
 func (p *processor) parseNumber() (string, error) {
-	start := p.pos
-	if p.consumeByte('-') && p.pos >= len(p.data) {
-		return "", fmt.Errorf("short number at byte %d", start)
+	start, pos := p.pos, p.pos
+	if pos < len(p.data) && p.data[pos] == '-' {
+		pos++
 	}
-	if p.pos >= len(p.data) {
+	if pos >= len(p.data) {
 		return "", fmt.Errorf("short number at byte %d", start)
 	}
 
-	if p.data[p.pos] == '0' {
-		p.pos++
-	} else if p.data[p.pos] >= '1' && p.data[p.pos] <= '9' {
-		for p.pos < len(p.data) && isDigit(p.data[p.pos]) {
-			p.pos++
+	if p.data[pos] == '0' {
+		pos++
+	} else if p.data[pos] >= '1' && p.data[pos] <= '9' {
+		for pos < len(p.data) && isDigit(p.data[pos]) {
+			pos++
 		}
 	} else {
 		return "", fmt.Errorf("invalid number at byte %d", start)
 	}
 
-	if p.pos < len(p.data) && p.data[p.pos] == '.' {
-		p.pos++
-		if p.pos >= len(p.data) || !isDigit(p.data[p.pos]) {
-			return "", fmt.Errorf("invalid fraction at byte %d", p.pos)
+	if pos < len(p.data) && p.data[pos] == '.' {
+		pos++
+		if pos >= len(p.data) || !isDigit(p.data[pos]) {
+			return "", fmt.Errorf("invalid fraction at byte %d", pos)
 		}
-		for p.pos < len(p.data) && isDigit(p.data[p.pos]) {
-			p.pos++
-		}
-	}
-
-	if p.pos < len(p.data) && (p.data[p.pos] == 'e' || p.data[p.pos] == 'E') {
-		p.pos++
-		if p.pos < len(p.data) && (p.data[p.pos] == '+' || p.data[p.pos] == '-') {
-			p.pos++
-		}
-		if p.pos >= len(p.data) || !isDigit(p.data[p.pos]) {
-			return "", fmt.Errorf("invalid exponent at byte %d", p.pos)
-		}
-		for p.pos < len(p.data) && isDigit(p.data[p.pos]) {
-			p.pos++
+		for pos < len(p.data) && isDigit(p.data[pos]) {
+			pos++
 		}
 	}
 
-	return borrowedString(p.data[start:p.pos]), nil
+	if pos < len(p.data) && (p.data[pos] == 'e' || p.data[pos] == 'E') {
+		pos++
+		if pos < len(p.data) && (p.data[pos] == '+' || p.data[pos] == '-') {
+			pos++
+		}
+		if pos >= len(p.data) || !isDigit(p.data[pos]) {
+			return "", fmt.Errorf("invalid exponent at byte %d", pos)
+		}
+		for pos < len(p.data) && isDigit(p.data[pos]) {
+			pos++
+		}
+	}
+
+	p.pos = pos
+	return borrowedString(p.data[start:pos]), nil
 }
 
 func (p *processor) skipWS() {
@@ -699,20 +801,23 @@ func (p *processor) consumeLiteral(s string) bool {
 	return true
 }
 
-func (p *processor) cleanNode(pathRules *pathRule, v *value) (*value, error) {
-	if err := p.enterJSONDepth(); err != nil {
-		return nil, err
+func (p *processor) cleanNode(pathRules *pathRule, v *value, depth int) (*value, error) {
+	// Scalar children skip recursion, but must still fit below their container's depth.
+	if depth > maxJSONDepth || depth == maxJSONDepth && (len(v.entries) != 0 || len(v.values) != 0) {
+		return nil, errMaxJSONDepth
 	}
-	defer p.leaveJSONDepth()
 
 	switch v.kind {
 	case kindObject:
-		if err := p.cleanObject(pathRules, v); err != nil {
+		if err := p.cleanObject(pathRules, v, depth); err != nil {
 			return nil, err
 		}
 	case kindArray:
 		for i, child := range v.values {
-			cleaned, err := p.cleanNode(pathRules, child)
+			if child.kind < kindObject {
+				continue
+			}
+			cleaned, err := p.cleanNode(pathRules, child, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -722,8 +827,8 @@ func (p *processor) cleanNode(pathRules *pathRule, v *value) (*value, error) {
 	return v, nil
 }
 
-func (p *processor) cleanObject(pathRules *pathRule, obj *value) error {
-	expanded, err := p.expandDottedEntries(obj.entries)
+func (p *processor) cleanObject(pathRules *pathRule, obj *value, depth int) error {
+	expanded, err := p.expandDottedEntries(obj.entries, depth)
 	if err != nil {
 		return err
 	}
@@ -736,15 +841,18 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value) error {
 		if pathRules != nil {
 			childPathRules = pathRules.children[entry.key]
 		}
-		cleaned, err := p.cleanNode(childPathRules, entry.value)
-		if err != nil {
-			p.retainUnprocessedEntries(obj, writeIdx, readIdx)
-			return err
+		cleaned := entry.value
+		if cleaned.kind >= kindObject {
+			cleaned, err = p.cleanNode(childPathRules, cleaned, depth+1)
+			if err != nil {
+				p.retainUnprocessedEntries(obj, writeIdx, readIdx)
+				return err
+			}
 		}
 		if childPathRules != nil && childPathRules.normalization != normalizationNone {
 			p.mutated = true
 			original := cleaned
-			cleaned, err = p.normalizeValue(childPathRules.normalization, cleaned)
+			cleaned, err = p.normalizeValue(childPathRules.normalization, cleaned, depth)
 			if err != nil {
 				cleaned = original
 				if unparsable.Len() == 0 {
@@ -763,8 +871,10 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value) error {
 			p.recycle(cleaned)
 			continue
 		}
-		obj.entries[writeIdx] = entry
-		obj.entries[writeIdx].value = cleaned
+		if writeIdx != readIdx || cleaned != entry.value {
+			obj.entries[writeIdx] = entry
+			obj.entries[writeIdx].value = cleaned
+		}
 		writeIdx++
 	}
 	obj.entries = obj.entries[:writeIdx]
@@ -784,11 +894,11 @@ func (p *processor) retainUnprocessedEntries(obj *value, writeIdx, readIdx int) 
 	obj.entries = obj.entries[:writeIdx+remaining]
 }
 
-func (p *processor) expandDottedEntries(entries []entry) ([]entry, error) {
+func (p *processor) expandDottedEntries(entries []entry, depth int) ([]entry, error) {
 	needsExpand := false
 	for _, entry := range entries {
 		if strings.IndexByte(entry.key, '.') >= 0 {
-			if p.depth+strings.Count(entry.key, ".")+1 > maxJSONDepth {
+			if depth+strings.Count(entry.key, ".")+1 > maxJSONDepth {
 				return nil, errMaxJSONDepth
 			}
 			needsExpand = true
@@ -799,14 +909,10 @@ func (p *processor) expandDottedEntries(entries []entry) ([]entry, error) {
 	}
 	p.mutated = true
 
-	expanded := make([]entry, 0, len(entries))
+	expanded := p.entriesBuf[:0]
 	if p.index == nil {
 		p.index = make(map[mergeKey]*value, len(entries))
 	}
-	for key := range p.index {
-		delete(p.index, key)
-	}
-
 	for _, entry := range entries {
 		if strings.IndexByte(entry.key, '.') < 0 {
 			p.appendEntry(nil, &expanded, entry.key, entry.value)
@@ -815,23 +921,17 @@ func (p *processor) expandDottedEntries(entries []entry) ([]entry, error) {
 		}
 	}
 
-	for key := range p.index {
-		delete(p.index, key)
+	if len(p.index) > maxRecycledValues {
+		p.index = nil
+	} else {
+		clear(p.index)
+	}
+	clear(entries[:cap(entries)])
+	p.entriesBuf = entries[:0]
+	if cap(p.entriesBuf) > maxRecycledValues {
+		p.entriesBuf = nil
 	}
 	return expanded, nil
-}
-
-func (p *processor) enterJSONDepth() error {
-	p.depth++
-	if p.depth > maxJSONDepth {
-		p.depth--
-		return errMaxJSONDepth
-	}
-	return nil
-}
-
-func (p *processor) leaveJSONDepth() {
-	p.depth--
 }
 
 func (p *processor) writeUnparseableProperties(buf *bytes.Buffer, raw []byte) {
@@ -873,6 +973,13 @@ func (p *processor) insertDottedKey(parent *value, entries *[]entry, key string,
 		target := p.index[mk]
 		if target == nil {
 			target = p.newValue(kindObject)
+			if p.entryBufferMask != 0 {
+				i := bits.Len8(p.entryBufferMask) - 1
+				if cap(p.entryBuffers[i]) > cap(target.entries) {
+					target.entries, p.entryBuffers[i] = p.entryBuffers[i], nil
+					p.entryBufferMask &^= 1 << i
+				}
+			}
 			p.appendEntry(parent, entries, head, target)
 		}
 		parent = target
@@ -882,16 +989,30 @@ func (p *processor) insertDottedKey(parent *value, entries *[]entry, key string,
 }
 
 func (p *processor) deduplicateEntries(obj *value) {
-	if len(obj.entries) == 0 {
+	if len(obj.entries) < 2 {
 		return
+	}
+	// Bound pairwise comparisons to small objects; wide objects use the hash table.
+	if len(obj.entries) <= 16 {
+		duplicate := false
+		for i, entry := range obj.entries {
+			for _, previous := range obj.entries[:i] {
+				if previous.key == entry.key {
+					duplicate = true
+					break
+				}
+			}
+			if duplicate {
+				break
+			}
+		}
+		if !duplicate {
+			return
+		}
 	}
 	if p.info == nil {
 		p.info = make(map[string]entryInfo, len(obj.entries))
 	}
-	for key := range p.info {
-		delete(p.info, key)
-	}
-
 	for i, entry := range obj.entries {
 		info := p.info[entry.key]
 		info.last = i
@@ -910,7 +1031,9 @@ func (p *processor) deduplicateEntries(obj *value) {
 			keep = info.firstNonEmpty == i
 		}
 		if keep {
-			obj.entries[writeIdx] = entry
+			if writeIdx != i {
+				obj.entries[writeIdx] = entry
+			}
 			writeIdx++
 		} else {
 			p.mutated = true
@@ -919,23 +1042,25 @@ func (p *processor) deduplicateEntries(obj *value) {
 	}
 	obj.entries = obj.entries[:writeIdx]
 
-	for key := range p.info {
-		delete(p.info, key)
+	if len(p.info) > maxRecycledValues {
+		p.info = nil
+	} else {
+		clear(p.info)
 	}
 }
 
-func (p *processor) normalizeValue(normalization normalizationKind, v *value) (*value, error) {
+func (p *processor) normalizeValue(normalization normalizationKind, v *value, depth int) (*value, error) {
 	switch normalization {
 	case normalizationStringArray:
-		return p.coerceStringArray(v)
+		return p.coerceStringArray(v, depth)
 	case normalizationObjectArray:
-		return p.coerceObjectArray(v)
+		return p.coerceObjectArray(v, depth)
 	default:
 		return v, nil
 	}
 }
 
-func (p *processor) coerceObjectArray(v *value) (*value, error) {
+func (p *processor) coerceObjectArray(v *value, depth int) (*value, error) {
 	switch v.kind {
 	case kindArray:
 		for _, child := range v.values {
@@ -955,11 +1080,11 @@ func (p *processor) coerceObjectArray(v *value) (*value, error) {
 		if isNullishString(raw) {
 			return p.reuseAsEmptyArray(v), nil
 		}
-		parsed, err := p.parseStringifiedJSON(raw)
+		parsed, err := p.parseStringifiedJSON(raw, depth)
 		if err != nil {
 			return nil, err
 		}
-		normalized, err := p.coerceObjectArray(parsed)
+		normalized, err := p.coerceObjectArray(parsed, depth)
 		if err != nil {
 			p.recycle(parsed)
 			return nil, err
@@ -994,7 +1119,7 @@ func valueKindName(kind valueKind) string {
 	}
 }
 
-func (p *processor) coerceStringArray(v *value) (*value, error) {
+func (p *processor) coerceStringArray(v *value, depth int) (*value, error) {
 	switch v.kind {
 	case kindArray:
 		oldValues := v.values
@@ -1020,11 +1145,11 @@ func (p *processor) coerceStringArray(v *value) (*value, error) {
 		if isEmptyArrayString(trimmed) {
 			return p.reuseAsEmptyArray(v), nil
 		}
-		if parsed, ok, err := p.parseStringifiedJSONArray(trimmed); err != nil {
+		if parsed, ok, err := p.parseStringifiedJSONArray(trimmed, depth); err != nil {
 			return nil, err
 		} else if ok {
 			p.recycle(v)
-			return p.coerceStringArray(parsed)
+			return p.coerceStringArray(parsed, depth)
 		}
 		return p.reuseAsStringArray(v, v.s), nil
 	default:
@@ -1039,6 +1164,8 @@ func (p *processor) resetValue(v *value, kind valueKind) {
 	for _, child := range v.values {
 		p.recycle(child)
 	}
+	clear(v.entries[:cap(v.entries)])
+	clear(v.values[:cap(v.values)])
 	v.kind = kind
 	v.s = ""
 	v.b = false
@@ -1059,7 +1186,7 @@ func (p *processor) reuseAsStringArray(v *value, s string) *value {
 	return v
 }
 
-func (p *processor) parseStringifiedJSON(raw string) (*value, error) {
+func (p *processor) parseStringifiedJSON(raw string, depth int) (*value, error) {
 	if raw == "" || (raw[0] != '[' && raw[0] != '{') {
 		return nil, fmt.Errorf("cannot coerce %q to Array(JSON)", raw)
 	}
@@ -1067,7 +1194,7 @@ func (p *processor) parseStringifiedJSON(raw string) (*value, error) {
 	oldData, oldPos := p.data, p.pos
 	p.data = borrowedBytes(raw)
 	p.pos = 0
-	parsed, err := p.parseValue()
+	parsed, err := p.parseValue(depth+1, 0)
 	if err != nil {
 		p.data, p.pos = oldData, oldPos
 		return nil, fmt.Errorf("cannot coerce %q to Array(JSON): %w", raw, err)
@@ -1078,7 +1205,7 @@ func (p *processor) parseStringifiedJSON(raw string) (*value, error) {
 		p.data, p.pos = oldData, oldPos
 		return nil, fmt.Errorf("cannot coerce %q to Array(JSON): trailing data", raw)
 	}
-	cleaned, err := p.cleanNode(nil, parsed)
+	cleaned, err := p.cleanNode(nil, parsed, depth+1)
 	p.data, p.pos = oldData, oldPos
 	if err != nil {
 		p.recycle(parsed)
@@ -1087,7 +1214,7 @@ func (p *processor) parseStringifiedJSON(raw string) (*value, error) {
 	return cleaned, nil
 }
 
-func (p *processor) parseStringifiedJSONArray(raw string) (*value, bool, error) {
+func (p *processor) parseStringifiedJSONArray(raw string, depth int) (*value, bool, error) {
 	if raw == "" || raw[0] != '[' {
 		return nil, false, nil
 	}
@@ -1095,7 +1222,7 @@ func (p *processor) parseStringifiedJSONArray(raw string) (*value, bool, error) 
 	oldData, oldPos := p.data, p.pos
 	p.data = borrowedBytes(raw)
 	p.pos = 0
-	parsed, err := p.parseValue()
+	parsed, err := p.parseValue(depth+1, 0)
 	if err != nil {
 		p.data, p.pos = oldData, oldPos
 		return nil, false, nil
@@ -1106,7 +1233,7 @@ func (p *processor) parseStringifiedJSONArray(raw string) (*value, bool, error) 
 		p.data, p.pos = oldData, oldPos
 		return nil, false, nil
 	}
-	cleaned, err := p.cleanNode(nil, parsed)
+	cleaned, err := p.cleanNode(nil, parsed, depth+1)
 	p.data, p.pos = oldData, oldPos
 	if err != nil {
 		return nil, false, err
@@ -1237,7 +1364,7 @@ func isEmptyArrayString(s string) bool {
 }
 
 func shouldStringifyNumber(num string) bool {
-	if len(num) == 0 {
+	if len(num) < 19 {
 		return false
 	}
 
@@ -1300,14 +1427,30 @@ func borrowedBytes(s string) []byte {
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
+func readLine(reader *bufio.Reader) ([]byte, error) {
+	line, err := reader.ReadSlice('\n')
+	if err != bufio.ErrBufferFull {
+		return line, err
+	}
+	// Only rows larger than the reader buffer need an owned copy.
+	var full []byte
+	for {
+		full = append(full, line...)
+		if err != bufio.ErrBufferFull {
+			return full, err
+		}
+		line, err = reader.ReadSlice('\n')
+	}
+}
+
 func run(input io.Reader, output io.Writer, kind propertiesKind) error {
-	reader := bufio.NewReaderSize(input, 4*1024*1024)
-	writer := bufio.NewWriterSize(output, 4*1024*1024)
+	reader := bufio.NewReaderSize(input, 64*1024)
+	writer := bufio.NewWriterSize(output, 64*1024)
 	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
 	proc := processor{kind: kind}
 
 	for {
-		line, err := reader.ReadBytes('\n')
+		line, err := readLine(reader)
 		if err != nil && err != io.EOF {
 			return fmt.Errorf("stdin read error: %w", err)
 		}
@@ -1336,8 +1479,8 @@ func run(input io.Reader, output io.Writer, kind propertiesKind) error {
 }
 
 func runChunked(input io.Reader, output io.Writer, kind propertiesKind) error {
-	reader := bufio.NewReaderSize(input, 4*1024*1024)
-	writer := bufio.NewWriterSize(output, 4*1024*1024)
+	reader := bufio.NewReaderSize(input, 64*1024)
+	writer := bufio.NewWriterSize(output, 64*1024)
 	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
 	proc := processor{kind: kind}
 
@@ -1349,7 +1492,7 @@ func runChunked(input io.Reader, output io.Writer, kind propertiesKind) error {
 			return fmt.Errorf("chunk header read error: %w", err)
 		}
 		for range rows {
-			line, err := reader.ReadBytes('\n')
+			line, err := readLine(reader)
 			if err != nil {
 				return fmt.Errorf("stdin read error: %w", err)
 			}
@@ -1358,7 +1501,10 @@ func runChunked(input io.Reader, output io.Writer, kind propertiesKind) error {
 			if processErr := proc.processLine(line, buf); processErr != nil {
 				return fmt.Errorf("line processing error: %w", processErr)
 			}
-			if _, writeErr := writer.Write(append(buf.Bytes(), '\n')); writeErr != nil {
+			if _, writeErr := writer.Write(buf.Bytes()); writeErr != nil {
+				return fmt.Errorf("stdout write error: %w", writeErr)
+			}
+			if writeErr := writer.WriteByte('\n'); writeErr != nil {
 				return fmt.Errorf("stdout write error: %w", writeErr)
 			}
 		}

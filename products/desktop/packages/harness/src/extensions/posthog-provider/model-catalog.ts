@@ -3,7 +3,11 @@ import {
   type ModelThinkingLevel,
 } from "@earendil-works/pi-ai";
 import type { ModelInfo } from "@earendil-works/pi-coding-agent";
-import { type CloudRegion, formatGatewayModelName } from "@posthog/shared";
+import {
+  type CloudRegion,
+  formatGatewayModelName,
+  isHiddenPiModelId,
+} from "@posthog/shared";
 import {
   fetchPosthogGatewayModels,
   type GatewayModel,
@@ -27,23 +31,6 @@ const PI_MODEL_LABELS: Record<string, string> = {
   "zai-org/glm-5.3-flash": "GLM-5.3 Flash",
   "moonshotai/kimi-k3": "Kimi K3",
 };
-
-const HIDDEN_PI_MODEL_IDS = new Set([
-  "claude-sonnet-4-5",
-  "claude-sonnet-4-6",
-  "claude-sonnet-4-7",
-  "claude-sonnet-4-8",
-  "claude-opus-4-5",
-  "claude-opus-4-6",
-  "claude-opus-4-7",
-  "claude-opus-4-8",
-  "gpt-5.2",
-  "gpt-5.3-codex",
-  "gpt-5.4",
-  "gpt-5.5",
-  "gpt-5-mini",
-  "@cf/zai-org/glm-5.2",
-]);
 
 export type PiModelCatalogEntry = Omit<
   Pick<ModelInfo, "provider" | "id" | "contextWindow">,
@@ -74,7 +61,7 @@ export function resolvePosthogPiModelCatalog(
   region: CloudRegion,
 ): PiModelCatalogEntry[] {
   return resolveModelConfigsFromGatewayModels(gatewayModels, region)
-    .filter((model) => !HIDDEN_PI_MODEL_IDS.has(model.id))
+    .filter((model) => !isHiddenPiModelId(model.id))
     .map((model) => ({
       provider: "posthog",
       id: model.id,
