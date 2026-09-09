@@ -12,8 +12,6 @@ export const posthogAiToolRenderers: ToolRegistryEntry[] = [
     'query-error-tracking-issues-list',
     'query-error-tracking-issue',
     'query-error-tracking-issue-events',
-    'search_error_tracking_issues',
-    'filter_error_tracking_issues',
 ].map((key) => ({
     key,
     displayName: 'Error tracking',

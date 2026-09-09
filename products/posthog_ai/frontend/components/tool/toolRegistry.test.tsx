@@ -23,7 +23,7 @@ describe('toolRegistry', () => {
     it('resolves product declarations after importing only the registry', () => {
         expect(toolRegistry.lookup('insight-create')?.displayName).toEqual('Insight')
         expect(toolRegistry.lookup('query-trends')?.displayName).toEqual('Trends query')
-        expect(toolRegistry.lookup('search_error_tracking_issues')?.displayName).toEqual('Error tracking')
+        expect(toolRegistry.lookup('query-error-tracking-issues-list')?.displayName).toEqual('Error tracking')
         expect(
             require.cache[require.resolve('products/error_tracking/frontend/posthogAi/ErrorTrackingWidget')]
         ).toBeUndefined()
@@ -55,6 +55,8 @@ describe('toolRegistry', () => {
         // Never-registered keys (not built-ins, not any product data-tool) resolve to the fallback.
         expect(toolRegistry.lookup('read_insight')).toBeNull()
         expect(toolRegistry.lookup('query-llm-trace')).toBeNull()
+        expect(toolRegistry.lookup('search_error_tracking_issues')).toBeNull()
+        expect(toolRegistry.lookup('filter_error_tracking_issues')).toBeNull()
     })
 
     // A user-installed MCP server can expose a tool whose bare name collides with a product-widget key
@@ -66,7 +68,7 @@ describe('toolRegistry', () => {
         ['dashboard-create', 'Dashboard'],
         ['query-trends', 'Trends query'],
         ['insight-query', 'Insight query'],
-        ['search_error_tracking_issues', 'Error tracking'],
+        ['query-error-tracking-issues-list', 'Error tracking'],
     ])('gates product widget %s on a trusted PostHog-exec origin', (key, displayName) => {
         expect(lookupToolRenderer(key, false).displayName).toEqual(key)
         expect(lookupToolRenderer(key, true).displayName).toEqual(displayName)

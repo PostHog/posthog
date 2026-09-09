@@ -84,21 +84,20 @@ export const ColdTask: Story = { args: { streamKey: 'synthetic-task-run' } }
 
 export const ErrorTracking: Story = {
     args: {
-        toolName: 'search_error_tracking_issues',
+        toolName: 'query-error-tracking-issues-list',
         title: 'Search error tracking issues',
         rawOutput: {
-            issues: [
+            results: [
                 {
                     id: '0199c0de-1111-7000-8000-0000000000aa',
                     name: 'Synthetic checkout error',
                     description: 'Example checkout request failed',
                     status: 'active',
                     library: 'web',
-                    occurrences: 12,
-                    users: 3,
+                    aggregations: { occurrences: 12, users: 3 },
                 },
             ],
-            has_more: false,
+            hasMore: false,
         },
     },
 }
