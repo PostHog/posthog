@@ -174,12 +174,14 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         }
     }
 
-    // Native widgets read metadata independently of the model's text format. MCP UI hosts
-    // only suppress structuredContent when a compact table can replace it for the model.
+    // Native widgets read metadata independently of the model's text format, so with app data
+    // present `structuredContent` would be a third copy of the rows the text and `_meta` already
+    // carry. MCP UI hosts only suppress it when a compact table can replace it for the model.
     const suppressStructuredContent =
-        !callerWantsJson &&
-        (!!includeAppData ||
-            (formattedResults !== undefined && (!!forceUiDataToMeta || !!suppressStructuredContentForFormattedResults)))
+        !!includeAppData ||
+        (!callerWantsJson &&
+            formattedResults !== undefined &&
+            (!!forceUiDataToMeta || !!suppressStructuredContentForFormattedResults))
 
     // Inline-exec UI hosts surface BOTH `content[].text` and `structuredContent` to the
     // model. A UI tool with no compact formatted table has nothing smaller to offer the
