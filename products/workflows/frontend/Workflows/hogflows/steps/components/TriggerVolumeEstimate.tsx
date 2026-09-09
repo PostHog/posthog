@@ -94,8 +94,8 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
                             }
                         >
                             {perRunCopy}, and a workflow stops at {DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY} AI tasks a day
-                            by default. At this volume most runs would be skipped, and the tasks that do run count
-                            toward your AI usage.{' '}
+                            by default. On its busiest day this trigger passes that limit, so runs above it get skipped,
+                            and the tasks that do run count toward your AI usage.{' '}
                             {preflight?.cloud
                                 ? 'Narrow the trigger with filters, set a frequency limit, or ask PostHog to raise the limit.'
                                 : 'Narrow the trigger with filters, or set a frequency limit.'}
