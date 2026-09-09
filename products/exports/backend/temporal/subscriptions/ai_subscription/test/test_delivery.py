@@ -12,7 +12,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
@@ -496,9 +496,10 @@ class TestPersistAiQueryPlanRaceGuard(APIBaseTest):
         )
         plan = {"version": 1, "plan": {}}
 
-        _persist_ai_query_plan(sub.id, self.team.id, "original prompt?", plan)
+        persisted = _persist_ai_query_plan(sub.id, self.team.id, "original prompt?", plan)
 
         sub.refresh_from_db()
+        assert persisted is written
         assert sub.ai_query_plan == (plan if written else None)
 
 
@@ -611,15 +612,17 @@ class TestFreezePlanPersistence:
                         diagnostics=(),
                         window_end_utc="2026-06-29T16:00:00+00:00",
                         plan_to_persist=fresh_plan,
+                        query_plan_status=AIQueryPlanStatus.FROZEN,
                     )
                 ),
             ),
-            patch(f"{_DELIVERY}._persist_ai_query_plan") as mock_persist,
+            patch(f"{_DELIVERY}._persist_ai_query_plan", return_value=True) as mock_persist,
         ):
-            await build_ai_subscription_report(sub)
+            returned = await build_ai_subscription_report(sub)
 
         # The plan generated on the first delivery is frozen onto the (id, team_id)-scoped subscription.
         mock_persist.assert_called_once_with(sub.id, sub.team_id, sub.prompt, fresh_plan)
+        assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
 
     async def test_persist_failure_does_not_abort_the_delivery(self) -> None:
         # The report is already generated when the freeze write runs; a transient DB error must not
@@ -630,6 +633,7 @@ class TestFreezePlanPersistence:
             diagnostics=(),
             window_end_utc="2026-06-29T16:00:00+00:00",
             plan_to_persist={"version": 1, "plan": {}},
+            query_plan_status=AIQueryPlanStatus.FROZEN,
         )
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
@@ -639,8 +643,28 @@ class TestFreezePlanPersistence:
         ):
             returned = await build_ai_subscription_report(sub)
 
-        assert returned is result
+        assert returned is not result
+        assert returned.markdown == result.markdown
+        assert returned.query_plan_status == AIQueryPlanStatus.NOT_FROZEN
         mock_capture.assert_called_once()
+
+    async def test_prompt_edit_race_records_plan_as_not_frozen(self) -> None:
+        sub = self._subscription(ai_query_plan=None)
+        result = AiReportResult(
+            markdown="# R",
+            diagnostics=(),
+            window_end_utc="2026-06-29T16:00:00+00:00",
+            plan_to_persist={"version": 1, "plan": {}},
+            query_plan_status=AIQueryPlanStatus.FROZEN,
+        )
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(return_value=result)),
+            patch(f"{_DELIVERY}._persist_ai_query_plan", return_value=False),
+        ):
+            returned = await build_ai_subscription_report(sub)
+
+        assert returned.query_plan_status == AIQueryPlanStatus.NOT_FROZEN
 
     async def test_reused_run_does_not_persist(self) -> None:
         frozen = {"overall_intent": "i", "steps": [{"description": "d", "query_type": "hogql", "hogql": "SELECT 1"}]}
@@ -651,13 +675,17 @@ class TestFreezePlanPersistence:
                 f"{_DELIVERY}.generate_ai_report",
                 new=AsyncMock(
                     return_value=AiReportResult(
-                        markdown="# R", diagnostics=(), window_end_utc="2026-06-29T16:00:00+00:00", plan_to_persist=None
+                        markdown="# R",
+                        diagnostics=(),
+                        window_end_utc="2026-06-29T16:00:00+00:00",
+                        plan_to_persist=None,
+                        query_plan_status=AIQueryPlanStatus.FROZEN,
                     )
                 ),
             ) as mock_gen,
             patch(f"{_DELIVERY}._persist_ai_query_plan") as mock_persist,
         ):
-            await build_ai_subscription_report(sub)
+            returned = await build_ai_subscription_report(sub)
 
         # Reuse path returns plan_to_persist=None, so there's no write; the frozen plan is forwarded
         # to generation so it can skip the planner.
@@ -665,6 +693,7 @@ class TestFreezePlanPersistence:
         assert mock_gen.await_args is not None
         assert mock_gen.await_args.kwargs["ai_query_plan"] == frozen
         mock_ctx.assert_called_once()
+        assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
 
     async def test_reused_run_clears_an_invalidated_frozen_plan(self) -> None:
         frozen = {"overall_intent": "i", "steps": [{"description": "d", "query_type": "hogql", "hogql": "SELECT 1"}]}
@@ -679,20 +708,23 @@ class TestFreezePlanPersistence:
                         diagnostics=(),
                         window_end_utc="2026-06-29T16:00:00+00:00",
                         clear_persisted_plan=True,
+                        query_plan_status=AIQueryPlanStatus.FROZEN,
                     )
                 ),
             ),
-            patch(f"{_DELIVERY}._clear_ai_query_plan") as mock_clear,
+            patch(f"{_DELIVERY}._clear_ai_query_plan", return_value=True) as mock_clear,
         ):
-            await build_ai_subscription_report(sub)
+            returned = await build_ai_subscription_report(sub)
 
         mock_clear.assert_called_once_with(sub.id, sub.team_id, sub.prompt, frozen)
+        assert returned.query_plan_status == AIQueryPlanStatus.NOT_FROZEN
 
     @patch(f"{_DELIVERY}.Subscription.objects.filter")
     def test_clear_matches_the_plan_read_at_generation_start(self, mock_filter: MagicMock) -> None:
         frozen = {"version": 6, "plan": {"overall_intent": "i", "steps": []}}
+        mock_filter.return_value.update.return_value = 1
 
-        _clear_ai_query_plan(42, 7, "how are exports doing?", frozen)
+        cleared = _clear_ai_query_plan(42, 7, "how are exports doing?", frozen)
 
         mock_filter.assert_called_once_with(
             id=42,
@@ -701,3 +733,4 @@ class TestFreezePlanPersistence:
             ai_query_plan=frozen,
         )
         mock_filter.return_value.update.assert_called_once_with(ai_query_plan=None)
+        assert cleared is True

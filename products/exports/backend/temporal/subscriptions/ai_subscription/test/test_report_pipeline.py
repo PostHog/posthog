@@ -32,6 +32,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 
+from products.exports.backend.models.subscription import AIQueryPlanStatus
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     ChartFailureReason,
     ChartRenderFailure,
@@ -936,6 +937,7 @@ async def test_frozen_plan_reused_skips_planner_and_event_selection(
     mock_frozen.assert_called_once()
     # Nothing new to freeze on a reused run — the caller must not re-persist the same plan.
     assert result.plan_to_persist is None
+    assert result.query_plan_status == AIQueryPlanStatus.FROZEN
 
 
 @patch(_SLO_CAPTURE)
@@ -966,6 +968,7 @@ async def test_unfrozen_run_returns_plan_to_persist(
         "plan": spec.plan.model_dump(),
         "relevant_events": ["export created"],
     }
+    assert result.query_plan_status == AIQueryPlanStatus.FROZEN
 
 
 @pytest.mark.parametrize(
@@ -1111,6 +1114,7 @@ async def test_reused_frozen_plan_persists_a_successful_structural_repair(
         "SELECT uniq(person_id) FROM events WHERE {{date_range}}"
     )
     assert result.clear_persisted_plan is False
+    assert result.query_plan_status == AIQueryPlanStatus.FROZEN
 
 
 @patch(_SLO_CAPTURE)
@@ -1134,6 +1138,8 @@ async def test_reused_frozen_plan_is_cleared_after_an_unrepaired_structural_fail
 
     assert result.plan_to_persist is None
     assert result.clear_persisted_plan is True
+    # Delivery downgrades this to NOT_FROZEN only after the compare-and-set clear succeeds.
+    assert result.query_plan_status == AIQueryPlanStatus.FROZEN
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
@@ -1219,6 +1225,7 @@ async def test_plan_freeze_eligibility(
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
     assert (result.plan_to_persist is not None) is should_freeze
+    assert result.query_plan_status == (AIQueryPlanStatus.FROZEN if should_freeze else AIQueryPlanStatus.NOT_FROZEN)
 
 
 @patch(_SLO_CAPTURE)
@@ -1226,7 +1233,7 @@ async def test_plan_freeze_eligibility(
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_frozen_prompt", side_effect=StoredPlanInvalidError("malformed"))
 @patch(f"{_RP}.build_enriched_prompt")
-async def test_invalid_stored_plan_self_heals_by_replanning(
+async def test_stale_stored_plan_self_heals_and_records_planner_update(
     mock_bep: MagicMock, _mock_frozen: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
 ) -> None:
     # A stored plan that no longer validates (e.g. QueryPlan schema changed) must re-plan live, not fail
@@ -1241,12 +1248,17 @@ async def test_invalid_stored_plan_self_heals_by_replanning(
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(
-        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), ai_query_plan={"bad": "plan"}
+        team=MagicMock(),
+        user=MagicMock(),
+        prompt="x",
+        window=_test_window(),
+        ai_query_plan={"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}},
     )
 
     mock_bep.assert_called_once()  # self-healed by re-planning live
     assert result.markdown == "# Report"
     assert result.plan_to_persist is not None  # the fresh re-plan is frozen for next time
+    assert result.query_plan_status == AIQueryPlanStatus.PLANNER_UPDATED
 
 
 def _charted_spec(

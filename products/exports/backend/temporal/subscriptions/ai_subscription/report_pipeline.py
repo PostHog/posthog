@@ -25,6 +25,7 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
+from products.exports.backend.models.subscription import AIQueryPlanStatus
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     SPEC_INVALID_DROP_REASONS,
     ChartFailureReason,
@@ -63,6 +64,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     StoredPlanInvalidError,
     build_enriched_prompt,
     build_frozen_prompt,
+    get_ai_query_plan_status,
+    resolve_ai_query_plan_status,
 )
 from products.exports.backend.temporal.subscriptions.types import (
     iter_exception_chain,
@@ -291,6 +294,9 @@ class AiReportResult:
     plan_to_persist: Optional[dict] = None
     clear_persisted_plan: bool = False
     charts: tuple[RenderedChart, ...] = ()
+    # Immutable account of the plan state for this delivery. The delivery activity persists this
+    # after confirming that a newly generated plan was actually saved on the subscription.
+    query_plan_status: AIQueryPlanStatus = AIQueryPlanStatus.NOT_FROZEN
 
 
 async def generate_ai_report(
@@ -304,6 +310,8 @@ async def generate_ai_report(
 ) -> AiReportResult:
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
+
+    initial_query_plan_status = get_ai_query_plan_status(ai_query_plan)
 
     with slo_operation(
         spec=SloSpec(
@@ -425,6 +433,11 @@ async def generate_ai_report(
                 clear_persisted_plan = True
             elif eligible_plan != ai_query_plan:
                 plan_to_persist = eligible_plan
+        query_plan_status = resolve_ai_query_plan_status(
+            initial_status=initial_query_plan_status,
+            freshly_planned=freshly_planned,
+            generated_plan_frozen=plan_to_persist is not None,
+        )
         return AiReportResult(
             markdown=report,
             diagnostics=tuple(diagnostics),
@@ -432,6 +445,7 @@ async def generate_ai_report(
             plan_to_persist=plan_to_persist,
             clear_persisted_plan=clear_persisted_plan,
             charts=tuple(rendered_charts),
+            query_plan_status=query_plan_status,
         )
 
 
