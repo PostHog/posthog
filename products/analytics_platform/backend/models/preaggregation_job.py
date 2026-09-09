@@ -36,7 +36,6 @@ class PreaggregationJob(CreatedMetaFields, UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "query_hash"]),
-            models.Index(fields=["team_id", "status"]),
             models.Index(fields=["team_id", "time_range_start", "time_range_end"]),
             models.Index(fields=["team_id", "expires_at"]),
         ]
