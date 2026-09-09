@@ -728,7 +728,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             response = billing_manager.get_billing(org, query)
         except BillingServiceUnavailable as error:
-            logger.warning("billing_overview_unavailable", organization_id=str(org.id) if org else None)
+            logger.warning(
+                "billing_overview_unavailable",
+                organization_id=str(org.id) if org else None,
+                reason=error.reason,
+            )
             raise BillingUnavailable() from error
 
         vercel_integration = OrganizationIntegration.objects.filter(

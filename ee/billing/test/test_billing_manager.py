@@ -142,18 +142,22 @@ class TestGetBillingStatusRequest(BaseTest):
 
     @parameterized.expand(
         [
-            ("overview_read_timeout", "_get_billing", requests.Timeout),
-            ("overview_unreachable", "_get_billing", requests.ConnectionError),
-            ("product_fallback_read_timeout", "_get_products", requests.Timeout),
-            ("product_fallback_unreachable", "_get_products", requests.ConnectionError),
+            ("overview_read_timeout", "_get_billing", requests.ReadTimeout, "read_timeout"),
+            ("overview_connect_timeout", "_get_billing", requests.ConnectTimeout, "connect_timeout"),
+            ("overview_unreachable", "_get_billing", requests.ConnectionError, "connection_error"),
+            ("overview_tls_failure", "_get_billing", requests.exceptions.SSLError, "tls_error"),
+            ("product_fallback_read_timeout", "_get_products", requests.ReadTimeout, "read_timeout"),
+            ("product_fallback_unreachable", "_get_products", requests.ConnectionError, "connection_error"),
         ]
     )
     @patch("ee.billing.billing_manager.http_session.get")
-    def test_a_request_that_never_answers_is_unavailable(self, _name, method_name, error_class, mock_get):
+    def test_a_request_that_never_answers_is_unavailable(self, _name, method_name, error_class, reason, mock_get):
         mock_get.side_effect = error_class()
 
-        with self.assertRaises(BillingServiceUnavailable):
+        with self.assertRaises(BillingServiceUnavailable) as context:
             getattr(self.manager, method_name)(self.organization)
+
+        assert context.exception.reason == reason
 
     @parameterized.expand([("request_timeout", 408), ("bad_gateway", 502), ("gateway_timeout", 504)])
     @patch("ee.billing.billing_manager.http_session.get")
@@ -167,6 +171,7 @@ class TestGetBillingStatusRequest(BaseTest):
             self.manager._get_billing(self.organization)
 
         assert str(status_code) in str(context.exception)
+        assert context.exception.reason == f"status_{status_code}"
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_a_rejected_request_is_not_unavailable(self, mock_get):

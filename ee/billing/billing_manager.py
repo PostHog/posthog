@@ -96,7 +96,27 @@ class BillingAPIErrorCodes(Enum):
 
 
 class BillingServiceUnavailable(Exception):
-    """Billing did not answer, or answered with a status that a retry can clear."""
+    """Billing did not answer, or answered with a status that a retry can clear.
+
+    `reason` is a stable, low cardinality name for the failure. The API returns one status and one
+    message for every cause here, so the log line is the only place an operator can tell a read
+    timeout from a refused connection during an incident.
+    """
+
+    def __init__(self, *args: object, reason: str = "unknown") -> None:
+        super().__init__(*args)
+        self.reason = reason
+
+
+def network_failure_reason(error: requests.RequestException) -> str:
+    # requests puts a connect timeout under both Timeout and ConnectionError, so test it first.
+    if isinstance(error, requests.ConnectTimeout):
+        return "connect_timeout"
+    if isinstance(error, requests.Timeout):
+        return "read_timeout"
+    if isinstance(error, requests.exceptions.SSLError):
+        return "tls_error"
+    return "connection_error"
 
 
 class BillingServiceOpenInvoicesError(Exception):
@@ -250,8 +270,10 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 
 
     # A transient status keeps the same argument shape, so callers that read the status out of the
     # message keep working.
-    error_class = BillingServiceUnavailable if res.status_code in BILLING_TRANSIENT_STATUS_CODES else Exception
-    raise error_class(f"Billing service returned bad status code: {res.status_code}", "body:", body)
+    message = f"Billing service returned bad status code: {res.status_code}"
+    if res.status_code in BILLING_TRANSIENT_STATUS_CODES:
+        raise BillingServiceUnavailable(message, "body:", body, reason=f"status_{res.status_code}")
+    raise Exception(message, "body:", body)
 
 
 def _parse_funding_status(data: object) -> OrganizationFundingStatus:
@@ -566,7 +588,9 @@ class BillingManager:
                 timeout=BILLING_STATUS_REQUEST_TIMEOUT,
             )
         except (requests.Timeout, requests.ConnectionError) as error:
-            raise BillingServiceUnavailable("Billing service did not answer the status request") from error
+            raise BillingServiceUnavailable(
+                "Billing service did not answer the status request", reason=network_failure_reason(error)
+            ) from error
 
         handle_billing_service_error(res)
 
@@ -607,7 +631,9 @@ class BillingManager:
                 timeout=BILLING_STATUS_REQUEST_TIMEOUT,
             )
         except (requests.Timeout, requests.ConnectionError) as error:
-            raise BillingServiceUnavailable("Billing service did not answer the products request") from error
+            raise BillingServiceUnavailable(
+                "Billing service did not answer the products request", reason=network_failure_reason(error)
+            ) from error
 
         handle_billing_service_error(res)
 
