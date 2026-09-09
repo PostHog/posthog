@@ -1240,6 +1240,8 @@ class CSPMiddleware:
                     f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
                 )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
+        elif getattr(response, "_posthog_canvas_artifact", False) and "Content-Security-Policy" in response.headers:
+            return response
         else:
             resource_url = "https://*.posthog.com"
             if settings.DEBUG or settings.TEST:
