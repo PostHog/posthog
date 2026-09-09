@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/surveys/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -26,6 +27,9 @@ const SurveyCreateSchema = () => {
         base_language: true,
         _create_in_folder: true,
     }).extend({
+        appearance: SurveysCreateBody.shape['appearance'].describe(
+            'Optional appearance customization. Omit this to keep the default styling. whiteLabel=true requires the organization to have the white-labelling entitlement (Enterprise); leave it unset unless requested and available. surveyPopupDelaySeconds must be non-negative.'
+        ),
         type: SurveysCreateBody.shape['type'].describe(
             'Survey type. Use popover for most in-app surveys, widget for always-available feedback entrypoints, external_survey for hosted forms with a shareable public URL, and api only for headless custom implementations.'
         ),
@@ -45,7 +49,7 @@ const SurveyCreateSchema = () => {
             'Feature flag ID linked to this survey. Use only when the user explicitly wants the survey linked to a feature flag. Resolve the flag ID first, preferably with SQL in v2.'
         ),
         targeting_flag_filters: SurveysCreateBody.shape['targeting_flag_filters'].describe(
-            'Target an in-app survey to a subset of users by person, group, or cohort properties. Pass one or more rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Do not use this for external_survey forms.'
+            'Target an in-app survey to a subset of users by person, group, or cohort properties. Pass one or more rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Do not use this for external_survey forms. Cohorts with behavioral filters cannot be used directly. Use a supported static cohort snapshot only with user approval; never remove targeting rules to work around validation.'
         ),
         enable_iframe_embedding: SurveysCreateBody.shape['enable_iframe_embedding'].describe(
             'Allows an external_survey form to be embedded in an iframe. Use only when the user explicitly asks for iframe embedding.'
@@ -131,7 +135,10 @@ const surveyCreate = (): ToolBase<
 
 const SurveyDeleteSchema = () => {
     const SurveysDestroyParams = orvalSchemas.SurveysDestroyParams()
-    return SurveysDestroyParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['surveyId', 'survey_id'] }),
+        SurveysDestroyParams.omit({ project_id: true })
+    )
 }
 
 const surveyDelete = (): ToolBase<ReturnType<typeof SurveyDeleteSchema>, Schemas.SurveySerializerCreateUpdateOnly> => ({
@@ -150,7 +157,10 @@ const surveyDelete = (): ToolBase<ReturnType<typeof SurveyDeleteSchema>, Schemas
 
 const SurveyGetSchema = () => {
     const SurveysRetrieveParams = orvalSchemas.SurveysRetrieveParams()
-    return SurveysRetrieveParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['surveyId', 'survey_id'] }),
+        SurveysRetrieveParams.omit({ project_id: true })
+    )
 }
 
 const surveyGet = (): ToolBase<ReturnType<typeof SurveyGetSchema>, WithPostHogUrl<Schemas.Survey>> =>
@@ -169,7 +179,10 @@ const surveyGet = (): ToolBase<ReturnType<typeof SurveyGetSchema>, WithPostHogUr
 
 const SurveyLaunchSchema = () => {
     const SurveysLaunchParams = orvalSchemas.SurveysLaunchParams()
-    return SurveysLaunchParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['surveyId', 'survey_id'] }),
+        SurveysLaunchParams.omit({ project_id: true })
+    )
 }
 
 const surveyLaunch = (): ToolBase<ReturnType<typeof SurveyLaunchSchema>, WithPostHogUrl<Schemas.Survey>> =>
@@ -189,7 +202,10 @@ const surveyLaunch = (): ToolBase<ReturnType<typeof SurveyLaunchSchema>, WithPos
 const SurveyStatsSchema = () => {
     const SurveysStatsRetrieveParams = orvalSchemas.SurveysStatsRetrieveParams()
     const SurveysStatsRetrieveQueryParams = orvalSchemas.SurveysStatsRetrieveQueryParams()
-    return SurveysStatsRetrieveParams.omit({ project_id: true }).extend(SurveysStatsRetrieveQueryParams.shape)
+    return z.preprocess(
+        normalizeParamAliases({ id: ['surveyId', 'survey_id'] }),
+        SurveysStatsRetrieveParams.omit({ project_id: true }).extend(SurveysStatsRetrieveQueryParams.shape)
+    )
 }
 
 const surveyStats = (): ToolBase<ReturnType<typeof SurveyStatsSchema>, WithPostHogUrl<Schemas.SurveyStatsResponse>> =>
@@ -213,7 +229,10 @@ const surveyStats = (): ToolBase<ReturnType<typeof SurveyStatsSchema>, WithPostH
 
 const SurveyStopSchema = () => {
     const SurveysStopParams = orvalSchemas.SurveysStopParams()
-    return SurveysStopParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['surveyId', 'survey_id'] }),
+        SurveysStopParams.omit({ project_id: true })
+    )
 }
 
 const surveyStop = (): ToolBase<ReturnType<typeof SurveyStopSchema>, WithPostHogUrl<Schemas.Survey>> =>
@@ -233,39 +252,45 @@ const surveyStop = (): ToolBase<ReturnType<typeof SurveyStopSchema>, WithPostHog
 const SurveyUpdateSchema = () => {
     const SurveysPartialUpdateBody = orvalSchemas.SurveysPartialUpdateBody()
     const SurveysPartialUpdateParams = orvalSchemas.SurveysPartialUpdateParams()
-    return SurveysPartialUpdateParams.omit({ project_id: true })
-        .extend(
-            SurveysPartialUpdateBody.omit({
-                linked_insight_id: true,
-                iteration_start_dates: true,
-                current_iteration: true,
-                current_iteration_start_date: true,
-                response_sampling_start_date: true,
-                response_sampling_interval_type: true,
-                response_sampling_interval: true,
-                response_sampling_limit: true,
-                response_sampling_daily_limits: true,
-                base_language: true,
-                _create_in_folder: true,
-            }).shape
-        )
-        .extend({
-            questions: SurveysPartialUpdateBody.shape['questions'].describe(
-                "Complete replacement question list. Existing question IDs are tied to response data and must be preserved. Before sending this field, fetch the survey first, modify the existing question objects in place, keep every unchanged or edited question's id, and include the complete intended ordered question list. New questions should omit id. Do not regenerate existing questions from scratch."
-            ),
-            conditions: SurveysPartialUpdateBody.shape['conditions'].describe(
-                'Complete replacement display conditions object. Do not provide this field unless changing display targeting. Use targeting_flag_filters for person, group, or cohort property targeting. Preserve existing URL, selector, event, device, wait-period, and linked flag variant conditions unless explicitly changing them.'
-            ),
-            targeting_flag_filters: SurveysPartialUpdateBody.shape['targeting_flag_filters'].describe(
-                "Update an in-app survey's person, group, or cohort property targeting. Pass rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Complete replacement: fetch the survey first, start from targeting_flag.filters, and send the full groups list — omitted groups are removed. Do not use this for external_survey forms."
-            ),
-            translations: SurveysPartialUpdateBody.shape['translations'].describe(
-                'Complete replacement survey-level translations object. Do not provide this field unless changing translations. Preserve existing language keys and translated fields that should remain. Use null only when the user explicitly asks to remove survey-level translations.'
-            ),
-            form_content: SurveysPartialUpdateBody.shape['form_content'].describe(
-                'Hosted-form content configuration for external_survey forms. Do not provide this field unless editing hosted-form content. Preserve existing content fields that should remain.'
-            ),
-        })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['surveyId', 'survey_id'] }),
+        SurveysPartialUpdateParams.omit({ project_id: true })
+            .extend(
+                SurveysPartialUpdateBody.omit({
+                    linked_insight_id: true,
+                    iteration_start_dates: true,
+                    current_iteration: true,
+                    current_iteration_start_date: true,
+                    response_sampling_start_date: true,
+                    response_sampling_interval_type: true,
+                    response_sampling_interval: true,
+                    response_sampling_limit: true,
+                    response_sampling_daily_limits: true,
+                    base_language: true,
+                    _create_in_folder: true,
+                }).shape
+            )
+            .extend({
+                appearance: SurveysPartialUpdateBody.shape['appearance'].describe(
+                    'Optional appearance customization. Omit this to preserve current styling. When changing it, fetch the survey first and preserve existing appearance fields. whiteLabel=true requires the organization to have the white-labelling entitlement (Enterprise); leave it unset unless requested and available. surveyPopupDelaySeconds must be non-negative.'
+                ),
+                questions: SurveysPartialUpdateBody.shape['questions'].describe(
+                    "Complete replacement question list. Existing question IDs are tied to response data and must be preserved. Before sending this field, fetch the survey first, modify the existing question objects in place, keep every unchanged or edited question's id, and include the complete intended ordered question list. New questions should omit id. Do not regenerate existing questions from scratch."
+                ),
+                conditions: SurveysPartialUpdateBody.shape['conditions'].describe(
+                    'Complete replacement display conditions object. Do not provide this field unless changing display targeting. Use targeting_flag_filters for person, group, or cohort property targeting. Preserve existing URL, selector, event, device, wait-period, and linked flag variant conditions unless explicitly changing them.'
+                ),
+                targeting_flag_filters: SurveysPartialUpdateBody.shape['targeting_flag_filters'].describe(
+                    "Update an in-app survey's person, group, or cohort property targeting. Pass rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Complete replacement: fetch the survey first, start from targeting_flag.filters, and send the full groups list — omitted groups are removed. Do not use this for external_survey forms. Cohorts with behavioral filters cannot be used directly. Use a supported static cohort snapshot only with user approval; never remove targeting rules to work around validation."
+                ),
+                translations: SurveysPartialUpdateBody.shape['translations'].describe(
+                    'Complete replacement survey-level translations object. Do not provide this field unless changing translations. Preserve existing language keys and translated fields that should remain. Use null only when the user explicitly asks to remove survey-level translations.'
+                ),
+                form_content: SurveysPartialUpdateBody.shape['form_content'].describe(
+                    'Hosted-form content configuration for external_survey forms. Do not provide this field unless editing hosted-form content. Preserve existing content fields that should remain.'
+                ),
+            })
+    )
 }
 
 const surveyUpdate = (): ToolBase<
@@ -420,7 +445,10 @@ const surveysGlobalStats = (): ToolBase<
 const SurveysResponsesListSchema = () => {
     const SurveysResponsesListParams = orvalSchemas.SurveysResponsesListParams()
     const SurveysResponsesListQueryParams = orvalSchemas.SurveysResponsesListQueryParams()
-    return SurveysResponsesListParams.omit({ project_id: true }).extend(SurveysResponsesListQueryParams.shape)
+    return z.preprocess(
+        normalizeParamAliases({ id: ['surveyId', 'survey_id'] }),
+        SurveysResponsesListParams.omit({ project_id: true }).extend(SurveysResponsesListQueryParams.shape)
+    )
 }
 
 const surveysResponsesList = (): ToolBase<ReturnType<typeof SurveysResponsesListSchema>, Schemas.SurveyResponsesList> =>
@@ -451,9 +479,12 @@ const SurveysSummarizeResponsesCreateSchema = () => {
     const SurveysSummarizeResponsesCreateBody = orvalSchemas.SurveysSummarizeResponsesCreateBody()
     const SurveysSummarizeResponsesCreateParams = orvalSchemas.SurveysSummarizeResponsesCreateParams()
     const SurveysSummarizeResponsesCreateQueryParams = orvalSchemas.SurveysSummarizeResponsesCreateQueryParams()
-    return SurveysSummarizeResponsesCreateParams.omit({ project_id: true })
-        .extend(SurveysSummarizeResponsesCreateQueryParams.shape)
-        .extend(SurveysSummarizeResponsesCreateBody.shape)
+    return z.preprocess(
+        normalizeParamAliases({ id: ['surveyId', 'survey_id'] }),
+        SurveysSummarizeResponsesCreateParams.omit({ project_id: true })
+            .extend(SurveysSummarizeResponsesCreateQueryParams.shape)
+            .extend(SurveysSummarizeResponsesCreateBody.shape)
+    )
 }
 
 const surveysSummarizeResponsesCreate = (): ToolBase<
