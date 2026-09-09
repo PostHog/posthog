@@ -112,7 +112,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: build
-        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
+        if: github.event_name == 'push' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
         permissions: {}
 
         steps:
