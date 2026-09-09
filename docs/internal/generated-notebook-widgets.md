@@ -25,6 +25,8 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 
 ## Reusable widgets
 
+The notebooks index shows **Notebooks** and **Reusable widgets** tabs only when `notebook-generated-widgets` is enabled. With the flag disabled, it shows the notebook list without tabs.
+
 A generated widget can be published to the project-scoped reusable widget catalog using **Make reusable…** beside its version pin controls. Publishing gives the widget a stable ID, keeps its existing immutable version history, and saves up to 20 rows per input as a bounded demo fixture. Capture applies each input’s Hog mapping before saving contract-shaped rows and preserves the publishing placement’s bindings. The success message links to the catalog on the notebooks index's **Reusable widgets** tab. Each catalog entry has a dedicated page for its live demo, input contract, source, usage count, and shared improvement or regeneration actions.
 
 Newly generated widgets and reusable placements follow the latest version by default. The version history shows **Following latest version** while this is enabled. Choosing **Pin this version** adds a `version="…"` attribute to the notebook's Markdown, including for private widgets. **Follow latest version** removes that attribute and the pin. Generating or restoring a private version preserves whether the placement follows latest or is pinned. Shared source changes must be made from the catalog page; **Fork and edit here** copies the selected version into a private notebook widget that follows latest before enabling notebook-local changes.

@@ -67,28 +67,28 @@ export function NotebooksScene(): JSX.Element {
                     </AccessControlAction>
                 }
             />
-            <LemonTabs
-                activeKey={activeTab}
-                sceneInset
-                tabs={[
-                    {
-                        key: 'notebooks',
-                        label: 'Notebooks',
-                        link: urls.notebooks(),
-                        content: <NotebooksTable />,
-                    },
-                    ...(reusableWidgetsEnabled
-                        ? [
-                              {
-                                  key: 'widgets',
-                                  label: 'Reusable widgets',
-                                  link: `${urls.notebooks()}?tab=widgets`,
-                                  content: <ReusableWidgetCatalog />,
-                              },
-                          ]
-                        : []),
-                ]}
-            />
+            {reusableWidgetsEnabled ? (
+                <LemonTabs
+                    activeKey={activeTab}
+                    sceneInset
+                    tabs={[
+                        {
+                            key: 'notebooks',
+                            label: 'Notebooks',
+                            link: urls.notebooks(),
+                            content: <NotebooksTable />,
+                        },
+                        {
+                            key: 'widgets',
+                            label: 'Reusable widgets',
+                            link: `${urls.notebooks()}?tab=widgets`,
+                            content: <ReusableWidgetCatalog />,
+                        },
+                    ]}
+                />
+            ) : (
+                <NotebooksTable />
+            )}
         </SceneContent>
     )
 }
