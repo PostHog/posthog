@@ -81,27 +81,34 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                     placement: 'bottom-end',
                     closeOnClickInside: false,
                     overlay: (
-                        <div className="flex w-96 flex-col gap-2 p-2">
-                            <div className="flex flex-col gap-2 border-b pb-2">
-                                <span className="text-xs font-semibold text-tertiary">
-                                    Add instructions for the PostHog agent
-                                </span>
-                                <LemonTextArea
-                                    value={instructions}
-                                    onChange={setInstructions}
-                                    onPressEnter={submit}
-                                    placeholder="Add instructions for the PostHog agent (optional)"
-                                    maxLength={4000}
-                                    rows={4}
-                                    autoFocus
-                                    actions={[
-                                        <span key="shortcut" className="text-xs text-tertiary">
-                                            Enter to implement, Shift + Enter for a new line
-                                        </span>,
-                                    ]}
-                                />
+                        <div className="flex w-120 flex-col gap-2 p-2">
+                            <span className="text-xs font-semibold text-tertiary">
+                                Add instructions for the PostHog agent
+                            </span>
+                            <LemonTextArea
+                                value={instructions}
+                                onChange={setInstructions}
+                                onPressEnter={submit}
+                                placeholder="Add instructions for the PostHog agent (optional)"
+                                maxLength={4000}
+                                rows={4}
+                                autoFocus
+                                actions={[
+                                    <span key="shortcut" className="text-xs text-tertiary">
+                                        Enter to implement, Shift + Enter for a new line
+                                    </span>,
+                                ]}
+                            />
+                            <div className="flex flex-wrap items-center justify-between gap-2">
                                 <LemonButton
-                                    fullWidth
+                                    type="secondary"
+                                    icon={<IconCopy />}
+                                    onClick={() => void copyImplementationPrompt()}
+                                    data-attr="inbox-report-copy-implementation-prompt"
+                                >
+                                    Copy prompt for your agent
+                                </LemonButton>
+                                <LemonButton
                                     type="primary"
                                     icon={<IconPullRequest />}
                                     onClick={() => submit(instructions)}
@@ -109,23 +116,9 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                                     disabledReason={disabledReason}
                                     data-attr="inbox-report-create-pr-submit"
                                 >
-                                    <span className="flex flex-col items-start">
-                                        <span>Implement with PostHog</span>
-                                        <span className="text-xs font-normal">Start a PostHog agent</span>
-                                    </span>
+                                    Implement with PostHog
                                 </LemonButton>
                             </div>
-                            <LemonButton
-                                fullWidth
-                                icon={<IconCopy />}
-                                onClick={() => void copyImplementationPrompt()}
-                                data-attr="inbox-report-copy-implementation-prompt"
-                            >
-                                <span className="flex flex-col items-start">
-                                    <span>Use your agent</span>
-                                    <span className="text-xs font-normal text-secondary">Copy the report prompt</span>
-                                </span>
-                            </LemonButton>
                         </div>
                     ),
                 },

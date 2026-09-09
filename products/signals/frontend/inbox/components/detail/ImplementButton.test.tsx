@@ -76,9 +76,7 @@ describe('ImplementButton', () => {
         await openMenu()
 
         expect(screen.getByText('Implement with PostHog')).toBeInTheDocument()
-        expect(screen.getByText('Start a PostHog agent')).toBeInTheDocument()
-        expect(screen.getByText('Use your agent')).toBeInTheDocument()
-        expect(screen.getByText('Copy the report prompt')).toBeInTheDocument()
+        expect(screen.getByText('Copy prompt for your agent')).toBeInTheDocument()
         expect(createPrFromReport).not.toHaveBeenCalled()
         expect(copyToClipboard).not.toHaveBeenCalled()
     })
