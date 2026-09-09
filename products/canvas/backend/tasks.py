@@ -4,6 +4,8 @@ from celery import shared_task
 from posthog.exceptions_capture import capture_exception
 from posthog.tasks.utils import CeleryQueue
 
+from products.canvas.backend.sketchpad_compiler import compile_sketchpad_fragments as compile_sketchpad_fragments
+
 logger = structlog.get_logger(__name__)
 
 

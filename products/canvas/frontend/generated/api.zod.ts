@@ -1399,3 +1399,293 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
             .describe('The candidate source project to validate.'),
     })
     .describe('Payload for validating a candidate source project without publishing it.')
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsCreateBodyNameMax = 120
+
+export const SketchpadsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(sketchpadsCreateBodyNameMax).describe('Display name of the sketchpad.'),
+    channel_id: zod.uuid().describe('Id of the space the sketchpad belongs to.'),
+})
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsPartialUpdateBodyNameMax = 120
+
+export const SketchpadsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(sketchpadsPartialUpdateBodyNameMax).optional().describe('Display name of the sketchpad.'),
+    channel_id: zod.uuid().optional().describe('Id of the space the sketchpad belongs to.'),
+    pinned: zod.boolean().optional().describe('Pin the sketchpad to the top of its space.'),
+})
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsCompiledCreateBodyRefsItemRegExp = new RegExp('^[0-9a-f]{64}$')
+export const sketchpadsCompiledCreateBodyRefsMax = 256
+
+export const SketchpadsCompiledCreateBody = /* @__PURE__ */ zod.object({
+    refs: zod
+        .array(zod.string().regex(sketchpadsCompiledCreateBodyRefsItemRegExp))
+        .max(sketchpadsCompiledCreateBodyRefsMax)
+        .describe('Source hashes from this sketchpad. Missing results are still being compiled.'),
+})
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsOpsAppendBodyOpsItemOpIdMax = 64
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentIdMax = 64
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentIdRegExp = new RegExp('^[a-z0-9][a-z0-9-_]\*$')
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentTitleMax = 120
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentWMin = 80
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentWMax = 4000
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentHMin = 60
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentHMax = 4000
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentZMin = -2147483648
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentZMax = 2147483647
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentCodeMax = 200000
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchTitleMax = 120
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchWMin = 80
+export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchWMax = 4000
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchHMin = 60
+export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchHMax = 4000
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchZMin = -2147483648
+export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchZMax = 2147483647
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchCodeMax = 200000
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneFiveKeyMax = 128
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemIdMax = 64
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemIdRegExp = new RegExp('^[a-z0-9][a-z0-9-_]\*$')
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemTitleMax = 120
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemWMin = 80
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemWMax = 4000
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemHMin = 60
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemHMax = 4000
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemZMin = -2147483648
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemZMax = 2147483647
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemCodeMax = 200000
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixExpectedSeqMin = 0
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSevenKeyMax = 128
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSevenInsertItemIdMax = 64
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSevenInsertItemKMax = 64
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSevenInsertMax = 2000
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSevenRemoveItemMax = 64
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSevenRemoveMax = 2000
+
+export const sketchpadsOpsAppendBodyActorOneTaskIdMax = 64
+
+export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
+    ops: zod
+        .array(
+            zod.object({
+                op_id: zod
+                    .string()
+                    .max(sketchpadsOpsAppendBodyOpsItemOpIdMax)
+                    .describe('Client-chosen id, unique per sketchpad. Resending the same id records nothing new.'),
+                op: zod
+                    .union([
+                        zod.object({
+                            type: zod.enum(['add_fragment']),
+                            fragment: zod.object({
+                                id: zod
+                                    .string()
+                                    .min(1)
+                                    .max(sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentIdMax)
+                                    .regex(sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentIdRegExp),
+                                title: zod
+                                    .string()
+                                    .max(sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentTitleMax)
+                                    .optional(),
+                                x: zod.number(),
+                                y: zod.number(),
+                                w: zod
+                                    .number()
+                                    .min(sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentWMin)
+                                    .max(sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentWMax),
+                                h: zod
+                                    .number()
+                                    .min(sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentHMin)
+                                    .max(sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentHMax),
+                                z: zod
+                                    .number()
+                                    .min(sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentZMin)
+                                    .max(sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentZMax)
+                                    .optional(),
+                                code: zod.string().min(1).max(sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentCodeMax),
+                                codeVersion: zod.number().optional(),
+                                surface: zod.enum(['card', 'plain']).optional(),
+                                hidden: zod.boolean().optional(),
+                            }),
+                        }),
+                        zod.object({
+                            type: zod.enum(['update_fragment']),
+                            id: zod.string(),
+                            patch: zod.object({
+                                title: zod.string().max(sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchTitleMax).optional(),
+                                x: zod.number().optional(),
+                                y: zod.number().optional(),
+                                w: zod
+                                    .number()
+                                    .min(sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchWMin)
+                                    .max(sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchWMax)
+                                    .optional(),
+                                h: zod
+                                    .number()
+                                    .min(sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchHMin)
+                                    .max(sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchHMax)
+                                    .optional(),
+                                z: zod
+                                    .number()
+                                    .min(sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchZMin)
+                                    .max(sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchZMax)
+                                    .optional(),
+                                code: zod
+                                    .string()
+                                    .min(1)
+                                    .max(sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchCodeMax)
+                                    .optional(),
+                                codeVersion: zod.number().optional(),
+                                surface: zod.enum(['card', 'plain']).optional(),
+                                hidden: zod.boolean().optional(),
+                            }),
+                        }),
+                        zod.object({
+                            type: zod.enum(['remove_fragment']),
+                            id: zod.string(),
+                        }),
+                        zod.object({
+                            type: zod.enum(['bring_to_front']),
+                            id: zod.string(),
+                        }),
+                        zod.object({
+                            type: zod.enum(['set_state']),
+                            key: zod.string().min(1).max(sketchpadsOpsAppendBodyOpsItemOpOneFiveKeyMax),
+                            value: zod.unknown(),
+                        }),
+                        zod.object({
+                            type: zod.enum(['restore']),
+                            snapshot: zod.object({
+                                schemaVersion: zod.literal(1),
+                                fragments: zod
+                                    .array(
+                                        zod.object({
+                                            id: zod
+                                                .string()
+                                                .min(1)
+                                                .max(sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemIdMax)
+                                                .regex(
+                                                    sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemIdRegExp
+                                                ),
+                                            title: zod
+                                                .string()
+                                                .max(
+                                                    sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemTitleMax
+                                                )
+                                                .optional(),
+                                            x: zod.number(),
+                                            y: zod.number(),
+                                            w: zod
+                                                .number()
+                                                .min(sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemWMin)
+                                                .max(sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemWMax),
+                                            h: zod
+                                                .number()
+                                                .min(sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemHMin)
+                                                .max(sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemHMax),
+                                            z: zod
+                                                .number()
+                                                .min(sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemZMin)
+                                                .max(sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemZMax)
+                                                .optional(),
+                                            code: zod
+                                                .string()
+                                                .min(1)
+                                                .max(
+                                                    sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemCodeMax
+                                                ),
+                                            codeVersion: zod.number().optional(),
+                                            surface: zod.enum(['card', 'plain']).optional(),
+                                            hidden: zod.boolean().optional(),
+                                        })
+                                    )
+                                    .optional(),
+                                state: zod.record(zod.string(), zod.unknown()).optional(),
+                            }),
+                            toSeq: zod.number(),
+                            expectedSeq: zod
+                                .number()
+                                .min(sketchpadsOpsAppendBodyOpsItemOpOneSixExpectedSeqMin)
+                                .optional(),
+                        }),
+                        zod.object({
+                            type: zod.enum(['edit_field']),
+                            key: zod.string().min(1).max(sketchpadsOpsAppendBodyOpsItemOpOneSevenKeyMax),
+                            kind: zod.enum(['text', 'list']),
+                            initialValue: zod.unknown().optional(),
+                            insert: zod
+                                .array(
+                                    zod.object({
+                                        id: zod.string().max(sketchpadsOpsAppendBodyOpsItemOpOneSevenInsertItemIdMax),
+                                        k: zod
+                                            .string()
+                                            .min(1)
+                                            .max(sketchpadsOpsAppendBodyOpsItemOpOneSevenInsertItemKMax),
+                                        v: zod.unknown(),
+                                    })
+                                )
+                                .max(sketchpadsOpsAppendBodyOpsItemOpOneSevenInsertMax)
+                                .optional(),
+                            remove: zod
+                                .array(zod.string().max(sketchpadsOpsAppendBodyOpsItemOpOneSevenRemoveItemMax))
+                                .max(sketchpadsOpsAppendBodyOpsItemOpOneSevenRemoveMax)
+                                .optional(),
+                        }),
+                    ])
+                    .describe('The op. Restore uses the request size limit; other ops are capped at 256 KB.'),
+            })
+        )
+        .describe('Ops to record, in order. An empty list makes no change.'),
+    actor: zod
+        .object({
+            kind: zod
+                .enum(['user', 'agent'])
+                .describe('\* `user` - User\n\* `agent` - Agent')
+                .describe(
+                    'user for a direct edit, agent for a change made by an agent.\n\n\* `user` - User\n\* `agent` - Agent'
+                ),
+            task_id: zod
+                .string()
+                .max(sketchpadsOpsAppendBodyActorOneTaskIdMax)
+                .nullish()
+                .describe('Id of the agent task making the change, if any.'),
+        })
+        .describe('Who is making the change.'),
+})

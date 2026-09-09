@@ -13,12 +13,22 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
-from products.canvas.backend.contract import allowed_import_specifiers, canvas_sdk_version, platform_dependencies
+from products.canvas.backend.contract import (
+    CANVAS_BUILDER_DIR,
+    allowed_import_specifiers,
+    canvas_sdk_version,
+    platform_dependencies,
+)
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import _PLATFORM_ELEMENT_TOKENS, synthetic_source_project, validate_source_project
 
 
 class TestCanvasCloudBuilder(SimpleTestCase):
+    def test_sketchpad_compiler(self) -> None:
+        subprocess.run(
+            [node_executable(), "--test", str(CANVAS_BUILDER_DIR / "sketchpad.test.mjs")], check=True, timeout=30
+        )
+
     def test_legacy_canvas_build_mounts_react_and_injects_the_runtime_bridge(self) -> None:
         payload = synthetic_source_project(
             'import React from "react"; export default function Canvas() { return <div>Hello</div> }'

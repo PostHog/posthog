@@ -55,7 +55,18 @@ import type {
     PaginatedCanvasDraftListApi,
     PaginatedCanvasListApi,
     PaginatedCanvasVersionListApi,
+    PaginatedSketchpadSummaryListApi,
     PatchedCanvasUpdateApi,
+    PatchedSketchpadWriteApi,
+    SketchpadApi,
+    SketchpadAppendOpsApi,
+    SketchpadAppendResultApi,
+    SketchpadCompileApi,
+    SketchpadCompiledResponseApi,
+    SketchpadCreateApi,
+    SketchpadOpsPageApi,
+    SketchpadsListParams,
+    SketchpadsOpsRetrieveParams,
 } from './api.schemas'
 
 export const getCanvasesListUrl = (projectId: string, params?: CanvasesListParams) => {
@@ -830,5 +841,181 @@ export const canvasesHomeCreate = async (projectId: string, options?: RequestIni
     return apiMutator<CanvasApi>(getCanvasesHomeCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSketchpadsListUrl = (projectId: string, params?: SketchpadsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/sketchpads/?${stringifiedParams}`
+        : `/api/projects/${projectId}/sketchpads/`
+}
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsList = async (
+    projectId: string,
+    params?: SketchpadsListParams,
+    options?: RequestInit
+): Promise<PaginatedSketchpadSummaryListApi> => {
+    return apiMutator<PaginatedSketchpadSummaryListApi>(getSketchpadsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSketchpadsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/sketchpads/`
+}
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsCreate = async (
+    projectId: string,
+    sketchpadCreateApi: SketchpadCreateApi,
+    options?: RequestInit
+): Promise<SketchpadApi> => {
+    return apiMutator<SketchpadApi>(getSketchpadsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sketchpadCreateApi),
+    })
+}
+
+export const getSketchpadsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sketchpads/${id}/`
+}
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SketchpadApi> => {
+    return apiMutator<SketchpadApi>(getSketchpadsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSketchpadsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sketchpads/${id}/`
+}
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSketchpadWriteApi?: PatchedSketchpadWriteApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSketchpadsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSketchpadWriteApi),
+    })
+}
+
+export const getSketchpadsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sketchpads/${id}/`
+}
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSketchpadsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSketchpadsCompiledCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sketchpads/${id}/compiled/`
+}
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsCompiledCreate = async (
+    projectId: string,
+    id: string,
+    sketchpadCompileApi: SketchpadCompileApi,
+    options?: RequestInit
+): Promise<SketchpadCompiledResponseApi> => {
+    return apiMutator<SketchpadCompiledResponseApi>(getSketchpadsCompiledCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sketchpadCompileApi),
+    })
+}
+
+export const getSketchpadsOpsRetrieveUrl = (projectId: string, id: string, params?: SketchpadsOpsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/sketchpads/${id}/ops/?${stringifiedParams}`
+        : `/api/projects/${projectId}/sketchpads/${id}/ops/`
+}
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsOpsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: SketchpadsOpsRetrieveParams,
+    options?: RequestInit
+): Promise<SketchpadOpsPageApi> => {
+    return apiMutator<SketchpadOpsPageApi>(getSketchpadsOpsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSketchpadsOpsAppendUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sketchpads/${id}/ops/`
+}
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsOpsAppend = async (
+    projectId: string,
+    id: string,
+    sketchpadAppendOpsApi: SketchpadAppendOpsApi,
+    options?: RequestInit
+): Promise<SketchpadAppendResultApi> => {
+    return apiMutator<SketchpadAppendResultApi>(getSketchpadsOpsAppendUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sketchpadAppendOpsApi),
     })
 }

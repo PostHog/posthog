@@ -575,6 +575,15 @@ SPECTACULAR_SETTINGS = {
             # entry decides the name.
             # Matches ErrorTrackingIssue severity (low/medium/high/critical).
             "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
+            "SketchpadActorKindEnum": "products.canvas.backend.facade.enums.SketchpadActorKind",
+            "SketchpadFieldKindEnum": ["text", "list"],
+            "SketchpadAddFragmentTypeEnum": ["add_fragment"],
+            "SketchpadUpdateFragmentTypeEnum": ["update_fragment"],
+            "SketchpadRemoveFragmentTypeEnum": ["remove_fragment"],
+            "SketchpadBringToFrontTypeEnum": ["bring_to_front"],
+            "SketchpadSetStateTypeEnum": ["set_state"],
+            "SketchpadRestoreTypeEnum": ["restore"],
+            "SketchpadEditFieldTypeEnum": ["edit_field"],
             # ExperimentMetricsRecalculation and ExperimentTimeseriesRecalculation both define this Status.
             "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
             # Matches tasks' LoopVisibility (personal/team).
