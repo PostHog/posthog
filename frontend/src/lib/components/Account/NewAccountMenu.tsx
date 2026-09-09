@@ -13,11 +13,9 @@ import {
     IconToggle,
 } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -54,7 +52,6 @@ interface AccountMenuProps {
 export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
@@ -320,9 +317,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 }}
                                             >
                                                 <IconReceipt />
-                                                {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                                                    ? 'Billing & usage'
-                                                    : 'Billing'}
+                                                Billing & usage
                                             </Link>
                                         )}
                                     />
