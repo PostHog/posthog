@@ -8,6 +8,7 @@ from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.temporal.ai.slack_app.activities.classifiers import (
     classify_posthog_code_task_needs_repo_activity,
     classify_task_needs_repo,
+    team_routing_rule_lines,
 )
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 
@@ -186,10 +187,20 @@ def test_needs_repo_activity_feeds_team_rules_to_the_classifier(team):
         return_value=fake_client,
     ):
         result = classify_posthog_code_task_needs_repo_activity(
-            inputs, text, [SlackThreadMessage(user="Alessandro", text=text)]
+            text, [SlackThreadMessage(user="Alessandro", text=text)], inputs
         )
 
     # Without the team's rules the product-term heuristic answers no-repo before the LLM.
     assert result is True
     prompt = fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
     assert "The internal metrics dashboard → acme/internal-tools" in prompt
+
+
+@pytest.mark.django_db
+def test_team_routing_rule_lines_drops_rules_outside_the_candidate_set(team):
+    RepoRoutingRule.objects.create(team=team, rule_text="Kept", repository="Acme/Kept", priority=0)
+    RepoRoutingRule.objects.create(team=team, rule_text="Gone", repository="acme/disconnected", priority=1)
+
+    lines = team_routing_rule_lines(team.id, candidate_repos={"acme/kept"})
+
+    assert lines == ["- Kept → acme/kept"]

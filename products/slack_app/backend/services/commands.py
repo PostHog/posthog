@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.repo_routing_rule import RepoRoutingRule
 
 from products.slack_app.backend.services.slack_messages import post_slack_ephemeral
 
@@ -16,12 +17,30 @@ MENTION_HELP_REDIRECT = (
 
 
 def rule_text_too_long_message(rule_text: str) -> str:
-    from posthog.models.repo_routing_rule import RepoRoutingRule
-
     return (
         f"Rule not added: it is {len(rule_text)} characters and the limit is "
         f"{RepoRoutingRule.MAX_RULE_TEXT_LENGTH}. Shorten it and try again."
     )
+
+
+def rules_limit_reached_message() -> str:
+    return (
+        f"Rule not added: this project already has {RepoRoutingRule.MAX_RULES_PER_TEAM} rules, "
+        "the maximum. Remove one with `rules remove <number>`, then try again."
+    )
+
+
+def reject_invalid_rule_text(team_id: int, rule_text: str) -> str | None:
+    """The Slack reply refusing this rule, or None when it can be stored.
+
+    The single gate for both add paths (inline repo and picker), so no path can store a
+    rule the prompt renderers would truncate or drop.
+    """
+    if len(rule_text) > RepoRoutingRule.MAX_RULE_TEXT_LENGTH:
+        return rule_text_too_long_message(rule_text)
+    if RepoRoutingRule.objects.filter(team_id=team_id).count() >= RepoRoutingRule.MAX_RULES_PER_TEAM:
+        return rules_limit_reached_message()
+    return None
 
 
 def _handle_help(
@@ -113,17 +132,16 @@ def _handle_rules_add(
     *,
     slack_user_id: str,
 ) -> None:
-    from posthog.models.repo_routing_rule import RepoRoutingRule
-
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
 
-    if len(rule_text) > RepoRoutingRule.MAX_RULE_TEXT_LENGTH:
+    rejection = reject_invalid_rule_text(integration.team_id, rule_text)
+    if rejection:
         post_slack_ephemeral(
             slack.client,
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
-            text=rule_text_too_long_message(rule_text),
+            text=rejection,
         )
         return
 

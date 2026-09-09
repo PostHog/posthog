@@ -146,7 +146,9 @@ def _fake_activities(rec: _Recorder) -> list:
 
     @activity.defn(name="classify_posthog_code_task_needs_repo_activity")
     async def needs_repo(
-        inputs: PostHogCodeSlackMentionWorkflowInputs, event_text: str, thread_messages: list[SlackThreadMessage]
+        event_text: str,
+        thread_messages: list[SlackThreadMessage],
+        inputs: PostHogCodeSlackMentionWorkflowInputs | None = None,
     ) -> bool:
         rec.needs_repo_calls.append(event_text)
         return True

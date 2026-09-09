@@ -56,10 +56,19 @@ AGENT_DIRECTED_TIMEOUT_SECONDS = 20.0
 AGENT_DIRECTED_MAX_RETRIES = 1
 
 
-def team_routing_rule_lines(team_id: int) -> list[str]:
-    """The team's routing rules rendered one per line for the needs-repo classifier prompt."""
+def team_routing_rule_lines(team_id: int, candidate_repos: set[str] | None = None) -> list[str]:
+    """The team's routing rules rendered one per line for the needs-repo classifier prompt.
+
+    ``candidate_repos`` is the lowercased set of repositories selection can still pick.
+    When given, rules pointing outside it are dropped: a stale rule (repo disconnected or
+    archived) would disable the product-term short-circuit and spend an agent run on a
+    pick that selection later rejects anyway.
+    """
     rules = RepoRoutingRule.objects.filter(team_id=team_id).order_by("priority", "id")
-    return [f"- {rule.prompt_text} → {rule.repository.lower()}" for rule in rules]
+    matched = [rule for rule in rules if candidate_repos is None or rule.repository.lower() in candidate_repos]
+    return [
+        f"- {rule.prompt_text} → {rule.repository.lower()}" for rule in matched[: RepoRoutingRule.MAX_RULES_PER_TEAM]
+    ]
 
 
 def classify_task_needs_repo(
@@ -222,18 +231,35 @@ def classify_task_needs_repo(
 @activity.defn
 @close_db_connections
 def classify_posthog_code_task_needs_repo_activity(
-    inputs: PostHogCodeSlackMentionWorkflowInputs,
     event_text: str,
     thread_messages: list[SlackThreadMessage],
+    inputs: PostHogCodeSlackMentionWorkflowInputs | None = None,
 ) -> bool:
+    """Classify with the team's routing rules loaded from ``inputs``.
+
+    ``inputs`` sits last and optional for payload compatibility: activity tasks queued
+    by pre-deploy workflow code carry only the first two payloads, and a required
+    leading parameter would make them unbindable on a new worker. Such tasks classify
+    without routing rules, which is the pre-deploy behavior.
+    """
+    # Circular import: products.slack_app.backend.api imports this package at module scope.
+    from products.slack_app.backend.api import _get_full_repo_names  # noqa: PLC0415
+
+    if inputs is None:
+        return classify_task_needs_repo(event_text, thread_messages)
+
     integration = Integration.objects.get(
         id=inputs.integration_id,
         kind="slack",
         integration_id=inputs.slack_team_id,
     )
-    return classify_task_needs_repo(
-        event_text, thread_messages, routing_rules=team_routing_rule_lines(integration.team_id)
-    )
+    # Filter rules to repos the mentioner can reach, matching what selection accepts for
+    # this mention. An empty list means the lookup resolved nothing (the cascade would
+    # have stopped such a mention already), so treat it as unknown rather than dropping
+    # every rule.
+    connected = {repo.lower() for repo in _get_full_repo_names(integration, user_id=inputs.user_id)}
+    routing_rules = team_routing_rule_lines(integration.team_id, candidate_repos=connected or None)
+    return classify_task_needs_repo(event_text, thread_messages, routing_rules=routing_rules)
 
 
 def _agent_directed_response_format() -> ResponseFormatJSONSchema:

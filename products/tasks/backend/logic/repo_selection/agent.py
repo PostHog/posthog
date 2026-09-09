@@ -253,7 +253,10 @@ def _routing_rules_block(team_id: int, candidate_repos: list[str]) -> str | None
         )
     if not matched:
         return None
-    lines = [f"{i}. {rule.prompt_text} → `{rule.repository.lower()}`" for i, rule in enumerate(matched, start=1)]
+    lines = [
+        f"{i}. {rule.prompt_text} → `{rule.repository.lower()}`"
+        for i, rule in enumerate(matched[: RepoRoutingRule.MAX_RULES_PER_TEAM], start=1)
+    ]
     return "\n".join(lines)
 
 

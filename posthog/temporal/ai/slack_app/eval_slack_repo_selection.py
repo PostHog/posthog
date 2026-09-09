@@ -580,7 +580,13 @@ class Command:
             return CaseResult(case=case, actual_stage="skipped", actual_outcome="skipped")
 
         # Stage 2: Haiku gate (heuristic + LLM), with the team's routing rules like the activity.
-        needs_repo = classify_task_needs_repo(text, thread_messages, routing_rules=team_routing_rule_lines(ctx.team_id))
+        needs_repo = classify_task_needs_repo(
+            text,
+            thread_messages,
+            routing_rules=team_routing_rule_lines(
+                ctx.team_id, candidate_repos={repo.lower() for repo in ctx.all_repos}
+            ),
+        )
         if not needs_repo:
             self.stdout.write(self.style.SUCCESS("  haiku → no_repo (task doesn't need code)"))
             return CaseResult(case=case, actual_stage="haiku", actual_outcome="no_repo")
