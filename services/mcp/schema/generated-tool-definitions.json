@@ -5724,7 +5724,7 @@
         }
     },
     "inbox-reports-list": {
-        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers, `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status. Do this when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` / `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log, including signal findings, judgments, and log entries, is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default. To find the self-driving reports for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones.",
+        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers, `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status. Do this when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` / `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log, including signal findings, judgments, and log entries, is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default. To answer \"what should I look at next\", pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready, actionable reports that have no implementation PR yet, at or above the requesting user's personal PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which priorities to include, and does not order them, so pass `sort=priority` to put P0 first; the default ordering can put a recently updated P4 above an older P0. Without `limit` a page holds up to 100 reports, each with its summary. The other views are `needs_input` (waiting on a human), `monitoring` (an implementation PR is open), `resolved`, `dismissed`, `not_actionable`, and `all`. Narrow by reviewer with `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving reports for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List signal reports",
@@ -9816,20 +9816,6 @@
         "summary": "Search the fleet scratchpad",
         "title": "Search the fleet scratchpad",
         "required_scopes": ["signal_scout:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "self-driving-inbox-get": {
-        "description": "Get the top 10 prioritized, actionable self-driving reports for the current project, including their summaries. By default this uses the requesting user's personal PR-generation threshold, falling back to the project threshold. Choose another view for reports needing human input, implementation PRs being monitored, resolved or dismissed reports, or reports judged not actionable. Filter by reviewer scope, priority, source product, scout, or text search, and use offset to page through further results. Use inbox-report-artefacts-list to read a report's evidence and work log before acting on it.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Get self-driving inbox",
-        "title": "Get self-driving inbox",
-        "required_scopes": ["task:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
