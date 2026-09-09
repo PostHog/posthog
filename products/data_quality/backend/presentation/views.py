@@ -752,7 +752,7 @@ class DataQualityCheckOverviewViewSet(
     serializer_class = DataQualityOverviewCheckSerializer
     queryset = DataQualityCheck.objects.unscoped()
 
-    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
         if getattr(view, "action", None) == "metric_subjects":
             return ["data_catalog:read", "query:read"]
         return super().dangerously_get_required_scopes(request, view)
