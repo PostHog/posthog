@@ -41,12 +41,16 @@ __all__ = [
     "MetricsCatalogBeforeDataDiscovery",
     "MetricsCatalogNotQueried",
     "GovernedBehaviorCorrectness",
+    "ClarificationAsked",
+    "ProposedMetricNotRun",
+    "MetricDescribeBeforeAdaptedSql",
 ]
 
 SQL_TOOL = "execute-sql"
 METRIC_LIST_TOOL = "metric-list"
 METRIC_DESCRIBE_TOOL = "metric-describe"
 METRIC_RUN_TOOL = "data-catalog-metric-run"
+QUESTION_TOOL = "askuserquestion"
 CERTIFICATION_PROPOSE_TOOL = "data-catalog-certification-propose"
 _INFO_SCHEMA = "information_schema"
 _INFO_SYNTHETIC_PREFIX = "__info__:"
@@ -92,6 +96,10 @@ def _successful_catalog_lookups(parser: LogParser) -> list[ToolCall]:
         (call for call in parser.get_tool_calls() if not call.is_error and _is_catalog_lookup(call)),
         key=lambda call: call.position,
     )
+
+
+def _is_question_call(call: ToolCall) -> bool:
+    return call.name.replace("_", "").casefold() == QUESTION_TOOL
 
 
 def _is_discovery(call: ToolCall) -> bool:
@@ -517,6 +525,95 @@ class MetricsCatalogNotQueried(Scorer):
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
         hits = [c for c in _successful_sql(parser) if _is_catalog_lookup(c)]
         return Score(name=self._name(), score=0.0 if hits else 1.0, metadata={"catalog_lookups": len(hits)})
+
+
+class ClarificationAsked(Scorer):
+    """Binary: did the agent ask a catalog clarifying question before any data-bearing call?"""
+
+    def _name(self) -> str:
+        return "clarification_asked"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        if not _requested(expected, self._name()):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        question_positions = [call.position for call in parser.get_tool_calls() if _is_question_call(call)]
+        if not question_positions:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "no clarifying question was asked"})
+
+        first_question = min(question_positions)
+        premature = [
+            {"call_id": call.call_id, "tool": call.name}
+            for call in parser.get_tool_calls()
+            if _is_data_bearing(call) and not call.is_error and call.position < first_question
+        ]
+        if premature:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "answered from data before asking", "offenders": premature},
+            )
+        return Score(name=self._name(), score=1.0, metadata={"question_position": first_question})
+
+
+class ProposedMetricNotRun(Scorer):
+    """Binary: the named non-approved metric must not have been run for the answer."""
+
+    def _name(self) -> str:
+        return "proposed_metric_not_run"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        metric_name = spec.get("metric_name") if isinstance(spec, dict) else None
+        if not isinstance(metric_name, str) or not metric_name:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        runs = [
+            call
+            for call in parser.get_tool_calls(METRIC_RUN_TOOL)
+            if not call.is_error and call.input.get("name") == metric_name
+        ]
+        return Score(
+            name=self._name(),
+            score=0.0 if runs else 1.0,
+            metadata={"metric_name": metric_name, "runs": len(runs)},
+        )
+
+
+class MetricDescribeBeforeAdaptedSql(Scorer):
+    """Soft: SQL adapted from a catalog definition should follow a `metric-describe`."""
+
+    def _name(self) -> str:
+        return "metric_describe_before_adapted_sql"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        if not _requested(expected, self._name()):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        analytical_sql = [call for call in _successful_sql(parser) if not _is_catalog_lookup(call)]
+        if not analytical_sql:
+            return Score(name=self._name(), score=1.0, metadata={"reason": "no adapted SQL"})
+        describe_positions = [call.position for call in parser.get_tool_calls(METRIC_DESCRIBE_TOOL)]
+        if not describe_positions:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "adapted SQL without metric-describe"})
+        first_describe = min(describe_positions)
+        late = [call.call_id for call in analytical_sql if call.position < first_describe]
+        return Score(
+            name=self._name(),
+            score=0.0 if late else 1.0,
+            metadata={"sql_before_describe": late},
+        )
 
 
 GOVERNED_BEHAVIOR_PROMPT = """\
