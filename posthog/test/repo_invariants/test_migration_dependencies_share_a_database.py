@@ -1,4 +1,4 @@
-"""A migration may only depend on migrations that apply to a database it applies to itself.
+"""A migration may only depend on migrations that apply to every database it applies to itself.
 
 Apps listed in `products/db_routing.yaml` migrate on their own database aliases and nowhere else.
 A dependency edge across that boundary is meaningless for schema (no index or foreign key reaches
@@ -26,7 +26,7 @@ def test_migration_dependencies_share_a_database_with_their_dependants() -> None
         f"{app}.{name} -> {parent.key[0]}.{parent.key[1]}"
         for (app, name), node in graph.node_map.items()
         for parent in node.parents
-        if parent.key[0] != app and not (aliases[app] & aliases[parent.key[0]])
+        if parent.key[0] != app and not aliases[app] <= aliases[parent.key[0]]
     )
     assert not crossings, (
         "These migrations depend on a migration that never applies to any of their own databases. "
