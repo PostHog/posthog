@@ -45,7 +45,7 @@ from posthog.models.activity_logging.activity_log import Detail, dict_changes_be
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.definition_search import search_plan
+from posthog.taxonomy.definition_search import search_plan, seen_within_sql
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
@@ -387,8 +387,14 @@ class EventDefinitionViewSet(
 
         search = self.request.GET.get("search", None)
         has_search_terms = bool(search and search.strip())
+        exclude_stale = self.request.GET.get("exclude_stale", "false").lower() == "true"
         plan = (
-            search_plan("posthog_eventdefinition", self.project_id, event_definition_object_manager.db)
+            search_plan(
+                "posthog_eventdefinition",
+                self.project_id,
+                event_definition_object_manager.db,
+                seen_within_days=STALE_EVENT_DAYS if exclude_stale else None,
+            )
             if has_search_terms
             else None
         )
@@ -407,17 +413,8 @@ class EventDefinitionViewSet(
         if exclude_hidden and EE_AVAILABLE:
             search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
 
-        exclude_stale = self.request.GET.get("exclude_stale", "false").lower() == "true"
         if exclude_stale:
-            # `last_seen_at` is not indexed: the predicate runs after the project-scoped
-            # pre-filter in `create_event_definitions_sql` has already narrowed the row
-            # set per tenant, and the response is paginated. Worth re-checking with
-            # EXPLAIN if the largest tenants start showing this in slow-query logs.
-            search_query = (
-                search_query
-                + " AND (posthog_eventdefinition.last_seen_at IS NULL"
-                + " OR posthog_eventdefinition.last_seen_at > NOW() - %(stale_interval)s::interval)"
-            )
+            search_query = search_query + f" AND {seen_within_sql('posthog_eventdefinition.last_seen_at')}"
             params["stale_interval"] = f"{STALE_EVENT_DAYS} days"
 
         verified_param = self.request.GET.get("verified")

@@ -1,5 +1,7 @@
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.db.models.expressions import F
+from django.db.models.functions import Coalesce
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -60,6 +62,11 @@ class EventDefinition(UUIDTModel):
                 condition=models.Q(enforcement_mode="reject"),
             ),
             models.Index(fields=["team_id", "name"], name="posthog_eventdef_team_name_idx"),
+            models.Index(
+                Coalesce(F("project_id"), F("team_id")),
+                F("last_seen_at"),
+                name="eventdef_proj_last_seen_idx",
+            ),
         ]
         constraints = [
             UniqueConstraintByExpression(
