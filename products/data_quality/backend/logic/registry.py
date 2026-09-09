@@ -42,7 +42,6 @@ def list_check_types(subject_type: str | None = None) -> list[CheckTypeInfo]:
             description=spec.description,
             requires_column=spec.requires_column,
             config_schema=spec.json_schema,
-            subject_types=sorted(kind.value for kind in spec.subject_types),
         )
         for spec in all_specs()
         if subject_type is None or SubjectType(subject_type) in spec.subject_types

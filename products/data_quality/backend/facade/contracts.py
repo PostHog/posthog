@@ -36,4 +36,3 @@ class CheckTypeInfo:
     description: str
     requires_column: bool
     config_schema: dict[str, Any] = field(default_factory=dict)
-    subject_types: list[str] = field(default_factory=list)
