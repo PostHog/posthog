@@ -118,8 +118,6 @@ describe('aiObservabilitySharedLogic', () => {
         it.each([
             [true, 'has-data'],
             [false, 'needs-setup'],
-            // A check that could not run says nothing about the team, so the gate fails open to
-            // the real scene instead of showing the setup screen to a team that has AI events.
             [null, 'unknown'],
         ])('pushes hasSentAiEvent=%s into productSetupStatusLogic as %s', async (hasEvents, expected) => {
             mockHasRecentAIEvents.mockResolvedValue(hasEvents)
@@ -154,9 +152,6 @@ describe('aiObservabilitySharedLogic', () => {
             expect(productSetupStatusLogic({ productKey: ProductKey.AI_OBSERVABILITY }).values.status).toBe('has-data')
         })
 
-        // A user parked on the empty state behind a broken connection used to re-check every 20
-        // seconds for as long as the tab stayed open. The cadence has to recover too, or a team
-        // that regains access waits minutes for the screen to flip on their first event.
         it('doubles the re-check delay while the check cannot answer, and restores it once it can', async () => {
             mockHasRecentAIEvents.mockResolvedValue(null)
             jest.useFakeTimers()

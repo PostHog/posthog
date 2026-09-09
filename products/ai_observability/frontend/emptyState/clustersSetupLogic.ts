@@ -29,8 +29,7 @@ export const clustersSetupLogic = createSetupDetectionLogic({
         }
         const seenAiEvents = await hasRecentAIEvents()
         if (seenAiEvents === null) {
-            // The AI-events check could not run, so the screen must not claim the product is
-            // unset up. `unknown` fails the gate open to the real scene.
+            // The check could not run, so it must not read as "no AI events" and show setup.
             return 'unknown'
         }
         return seenAiEvents ? 'waiting-for-data' : 'needs-setup'

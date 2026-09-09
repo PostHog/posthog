@@ -189,8 +189,7 @@ describe('aiEventsUtils', () => {
             expect(result).toBe(false)
         })
 
-        // Callers re-run this on a timer, so a rejection files one error tracking issue per
-        // tick. Both requests the check makes have to answer "cannot tell" instead.
+        // A rejection from either request files one error tracking issue per poll tick.
         it.each([
             [
                 'the event definitions request fails',

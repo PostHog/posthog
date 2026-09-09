@@ -79,9 +79,7 @@ export interface SortState {
 
 // Cadence of the setup-detection re-check while the team has no AI events yet.
 const SETUP_POLL_INTERVAL_MS = 20000
-// Ceiling for that cadence once the check can no longer answer. A blocked connection, or a
-// project the user cannot read, does not clear within one tick, so re-asking every 20 seconds
-// for the rest of the session only burns requests.
+// Ceiling for that cadence, because whatever stops the check answering does not clear in one tick.
 const SETUP_POLL_MAX_INTERVAL_MS = 5 * 60 * 1000
 
 const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
@@ -433,9 +431,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         },
         loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
             if (hasSentAiEvent === null) {
-                // The check could not run, so it says nothing about this team. Publish `unknown`
-                // if nothing has answered yet, which fails the gate open to the real scene, and
-                // never downgrade an answer we already have to the setup screen.
+                // The check says nothing about this team, so publish `unknown` only where nothing
+                // has answered yet. That fails the gate open without downgrading a real answer.
                 if (values.setupStatus === 'loading') {
                     actions.setDetectedStatus('unknown')
                 }
@@ -449,8 +446,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
                 return
             }
-            // The check works again, so a user still waiting on their first event gets the fast
-            // cadence back rather than staying on a backed-off one for the rest of the session.
+            // The check works again, so a user waiting on their first event gets the fast flip back.
             cache.setSetupPollInterval(SETUP_POLL_INTERVAL_MS)
         },
         loadAIEventDefinitionFailure: () => {
@@ -814,8 +810,6 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 return () => clearInterval(id)
             }, 'setupPoll')
         }
-        // Changing the cadence means replacing the timer, so the detection listeners go through
-        // here to back the poll off when the check cannot answer, and to restore it once it can.
         // A call at the interval already in force leaves the running timer alone.
         cache.setupPollIntervalMs = SETUP_POLL_INTERVAL_MS
         cache.setSetupPollInterval = (intervalMs: number): void => {
