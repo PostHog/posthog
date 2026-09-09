@@ -53,7 +53,8 @@ def check_event_filter(tree: ast.AST, plan: QueryPlan | None = None) -> EventFil
 
 
 def _check_read(read: EventsRead, conditions: list[ast.Expr], key_used: bool | None) -> EventFilterOutcome:
-    outcome = _classify_from_tree(read, conditions)
+    matched = _classify_from_tree(read, conditions)
+    outcome = matched if matched is not None else EventFilterOutcome(classification="none")
     if key_used is True:
         # ClickHouse reports what it really used, so it overrules anything the tree suggests.
         return EventFilterOutcome(classification="usable")
@@ -62,7 +63,12 @@ def _check_read(read: EventsRead, conditions: list[ast.Expr], key_used: bool | N
     return outcome
 
 
-def _classify_from_tree(read: EventsRead, conditions: list[ast.Expr]) -> EventFilterOutcome:
+def _classify_from_tree(read: EventsRead, conditions: list[ast.Expr]) -> EventFilterOutcome | None:
+    """``None`` when nothing in ``conditions`` says anything about this read's ``event`` column.
+
+    A conjunction is classified the same way as the whole condition list, so a branch of an OR
+    that never names the column stays unrelated instead of counting as a filter inside an OR.
+    """
     best: EventFilterOutcome | None = None
     for term in conditions:
         classified = _classify_term(term, read)
@@ -72,7 +78,7 @@ def _classify_from_tree(read: EventsRead, conditions: list[ast.Expr]) -> EventFi
             return classified
         if best is None:
             best = classified
-    return best if best is not None else EventFilterOutcome(classification="none")
+    return best
 
 
 def _classify_term(term: ast.Expr, read: EventsRead) -> EventFilterOutcome | None:

@@ -80,6 +80,19 @@ class TestEventFilterCheck(QueryScanCheckTest):
                 "in_or",
             ),
             (
+                "an or where no branch names the event",
+                "SELECT count() FROM events WHERE (properties.plan = 'pro' AND properties.device = 'mobile') "
+                "OR properties.browser = 'Chrome'",
+                "none",
+                None,
+            ),
+            (
+                "an or with the event named in an and",
+                "SELECT count() FROM events WHERE (event = 'a' AND properties.plan = 'pro') OR event = 'b'",
+                "usable",
+                None,
+            ),
+            (
                 "wrapped in a function",
                 "SELECT count() FROM events WHERE lower(event) = 'purchase'",
                 "not_used",
