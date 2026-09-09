@@ -432,6 +432,8 @@ def _recursively_resolve_column(
     elif isinstance(column, ast.SelectQueryType):
         first_col = next(iter(column.columns.values()))
         return _recursively_resolve_column(name, first_col, fields, context)
+    elif isinstance(column, ast.UnresolvedFieldType):
+        fields[name] = UnknownDatabaseField(name=name)
     else:
         raise QueryError(f"{column.__class__.__name__} is not supported in CTETableType")
 

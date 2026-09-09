@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import field
 from types import MappingProxyType
 from typing import Any
@@ -54,6 +55,7 @@ class TrinoManifestTable:
     logical_name: str
     locator: TrinoTableLocator
     columns: tuple[TrinoManifestColumn, ...] = ()
+    field_overrides: Mapping[str, DatabaseField] = field(default_factory=dict)
 
 
 @frozen
@@ -221,7 +223,7 @@ def build_trino_manifest_database(manifest: TrinoCatalogManifest) -> tuple[Datab
 
         locators[table.logical_name] = table.locator
         if table.logical_name in _CORE_TABLES:
-            if table.columns:
+            if table.columns or table.field_overrides:
                 raise TrinoLoweringError(
                     "TRINO_PURE_INVALID_MANIFEST",
                     "core table manifest",
@@ -237,6 +239,7 @@ def build_trino_manifest_database(manifest: TrinoCatalogManifest) -> tuple[Datab
                 "manifest columns",
                 detail=f"Manifest table `{table.logical_name}` must declare unique columns.",
             )
+        columns.update(deepcopy(dict(table.field_overrides)))
         direct_table = DirectTrinoTable(
             name=chain[-1],
             fields=columns,
