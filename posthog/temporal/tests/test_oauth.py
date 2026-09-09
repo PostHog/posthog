@@ -30,6 +30,7 @@ from posthog.temporal.oauth import (
     PosthogMcpScopes,
     ScoutScopePosture,
     ScoutScopePreset,
+    WizardEmailUnverifiedError,
     WizardIdentityBlockedError,
     create_oauth_access_token_for_user,
     create_wizard_oauth_access_token_for_user,
@@ -459,6 +460,20 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
             create_wizard_oauth_access_token_for_user(user, team.id)
 
         assert not OAuthAccessToken.objects.exists()
+
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
+    @patch("posthog.temporal.oauth.wizard_email_unverified", return_value=True)
+    def test_an_unverified_identity_is_refused_a_wizard_token(self, mock_unverified) -> None:
+        # Gated at the mint for the same reason as the ban: a workflow retry or
+        # resume reaches here with no request in front of it.
+        self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
+        user, team = self._create_user_and_team()
+
+        with pytest.raises(WizardEmailUnverifiedError):
+            create_wizard_oauth_access_token_for_user(user, team.id)
+
+        assert not OAuthAccessToken.objects.exists()
+        assert mock_unverified.call_args.kwargs["surface"] == "wizard_mint"
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_mints_token_under_wizard_app_with_its_scopes(self) -> None:

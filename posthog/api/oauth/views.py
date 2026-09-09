@@ -62,6 +62,7 @@ from posthog.api.oauth.client_auth import verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_email_verification import WIZARD_EMAIL_UNVERIFIED_DETAIL, wizard_email_unverified
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import (
@@ -302,7 +303,7 @@ def _impersonation_ai_processing_block(
     )
 
 
-def _gateway_blocklist_block(
+def _gateway_access_block(
     request,
     scopes: str | Iterable[str],
     *,
@@ -310,7 +311,8 @@ def _gateway_blocklist_block(
     scoped_organization_ids: list[str] | None = None,
     scoped_team_ids: list[int] | None = None,
 ) -> Response | None:
-    """Refuse a blocklisted identity a grant carrying an LLM gateway scope.
+    """Refuse a grant carrying an LLM gateway scope: to a blocklisted identity, or
+    to one that never verified its address.
 
     Keyed on the scope rather than the wizard's client id, so another first-party
     app whose ceiling includes it is not an evasion route.
@@ -328,6 +330,11 @@ def _gateway_blocklist_block(
     requested = set(scopes.split() if isinstance(scopes, str) else scopes)
     if not GATEWAY_BEARING_SCOPES & requested:
         return None
+    if wizard_email_unverified(user=request.user, surface="oauth_authorize"):
+        return Response(
+            {"error": "access_denied", "error_description": WIZARD_EMAIL_UNVERIFIED_DETAIL},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
     if not wizard_identity_blocked(
         distinct_id=str(request.user.distinct_id),
@@ -1445,7 +1452,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if application.is_first_party:
             if block := _impersonation_ai_processing_block(request):
                 return block
-            if block := _gateway_blocklist_block(request, scope_str.split()):
+            if block := _gateway_access_block(request, scope_str.split()):
                 return block
             try:
                 org_ids = request.user.organizations.values_list("id", flat=True)
@@ -1484,7 +1491,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         # matched token's scope through — the precise check lives in the POST path.
                         if block := _impersonation_ai_processing_block(request):
                             return block
-                        if block := _gateway_blocklist_block(request, scope_str.split()):
+                        if block := _gateway_access_block(request, scope_str.split()):
                             return block
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1604,7 +1611,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             ):
                 return block
 
-            if block := _gateway_blocklist_block(
+            if block := _gateway_access_block(
                 request,
                 scopes,
                 access_level=serializer.validated_data.get("access_level"),

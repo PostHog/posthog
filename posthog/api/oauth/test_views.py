@@ -3207,6 +3207,30 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error"], "access_denied")
         self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
 
+    @patch("posthog.api.oauth.views.wizard_email_unverified", return_value=True)
+    def test_authorize_refuses_an_unverified_identity_a_gateway_scope(self, mock_unverified):
+        # An unverified address is the cheapest identity to mint at scale, so the
+        # grant has to be refused, not only its later use.
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+        url = self.replace_param_in_url(self.base_authorization_url, "client_id", app.client_id)
+
+        response = self.client.get(f"{url}&scope=insight:read llm_gateway:read")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(response.json()["error"], "access_denied")
+        self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
+        self.assertEqual(mock_unverified.call_args.kwargs["surface"], "oauth_authorize")
+
+    @patch("posthog.api.oauth.views.wizard_email_unverified", return_value=True)
+    def test_authorize_still_grants_an_unverified_identity_scopes_without_the_gateway(self, mock_unverified):
+        # Same scope-keying as the ban: verification gates the gateway, not sign-in.
+        app = self._create_first_party_app_with_ceiling("insight:read")
+
+        grant = self._first_party_authorize_grant(app, "insight:read")
+
+        self.assertEqual(set(grant.scope.split()), {"insight:read"})
+        mock_unverified.assert_not_called()
+
     @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=True)
     def test_authorize_still_grants_a_blocklisted_identity_scopes_without_the_gateway(self, mock_blocked):
         app = self._create_first_party_app_with_ceiling("insight:read")

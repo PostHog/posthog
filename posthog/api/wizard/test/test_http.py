@@ -20,6 +20,7 @@ from rest_framework.test import APIRequestFactory
 from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.cloud_utils import get_api_host
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
+from posthog.llm.wizard_email_verification import WIZARD_EMAIL_UNVERIFIED_DETAIL
 from posthog.llm.wizard_gateway_token import WizardGatewayMintError
 from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -62,6 +63,25 @@ class SetupWizardTests(APIBaseTest):
         assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
         # The proxy spends PostHog's own provider keys.
         mock_openai.return_value.chat.completions.create.assert_not_called()
+
+    @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
+    @patch("posthog.api.wizard.http.wizard_email_unverified", return_value=True)
+    @patch("posthog.api.wizard.http.OpenAI")
+    def test_query_from_an_unverified_identity_is_403(self, mock_openai, mock_unverified):
+        response = self.client.post(
+            self.query_url,
+            data=json.dumps(
+                {"message": "test", "json_schema": {"type": "object", "properties": {"name": {"type": "string"}}}}
+            ),
+            content_type="application/json",
+            headers={"x-posthog-wizard-hash": self.hash},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert response.json()["detail"] == WIZARD_EMAIL_UNVERIFIED_DETAIL
+        # This surface spends PostHog's own provider keys too.
+        mock_openai.return_value.chat.completions.create.assert_not_called()
+        assert mock_unverified.call_args.kwargs["surface"] == "query"
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
     @patch("posthog.api.wizard.http.OpenAI")
@@ -580,6 +600,21 @@ class SetupWizardCloudRunTests(APIBaseTest):
         assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
         assert mock_blocked.call_args.kwargs["surface"] == "cloud_run"
 
+    @patch("posthog.api.wizard.http.SetupWizardViewSet._reserve_cloud_run_attempt")
+    @patch("posthog.api.wizard.http.wizard_email_unverified", return_value=True)
+    def test_an_unverified_identity_cannot_start_a_cloud_run(self, mock_unverified, mock_reserve):
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            {"project_id": self.team.project_id, "repository": "PostHog/posthog"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert response.json()["detail"] == WIZARD_EMAIL_UNVERIFIED_DETAIL
+        assert mock_unverified.call_args.kwargs["surface"] == "cloud_run"
+        # Refused ahead of the reservation, so a refusal does not also burn one of
+        # the user's daily attempts.
+        mock_reserve.assert_not_called()
+
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="")
     def test_returns_404_when_feature_not_configured(self):
         response = self.client.post(
@@ -895,6 +930,26 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
         mock_mint.assert_not_called()
+
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.wizard_email_unverified", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_unverified_identity_is_403_and_never_mints(
+        self, mock_authentication, mock_unverified, mock_flag, mock_mint, mock_authorized
+    ):
+        # The mint is what buys inference, so refusing after it would still spend.
+        self._mock_oauth(mock_authentication)
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert response.json()["detail"] == WIZARD_EMAIL_UNVERIFIED_DETAIL
+        mock_mint.assert_not_called()
+        assert mock_unverified.call_args.kwargs["surface"] == "gateway_token"
 
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)

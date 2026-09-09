@@ -9,6 +9,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_email_verification import WIZARD_EMAIL_UNVERIFIED_DETAIL, wizard_email_unverified
 from posthog.models import OAuthAccessToken, OAuthApplication
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_oauth_access_token
@@ -604,6 +605,12 @@ class WizardIdentityBlockedError(Exception):
     a transient token failure must not retry this one."""
 
 
+class WizardEmailUnverifiedError(Exception):
+    """This identity has not verified its address, so it cannot hold a wizard
+    credential. Separate from WizardIdentityBlockedError because the user clears
+    this one themselves, and a caller may want to say so differently."""
+
+
 def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     """Mint an OAuth access token under the wizard's own app for a cloud wizard run.
 
@@ -622,6 +629,9 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
         team_ids=[team_id],
     ):
         raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
+
+    if wizard_email_unverified(user=user, surface="wizard_mint"):
+        raise WizardEmailUnverifiedError(WIZARD_EMAIL_UNVERIFIED_DETAIL)
 
     app = get_wizard_app()
 

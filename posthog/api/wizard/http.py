@@ -33,6 +33,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_api_host
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_email_verification import WIZARD_EMAIL_UNVERIFIED_DETAIL, wizard_email_unverified
 from posthog.llm.wizard_gateway_token import (
     WizardGatewayMintError,
     mint_wizard_gateway_token,
@@ -83,8 +84,8 @@ WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
 WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_gateway_token_requests_total",
     "Wizard gateway-token mint requests, by outcome (minted/unconfigured/not_wizard_app/"
-    "scope_missing/team_ambiguous/team_missing/unauthorized/blocked/program_unknown/"
-    "not_rolled_out/mint_failed)",
+    "scope_missing/team_ambiguous/team_missing/unauthorized/blocked/email_unverified/"
+    "program_unknown/not_rolled_out/mint_failed)",
     labelnames=["outcome"],
 )
 
@@ -358,6 +359,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # No outcome label: query labels no other exit, and the blocklist
             # counter already carries this surface with its own denominator.
             raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
+        if wizard_email_unverified(user=blocklist_user, surface="query"):
+            raise exceptions.PermissionDenied(WIZARD_EMAIL_UNVERIFIED_DETAIL)
 
         posthog_client = posthoganalytics.default_client
 
@@ -577,6 +580,9 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # Ahead of the rollout gate, so a ban reads as a ban whatever the flag says.
             refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
 
+        if wizard_email_unverified(user=user, surface="gateway_token"):
+            refuse("email_unverified", exceptions.PermissionDenied(WIZARD_EMAIL_UNVERIFIED_DETAIL), user=user)
+
         # A kill switch, not a rollout gate: only a literal False refuses. With the
         # legacy product off there is no second path, so reading an outage as "not
         # rolled out" turns a flag-service blip into a global wizard outage.
@@ -795,6 +801,10 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # No outcome label: `cloud_run` already counts every PermissionDenied as
             # permission_denied.
             raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
+        # Refused before the attempt is reserved too, so an unverified address does
+        # not also cost a daily slot.
+        if wizard_email_unverified(user=user, surface="cloud_run"):
+            raise exceptions.PermissionDenied(WIZARD_EMAIL_UNVERIFIED_DETAIL)
 
         self._reserve_cloud_run_attempt(user.id)
 

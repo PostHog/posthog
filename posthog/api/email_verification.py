@@ -4,32 +4,24 @@ import structlog
 from rest_framework import exceptions
 
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_verification_state import VERIFICATION_DISABLED_FLAG, is_email_verification_disabled
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     CODE_TTL_SECONDS,
     code_based_verification_token_generator,
 )
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
 from posthog.tasks.email import send_email_verification_code
 
 logger = structlog.get_logger(__name__)
 
-VERIFICATION_DISABLED_FLAG = "email-verification-disabled"
+# Re-exported: both moved to a module the early-loading callers can import, and
+# this is still where the rest of the codebase asks for them.
+__all__ = ["VERIFICATION_DISABLED_FLAG", "is_email_verification_disabled"]
 
 EMAIL_CODE_STATE_REDIS_KEY_PREFIX = "email_verification_code_state"
 EMAIL_CODE_ATTEMPTS_REDIS_KEY_PREFIX = "email_verification_code_attempts"
-
-
-def is_email_verification_disabled(user: User) -> bool:
-    # using disabled here so that the default state (if no flag exists) is that verification defaults to ON.
-    return user.organization is not None and feature_enabled_or_false(
-        VERIFICATION_DISABLED_FLAG,
-        str(user.organization.id),
-        groups={"organization": str(user.organization.id)},
-        group_properties={"organization": {"id": str(user.organization.id)}},
-    )
 
 
 class EmailVerificationCodeVerifier:
