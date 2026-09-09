@@ -675,33 +675,6 @@ const scoutConfigList = (): ToolBase<
     },
 })
 
-const ScoutConfigRenameSchema = () => {
-    const SignalsScoutConfigRenameBody = orvalSchemas.SignalsScoutConfigRenameBody()
-    const SignalsScoutConfigRenameParams = orvalSchemas.SignalsScoutConfigRenameParams()
-    return SignalsScoutConfigRenameParams.omit({ project_id: true }).extend(SignalsScoutConfigRenameBody.shape)
-}
-
-const scoutConfigRename = (): ToolBase<
-    ReturnType<typeof ScoutConfigRenameSchema>,
-    WithPostHogUrl<Schemas.SignalScoutConfig>
-> => ({
-    name: 'scout-config-rename',
-    schema: ScoutConfigRenameSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigRenameSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.new_name !== undefined) {
-            body['new_name'] = params.new_name
-        }
-        const result = await context.api.request<Schemas.SignalScoutConfig>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/rename/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/inbox/scouts/${result.skill_name}`)
-    },
-})
-
 const ScoutConfigSyncSchema = () => {
     const SignalsScoutConfigSyncQueryParams = orvalSchemas.SignalsScoutConfigSyncQueryParams()
     return SignalsScoutConfigSyncQueryParams
@@ -741,6 +714,9 @@ const scoutConfigUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -1552,6 +1528,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof SignalsScoutConfigUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -2057,7 +2036,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-config-create': scoutConfigCreate,
     'scout-config-delete': scoutConfigDelete,
     'scout-config-list': scoutConfigList,
-    'scout-config-rename': scoutConfigRename,
     'scout-config-sync': scoutConfigSync,
     'scout-config-update': scoutConfigUpdate,
     'scout-create-prepare': scoutCreatePrepare,

@@ -2712,6 +2712,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "id",
             "skill_name",
             "description",
+            "display_name",
             "scout_origin",
             "owners",
             "enabled",
@@ -2784,7 +2785,7 @@ def _capture_auto_pause_reverted(
 
 
 class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
-    """Editable schedule, enablement, and emit posture for one scout config."""
+    """Editable display name, schedule, enablement, and emit posture for one scout config."""
 
     enabled = serializers.BooleanField(
         required=False,
@@ -2941,6 +2942,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalScoutConfig
         fields = [
+            "display_name",
             "enabled",
             "emit",
             "run_interval_minutes",
@@ -2954,27 +2956,6 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "mcp_gateway_server_ids",
             "write_scopes",
         ]
-
-
-class SignalScoutConfigRenameSerializer(serializers.Serializer):
-    """The new logical identity for an existing custom scout."""
-
-    new_name = serializers.CharField(
-        max_length=64,
-        help_text=(
-            "New scout skill name. Keep the current prefix class and use a unique kebab-case name. "
-            "Names the inbox reserves for its own pages are refused."
-        ),
-    )
-
-    def validate_new_name(self, value: str) -> str:
-        # The same pair the two minting serializers apply, so a rename cannot reach a name that
-        # creating the scout would have refused. The prefix guard in `rename_skill` only covers a
-        # prefixed scout, so a bare-named one needs this to stay off the reserved inbox pages.
-        value = validate_skill_name_value(value)
-        if error := reserved_scout_name_error(value):
-            raise serializers.ValidationError(error)
-        return value
 
 
 class SignalScoutConfigOptionsSerializer(serializers.Serializer):

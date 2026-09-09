@@ -3,17 +3,10 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { hogFunctionsPartialUpdate, hogFunctionsRetrieve } from 'products/cdp/frontend/generated/api'
-import {
-    signalsScoutConfigDestroy,
-    signalsScoutConfigRename,
-    signalsScoutConfigUpdate,
-    signalsScoutRunsRecentPerScout,
-    signalsScoutRunsTokenCosts,
-} from 'products/signals/frontend/generated/api'
-import type { SignalScoutConfigApi, SignalScoutRunSummaryApi } from 'products/signals/frontend/generated/api.schemas'
+import { signalsScoutConfigDestroy, signalsScoutConfigUpdate } from 'products/signals/frontend/generated/api'
+import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
-import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
-import { llmSkillsNamePartialUpdate, llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
+import { llmSkillsNamePartialUpdate } from 'products/skills/frontend/generated/api'
 
 import {
     visionScannersScoutReportsList,
@@ -34,15 +27,9 @@ const mockReportRetrieve = visionScannersScoutReportsRetrieve as jest.MockedFunc
     typeof visionScannersScoutReportsRetrieve
 >
 const mockScoutConfigDestroy = signalsScoutConfigDestroy as jest.MockedFunction<typeof signalsScoutConfigDestroy>
-const mockScoutConfigRename = signalsScoutConfigRename as jest.MockedFunction<typeof signalsScoutConfigRename>
-const mockScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
-const mockScoutRunsList = signalsScoutRunsRecentPerScout as jest.MockedFunction<typeof signalsScoutRunsRecentPerScout>
-const mockScoutRunCosts = signalsScoutRunsTokenCosts as jest.MockedFunction<typeof signalsScoutRunsTokenCosts>
 const mockScoutsCreate = visionScannersScoutsCreate as jest.MockedFunction<typeof visionScannersScoutsCreate>
 const mockHogFunctionsRetrieve = hogFunctionsRetrieve as jest.MockedFunction<typeof hogFunctionsRetrieve>
 const mockHogFunctionsPartialUpdate = hogFunctionsPartialUpdate as jest.MockedFunction<typeof hogFunctionsPartialUpdate>
-const mockSkillRetrieve = llmSkillsNameRetrieve as jest.MockedFunction<typeof llmSkillsNameRetrieve>
-const mockSkillUpdate = llmSkillsNamePartialUpdate as jest.MockedFunction<typeof llmSkillsNamePartialUpdate>
 
 const SCANNER_ID = '01a014ea-854f-72b5-8192-bb6ac9f212a5'
 const SKILL_NAME = 'signals-scout-daily-digest'
@@ -58,24 +45,6 @@ function makeReport(overrides: Partial<ScoutReportApi> = {}): ScoutReportApi {
         charts: [],
         ...overrides,
     }
-}
-
-function makeRun(skillName: string): SignalScoutRunSummaryApi {
-    return {
-        run_id: 'run-1',
-        skill_name: skillName,
-        skill_version: 1,
-        status: 'completed',
-        metadata: {},
-        created_at: '2026-08-20T08:00:00Z',
-        started_at: '2026-08-20T08:00:00Z',
-        completed_at: '2026-08-20T08:04:00Z',
-        summary: '',
-        emitted_count: 0,
-        emitted_finding_ids: [],
-        emitted_report_ids: [],
-        edited_report_ids: [],
-    } as SignalScoutRunSummaryApi
 }
 
 function makeConfig(overrides: Partial<SignalScoutConfigApi> = {}): SignalScoutConfigApi {
@@ -113,9 +82,6 @@ describe('scannerScoutLogic', () => {
         initKeaTests()
         jest.clearAllMocks()
         mockReportsList.mockResolvedValue([])
-        // Staff-only run costs ride along with any runs load; without an answer the loader throws
-        // into the console and buries whatever the test was actually asserting.
-        mockScoutRunCosts.mockResolvedValue({ available: false, costs: [] })
     })
 
     afterEach(() => {
@@ -128,6 +94,32 @@ describe('scannerScoutLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
+
+    it('saves the display name without changing the skill or delivery', async () => {
+        await mountWithReports([])
+        const config = makeConfig({ output_destinations: {} })
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.' })
+        jest.mocked(signalsScoutConfigUpdate).mockResolvedValue({ ...config, display_name: 'Checkout / daily digest' })
+
+        logic.actions.saveScoutSettings({
+            name: '  Checkout / daily digest  ',
+            body: 'Watch this scanner.',
+            cron: config.run_cron_schedule!,
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signalsScoutConfigUpdate).toHaveBeenCalledWith(expect.any(String), config.id, {
+            display_name: 'Checkout / daily digest',
+        })
+        expect(llmSkillsNamePartialUpdate).not.toHaveBeenCalled()
+        expect(mockHogFunctionsPartialUpdate).not.toHaveBeenCalled()
+        expect(logic.values.settingsSkillName).toBeNull()
+    })
 
     it('resolves the latest report without waiting for the scout roster', async () => {
         // The card reads `latestReportRow` on a cold load, before the fleet logic has answered with
@@ -237,204 +229,6 @@ describe('scannerScoutLogic', () => {
         const [firstName, secondName] = mockScoutsCreate.mock.calls.map((call) => (call[2] as any).name)
         expect(firstName).toBe('signals-scout-rage-clicks-on-checkout-daily-digest')
         expect(secondName).toBe('signals-scout-rage-clicks-on-checkout-daily-digest-2')
-    })
-
-    it('drops a closed scout cache so a reused name cannot inherit its prompt and delivery', async () => {
-        // A rename frees the old skill name, and a later scout can be created straight onto it.
-        // The settings modal decides its draft has loaded by comparing the cached prompt's skill
-        // name to the open scout's, so a cache left behind under that name reads as this scout's
-        // own. It then seeds the previous scout's instructions and webhook, and the next save
-        // writes them over the new scout.
-        await mountWithReports([])
-        const fleet = scoutFleetLogic.findMounted()!
-        fleet.actions.loadScoutConfigsSuccess([makeConfig()])
-        mockSkillRetrieve.mockResolvedValue({ body: 'The first scout instructions.' } as any)
-        mockHogFunctionsRetrieve.mockResolvedValue({
-            id: WEBHOOK_ID,
-            name: 'Replay Vision · Daily digest',
-            deleted: false,
-            template: { id: 'template-webhook' },
-            filters: {
-                events: [{ id: '$scout_report_emitted' }],
-                properties: [{ key: 'skill_name', value: SKILL_NAME }],
-            },
-            inputs: { url: { value: 'https://example.com/first-scout' } },
-        } as any)
-
-        logic.actions.openScoutSettings(SKILL_NAME)
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.skillPrompt?.body).toBe('The first scout instructions.')
-        expect(logic.values.scoutDelivery?.webhook?.url).toBe('https://example.com/first-scout')
-
-        logic.actions.closeScoutSettings()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.skillPrompt).toBeNull()
-        expect(logic.values.scoutDelivery).toBeNull()
-    })
-
-    it('changes only the schedule when a suffixed scout keeps its name', async () => {
-        // The settings form seeds its name field from the stored skill name, so a save that only
-        // touches the schedule must derive that same name back and skip the rename entirely.
-        // A scout whose name carries the `-2` a collision gave it is the case that used to break:
-        // the derived name lost the suffix, so every save asked for the first scout's name.
-        await mountWithReports([])
-        const fleet = scoutFleetLogic.findMounted()!
-        const suffixedName = 'signals-scout-checkout-funnel-friction-detector-daily-digest-2'
-        const config = makeConfig({ skill_name: suffixedName, output_destinations: {} })
-        fleet.actions.loadScoutConfigsSuccess([config])
-        mockSkillRetrieve.mockResolvedValue({ body: 'Watch this scanner.' } as any)
-        mockScoutConfigUpdate.mockResolvedValue({ ...config, run_cron_schedule: '0 10 * * *' })
-
-        logic.actions.openScoutSettings(suffixedName)
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.saveScoutSettings({
-            name: prettifyScoutSkillName(suffixedName),
-            body: 'Watch this scanner.',
-            cron: '0 10 * * *',
-            outputDestinations: {},
-            webhookUrl: '',
-        })
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(mockScoutConfigRename).not.toHaveBeenCalled()
-        expect(mockScoutConfigUpdate).toHaveBeenCalledWith(expect.any(String), config.id, {
-            run_cron_schedule: '0 10 * * *',
-        })
-        expect(logic.values.settingsSaveFailed).toBe(false)
-    })
-
-    it.each(['none', 'schedule', 'webhook'])(
-        'renames a scout and updates its existing webhook after %s failure',
-        async (failure) => {
-            await mountWithReports([])
-            const fleet = scoutFleetLogic.findMounted()!
-            const config = makeConfig()
-            const renamed = makeConfig({ skill_name: 'signals-scout-daily-summary' })
-            fleet.actions.loadScoutConfigsSuccess([config])
-            mockSkillRetrieve.mockResolvedValue({ body: 'Watch this scanner.' } as any)
-            mockHogFunctionsRetrieve.mockResolvedValue({
-                id: WEBHOOK_ID,
-                name: 'Replay Vision · Daily digest',
-                deleted: false,
-                template: { id: 'template-webhook' },
-                filters: {
-                    events: [{ id: '$scout_report_emitted' }],
-                    properties: [{ key: 'skill_name', value: SKILL_NAME }],
-                },
-                inputs: { url: { value: 'https://example.com/hook' } },
-            } as any)
-            mockScoutConfigRename.mockResolvedValue(renamed)
-            mockScoutConfigUpdate.mockResolvedValue({ ...renamed, run_cron_schedule: '0 10 * * *' })
-            mockHogFunctionsPartialUpdate.mockResolvedValue({} as any)
-            if (failure === 'schedule') {
-                mockScoutConfigUpdate.mockRejectedValueOnce(new Error('Schedule update failed'))
-            } else if (failure === 'webhook') {
-                mockHogFunctionsPartialUpdate.mockRejectedValueOnce(new Error('Webhook update failed'))
-            }
-
-            logic.actions.openScoutSettings(SKILL_NAME)
-            await expectLogic(logic).toFinishAllListeners()
-            const form = {
-                name: 'Daily summary',
-                body: 'Watch this scanner.',
-                cron: '0 10 * * *',
-                outputDestinations: config.output_destinations,
-                webhookUrl: 'https://example.com/hook',
-            }
-            logic.actions.saveScoutSettings(form)
-            await expectLogic(logic).toFinishAllListeners()
-
-            if (failure !== 'none') {
-                expect(logic.values.settingsConfigId).toBe(config.id)
-                expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
-                expect(logic.values.settingsSaveFailed).toBe(true)
-                expect(logic.values.settingsSaving).toBe(false)
-                expect(logic.values.scoutConfigsForScanner[0].skill_name).toBe(renamed.skill_name)
-                logic.actions.saveScoutSettings(form)
-                await expectLogic(logic).toFinishAllListeners()
-            }
-
-            expect(logic.values.settingsConfigId).toBeNull()
-            expect(logic.values.settingsSaveFailed).toBe(false)
-            expect(mockScoutConfigRename).toHaveBeenCalledTimes(1)
-
-            expect(mockScoutConfigRename).toHaveBeenCalledWith(expect.any(String), config.id, {
-                new_name: 'signals-scout-daily-summary',
-            })
-            expect(mockHogFunctionsPartialUpdate).toHaveBeenCalledWith(
-                expect.any(String),
-                WEBHOOK_ID,
-                expect.objectContaining({
-                    filters: expect.objectContaining({
-                        properties: expect.arrayContaining([
-                            expect.objectContaining({
-                                key: 'skill_name',
-                                value: 'signals-scout-daily-summary',
-                                operator: 'exact',
-                            }),
-                        ]),
-                    }),
-                })
-            )
-        }
-    )
-
-    it('leaves the instructions alone when the rename is refused', async () => {
-        // The rename is the write the server turns down — a name already taken, a scout with a run
-        // going. Writing the instructions first stored an edit the user was then told had failed,
-        // and a name that stays taken makes that happen on every attempt.
-        await mountWithReports([])
-        const fleet = scoutFleetLogic.findMounted()!
-        const config = makeConfig({ output_destinations: {} })
-        fleet.actions.loadScoutConfigsSuccess([config])
-        mockSkillRetrieve.mockResolvedValue({ body: 'Watch this scanner.' } as any)
-        mockScoutConfigRename.mockRejectedValue(Object.assign(new Error('conflict'), { status: 400 }))
-
-        logic.actions.openScoutSettings(SKILL_NAME)
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.saveScoutSettings({
-            name: 'Daily summary',
-            body: 'Watch the checkout page instead.',
-            cron: '0 9 * * *',
-            outputDestinations: {},
-            webhookUrl: '',
-        })
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(mockScoutConfigRename).toHaveBeenCalledTimes(1)
-        expect(mockSkillUpdate).not.toHaveBeenCalled()
-        expect(logic.values.settingsSaveFailed).toBe(true)
-        expect(logic.values.scoutConfigsForScanner[0].skill_name).toBe(SKILL_NAME)
-    })
-
-    it('refetches the runs window after a rename', async () => {
-        // The window is keyed by skill name, so the renamed scout's runs stay filed under the old
-        // one until they are fetched again. Its card then reads as a scout that has never run, and
-        // says the first report arrives after the next scheduled run rather than when it last checked.
-        await mountWithReports([])
-        const fleet = scoutFleetLogic.findMounted()!
-        const config = makeConfig({ output_destinations: {} })
-        const renamed = makeConfig({ skill_name: 'signals-scout-daily-summary', output_destinations: {} })
-        fleet.actions.loadScoutConfigsSuccess([config])
-        fleet.actions.loadScoutRunsSuccess([makeRun(SKILL_NAME)])
-        mockSkillRetrieve.mockResolvedValue({ body: 'Watch this scanner.' } as any)
-        mockScoutConfigRename.mockResolvedValue(renamed)
-        mockScoutRunsList.mockResolvedValue([makeRun(renamed.skill_name)])
-        expect(logic.values.latestRun?.run_id).toBe('run-1')
-
-        logic.actions.openScoutSettings(SKILL_NAME)
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.saveScoutSettings({
-            name: 'Daily summary',
-            body: 'Watch this scanner.',
-            cron: '0 9 * * *',
-            outputDestinations: {},
-            webhookUrl: '',
-        })
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.scoutConfigsForScanner[0].skill_name).toBe(renamed.skill_name)
-        expect(logic.values.latestRun?.run_id).toBe('run-1')
     })
 
     it('separates a failed report load from a scout that filed nothing', async () => {

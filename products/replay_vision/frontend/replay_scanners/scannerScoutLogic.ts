@@ -9,7 +9,7 @@ import {
     hogFunctionsPartialUpdate,
     hogFunctionsRetrieve,
 } from 'products/cdp/frontend/generated/api'
-import { signalsScoutConfigRename, signalsScoutConfigUpdate } from 'products/signals/frontend/generated/api'
+import { signalsScoutConfigUpdate } from 'products/signals/frontend/generated/api'
 import type {
     ScoutMetadataApi,
     SignalScoutConfigApi,
@@ -19,7 +19,11 @@ import type { ScoutReportAction } from 'products/signals/frontend/inbox/logics/s
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import type { SignalScoutConfig } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import type { SignalScoutRunSummary } from 'products/signals/frontend/inbox/types'
-import { prettifyScoutSkillName, runReportActivity } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
+import {
+    prettifyScoutSkillName,
+    runReportActivity,
+    scoutDisplayName,
+} from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 import type { ScoutRollup } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 import { llmSkillsNamePartialUpdate, llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
@@ -30,12 +34,7 @@ import {
 } from '../generated/api'
 import type { ScoutReportApi } from '../generated/api.schemas'
 import type { ScannerScoutTemplateKey } from './scannerScout'
-import {
-    isScannerScoutConfig,
-    scannerScoutCreatePayload,
-    scoutDisplayNameToSkillName,
-    scoutNameToSkillName,
-} from './scannerScout'
+import { isScannerScoutConfig, scannerScoutCreatePayload, scoutNameToSkillName } from './scannerScout'
 import { isScoutDestination, scoutWebhookDestinationPayload } from './scannerScoutDelivery'
 
 /** Everything the scout form edits, in both create and settings mode. */
@@ -72,8 +71,7 @@ function inputValue(inputs: unknown, key: string): unknown {
 async function findScoutDelivery(
     projectId: string,
     skillName: string,
-    outputDestinations: SignalScoutOutputDestinationsApi | null | undefined,
-    previousSkillName: string = skillName
+    outputDestinations: SignalScoutOutputDestinationsApi | null | undefined
 ): Promise<Omit<ScoutDelivery, 'skillName'>> {
     const webhookId = outputDestinations?.webhook?.hog_function_id
     if (!webhookId) {
@@ -86,10 +84,7 @@ async function findScoutDelivery(
         // The id alone is not proof this destination is ours: `output_destinations` is caller-
         // writable, so a config can name any destination in the project, and acting on it would use
         // this reader's permissions to overwrite or delete someone else's.
-        if (
-            webhook.deleted ||
-            (!isScoutDestination(webhook, skillName) && !isScoutDestination(webhook, previousSkillName))
-        ) {
+        if (webhook.deleted || !isScoutDestination(webhook, skillName)) {
             return { webhook: null }
         }
         return { webhook: { id: webhookId, url: String(inputValue(webhook.inputs, 'url') ?? '') } }
@@ -136,8 +131,6 @@ export interface scannerScoutLogicValues {
     scoutReports: ScoutReportApi[]
     scoutReportsFailed: boolean
     scoutReportsLoading: boolean
-    settingsConfigId: string | null
-    settingsSaveFailed: boolean
     settingsSaving: boolean
     settingsSkillName: string | null
     skillPrompt: ScoutPrompt | null
@@ -290,14 +283,10 @@ export interface scannerScoutLogicActions {
         reportId: string
     }
     openScoutSettings: (skillName: string) => {
-        configId: string | null
         skillName: string
     }
     saveScoutSettings: (form: ScannerScoutForm) => {
         form: ScannerScoutForm
-    }
-    saveScoutSettingsFailed: () => {
-        value: true
     }
     saveScoutSettingsFinished: () => {
         value: true
@@ -393,7 +382,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
         ],
     })),
 
-    actions(({ values }) => ({
+    actions({
         setScoutConfigsFailed: (failed: boolean) => ({ failed }),
         toggleExpanded: true,
         toggleScoutExpanded: (skillName: string) => ({ skillName }),
@@ -403,15 +392,11 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
         closeCreateModal: true,
         createScout: (form: ScannerScoutForm) => ({ form }),
         createScoutFinished: true,
-        openScoutSettings: (skillName: string) => ({
-            skillName,
-            configId: values.scoutConfigsForScanner.find((config) => config.skill_name === skillName)?.id ?? null,
-        }),
+        openScoutSettings: (skillName: string) => ({ skillName }),
         closeScoutSettings: true,
         saveScoutSettings: (form: ScannerScoutForm) => ({ form }),
         saveScoutSettingsFinished: true,
-        saveScoutSettingsFailed: true,
-    })),
+    }),
 
     loaders(({ props, values }) => ({
         skillPrompt: [
@@ -554,31 +539,6 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 closeScoutSettings: () => null,
             },
         ],
-        settingsConfigId: [
-            null as string | null,
-            {
-                openScoutSettings: (_, { configId }) => configId,
-                closeScoutSettings: () => null,
-            },
-        ],
-        // Both caches are stamped with the scout's skill name, and the settings form reads a cache
-        // under the open scout's name as its own. A rename frees the old name for a later scout, so
-        // a cache left behind would seed that scout with the previous one's prompt and webhook.
-        skillPrompt: {
-            closeScoutSettings: () => null,
-        },
-        scoutDelivery: {
-            closeScoutSettings: () => null,
-        },
-        settingsSaveFailed: [
-            false,
-            {
-                openScoutSettings: () => false,
-                saveScoutSettings: () => false,
-                saveScoutSettingsFailed: () => true,
-                closeScoutSettings: () => false,
-            },
-        ],
         settingsSaving: [
             false,
             {
@@ -693,8 +653,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
          * not read as the whole save failing. */
         const reconcileDelivery = async (
             config: Pick<SignalScoutConfigApi, 'id' | 'skill_name' | 'output_destinations'>,
-            form: Pick<ScannerScoutForm, 'webhookUrl' | 'outputDestinations'>,
-            previousSkillName: string = config.skill_name
+            form: Pick<ScannerScoutForm, 'webhookUrl' | 'outputDestinations'>
         ): Promise<boolean> => {
             const projectId = teamLogic.values.currentProjectId
             const teamId = teamLogic.values.currentTeamId
@@ -707,9 +666,8 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             try {
                 const existing = await findScoutDelivery(
                     String(projectId),
-                    skillName,
-                    config.output_destinations,
-                    previousSkillName
+                    config.skill_name,
+                    config.output_destinations
                 )
                 const payload = url ? scoutWebhookDestinationPayload(skillName, label, url) : null
                 const current = existing.webhook
@@ -895,34 +853,20 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 const teamId = teamLogic.values.currentTeamId
                 const projectId = teamLogic.values.currentProjectId
                 const config = values.scoutConfigsForScanner.find(
-                    (candidate) => candidate.id === values.settingsConfigId
+                    (candidate) => candidate.skill_name === values.settingsSkillName
                 )
                 if (!teamId || !projectId || !config || !form.body.trim()) {
                     actions.saveScoutSettingsFinished()
                     return
                 }
                 try {
-                    let savedConfig = config
-                    // The rename goes first because it is the write the server refuses: a taken
-                    // name, a canonical scout, a run in flight. Saving the instructions before it
-                    // would store them under a save the user is then told did not happen.
-                    const renamedSkillName = scoutDisplayNameToSkillName(form.name)
-                    if (renamedSkillName !== config.skill_name) {
-                        savedConfig = await signalsScoutConfigRename(String(teamId), config.id, {
-                            new_name: renamedSkillName,
-                        })
-                        scoutFleetLogic.actions.patchScoutConfigLocally(config.id, savedConfig)
-                        // The runs window is keyed by skill name, so the scout's runs read as
-                        // missing under the new one until they are fetched again — leaving the card
-                        // claiming nothing has run yet.
-                        actions.loadScoutRuns()
-                    }
                     if (form.body !== values.skillPrompt?.body) {
-                        await llmSkillsNamePartialUpdate(String(projectId), savedConfig.skill_name, {
-                            body: form.body,
-                        })
+                        await llmSkillsNamePartialUpdate(String(projectId), config.skill_name, { body: form.body })
                     }
                     const configUpdates: Record<string, unknown> = {}
+                    if (form.name.trim() !== scoutDisplayName(config)) {
+                        configUpdates.display_name = form.name.trim()
+                    }
                     if (form.cron !== config.run_cron_schedule) {
                         configUpdates.run_cron_schedule = form.cron
                     }
@@ -933,24 +877,19 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         configUpdates.output_destinations = form.outputDestinations ?? {}
                     }
                     if (Object.keys(configUpdates).length > 0) {
-                        savedConfig = await signalsScoutConfigUpdate(String(teamId), config.id, configUpdates)
-                        scoutFleetLogic.actions.patchScoutConfigLocally(config.id, savedConfig)
-                    }
-                    if (savedConfig !== config) {
+                        await signalsScoutConfigUpdate(String(teamId), config.id, configUpdates)
                         actions.loadScoutConfigs()
                     }
                     // Reads the destination from the id the config records, so a retry after a
                     // partial failure patches what exists instead of provisioning a second one.
-                    if (!(await reconcileDelivery(savedConfig, form, values.settingsSkillName ?? config.skill_name))) {
+                    if (!(await reconcileDelivery(config, form))) {
                         // reconcileDelivery already said what failed. Leaving the form open keeps the
                         // user's delivery edits in front of them instead of closing over the failure.
-                        actions.saveScoutSettingsFailed()
                         return
                     }
                     lemonToast.success('Scout updated. Changes take effect on its next run.')
                     actions.closeScoutSettings()
                 } catch (error: any) {
-                    actions.saveScoutSettingsFailed()
                     lemonToast.error(`Couldn't save the scout${error?.detail ? `: ${error.detail}` : ''}`)
                 } finally {
                     actions.saveScoutSettingsFinished()

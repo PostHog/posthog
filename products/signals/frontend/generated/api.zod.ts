@@ -793,6 +793,8 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
  * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) posture, `network_access` (trusted-domain allowlist vs full access for the scout's sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
+export const signalsScoutConfigUpdateBodyDisplayNameMax = 200
+
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 
@@ -818,6 +820,11 @@ export const signalsScoutConfigUpdateBodyWriteScopesMax = 7
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
+        display_name: zod
+            .string()
+            .max(signalsScoutConfigUpdateBodyDisplayNameMax)
+            .optional()
+            .describe('Name shown in the UI. Does not change the skill name. Leave blank to use the default name.'),
         enabled: zod
             .boolean()
             .optional()
@@ -955,24 +962,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                 "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
             ),
     })
-    .describe('Editable schedule, enablement, and emit posture for one scout config.')
-
-/**
- * Rename a custom scout without recreating it. The skill versions, owners, config, run history, source link, and targeted notes move together in one transaction. Canonical scouts cannot be renamed because fleet sync owns their names. A scout with a live run must finish before rename. Each history table is limited to 10,000 rows per rename. Larger histories are rejected without changes. A project can make five rename requests per hour across users, credentials, and environments.
- * @summary Rename a scout
- */
-export const signalsScoutConfigRenameBodyNewNameMax = 64
-
-export const SignalsScoutConfigRenameBody = /* @__PURE__ */ zod
-    .object({
-        new_name: zod
-            .string()
-            .max(signalsScoutConfigRenameBodyNewNameMax)
-            .describe(
-                'New scout skill name. Keep the current prefix class and use a unique kebab-case name. Names the inbox reserves for its own pages are refused.'
-            ),
-    })
-    .describe('The new logical identity for an existing custom scout.')
+    .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
 
 /**
  * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (a configured scout), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.

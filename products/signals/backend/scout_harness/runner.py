@@ -9,7 +9,6 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
-from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -111,17 +110,6 @@ _CRON_WINDOW_DST_SLACK_MINUTES = 120
 # that didn't opt in. `views._assert_report_tool_opted_in` is the matching fail-closed gate on the
 # write itself. `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` live in `skill_loader` so the
 # runner, prompt builder, and viewset all resolve the same opt-in set.
-
-
-class ScoutRenamedDuringDispatch(Exception):
-    """The scout was renamed between this dispatch and the moment its run row was created.
-
-    The rename endpoint refuses a scout with a run in flight, but a dispatch that has not
-    reached `_create_run_row` yet holds no `TaskRun` for it to see, so it can still land on the
-    old name. `arun_signals_scout` turns this into a skip: the dispatch is stale, not broken,
-    and counting it as a failure would move a lane toward the failure-streak breaker over a
-    rename nobody has to fix.
-    """
 
 
 @dataclass(frozen=True)
@@ -422,26 +410,6 @@ async def arun_signals_scout(
             runtime_s=runtime_s,
             skill_name=skill.name,
             skill_version=skill.version,
-        )
-    except ScoutRenamedDuringDispatch:
-        # A dispatch that lost the race with a rename never ran: the guard fires before the
-        # bridge row is written and before the `started` marker, so there is nothing to finalize
-        # and nothing to alert on. Report it the way the other stale-dispatch exits are reported,
-        # rather than as a failure that pushes the lane toward the breaker over a rename.
-        runtime_s = time.monotonic() - started
-        logger.info(
-            "signals_scout: skipping trigger, scout was renamed before this run started",
-            extra={"team_id": team_id, "skill_name": skill.name},
-        )
-        return RunResult(
-            run_id=None,
-            task_run_id=None,
-            status=None,
-            last_message=None,
-            runtime_s=runtime_s,
-            skill_name=skill.name,
-            skill_version=skill.version,
-            skip_reason="scout was renamed before this run started",
         )
     except Exception as exc:
         runtime_s = time.monotonic() - started
@@ -980,7 +948,6 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
             )
 
 
-@transaction.atomic
 def _create_run_row(
     *,
     run_id: Any,
@@ -995,16 +962,6 @@ def _create_run_row(
     business_knowledge_maintained: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> SignalScoutRun:
-    # Keyed on the canonical team like `_resolve_config` stores it — a child environment id
-    # would miss the row and raise `DoesNotExist` after the TaskRun already exists.
-    current_config = SignalScoutConfig.all_teams.select_for_update().get(
-        pk=config.pk, team_id=team.parent_team_id or team.id
-    )
-    if current_config.skill_name != skill.name:
-        raise ScoutRenamedDuringDispatch(
-            "The scout was renamed before this run started. Start a new run with the current name."
-        )
-
     # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
     # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
     # on the default path, so their absence means the agent-server default served the run.

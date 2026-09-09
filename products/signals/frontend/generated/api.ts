@@ -70,7 +70,6 @@ import type {
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
-    SignalScoutConfigRenameApi,
     SignalScoutCreateApi,
     SignalScoutCreateResponseApi,
     SignalScoutEmissionApi,
@@ -897,28 +896,6 @@ export const signalsScoutConfigDestroy = async (
     return apiMutator<void>(getSignalsScoutConfigDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getSignalsScoutConfigRenameUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/scout/configs/${id}/rename/`
-}
-
-/**
- * Rename a custom scout without recreating it. The skill versions, owners, config, run history, source link, and targeted notes move together in one transaction. Canonical scouts cannot be renamed because fleet sync owns their names. A scout with a live run must finish before rename. Each history table is limited to 10,000 rows per rename. Larger histories are rejected without changes. A project can make five rename requests per hour across users, credentials, and environments.
- * @summary Rename a scout
- */
-export const signalsScoutConfigRename = async (
-    projectId: string,
-    id: string,
-    signalScoutConfigRenameApi: SignalScoutConfigRenameApi,
-    options?: RequestInit
-): Promise<SignalScoutConfigApi> => {
-    return apiMutator<SignalScoutConfigApi>(getSignalsScoutConfigRenameUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(signalScoutConfigRenameApi),
     })
 }
 

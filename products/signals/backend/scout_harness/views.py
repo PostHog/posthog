@@ -22,11 +22,9 @@ from __future__ import annotations
 import uuid
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 
-from django.db import IntegrityError, transaction
-from django.db.models import Q, QuerySet, Value
-from django.db.models.functions import Concat, Length, Substr
+from django.db import transaction
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -52,7 +50,6 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
-from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
@@ -64,7 +61,6 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutNote,
     SignalScoutRun,
-    SignalScratchpad,
 )
 from products.signals.backend.pipeline_identity import pipeline_writer_identity
 from products.signals.backend.report_charts import ChartSize
@@ -72,8 +68,7 @@ from products.signals.backend.report_generation.resolve_reviewers import MAX_PRO
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
 from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
 from products.signals.backend.scout_harness.lazy_seed import SCOUT_SKILL_CATEGORY, scout_skill_origin
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, MAX_SCOUT_RENAME_HISTORY_ROWS
-from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX, IMPROVE_KEY_PREFIX
+from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -116,7 +111,6 @@ from products.signals.backend.scout_harness.serializers import (
     SearchRecentRunsQuerySerializer,
     SignalScoutConfigCreateSerializer,
     SignalScoutConfigListQuerySerializer,
-    SignalScoutConfigRenameSerializer,
     SignalScoutConfigSerializer,
     SignalScoutConfigUpdateSerializer,
     SignalScoutCreateResponseSerializer,
@@ -128,7 +122,6 @@ from products.signals.backend.scout_harness.serializers import (
 )
 from products.signals.backend.scout_harness.skill_loader import (
     REPORT_CHANNEL_TOOLS,
-    SIGNALS_SCOUT_SKILL_PREFIX,
     SkillNotFoundError,
     load_skill_for_run,
     resolve_scout_acting_user_id,
@@ -176,10 +169,7 @@ from products.signals.backend.scout_harness.tools.structured_output import (
 from products.signals.backend.scout_report import InvalidScoutReportError
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
-    LLMSkillNotFoundError,
-    LLMSkillRenameNotAllowedError,
     create_skill,
-    rename_skill,
     resolve_skill_owners_for_names,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -342,26 +332,6 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
     free. Mirrors the canonicalization in `TeamAndOrgViewSetMixin.initial`.
     """
     return view.team.parent_team_id or view.team_id
-
-
-class ScoutRenameThrottle(PersonalApiKeyOrUserRateThrottle):
-    scope = "scout_rename"
-    rate = "5/hour"
-
-    def get_cache_key(self, request: Request, view: TeamAndOrgViewSetMixin) -> str:
-        return self.cache_format % {"scope": self.scope, "ident": _canonical_team_id(view)}
-
-
-_ScoutHistory = TypeVar("_ScoutHistory", SignalScoutRun, SignalScoutNote, SignalScratchpad)
-
-
-def _bounded_scout_rename_rows(rows: QuerySet[_ScoutHistory]) -> QuerySet[_ScoutHistory]:
-    row_ids = list(rows.order_by().values_list("id", flat=True)[: MAX_SCOUT_RENAME_HISTORY_ROWS + 1])
-    if len(row_ids) > MAX_SCOUT_RENAME_HISTORY_ROWS:
-        raise exceptions.ValidationError(
-            {"new_name": "This scout has too much history for an immediate rename. Keep its current name."}
-        )
-    return rows.filter(id__in=row_ids)
 
 
 def _to_report_charts(entries: list[dict] | None) -> list[ReportChartInput] | None:
@@ -2253,7 +2223,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # schema is rendered verbatim into the run prompt (its `description` fields are free prose).
         # Reads, other config edits, and clearing the schema stay on the base config scopes.
         action = getattr(view, "action", None)
-        if action in ("create", "rename"):
+        if action == "create":
             return ["signal_scout:write", "llm_skill:write"]
         if action == "partial_update" and self._sets_structured_output_schema(request):
             return ["signal_scout:write", "llm_skill:write"]
@@ -2465,145 +2435,6 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             instance = serializer.save(**save_kwargs)
         context = scout_config_context(team, [instance.skill_name], request)
         return Response(SignalScoutConfigSerializer(instance, context=context).data)
-
-    @extend_schema(
-        request=SignalScoutConfigRenameSerializer,
-        responses={
-            200: OpenApiResponse(response=SignalScoutConfigSerializer, description="Renamed scout."),
-            400: OpenApiResponse(description="Invalid name or too much history for an immediate rename."),
-            403: OpenApiResponse(description="The caller lacks editor access to skills on this project."),
-            404: OpenApiResponse(description="Config or scout skill not found for this project."),
-            409: OpenApiResponse(description="This scout has a run in progress."),
-            429: OpenApiResponse(description="This project has reached the rename request limit."),
-        },
-        summary="Rename a scout",
-        description=(
-            "Rename a custom scout without recreating it. The skill versions, owners, config, run history, "
-            "source link, and targeted notes move together in one transaction. Canonical scouts cannot be "
-            "renamed because fleet sync owns their names. A scout with a live run must finish before rename."
-            " Each history table is limited to 10,000 rows per rename. Larger histories are rejected without changes."
-            " A project can make five rename requests per hour across users, credentials, and environments."
-        ),
-        operation_id="signals_scout_config_rename",
-    )
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path="rename",
-        throttle_classes=[ScoutRenameThrottle],
-        required_scopes=["signal_scout:write", "llm_skill:write"],
-    )
-    def rename(self, request: Request, *args, **kwargs) -> Response:
-        team = _canonical_team(self)
-        config_id = _parse_run_id_or_404(kwargs)
-        payload = SignalScoutConfigRenameSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-        new_name = payload.validated_data["new_name"]
-
-        try:
-            with transaction.atomic():
-                config = (
-                    SignalScoutConfig.objects.unscoped()
-                    .select_for_update()
-                    .filter(team_id=team.id, id=config_id)
-                    .first()
-                )
-                if config is None:
-                    raise exceptions.NotFound()
-                self._assert_can_register_scout()
-                old_name = config.skill_name
-                if new_name == old_name:
-                    raise exceptions.ValidationError({"new_name": "The scout already has this name."})
-                if (
-                    SignalScoutConfig.objects.unscoped()
-                    .filter(team_id=team.id, skill_name=new_name)
-                    .exclude(id=config.id)
-                    .exists()
-                ):
-                    raise exceptions.ValidationError({"new_name": "A scout with this name already exists."})
-                # Name and metadata only: the gate asks who owns this *name*, and fleet sync owns a
-                # canonical one however far the team has edited the body. The content-hash variant
-                # (`scout_skill_row_origin`) answers a different question — whether the row is the
-                # team's to take suggestions on — and reading it here would free the name, letting
-                # the next sync seed a second scout under it.
-                skill = LLMSkill.objects.filter(team_id=team.id, name=old_name, is_latest=True, deleted=False).first()
-                if skill is None:
-                    raise exceptions.NotFound("The scout skill no longer exists.")
-                if scout_skill_origin(skill.name, skill.metadata) == "canonical":
-                    raise exceptions.ValidationError(
-                        {"new_name": "Canonical scouts keep the names managed by fleet sync."}
-                    )
-                if rejection := check_run_in_flight(team.id, old_name):
-                    raise Conflict(detail=rejection.detail)
-
-                runs = _bounded_scout_rename_rows(SignalScoutRun.objects.for_team(team.id).filter(skill_name=old_name))
-                notes = _bounded_scout_rename_rows(
-                    SignalScoutNote.objects.for_team(team.id).filter(skill_name=old_name)
-                )
-                # Both memory namespaces the prompt keys on the scout's own name move together.
-                # A stranded `improve:` suggestion is unreclaimable: only a run holding that name
-                # can rewrite or forget it, and after the rename no scout holds the old one.
-                key_prefixes = [
-                    (f"{prefix}{old_name}:", f"{prefix}{new_name}:")
-                    for prefix in (FOLLOWUP_KEY_PREFIX, IMPROVE_KEY_PREFIX)
-                ]
-                key_filter = Q()
-                for old_prefix, _ in key_prefixes:
-                    key_filter |= Q(key__startswith=old_prefix)
-                scratchpads = _bounded_scout_rename_rows(SignalScratchpad.all_teams.filter(key_filter, team_id=team.id))
-
-                allowed_prefix = SIGNALS_SCOUT_SKILL_PREFIX if old_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX) else None
-                try:
-                    rename_skill(
-                        team,
-                        skill_name=old_name,
-                        new_name=new_name,
-                        _product_owned_prefix=allowed_prefix,
-                    )
-                except LLMSkillDuplicateNameConflictError:
-                    raise exceptions.ValidationError({"new_name": "A skill with this name already exists."})
-                except LLMSkillRenameNotAllowedError:
-                    raise exceptions.ValidationError(
-                        {"new_name": "The new name must keep the scout's current name prefix."}
-                    )
-                except LLMSkillNotFoundError:
-                    raise exceptions.NotFound("The scout skill no longer exists.")
-
-                # Every namespace keeps its literal prefix, so the rewrite grows each key by the
-                # same amount and one check covers them all.
-                if (
-                    scratchpads.annotate(key_length=Length("key"))
-                    .filter(key_length__gt=300 + len(old_name) - len(new_name))
-                    .exists()
-                ):
-                    raise exceptions.ValidationError(
-                        {"new_name": "This name makes a saved memory key too long. Use a shorter name."}
-                    )
-                for old_prefix, new_prefix in key_prefixes:
-                    scratchpads.filter(key__startswith=old_prefix).update(
-                        key=Concat(Value(new_prefix), Substr("key", len(old_prefix) + 1))
-                    )
-                runs.update(skill_name=new_name)
-                notes.update(skill_name=new_name)
-                config.skill_name = new_name
-                config.save(update_fields=["skill_name"])
-
-        except IntegrityError as error:
-            constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
-            if constraint in {
-                "unique_llm_skill_version_per_team",
-                "unique_llm_skill_latest_per_team",
-                "unique_llm_skill_owner",
-                "unique_scout_config_per_team_skill",
-                "signal_scratchpad_unique_team_key",
-            }:
-                raise exceptions.ValidationError(
-                    {"new_name": "This name has a scout, skill, or saved memory. Choose another name."}
-                ) from error
-            raise
-
-        context = scout_config_context(team, [new_name], request)
-        return Response(SignalScoutConfigSerializer(config, context=context).data)
 
     @extend_schema(
         request=None,

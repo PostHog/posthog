@@ -1,25 +1,19 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from threading import Barrier, Event
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
-from django.core.cache import cache
-from django.db import connection, connections
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -27,10 +21,8 @@ from posthog.models import OAuthApplication
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -61,18 +53,17 @@ from products.signals.backend.scout_harness.lazy_seed import (
 )
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
-from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX, IMPROVE_KEY_PREFIX
-from products.signals.backend.scout_harness.runner import ScoutRenamedDuringDispatch, _create_run_row
+from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
     SignalScoutConfigUpdateSerializer,
     SignalScoutSlackDestinationSerializer,
 )
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX, load_skill_for_run
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
-from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
+from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -2226,163 +2217,6 @@ class TestRunCronScheduleValidation(SimpleTestCase):
         assert serializer.validated_data["run_cron_schedule"] is None
 
 
-class TestScoutRenameConcurrency(NonAtomicAPIBaseTest):
-    CLASS_DATA_LEVEL_SETUP = False
-
-    def test_run_starting_after_history_moves_cannot_use_the_old_name(self) -> None:
-        old_name = "signals-scout-before-rename"
-        new_name = "signals-scout-after-rename"
-        config = SignalScoutConfig.all_teams.create(team=self.team, skill_name=old_name)
-        LLMSkill.objects.create(team=self.team, name=old_name, description="Test scout", body="Check test data.")
-        skill = load_skill_for_run(self.team, old_name)
-        SignalScoutRun.all_teams.create(
-            team=self.team,
-            scout_config=config,
-            task_run=_make_task_run(self.team, status="completed"),
-            skill_name=old_name,
-            skill_version=skill.version,
-        )
-        task_run = _make_task_run(self.team)
-        run_id = uuid4()
-        history_moved = Event()
-        run_started = Event()
-
-        def wait_for_run_start(
-            execute: Callable[..., Any], sql: str, params: object, many: bool, context: dict[str, Any]
-        ) -> Any:
-            result = execute(sql, params, many, context)
-            if sql.startswith(f'UPDATE "{SignalScoutRun._meta.db_table}"'):
-                history_moved.set()
-                assert run_started.wait(timeout=20)
-            return result
-
-        def announce_run_start(
-            execute: Callable[..., Any], sql: str, params: object, many: bool, context: dict[str, Any]
-        ) -> Any:
-            run_started.set()
-            return execute(sql, params, many, context)
-
-        def start_run() -> None:
-            try:
-                assert history_moved.wait(timeout=20)
-                with connection.execute_wrapper(announce_run_start):
-                    _create_run_row(run_id=run_id, task_run=task_run, team=self.team, config=config, skill=skill)
-            finally:
-                connections.close_all()
-
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            pending_run = executor.submit(start_run)
-            with connection.execute_wrapper(wait_for_run_start):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/signals/scout/configs/{config.id}/rename/",
-                    {"new_name": new_name},
-                    format="json",
-                )
-            assert response.status_code == status.HTTP_200_OK, response.json()
-            with self.assertRaisesRegex(ScoutRenamedDuringDispatch, "renamed before this run started"):
-                pending_run.result(timeout=20)
-
-        assert not SignalScoutRun.all_teams.filter(pk=run_id).exists()
-        config.refresh_from_db()
-        assert config.skill_name == new_name
-
-    def test_note_left_during_a_rename_cannot_land_under_the_old_name(self) -> None:
-        old_name = "signals-scout-before-rename"
-        new_name = "signals-scout-after-rename"
-        config = SignalScoutConfig.all_teams.create(team=self.team, skill_name=old_name)
-        LLMSkill.objects.create(team=self.team, name=old_name, description="Test scout", body="Check test data.")
-        SignalScoutNote.all_teams.create(team=self.team, skill_name=old_name, content="Watch the funnel.")
-        notes_moved = Event()
-        note_started = Event()
-
-        def wait_for_note_write(
-            execute: Callable[..., Any], sql: str, params: object, many: bool, context: dict[str, Any]
-        ) -> Any:
-            result = execute(sql, params, many, context)
-            if sql.startswith(f'UPDATE "{SignalScoutNote._meta.db_table}"'):
-                notes_moved.set()
-                assert note_started.wait(timeout=20)
-            return result
-
-        def announce_target_read(
-            execute: Callable[..., Any], sql: str, params: object, many: bool, context: dict[str, Any]
-        ) -> Any:
-            # The rename holds until the note write reaches the target config, so the note is
-            # written against a project where the old name still resolves.
-            if SignalScoutConfig._meta.db_table in sql:
-                note_started.set()
-            return execute(sql, params, many, context)
-
-        def write_note() -> int:
-            try:
-                assert notes_moved.wait(timeout=20)
-                client = APIClient()
-                client.force_authenticate(user=self.user)
-                with connection.execute_wrapper(announce_target_read):
-                    response = client.post(
-                        f"/api/projects/{self.team.id}/signals/scout/notes/",
-                        {"skill_name": old_name, "content": "Check the checkout page."},
-                        format="json",
-                    )
-                return response.status_code
-            finally:
-                note_started.set()
-                connections.close_all()
-
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            pending_note = executor.submit(write_note)
-            with connection.execute_wrapper(wait_for_note_write):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/signals/scout/configs/{config.id}/rename/",
-                    {"new_name": new_name},
-                    format="json",
-                )
-            assert response.status_code == status.HTTP_200_OK, response.json()
-            assert pending_note.result(timeout=20) == status.HTTP_400_BAD_REQUEST
-
-        assert not SignalScoutNote.all_teams.filter(team=self.team, skill_name=old_name).exists()
-        assert SignalScoutNote.all_teams.filter(team=self.team, skill_name=new_name).count() == 1
-
-    def test_concurrent_renames_return_a_name_conflict(self) -> None:
-        configs = []
-        for name in ["signals-scout-first", "signals-scout-second"]:
-            configs.append(SignalScoutConfig.all_teams.create(team=self.team, skill_name=name))
-            LLMSkill.objects.create(team=self.team, name=name, description="Test scout", body="Check test data.")
-        new_name = "signals-scout-shared-name"
-        before_update = Barrier(2, timeout=20)
-
-        def synchronize_updates(
-            execute: Callable[..., Any], sql: str, params: object, many: bool, context: dict[str, Any]
-        ) -> Any:
-            if sql.startswith('UPDATE "llm_analytics_llmskill"'):
-                before_update.wait()
-            return execute(sql, params, many, context)
-
-        def rename(config: SignalScoutConfig) -> int:
-            try:
-                client = APIClient()
-                client.force_authenticate(user=self.user)
-                with connection.execute_wrapper(synchronize_updates):
-                    response = client.post(
-                        f"/api/projects/{self.team.id}/signals/scout/configs/{config.id}/rename/",
-                        {"new_name": new_name},
-                        format="json",
-                    )
-                return response.status_code
-            finally:
-                connections.close_all()
-
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            results = list(executor.map(rename, configs))
-
-        assert sorted(results) == [status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST]
-        assert SignalScoutConfig.all_teams.filter(team=self.team, skill_name=new_name).count() == 1
-        assert LLMSkill.objects.filter(team=self.team, name=new_name, deleted=False).count() == 1
-        for config in configs:
-            config.refresh_from_db()
-            assert LLMSkill.objects.filter(team=self.team, name=config.skill_name, deleted=False).exists()
-
-
 class TestScoutHarnessConfigAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/"
@@ -2397,6 +2231,57 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             description="test scout",
             body="# test scout",
         )
+
+    def test_display_name_update_preserves_identity_and_running_history(self) -> None:
+        skill = self._make_skill("signals-scout-daily-digest")
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name=skill.name,
+            source_product="replay_vision",
+            source_id=str(uuid4()),
+            output_destinations={"webhook": {"hog_function_id": "test-webhook"}},
+        )
+        run = _make_run(self.team, scout_config=config, skill_name=skill.name)
+        note = SignalScoutNote.objects.create(team=self.team, skill_name=skill.name, content="Check checkout errors.")
+        memory = SignalScratchpad.objects.create(
+            team=self.team, key=f"{FOLLOWUP_KEY_PREFIX}{skill.name}:test", content="Keep this memory."
+        )
+        original_config = next(
+            item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id)
+        )
+        assert original_config["display_name"] == ""
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {**original_config, "display_name": "Checkout / daily digest"}
+        saved_config = next(item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id))
+        assert saved_config["display_name"] == "Checkout / daily digest"
+        config.refresh_from_db()
+        skill.refresh_from_db()
+        run.refresh_from_db()
+        note.refresh_from_db()
+        memory.refresh_from_db()
+        assert config.skill_name == skill.name == run.skill_name == note.skill_name == "signals-scout-daily-digest"
+        assert memory.key == f"{FOLLOWUP_KEY_PREFIX}{skill.name}:test"
+        assert memory.content == "Keep this memory."
+
+    @parameterized.expand([("", 200), ("Shared name", 200), ("a" * 201, 400), (None, 400)])
+    def test_display_name_validation(self, display_name: str | None, expected_status: int) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-foo", display_name="Original"
+        )
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-bar", display_name="Shared name")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"display_name": display_name}, format="json"
+        )
+
+        assert response.status_code == expected_status
+        config.refresh_from_db()
+        assert config.display_name == (display_name if expected_status == 200 else "Original")
 
     def test_list_returns_team_configs_ordered_by_skill(self) -> None:
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
@@ -2480,342 +2365,6 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["description"] == "Foo scout."
         # The partial_update path resolves skill_info independently of list — assert origin too.
         assert response.json()["scout_origin"] == "custom"
-
-    def test_rename_moves_the_custom_scout_and_its_history(self) -> None:
-        old_name = "signals-scout-checkout-typoo"
-        new_name = "signals-scout-checkout-typo-free"
-        config = SignalScoutConfig.objects.create(
-            team=self.team,
-            skill_name=old_name,
-            source_product="replay_vision",
-            source_id="scanner-1",
-        )
-        LLMSkill.objects.create(
-            team=self.team,
-            name=old_name,
-            description="Checkout scout.",
-            body="v1",
-            version=1,
-            is_latest=False,
-        )
-        LLMSkill.objects.create(
-            team=self.team,
-            name=old_name,
-            description="Checkout scout.",
-            body="v2",
-            version=2,
-            is_latest=True,
-        )
-        owner = User.objects.create_and_join(self.organization, "scout-owner@example.com", None)
-        LLMSkillOwner.objects.for_team(self.team.id).create(team=self.team, skill_name=old_name, user=owner)
-        TaskRun = apps.get_model("tasks", "TaskRun")
-        run = _make_run(
-            self.team,
-            scout_config=config,
-            skill_name=old_name,
-            task_run_status=TaskRun.Status.COMPLETED,
-        )
-        note = SignalScoutNote.objects.create(team=self.team, skill_name=old_name, content="Check the funnel.")
-        memory = SignalScratchpad.objects.create(
-            team=self.team,
-            key=f"{FOLLOWUP_KEY_PREFIX}{old_name}:checkout",
-            content="pending: Check the funnel.",
-            created_by_run=run,
-        )
-        suggestion = SignalScratchpad.objects.create(
-            team=self.team,
-            key=f"{IMPROVE_KEY_PREFIX}{old_name}:thresholds",
-            content="2026-09-01 observed: the default window is too short.",
-        )
-        other_memory = SignalScratchpad.objects.create(
-            team=self.team, key=f"{FOLLOWUP_KEY_PREFIX}{old_name}-other:checkout", content="Keep this key."
-        )
-        memory_updated_at = memory.updated_at
-
-        response = self.client.post(
-            f"{self._detail_url(str(config.id))}rename/",
-            data={"new_name": new_name},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["skill_name"] == new_name
-        assert [row["email"] for row in response.json()["owners"]] == [owner.email]
-        assert sorted(
-            LLMSkill.objects.filter(team=self.team, name=new_name, deleted=False).values_list("version", flat=True)
-        ) == [1, 2]
-        assert not LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
-        assert LLMSkillOwner.objects.for_team(self.team.id).filter(skill_name=new_name, user=owner).exists()
-        config.refresh_from_db()
-        run.refresh_from_db()
-        note.refresh_from_db()
-        assert config.skill_name == new_name
-        assert config.source_product == "replay_vision"
-        assert config.source_id == "scanner-1"
-        assert run.skill_name == new_name
-        assert note.skill_name == new_name
-        memory.refresh_from_db()
-        other_memory.refresh_from_db()
-        assert memory.key == f"{FOLLOWUP_KEY_PREFIX}{new_name}:checkout"
-        assert memory.content == "pending: Check the funnel."
-        assert memory.created_by_run_id == run.id
-        assert memory.updated_at == memory_updated_at
-        assert other_memory.key == f"{FOLLOWUP_KEY_PREFIX}{old_name}-other:checkout"
-        suggestion.refresh_from_db()
-        assert suggestion.key == f"{IMPROVE_KEY_PREFIX}{new_name}:thresholds"
-        assert suggestion.content == "2026-09-01 observed: the default window is too short."
-
-    @parameterized.expand([(kind, count) for kind in ["runs", "notes", "memories"] for count in [2, 3]])
-    def test_rename_history_limit(self, kind: str, count: int) -> None:
-        old_name = "signals-scout-before"
-        new_name = "signals-scout-after"
-        config = SignalScoutConfig.objects.create(team=self.team, skill_name=old_name)
-        skill = self._make_skill(old_name)
-        run = _make_run(self.team, scout_config=config, skill_name=old_name, task_run_status="completed")
-        note = SignalScoutNote.objects.create(team=self.team, skill_name=old_name, content="Keep the note.")
-        memory = SignalScratchpad.objects.create(
-            team=self.team, key=f"{FOLLOWUP_KEY_PREFIX}{old_name}:first", content="Keep the memory."
-        )
-        for index in range(1, count):
-            if kind == "runs":
-                _make_run(self.team, scout_config=config, skill_name=old_name, task_run_status="completed")
-            elif kind == "notes":
-                SignalScoutNote.objects.create(team=self.team, skill_name=old_name, content=f"Note {index}.")
-            else:
-                SignalScratchpad.objects.create(
-                    team=self.team, key=f"{FOLLOWUP_KEY_PREFIX}{old_name}:{index}", content=f"Memory {index}."
-                )
-
-        with patch("products.signals.backend.scout_harness.views.MAX_SCOUT_RENAME_HISTORY_ROWS", 2):
-            response = self.client.post(
-                f"{self._detail_url(str(config.id))}rename/", {"new_name": new_name}, format="json"
-            )
-
-        expected_name = new_name if count == 2 else old_name
-        assert response.status_code == (status.HTTP_200_OK if count == 2 else status.HTTP_400_BAD_REQUEST)
-        config.refresh_from_db()
-        skill.refresh_from_db()
-        run.refresh_from_db()
-        note.refresh_from_db()
-        memory.refresh_from_db()
-        assert config.skill_name == skill.name == run.skill_name == note.skill_name == expected_name
-        assert memory.key == f"{FOLLOWUP_KEY_PREFIX}{expected_name}:first"
-        assert SignalScoutRun.all_teams.filter(team=self.team, skill_name=expected_name).count() == (
-            count if kind == "runs" else 1
-        )
-        assert SignalScoutNote.objects.filter(team=self.team, skill_name=expected_name).count() == (
-            count if kind == "notes" else 1
-        )
-        assert SignalScratchpad.all_teams.filter(
-            team=self.team, key__startswith=f"{FOLLOWUP_KEY_PREFIX}{expected_name}:"
-        ).count() == (count if kind == "memories" else 1)
-
-    @parameterized.expand([("session",), ("api_key",), ("other_user",), ("child_environment",)])
-    def test_rename_throttle_is_shared_by_project(self, caller: str) -> None:
-        first_config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first")
-        second_config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-second")
-        self._make_skill(first_config.skill_name)
-        self._make_skill(second_config.skill_name)
-        cache.clear()
-
-        with (
-            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
-            patch("products.signals.backend.scout_harness.views.ScoutRenameThrottle.rate", "1/hour"),
-        ):
-            response = self.client.post(
-                f"{self._detail_url(str(first_config.id))}rename/",
-                {"new_name": "signals-scout-first-renamed"},
-                format="json",
-            )
-            assert response.status_code == status.HTTP_200_OK, response.json()
-
-            team_id = self.team.id
-            if caller == "api_key":
-                raw = generate_random_token_personal()
-                PersonalAPIKey.objects.create(
-                    label="rename-test", user=self.user, secure_value=hash_key_value(raw), scopes=["*"]
-                )
-                self.client.logout()
-                self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
-            elif caller == "other_user":
-                other_user = User.objects.create_and_join(self.organization, "other-editor@example.com", None)
-                self.client.force_login(other_user)
-            elif caller == "child_environment":
-                child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Staging")
-                team_id = child.id
-
-            response = self.client.post(
-                f"/api/projects/{team_id}/signals/scout/configs/{second_config.id}/rename/",
-                {"new_name": "signals-scout-second-renamed"},
-                format="json",
-            )
-
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
-        assert int(response["Retry-After"]) > 0
-        second_config.refresh_from_db()
-        assert second_config.skill_name == "signals-scout-second"
-        cache.clear()
-
-    @parameterized.expand(["no_stored_hash", "pristine", "edited_in_place"])
-    def test_rename_rejects_a_canonical_scout(self, shape: str) -> None:
-        # Fleet sync owns a name it ships, so every row holding one is refused — including a row
-        # the team has edited. Freeing the name lets the next sync seed a fresh canonical scout
-        # under it and auto-register a config, leaving the team running two overlapping scouts.
-        name = "signals-scout-general"
-        config = SignalScoutConfig.objects.create(team=self.team, skill_name=name)
-        skill = LLMSkill.objects.create(
-            team=self.team,
-            name=name,
-            description="Canonical scout.",
-            body="...",
-            metadata={"seeded_by": HARNESS_SEEDED_BY},
-        )
-        if shape != "no_stored_hash":
-            stored_hash = _compute_row_hash(skill, []) if shape == "pristine" else "a-hash-the-row-no-longer-matches"
-            skill.metadata["canonical_hash"] = stored_hash
-            skill.save(update_fields=["metadata"])
-
-        response = self.client.post(
-            f"{self._detail_url(str(config.id))}rename/",
-            data={"new_name": "signals-scout-renamed-general"},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "fleet sync" in str(response.json())
-        assert LLMSkill.objects.filter(team=self.team, name=name, deleted=False).exists()
-        config.refresh_from_db()
-        assert config.skill_name == name
-
-    def test_rename_moves_a_fork_of_a_bundled_scout(self) -> None:
-        # A fork copies the source row's metadata, seed tag included, but it cannot hold a name the
-        # fleet ships — so the name is the team's and the rename must go through. Guards the
-        # canonical gate against refusing every row that merely carries the tag.
-        old_name = "signals-scout-my-fork"
-        config = SignalScoutConfig.objects.create(team=self.team, skill_name=old_name)
-        skill = LLMSkill.objects.create(
-            team=self.team,
-            name=old_name,
-            description="Forked scout.",
-            body="Our own instructions.",
-            metadata={"seeded_by": HARNESS_SEEDED_BY},
-        )
-        LLMSkillFile.objects.create(skill=skill, path="refs/playbook.md", content="x", content_type="text/plain")
-
-        response = self.client.post(
-            f"{self._detail_url(str(config.id))}rename/",
-            data={"new_name": "signals-scout-my-second-fork"},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        config.refresh_from_db()
-        assert config.skill_name == "signals-scout-my-second-fork"
-
-    def test_rename_rejects_a_live_run(self) -> None:
-        old_name = "signals-scout-checkout"
-        config = SignalScoutConfig.objects.create(team=self.team, skill_name=old_name)
-        self._make_skill(old_name)
-        _make_run(self.team, scout_config=config, skill_name=old_name)
-
-        response = self.client.post(
-            f"{self._detail_url(str(config.id))}rename/",
-            data={"new_name": "signals-scout-checkout-renamed"},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_409_CONFLICT
-        assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
-
-    @parameterized.expand(
-        [
-            ("scout_scope_only", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
-            ("both_scopes", ["signal_scout:write", "llm_skill:write"], status.HTTP_200_OK),
-        ]
-    )
-    def test_rename_requires_skill_authoring_scope(self, _name: str, scopes: list[str], expected: int) -> None:
-        from posthog.models.personal_api_key import PersonalAPIKey
-        from posthog.models.utils import generate_random_token_personal, hash_key_value
-
-        old_name = "signals-scout-checkout"
-        config = SignalScoutConfig.objects.create(team=self.team, skill_name=old_name)
-        self._make_skill(old_name)
-        raw = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
-        self.client.logout()
-
-        response = self.client.post(
-            f"{self._detail_url(str(config.id))}rename/",
-            data={"new_name": "signals-scout-checkout-renamed"},
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {raw}",
-        )
-
-        assert response.status_code == expected, response.json()
-
-    @parameterized.expand(
-        [
-            ("unchanged", "signals-scout-checkout", None),
-            ("different_prefix", "checkout-renamed", None),
-            ("skill_name_taken", "signals-scout-taken", "skill"),
-            ("config_name_taken", "signals-scout-taken", "config"),
-            ("memory_key_taken", "signals-scout-taken", "memory"),
-            ("memory_key_too_long", "signals-scout-longer-checkout", "long_memory"),
-        ]
-    )
-    def test_rename_rejects_invalid_targets(self, _label: str, new_name: str, conflict: str | None) -> None:
-        old_name = "signals-scout-checkout"
-        config = SignalScoutConfig.objects.create(team=self.team, skill_name=old_name)
-        self._make_skill(old_name)
-        if conflict == "skill":
-            self._make_skill(new_name)
-        elif conflict == "config":
-            SignalScoutConfig.objects.create(team=self.team, skill_name=new_name)
-        elif conflict in {"memory", "long_memory"}:
-            old_key = f"{FOLLOWUP_KEY_PREFIX}{old_name}:checkout"
-            if conflict == "long_memory":
-                old_key = old_key.ljust(300, "x")
-            SignalScratchpad.objects.create(team=self.team, key=old_key, content="Keep the original memory.")
-            if conflict == "memory":
-                SignalScratchpad.objects.create(
-                    team=self.team, key=f"{FOLLOWUP_KEY_PREFIX}{new_name}:checkout", content="Keep the target memory."
-                )
-
-        response = self.client.post(
-            f"{self._detail_url(str(config.id))}rename/",
-            data={"new_name": new_name},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "new_name"
-        assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
-
-        config.refresh_from_db()
-        assert config.skill_name == old_name
-        if conflict in {"memory", "long_memory"}:
-            assert SignalScratchpad.objects.filter(team=self.team, key=old_key).exists()
-
-    @parameterized.expand([("scratchpad",), ("findings",), ("runs",)])
-    def test_rename_rejects_inbox_reserved_names(self, new_name: str) -> None:
-        # A bare-named scout is the reachable case: the prefix guard already refuses these names
-        # for a `signals-scout-*` scout, so only an unprefixed one can land on the static
-        # `/inbox/scouts/` sub-pages and become unopenable from the roster.
-        old_name = "my-ordinary-skill"
-        config = SignalScoutConfig.objects.create(team=self.team, skill_name=old_name)
-        self._make_skill(old_name)
-
-        response = self.client.post(
-            f"{self._detail_url(str(config.id))}rename/",
-            data={"new_name": new_name},
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "new_name"
-        config.refresh_from_db()
-        assert config.skill_name == old_name
-        assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
 
     @parameterized.expand(
         [

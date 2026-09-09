@@ -1,14 +1,12 @@
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
-import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import type { ScannerScoutTemplate } from './scannerScout'
 import {
+    scoutNameToSkillName,
     isScannerScoutConfig,
     scannerScoutCreatePayload,
     scannerScoutTemplates,
     scoutBodyPlaceholders,
-    scoutDisplayNameToSkillName,
-    scoutNameToSkillName,
 } from './scannerScout'
 
 describe('scannerScout', () => {
@@ -31,36 +29,6 @@ describe('scannerScout', () => {
         const second = scoutNameToSkillName('Daily digest', 'Signup drop-off', [first])
         expect(first).toBe('signals-scout-checkout-rage-clicks-daily-digest')
         expect(second).toBe('signals-scout-signup-drop-off-daily-digest')
-    })
-
-    it('turns an edited display name directly into the new scout identity', () => {
-        expect(scoutDisplayNameToSkillName('Checkout friction daily summary')).toBe(
-            'signals-scout-checkout-friction-daily-summary'
-        )
-    })
-
-    it('round-trips a name whose collision suffix fills the length cap', () => {
-        // Creation reserves room for the suffix, so a second scout on a descriptively named
-        // scanner is 62-64 characters. Re-deriving that name from the settings field must return
-        // it unchanged: dropping the suffix aims the rename at the FIRST scout's name, and the
-        // backend then refuses every save of a name the user never touched.
-        const scannerName = 'Checkout funnel friction detector'
-        const first = scoutNameToSkillName('Daily digest', scannerName, [])
-        const second = scoutNameToSkillName('Daily digest', scannerName, [first])
-        expect(second).toBe(`${first}-2`)
-        // Past the 61 characters creation keeps to, which is what used to get truncated away.
-        expect(second.length).toBeGreaterThan(61)
-
-        expect(scoutDisplayNameToSkillName(prettifyScoutSkillName(second))).toBe(second)
-        expect(scoutDisplayNameToSkillName(prettifyScoutSkillName(first))).toBe(first)
-    })
-
-    it('round-trips a two-digit collision suffix at the full length cap', () => {
-        const base = `signals-scout-${'a'.repeat(64 - 3 - 'signals-scout-'.length)}`
-        const name = `${base}-99`
-        expect(name).toHaveLength(64)
-
-        expect(scoutDisplayNameToSkillName(prettifyScoutSkillName(name))).toBe(name)
     })
 
     it('keeps the label whole when the scanner name would overrun the cap', () => {

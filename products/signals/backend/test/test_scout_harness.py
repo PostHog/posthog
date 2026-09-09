@@ -53,7 +53,6 @@ from products.signals.backend.scout_harness.runner import (
     SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
     SIGNALS_SCOUT_SANDBOX_ENV_NAME,
     RunResult,
-    ScoutRenamedDuringDispatch,
     _ai_stage,
     _create_run_row,
     _failure_streak_runs_in_window,
@@ -2285,35 +2284,6 @@ async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_rename_race_is_reported_as_a_skip_not_a_failure(ateam, aerrors_skill):
-    # A dispatch already in flight when the scout is renamed is refused at the run row, before
-    # anything runs. Booking it as a failed run would push the lane toward the failure-streak
-    # breaker over a rename, and pause a scout whose schedule never failed.
-    config = await database_sync_to_async(SignalScoutConfig.objects.create)(
-        team=ateam, skill_name="signals-scout-errors"
-    )
-
-    async def fake_spawn(**_kwargs):
-        raise ScoutRenamedDuringDispatch("The scout was renamed before this run started.")
-
-    with (
-        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
-        patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
-        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
-    ):
-        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    assert result.skip_reason == "scout was renamed before this run started"
-    assert result.status is None
-    assert result.run_id is None
-    config = await database_sync_to_async(SignalScoutConfig.objects.get)(pk=config.pk)
-    assert config.consecutive_failure_count == 0
-    assert config.status == SignalScoutConfig.Status.ACTIVE
-    assert [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_finished"] == []
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
 async def test_cancelled_run_re_raises(ateam, aerrors_skill):
     """asyncio.CancelledError is BaseException, not Exception — the runner must let it
     propagate so Temporal marks the activity failed, rather than swallowing it. Run status
@@ -2612,41 +2582,6 @@ class TestRunRowProvenanceStamps(BaseTest):
             origin=origin,  # type: ignore[arg-type]
             authors=[],
         )
-
-    def test_rejects_a_run_loaded_before_the_scout_was_renamed(self) -> None:
-        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
-        SignalScoutConfig.all_teams.filter(pk=config.pk).update(skill_name="signals-scout-new-name")
-        run_id = uuid7()
-
-        with pytest.raises(ScoutRenamedDuringDispatch, match="renamed before this run started"):
-            _create_run_row(
-                run_id=run_id,
-                task_run=_make_task_run(self.team),
-                team=self.team,
-                config=config,
-                skill=self._skill(allowed_tools=["emit_report"], origin="custom"),
-            )
-
-        assert not SignalScoutRun.all_teams.filter(pk=run_id).exists()
-
-    def test_creates_a_run_row_for_a_child_environment(self) -> None:
-        # Config rows are keyed on the canonical parent, so the lock has to look there too. The
-        # dogfood `run_signals_scout --team-id` command passes its id through uncanonicalized, so
-        # a child environment id reaches here directly.
-        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="child env")
-        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
-        run_id = uuid7()
-
-        run = _create_run_row(
-            run_id=run_id,
-            task_run=_make_task_run(child),
-            team=child,
-            config=config,
-            skill=self._skill(allowed_tools=["emit_report"], origin="custom"),
-        )
-
-        assert run.pk == run_id
-        assert SignalScoutRun.all_teams.filter(pk=run_id).exists()
 
     @parameterized.expand(
         [

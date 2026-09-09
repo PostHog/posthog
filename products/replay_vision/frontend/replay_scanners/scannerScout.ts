@@ -61,17 +61,6 @@ export function scoutNameToSkillName(label: string, scannerName: string, takenNa
     }
 }
 
-/** Turns the complete display name from an existing scout's settings into its skill identity.
- *
- * Unlike `scoutNameToSkillName` this spends the whole cap, because the name it converts is already
- * complete: there is no suffix still to append, and an existing name may already end in the `-2`
- * a collision gave it. Reserving that room here would truncate the suffix back off, aiming the
- * rename at the name the first scout holds. */
-export function scoutDisplayNameToSkillName(label: string): string {
-    const labelSlug = slugify(label) || 'digest'
-    return `${SKILL_NAME_PREFIX}${labelSlug}`.slice(0, SKILL_NAME_MAX_LENGTH).replace(/-$/, '')
-}
-
 export type ScannerScoutTemplateKey = 'daily-digest' | 'trend-watch' | 'new-issues' | 'scratch'
 
 export interface ScannerScoutTemplate {

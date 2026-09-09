@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { SignalScoutOutputDestinationsApi } from 'products/signals/frontend/generated/api.schemas'
-import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
+import { scoutDisplayName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -98,8 +98,6 @@ export function ScannerScoutFormModal({
     const {
         createTemplateKey,
         settingsSkillName,
-        settingsConfigId,
-        settingsSaveFailed,
         scoutConfigsForScanner,
         skillPrompt,
         skillPromptLoading,
@@ -117,10 +115,10 @@ export function ScannerScoutFormModal({
         () => (createTemplateKey ? scannerScoutTemplate(createTemplateKey, scannerId, scanner?.scanner_type) : null),
         [createTemplateKey, scannerId, scanner?.scanner_type]
     )
-    const config = scoutConfigsForScanner.find((candidate) => candidate.id === settingsConfigId)
+    const config = scoutConfigsForScanner.find((candidate) => candidate.skill_name === settingsSkillName)
     const [activeTab, setActiveTab] = useState<ScoutFormTab>('instructions')
     const [form, setForm] = useState<ScannerScoutForm>(() => ({
-        name: template ? template.defaultName : config ? prettifyScoutSkillName(config.skill_name) : '',
+        name: template ? template.defaultName : config ? scoutDisplayName(config) : '',
         body: template ? template.body : '',
         cron: template ? template.cron : (config?.run_cron_schedule ?? ''),
         outputDestinations: (config?.output_destinations ?? {}) as SignalScoutOutputDestinationsApi,
@@ -162,9 +160,8 @@ export function ScannerScoutFormModal({
     const placeholders = scoutBodyPlaceholders(form.body)
     const unchanged =
         !template &&
-        !settingsSaveFailed &&
         !!config &&
-        form.name === prettifyScoutSkillName(config.skill_name) &&
+        form.name.trim() === scoutDisplayName(config) &&
         form.body === (skillPrompt?.body ?? '') &&
         form.cron === config.run_cron_schedule &&
         JSON.stringify(form.outputDestinations ?? {}) === JSON.stringify(config.output_destinations ?? {}) &&
@@ -228,7 +225,7 @@ export function ScannerScoutFormModal({
                         value={form.name}
                         onChange={(name) => patch({ name })}
                         placeholder={template?.defaultName}
-                        maxLength={45}
+                        maxLength={template ? 45 : 200}
                         data-attr="vision-scout-form-name"
                     />
                 </div>

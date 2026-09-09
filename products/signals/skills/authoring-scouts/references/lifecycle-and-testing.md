@@ -50,9 +50,6 @@ posthog:scout-create-execute {"confirmation_hash": "<returned-hash>", "confirmat
 posthog:skill-get {"skill_name": "signals-scout-<scope>"}          # get current version first
 posthog:skill-update {"skill_name": "signals-scout-<scope>", "base_version": N, "edits": [{"old": "...", "new": "..."}]}
 
-# Rename a custom scout without losing its config, source link, owners, notes, or run history
-posthog:scout-config-rename {"id": "<config-id>", "new_name": "signals-scout-<new-scope>"}
-
 # Duplicate a canonical scout into a new per-team scout you then edit (keeps the canonical intact)
 posthog:skill-duplicate {"skill_name": "signals-scout-general", "new_name": "signals-scout-<scope>"}
 
@@ -67,9 +64,6 @@ Notes:
   Every write bumps an immutable `version`; chain further edits via `base_version`.
 - **Divergence:** once you edit a canonical scout's row for your team, canonical sync treats it as **diverged** and stops force-updating it — you keep your edits but lose upstream improvements to that scout.
   To customize _without_ diverging, `duplicate` the canonical scout into a new `signals-scout-<your-scope>` row and edit that; leave the original alone.
-- `scout-config-rename` works only for custom scouts, keeps the current name-prefix class, and refuses a rename while the scout has a live run.
-- Rename permits up to 10,000 rows in each history table: runs, targeted notes, and follow-up memories. Larger histories return `400` without changes. Keep the current name; this endpoint does not schedule a background rename.
-- Rename allows five requests per project per hour. Users, credentials, and environments share this limit. A `429` response includes `Retry-After`; wait before another request.
 - Writing reports needs the `signal_scout_report:write` scope, and the scratchpad needs `signal_scout_internal:write` (the sandbox has both).
   Authoring a scout doesn't require either — only the harness writes.
 
