@@ -698,7 +698,7 @@ const scoutConfigRename = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/rename/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+        return await withPostHogUrl(context, result, `/inbox/scouts/${result.skill_name}`)
     },
 })
 
