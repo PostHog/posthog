@@ -373,7 +373,7 @@ describe('filterToMetricConfig', () => {
         })
     })
 
-    it.each([ExperimentMetricType.MEAN, ExperimentMetricType.FUNNEL])(
+    it.each([ExperimentMetricType.MEAN, ExperimentMetricType.FUNNEL] as const)(
         'preserves edited warehouse tables and join keys in an existing %s metric',
         (metricType) => {
             const source: ExperimentDataWarehouseNode = {
