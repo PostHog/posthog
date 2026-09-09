@@ -33,7 +33,6 @@ from ee.api.scim.utils import (
     get_scim_base_url,
     regenerate_scim_token_for_config,
 )
-from ee.models.scim_provisioned_user import SCIMProvisionedUser
 from ee.models.scim_request_log import SCIMRequestLog
 
 
@@ -345,7 +344,6 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
         _capture_idp_config_event(request, self.get_object(), "updated", {"fields": sorted(request.data.keys())})
         return res
 
-    @transaction.atomic
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         config = cast(IdentityProviderConfig, self.get_object())
         if config.config_scope is None:
@@ -354,11 +352,9 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
                 code="unscoped_config",
             )
 
-        SCIMProvisionedUser.objects.filter(identity_provider_config=config).update(
-            identity_provider_config=None,
-            organization_domain=None,
-        )
-        return super().destroy(request, *args, **kwargs)
+        with transaction.atomic():
+            self.perform_destroy(config)
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(parameters=[SCIMRequestLogQuerySerializer], responses=PaginatedSCIMRequestLogSerializer)
     @action(methods=["GET"], detail=True, url_path="scim/logs")

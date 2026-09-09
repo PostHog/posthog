@@ -1,6 +1,8 @@
 from typing import TYPE_CHECKING, Any
 
 from django.db import IntegrityError, models, transaction
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 
 import structlog
 
@@ -11,6 +13,16 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
+
+
+@receiver(pre_delete, sender="posthog.IdentityProviderConfig")
+def clear_scim_provisioned_user_config(
+    sender: type["IdentityProviderConfig"], instance: "IdentityProviderConfig", **kwargs: Any
+) -> None:
+    SCIMProvisionedUser.objects.filter(identity_provider_config=instance).update(
+        identity_provider_config=None,
+        organization_domain=None,
+    )
 
 
 class SCIMProvisionedUserManager(models.Manager["SCIMProvisionedUser"]):
