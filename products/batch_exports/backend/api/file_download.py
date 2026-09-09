@@ -280,11 +280,12 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         source = None
         if model == "hogql":
             source = BatchExportSource(team_id=team_id, hogql_query=validated_data.pop("hogql_query"))
-            # The query runs over all data at the time the export starts, so if we find any
-            # interval placeholders we set them from the beginning of time to now, as we must
-            # set a value.
-            data_interval_start = DATA_INTERVAL_START_EPOCH
-            data_interval_end = dt.datetime.now(dt.UTC)
+            # HogQL queries run over all data at the time the export starts, so the run stores
+            # a concrete now/now interval: the workflow sizes stage timeouts from the interval
+            # delta, and a real interval like epoch..now would put the timeout in decades. The
+            # workflow sets the query's data interval start to None instead, and the record
+            # batch model substitutes it for any interval placeholders.
+            data_interval_start = data_interval_end = dt.datetime.now(dt.UTC)
         else:
             data_interval_start = validated_data.pop("data_interval_start")
             data_interval_end = validated_data.pop("data_interval_end")
