@@ -9,9 +9,11 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { BillingProductV2Type } from '~/types'
 
+import { buildUsageReductionOptions } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductDisplayName } from './billingProductDisplayName'
 import { billingProductLogic } from './billingProductLogic'
+import { UsageReductionHint } from './UsageReductionHint'
 
 export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const limitInputRef = useRef<HTMLInputElement | null>(null)
@@ -176,6 +178,11 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                 </div>
                 {billingLimitConfig.help && !isEditingBillingLimit ? (
                     <div className="text-xs text-secondary mt-2">{billingLimitConfig.help}</div>
+                ) : null}
+                {hasCustomLimitSet ? (
+                    <div className="text-xs text-secondary mt-2">
+                        <UsageReductionHint options={buildUsageReductionOptions([product])} />
+                    </div>
                 ) : null}
                 {billingLimitConfig.currentAboveMaxNotice ? (
                     <div className="text-xs text-secondary mt-2">{billingLimitConfig.currentAboveMaxNotice}</div>

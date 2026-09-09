@@ -10,6 +10,7 @@ import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json
 import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitReachedMessage,
+    buildUsageReductionOptions,
     canAccessBilling,
     canViewUsageAndSpend,
     convertAmountToUsage,
@@ -595,6 +596,30 @@ describe('buildUsageLimitReachedMessage', () => {
     it('should default to admin message when hasBillingAccess is not provided', () => {
         const result = buildUsageLimitReachedMessage([{ name: 'Session replay', subscribed: true }])
         expect(result.message).toContain('increase your billing limit')
+    })
+})
+
+describe('buildUsageReductionOptions', () => {
+    it.each([
+        { types: ['session_replay'], expected: ['/settings/project-replay#replay-triggers'] },
+        { types: ['product_analytics'], expected: ['/settings/environment-autocapture'] },
+        {
+            types: ['session_replay', 'product_analytics'],
+            expected: ['/settings/project-replay#replay-triggers', '/settings/environment-autocapture'],
+        },
+        { types: ['session_replay', 'session_replay'], expected: ['/settings/project-replay#replay-triggers'] },
+        { types: ['session_replay', 'data_warehouse'], expected: ['/settings/project-replay#replay-triggers'] },
+        {
+            types: ['data_warehouse'],
+            expected: ['https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs'],
+        },
+        {
+            types: [],
+            expected: ['https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs'],
+        },
+    ])('offers $expected for $types', ({ types, expected }) => {
+        const options = buildUsageReductionOptions(types.map((type) => ({ type })))
+        expect(options.map((option) => option.to)).toEqual(expected)
     })
 })
 

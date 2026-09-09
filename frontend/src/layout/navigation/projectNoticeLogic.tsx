@@ -17,6 +17,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { billingLogic, BillingAlertConfig } from 'scenes/billing/billingLogic'
+import { UsageReductionHint } from 'scenes/billing/UsageReductionHint'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -208,6 +209,12 @@ function buildBillingAlertNotice(
                 <b>{billingAlert.title}</b>
                 <br />
                 {billingAlert.message}
+                {billingAlert.reductionOptions?.length ? (
+                    <>
+                        <br />
+                        <UsageReductionHint options={billingAlert.reductionOptions} />
+                    </>
+                ) : null}
             </>
         ),
         type: billingAlert.status,
