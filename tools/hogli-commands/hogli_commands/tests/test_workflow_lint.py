@@ -1829,23 +1829,19 @@ class TestReusableSecretPassthroughCheck:
                   T: ${{{{ secrets.NEEDED }}}}
         """
 
-    def test_flags_a_read_the_callee_never_declares(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "on_block",
+        ["on:\n  workflow_call:", "on: workflow_call", "on: [workflow_call, push]"],
+        ids=["empty-mapping", "scalar", "list"],
+    )
+    def test_flags_a_read_the_callee_never_declares(self, tmp_path: Path, on_block: str) -> None:
         _write(
             tmp_path,
             "_callee.yml",
-            """
-            name: R
-            on:
-              workflow_call:
-            jobs:
-              build:
-                runs-on: ubuntu-latest
-                timeout-minutes: 5
-                steps:
-                  - run: echo
-                    env:
-                      T: ${{ secrets.NEVER_ARRIVES }}
-            """,
+            "name: R\n"
+            + on_block
+            + "\njobs:\n  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n"
+            + "    steps:\n      - run: echo\n        env:\n          T: ${{ secrets.NEVER_ARRIVES }}\n",
         )
         issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
         assert len(issues) == 1, [i.render() for i in issues]

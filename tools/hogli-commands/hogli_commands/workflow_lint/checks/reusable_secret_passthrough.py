@@ -44,7 +44,12 @@ _SECRET_REF = re.compile(r"secrets\.([A-Za-z0-9_]+)")
 
 
 def _call_block(wf: Workflow) -> dict | None:
+    """The ``workflow_call`` trigger body, ``{}`` when it declares nothing, ``None`` when absent."""
     on = wf.on
+    if isinstance(on, str):
+        return {} if on == "workflow_call" else None
+    if isinstance(on, list):
+        return {} if "workflow_call" in on else None
     if not isinstance(on, dict):
         return None
     call = on.get("workflow_call")
