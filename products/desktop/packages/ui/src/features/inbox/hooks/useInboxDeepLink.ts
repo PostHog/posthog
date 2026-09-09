@@ -30,7 +30,7 @@ export function useInboxDeepLink() {
   const open = useCallback(
     (reportId: string | null): void => {
       if (reportId) {
-        void openReport(reportId);
+        void openReport(reportId, { preserveSource: false });
       } else {
         navigateToInbox();
       }

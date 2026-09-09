@@ -363,7 +363,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
     # publish a new version of it; a canvas in a personal space is only visible
     # to its owner, so the creator rule is implied there. partial_update is in
     # this set because a member must record their own generation task on the
-    # canvas; the other metadata fields stay creator-only (see partial_update).
+    # canvas; every other metadata field stays creator-only (see partial_update).
     _EDITOR_ACTIONS = {
         "partial_update",
         "publish",
@@ -377,7 +377,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         "patch_layout",
     }
     _CREATOR_ONLY_ACTIONS = {"destroy"}
-    _NON_CREATOR_UPDATE_FIELDS = {"generation_task_id", "context"}
+    _NON_CREATOR_UPDATE_FIELDS = {"generation_task_id"}
 
     @extend_schema(
         parameters=[
@@ -512,13 +512,6 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
                 record("name", canvas.name, data["name"])
             canvas.name = data["name"]
             update_fields.append("name")
-        if "context" in data:
-            # The author-context markdown is content, not configuration — record
-            # that it changed without copying it into the audit trail.
-            if data["context"] != canvas.context:
-                record("context")
-            canvas.context = data["context"]
-            update_fields.append("context")
         if "description" in data:
             if data["description"] != canvas.description:
                 record("description", canvas.description, data["description"])
