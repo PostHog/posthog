@@ -28,7 +28,10 @@ import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/component
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { Button as UiButton } from "@posthog/ui/primitives/Button";
-import { reportNavigationState } from "@posthog/ui/router/reportNavigation";
+import {
+  navigationSourceHref,
+  reportNavigationState,
+} from "@posthog/ui/router/reportNavigation";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { HTMLAttributes, MouseEvent, ReactNode } from "react";
 
@@ -180,9 +183,11 @@ export function PullRequestCard({
   dismissDisabledReason = null,
   isDismissPending = false,
 }: PullRequestCardProps) {
+  const source = navigationSourceHref();
   const detailRoute = {
     to: "/reports/$reportId" as const,
     params: { reportId: report.id },
+    search: source ? { from: source } : {},
   };
   const { prefetch, pointerHandlers } =
     useInboxReportDetailPrefetch(detailRoute);

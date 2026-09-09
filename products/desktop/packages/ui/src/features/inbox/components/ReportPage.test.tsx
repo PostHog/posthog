@@ -15,7 +15,8 @@ vi.mock("@tanstack/react-router", () => ({
     select({
       location: {
         pathname: "/reports/report-1",
-        state: { reportSourceHref: mocks.source },
+        href: "/reports/report-1",
+        search: { from: mocks.source },
       },
     }),
 }));
@@ -30,6 +31,16 @@ vi.mock("@posthog/ui/features/inbox/components/InboxReportDetailGate", () => ({
   ReportOpenTracker: mocks.tracker,
 }));
 
+vi.mock("@posthog/ui/features/settings/components/SettingsLayout", () => ({
+  SettingsLayout: ({
+    category,
+    children,
+  }: {
+    category: string;
+    children: ReactNode;
+  }) => <section aria-label={`Settings ${category}`}>{children}</section>,
+}));
+
 vi.mock("@posthog/ui/features/inbox/components/ReportDetail", () => ({
   ReportDetailContent: () => <div>Report content</div>,
 }));
@@ -42,16 +53,6 @@ vi.mock("@posthog/ui/features/inbox/components/DismissedReportDetail", () => ({
   DismissedReportDetailContent: () => <div>Archived content</div>,
 }));
 
-vi.mock("@posthog/ui/features/settings/components/SettingsLayout", () => ({
-  SettingsLayout: ({
-    category,
-    children,
-  }: {
-    category: string;
-    children: ReactNode;
-  }) => <section aria-label={`Settings ${category}`}>{children}</section>,
-}));
-
 import { ReportPage } from "./ReportPage";
 
 describe("ReportPage", () => {
@@ -61,31 +62,37 @@ describe("ReportPage", () => {
     mocks.report = { id: "report-1", status: "ready" } as SignalReport;
   });
 
-  it("uses the Settings layout for reports opened from Agents", () => {
-    mocks.source = "/settings/agents";
+  it.each([
+    ["/settings/agents", "Settings agents"],
+    ["/settings/agents?agent=account-mrr", "Settings agents"],
+    ["/spaces/space-1", null],
+    [undefined, null],
+  ])("renders a report from %s inside %s", (source, region) => {
+    mocks.source = source;
     render(<ReportPage reportId="report-1" cachedReport={null} />);
-    expect(
-      screen.getByRole("region", { name: "Settings agents" }),
-    ).toHaveTextContent("Report content");
-    expect(mocks.gate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        statusRedirect: false,
-        backLinkTo: "/settings/agents",
-        backLabel: "Back",
-      }),
-    );
+    expect(screen.getByText("Report content")).toBeInTheDocument();
+    if (region) {
+      expect(screen.getByRole("region", { name: region })).toBeInTheDocument();
+    } else {
+      expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    }
   });
 
-  it("renders direct links without Settings navigation or an Inbox parent", () => {
-    render(<ReportPage reportId="report-1" cachedReport={null} />);
-    expect(screen.queryByRole("region")).not.toBeInTheDocument();
-    expect(mocks.gate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        backTo: "/",
-        statusRedirect: false,
-      }),
-    );
-  });
+  it.each([
+    ["/settings/agents", "/settings/agents", "Agents"],
+    ["/spaces/space-1", "/spaces/space-1", "Spaces"],
+    [undefined, "/inbox/reports", "Self-driving"],
+  ])(
+    "points the missing-report link at the origin %s",
+    (source, backLinkTo, backLabel) => {
+      mocks.source = source;
+      render(<ReportPage reportId="report-1" cachedReport={null} />);
+      expect(screen.getByText("Report content")).toBeInTheDocument();
+      expect(mocks.gate).toHaveBeenCalledWith(
+        expect.objectContaining({ backLinkTo, backLabel, backTo: "/" }),
+      );
+    },
+  );
 
   it.each(["suppressed", "resolved"] as const)(
     "renders %s reports read-only even with a PR",
@@ -119,9 +126,7 @@ describe("ReportPage", () => {
     expect(screen.getByText("Archived content")).toBeInTheDocument();
     mocks.report = { ...mocks.report, status: "ready" };
     rerender(<ReportPage reportId="report-1" cachedReport={null} />);
-    expect(
-      screen.getByRole("region", { name: "Settings agents" }),
-    ).toHaveTextContent("PR content");
+    expect(screen.getByText("PR content")).toBeInTheDocument();
     for (const [props] of mocks.gate.mock.calls)
       expect(props.statusRedirect).toBe(false);
   });

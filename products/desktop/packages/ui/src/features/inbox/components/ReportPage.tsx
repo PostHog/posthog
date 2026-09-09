@@ -9,9 +9,10 @@ import { PullRequestDetailContent } from "@posthog/ui/features/inbox/components/
 import { ReportDetailContent } from "@posthog/ui/features/inbox/components/ReportDetail";
 import { ReportPageContext } from "@posthog/ui/features/inbox/components/ReportPageContext";
 import { SettingsLayout } from "@posthog/ui/features/settings/components/SettingsLayout";
-import { resolveSettingsCategory } from "@posthog/ui/features/settings/types";
-import { reportSourceHref } from "@posthog/ui/router/reportNavigation";
-import { useRouterState } from "@tanstack/react-router";
+import {
+  resolveNavigationSource,
+  useReportSourceHref,
+} from "@posthog/ui/router/reportNavigation";
 
 export function ReportPage({
   reportId,
@@ -20,20 +21,15 @@ export function ReportPage({
   reportId: string;
   cachedReport: SignalReport | null;
 }) {
-  const source = useRouterState({
-    select: (state) => reportSourceHref(state.location),
-  });
-  const category = resolveSettingsCategory(
-    source?.match(/^\/settings\/([^/?#]+)/)?.[1] ?? "",
-  );
+  const source = resolveNavigationSource(useReportSourceHref());
   const content = (
     <div className="h-full min-h-0 w-full overflow-auto">
       <InboxReportDetailGate
         reportId={reportId}
         cachedReport={cachedReport}
         backTo="/"
-        backLinkTo={source ?? "/"}
-        backLabel={source ? "Back" : "Home"}
+        backLinkTo={source?.href ?? "/inbox/reports"}
+        backLabel={source?.label ?? "Self-driving"}
         statusRedirect={false}
         requireFreshStatus
         missingCopy="This report couldn't be found or you don't have access to it."
@@ -42,8 +38,10 @@ export function ReportPage({
       </InboxReportDetailGate>
     </div>
   );
-  return category ? (
-    <SettingsLayout category={category}>{content}</SettingsLayout>
+  return source?.settingsCategory ? (
+    <SettingsLayout category={source.settingsCategory}>
+      {content}
+    </SettingsLayout>
   ) : (
     content
   );

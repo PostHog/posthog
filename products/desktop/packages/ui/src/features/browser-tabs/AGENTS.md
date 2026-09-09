@@ -184,9 +184,6 @@ Each tab carries the nav state its href cannot express, in `viewState`:
 
 - `listOpen` / `spaceId` — which sidebar pane is drawn and the space it is drawn
   over, so two tabs can sit on different spaces with different sidebars.
-- `reportSourceHref` — the source navigation context of a canonical report page.
-  Restore it from the destination tab, never from the tab being left. A report
-  opened independently has no source and uses neutral navigation.
 - `lastByPane` — **where each rail destination was when this tab last left it.**
   A rail click navigates the active tab back to its own remembered href rather
   than to the destination's root. Per tab on purpose: a window-global memory

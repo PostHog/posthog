@@ -5,7 +5,7 @@ import {
   railPaneForPath,
   railPaneHasSidebar,
 } from "@posthog/ui/features/canvas/railPane";
-import { reportSourceHref } from "@posthog/ui/router/reportNavigation";
+import { reportSourceHrefFromLocation } from "@posthog/ui/router/reportNavigation";
 import { useRouterState } from "@tanstack/react-router";
 
 export interface RailSurface {
@@ -19,7 +19,7 @@ export interface RailSurface {
 export function useRailPane(): NavRailPane {
   return useRouterState({
     select: (state) => {
-      const source = reportSourceHref(state.location);
+      const source = reportSourceHrefFromLocation(state.location);
       return source
         ? railPaneForPath(source.split(/[?#]/)[0])
         : railPaneForMatches(state.matches);

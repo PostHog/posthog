@@ -19,8 +19,7 @@ export function openSettings(
 ): void {
   prepareSettingsPage(contextOrAction);
   // A caller already inside settings is switching category, so replace rather
-  // than stack: one closeSettings() back-step must exit to the app instead of
-  // walking back through the categories visited.
+  // than stack: the categories visited are not steps to walk back through.
   nav.navigateToSettings(category, { replace: nav.isOnSettingsRoute() });
 }
 
@@ -52,18 +51,11 @@ export function leaveSettings(): void {
   useSettingsPageStore.getState().reset();
 }
 
-/**
- * Close the settings page — returns the user to their prior route via
- * router history. If they came in via a deep link, falls back to /code.
- */
+/** A deep link carries no `from`, so it falls back to /code. */
 export function closeSettings(): void {
   useSettingsPageStore.getState().reset();
   if (!nav.isOnSettingsRoute()) return;
-  if (nav.canGoBackInHistory()) {
-    nav.goBackInHistory();
-  } else {
-    nav.navigateToNewTask();
-  }
+  nav.leaveSettingsRoute();
 }
 
 /**

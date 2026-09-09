@@ -51,7 +51,10 @@ import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
-import { reportSourceHref } from "@posthog/ui/router/reportNavigation";
+import {
+  reportSourceHrefFromLocation,
+  resolveNavigationSource,
+} from "@posthog/ui/router/reportNavigation";
 import { useParams, useRouterState } from "@tanstack/react-router";
 import { memo, useDeferredValue, useEffect, useRef } from "react";
 
@@ -213,7 +216,8 @@ function ChannelsSidebarImpl() {
   const selectedActivityId = useActivitySelection()?.id;
   const sourceFeedId = useRouterState({
     select: (state) =>
-      reportSourceHref(state.location)?.match(/^\/feeds\/([^/?#]+)/)?.[1],
+      resolveNavigationSource(reportSourceHrefFromLocation(state.location))
+        ?.feedId ?? undefined,
   });
   const feedId =
     useParams({

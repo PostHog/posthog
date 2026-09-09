@@ -54,16 +54,6 @@ export function PullRequestDetailContent({ report }: { report: SignalReport }) {
       backTo="/inbox/pulls"
       backLabel="Back to pull requests"
       fallbackTitle="Untitled pull request"
-      breadcrumb={
-        prRef ? (
-          <>
-            <span className="text-(--gray-8)">/</span>
-            <span className="font-mono text-[13px] text-gray-11">
-              {prRef.repoSlug}#{prRef.number}
-            </span>
-          </>
-        ) : undefined
-      }
       metaSuffix={
         prUrl ? (
           <>

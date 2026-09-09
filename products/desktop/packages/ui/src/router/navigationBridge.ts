@@ -1,6 +1,11 @@
 import type { NotificationTarget } from "@posthog/platform/notifications";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
-import { reportNavigationState } from "./reportNavigation";
+import {
+  navigationSourceHref,
+  reportNavigationState,
+  settingsSourceHref,
+  sourceHrefFromSearch,
+} from "./reportNavigation";
 import { getRouterOrNull } from "./routerRef";
 
 // This bridge isolates imperative router calls behind a stable API and, by
@@ -161,11 +166,13 @@ export function navigateToReport(
       inboxTriageOrigin: { reportId },
     });
   }
+  const from =
+    options?.preserveSource === false ? undefined : navigationSourceHref();
   void router.navigate({
     to: "/reports/$reportId",
     params: { reportId },
-    state:
-      options?.preserveSource === false ? keepTabTag : reportNavigationState,
+    search: from ? { from } : {},
+    state: reportNavigationState,
   });
 }
 
@@ -245,12 +252,11 @@ export function navigateToSettings(
   category: SettingsCategory,
   options?: { replace?: boolean },
 ): void {
+  const from = settingsSourceHref();
   void getRouterOrNull()?.navigate({
     to: "/settings/$category",
     params: { category },
-    // Switching categories within settings should replace, not stack, so a
-    // single history.back() (closeSettings) exits to the app rather than
-    // walking back through every category that was visited.
+    search: from ? { from } : {},
     replace: options?.replace,
   });
 }
@@ -268,6 +274,17 @@ export function isOnSettingsRoute(): boolean {
       isSettingsRouteId(m.routeId),
     ) ?? false
   );
+}
+
+export function leaveSettingsRoute(): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+  const from = sourceHrefFromSearch(router.state.location);
+  if (!from) {
+    void router.navigate({ to: "/new", state: keepTabTag });
+    return;
+  }
+  router.history.push(from, { tabId: router.history.location.state.tabId });
 }
 
 export function goBackInHistory(): void {

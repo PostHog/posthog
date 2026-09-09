@@ -47,7 +47,6 @@ export const tabViewStateSchema = z.object({
   spaceId: z.string().nullable().optional(),
   /** Keyed by NavRailPane. Typed loosely here so shared stays route-agnostic. */
   lastByPane: z.record(z.string(), railVisitSchema).optional(),
-  reportSourceHref: z.string().optional(),
 });
 export type TabViewState = z.infer<typeof tabViewStateSchema>;
 

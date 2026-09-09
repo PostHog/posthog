@@ -53,7 +53,10 @@ import {
 import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
 import { TaskLogsPanel } from "@posthog/ui/features/task-detail/components/TaskLogsPanel";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
-import { reportNavigationState } from "@posthog/ui/router/reportNavigation";
+import {
+  navigationSourceHref,
+  reportNavigationState,
+} from "@posthog/ui/router/reportNavigation";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { DropdownMenu, Flex, Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
@@ -140,11 +143,13 @@ function RunOutputReadyCard({ report }: { report: SignalReport }) {
   const prRef = prUrl ? parsePrUrl(prUrl) : null;
   const sourceMeta = getSourceProductMeta(report.source_products?.[0]);
   const headline = deriveHeadline(report.summary);
+  const source = navigationSourceHref();
 
   return (
     <Link
       to="/reports/$reportId"
       state={reportNavigationState}
+      search={source ? { from: source } : {}}
       params={{ reportId: report.id }}
       className="group block rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 no-underline transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm focus-visible:outline-none"
     >

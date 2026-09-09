@@ -6,7 +6,10 @@ import {
   showChannelPane,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
-import { reportSourceHref } from "@posthog/ui/router/reportNavigation";
+import {
+  reportSourceHrefFromLocation,
+  resolveNavigationSource,
+} from "@posthog/ui/router/reportNavigation";
 import { useParams, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
@@ -19,7 +22,8 @@ export function ChannelRouteSync() {
   const channelsLayout = useChannelsLayout();
   const sourceChannelId = useRouterState({
     select: (state) =>
-      reportSourceHref(state.location)?.match(/^\/spaces\/([^/?#]+)/)?.[1],
+      resolveNavigationSource(reportSourceHrefFromLocation(state.location))
+        ?.spaceId ?? undefined,
   });
   const routeChannelId =
     useParams({ strict: false }).channelId ?? sourceChannelId;

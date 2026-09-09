@@ -36,7 +36,10 @@ import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/uti
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { Button as UiButton } from "@posthog/ui/primitives/Button";
-import { reportNavigationState } from "@posthog/ui/router/reportNavigation";
+import {
+  navigationSourceHref,
+  reportNavigationState,
+} from "@posthog/ui/router/reportNavigation";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { HTMLAttributes, MouseEvent, ReactNode } from "react";
 
@@ -325,9 +328,11 @@ export function ReportCard(props: ReportCardProps) {
   const { report, isSelected = false, onRowClick } = props;
   const isArchived = props.variant === "archived";
 
+  const source = navigationSourceHref();
   const detailRoute = {
     to: "/reports/$reportId" as const,
     params: { reportId: report.id },
+    search: source ? { from: source } : {},
   };
   const { prefetch, pointerHandlers } =
     useInboxReportDetailPrefetch(detailRoute);

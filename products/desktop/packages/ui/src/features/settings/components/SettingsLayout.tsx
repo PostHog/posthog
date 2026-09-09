@@ -2,6 +2,7 @@ import { AnnouncementBanner } from "@posthog/ui/features/announcements/Announcem
 import { ConnectivityBanner } from "@posthog/ui/features/connectivity/ConnectivityBanner";
 import { SettingsPanel } from "@posthog/ui/features/settings/components/SettingsPanel";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
+import { navigateToSettings } from "@posthog/ui/router/navigationBridge";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -22,7 +23,12 @@ export function SettingsLayout({
       <ConnectivityBanner />
       <AnnouncementBanner />
       <div className="flex min-h-0 flex-1">
-        <SettingsPanel activeCategory={category}>{children}</SettingsPanel>
+        <SettingsPanel
+          activeCategory={category}
+          onClose={children ? () => navigateToSettings(category) : undefined}
+        >
+          {children}
+        </SettingsPanel>
       </div>
     </div>,
     container,

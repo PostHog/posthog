@@ -1,17 +1,42 @@
-import type { HistoryState } from "@tanstack/react-router";
+import {
+  resolveSettingsCategory,
+  SETTINGS_PAGE_LABELS,
+  type SettingsCategory,
+} from "@posthog/ui/features/settings/types";
+import { type HistoryState, useRouterState } from "@tanstack/react-router";
 import { getRouterOrNull } from "./routerRef";
 
-declare module "@tanstack/history" {
-  interface HistoryState {
-    reportSourceHref?: string;
-  }
+export interface NavigationSource {
+  href: string;
+  path: string;
+  label: string;
+  settingsCategory: SettingsCategory | null;
+  agentSlug: string | null;
+  spaceId: string | null;
+  feedId: string | null;
+}
+
+interface SourceLocation {
+  pathname: string;
+  href: string;
+  search?: unknown;
 }
 
 export function isReportPath(pathname: string): boolean {
   return /^\/reports\/[^/]+\/?$/.test(pathname);
 }
 
-export function validReportSource(href: unknown): string | undefined {
+export function reportIdFromHref(href: string | null): string | null {
+  if (!href) return null;
+  const pathname = href.split(/[?#]/)[0];
+  return isReportPath(pathname) ? (pathname.split("/")[2] ?? null) : null;
+}
+
+function isSettingsPath(pathname: string): boolean {
+  return /^\/settings(\/|$)/.test(pathname);
+}
+
+export function validSourceHref(href: unknown): string | undefined {
   if (
     typeof href !== "string" ||
     !href.startsWith("/") ||
@@ -24,7 +49,7 @@ export function validReportSource(href: unknown): string | undefined {
   const pathname = href.split(/[?#]/)[0];
   if (
     isReportPath(pathname) ||
-    /^\/inbox\/(reports|pulls|dismissed)\/[^/]+\/?$/.test(pathname) ||
+    /^\/inbox\/(reports|pulls|runs|dismissed)\/[^/]+\/?$/.test(pathname) ||
     /^\/spaces\/[^/]+\/reports\/[^/]+\/?$/.test(pathname)
   ) {
     return undefined;
@@ -32,36 +57,90 @@ export function validReportSource(href: unknown): string | undefined {
   return href;
 }
 
-export function reportSourceHref(location: {
-  pathname: string;
-  state: HistoryState;
-}): string | undefined {
+const SOURCE_LABELS: readonly (readonly [RegExp, string])[] = [
+  [/^\/inbox\/agents(\/|$)/, "Agents"],
+  [/^\/inbox(\/|$)/, "Self-driving"],
+  [/^\/activity(\/|$)/, "Activity"],
+  [/^\/loops(\/|$)/, "Loops"],
+  [/^\/canvases(\/|$)/, "Canvases"],
+  [/^\/command-center(\/|$)/, "Command center"],
+  [/^\/feeds(\/|$)/, "Feeds"],
+  [/^\/skills(\/|$)/, "Skills"],
+  [/^\/mcp-servers(\/|$)/, "MCP servers"],
+  [/^\/spaces(\/|$)/, "Spaces"],
+];
+
+function sourceLabel(path: string, category: SettingsCategory | null): string {
+  if (category) return SETTINGS_PAGE_LABELS[category];
+  if (path === "/") return "Home";
+  return SOURCE_LABELS.find(([pattern]) => pattern.test(path))?.[1] ?? "Back";
+}
+
+export function resolveNavigationSource(
+  href: string | undefined,
+): NavigationSource | null {
+  const valid = validSourceHref(href);
+  if (!valid) return null;
+  const path = valid.split(/[?#]/)[0];
+  const category = resolveSettingsCategory(
+    path.match(/^\/settings\/([^/]+)/)?.[1] ?? "",
+  );
+  return {
+    href: valid,
+    path,
+    label: sourceLabel(path, category),
+    settingsCategory: category,
+    agentSlug: valid.match(/[?&]agent=([^&#]+)/)?.[1] ?? null,
+    spaceId: path.match(/^\/spaces\/([^/]+)/)?.[1] ?? null,
+    feedId: path.match(/^\/feeds\/([^/]+)/)?.[1] ?? null,
+  };
+}
+
+export function sourceHrefFromSearch(
+  location: SourceLocation,
+): string | undefined {
+  return validSourceHref(
+    (location.search as { from?: unknown } | undefined)?.from,
+  );
+}
+
+export function reportSourceHrefFromLocation(
+  location: SourceLocation,
+): string | undefined {
   return isReportPath(location.pathname)
-    ? validReportSource(location.state.reportSourceHref)
+    ? sourceHrefFromSearch(location)
     : undefined;
 }
 
-export function reportNavigationState(previous: HistoryState): HistoryState {
+function currentSourceHref(
+  carriesOwnSource: (pathname: string) => boolean,
+): string | undefined {
   const location = getRouterOrNull()?.state?.location;
-  const source = location
-    ? isReportPath(location.pathname)
-      ? reportSourceHref(location)
-      : validReportSource(location.href)
-    : undefined;
+  if (!location) return undefined;
+  return carriesOwnSource(location.pathname)
+    ? sourceHrefFromSearch(location)
+    : validSourceHref(location.href);
+}
+
+export function navigationSourceHref(): string | undefined {
+  return currentSourceHref(isReportPath);
+}
+
+export function settingsSourceHref(): string | undefined {
+  return currentSourceHref(isSettingsPath);
+}
+
+export function useReportSourceHref(): string | undefined {
+  return useRouterState({
+    select: (state) => reportSourceHrefFromLocation(state.location),
+  });
+}
+
+export function reportNavigationState(previous: HistoryState): HistoryState {
   return {
     ...(previous.tabId ? { tabId: previous.tabId } : {}),
-    ...(source ? { reportSourceHref: source } : {}),
     ...(previous.inboxTriageOrigin
       ? { inboxTriageOrigin: previous.inboxTriageOrigin }
       : {}),
   };
-}
-
-export function legacyReportNavigationState(
-  previous: HistoryState,
-): HistoryState {
-  const source =
-    validReportSource(previous.reportSourceHref) ??
-    validReportSource(getRouterOrNull()?.state.resolvedLocation?.href);
-  return { ...previous, reportSourceHref: source };
 }

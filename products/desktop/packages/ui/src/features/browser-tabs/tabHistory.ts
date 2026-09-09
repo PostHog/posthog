@@ -1,4 +1,3 @@
-import { validReportSource } from "@posthog/ui/router/reportNavigation";
 import type { RouterHistory } from "@tanstack/react-router";
 
 declare module "@tanstack/history" {
@@ -16,11 +15,6 @@ export function pushTabHistoryEntry(
   history: RouterHistory,
   href: string,
   tabId: string,
-  reportSourceHref?: string,
 ): void {
-  history.push(href, {
-    ...history.location.state,
-    tabId,
-    reportSourceHref: validReportSource(reportSourceHref),
-  });
+  history.push(href, { ...history.location.state, tabId });
 }
