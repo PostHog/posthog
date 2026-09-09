@@ -63,7 +63,7 @@ export function leadingActorRun(
   const end = pending.findIndex(
     (entry, index) => index > 0 && !canBatch(first, entry),
   );
-  return pending.slice(0, end < 0 ? pending.length : end);
+  return pending.slice(0, Math.min(1000, end < 0 ? pending.length : end));
 }
 
 function mergeFieldEdits(

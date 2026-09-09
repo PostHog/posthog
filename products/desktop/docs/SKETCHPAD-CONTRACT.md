@@ -1,5 +1,8 @@
 # Sketchpad contract
 
+Pending edits are sent in ordered batches of at most 1000 operations. A larger
+offline queue remains local while each accepted batch is removed and the next is sent.
+
 The shared Sketchpad schemas normalize new fragments with `z: 0`,
 `codeVersion: 1`, `surface: "card"`, and `hidden: false`. Fragment patches remain
 partial and do not apply those defaults.

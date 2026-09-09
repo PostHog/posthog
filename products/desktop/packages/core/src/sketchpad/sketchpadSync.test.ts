@@ -46,6 +46,34 @@ describe("SketchpadSyncClient", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it("drains a large offline queue in ordered API-sized batches", async () => {
+    const { api, client } = setup();
+    await client.load();
+    let headSeq = 0;
+    api.appendOps.mockImplementation(async (_id, input) => {
+      expect(input.ops.length).toBeLessThanOrEqual(1000);
+      const results = input.ops.map(({ opId }) => ({ opId, seq: ++headSeq }));
+      return { results, headSeq };
+    });
+    const edits = Array.from({ length: 2001 }, (_, index) => entry(index + 1));
+    client.applyLocal(
+      edits.map(({ op }) => op),
+      undefined,
+      edits.map(({ opId }) => opId),
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(
+      api.appendOps.mock.calls.map(([, input]) => input.ops.length),
+    ).toEqual([1000, 1000, 1]);
+    expect(
+      api.appendOps.mock.calls.flatMap(([, input]) =>
+        input.ops.map(({ opId }) => opId),
+      ),
+    ).toEqual(edits.map(({ opId }) => opId));
+    expect(client.getState().pending).toEqual([]);
+    expect(client.getState().snapshot.state["key-2001"]).toBe(2001);
+  });
+
   it("polls only while running and can restart after stopping", async () => {
     const { api, client } = setup();
     api.opsSince.mockResolvedValue({ headSeq: 0, results: [] });
