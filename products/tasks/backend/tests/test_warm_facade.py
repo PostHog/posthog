@@ -634,6 +634,40 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
         assert Task.objects.filter(team=self.team, deleted=False).count() == 2
 
+    def test_canceling_warm_run_is_not_reused_and_creates_a_cold_task(self):
+        # A warm Run that is stopping refuses a message, so it must leave the pool rather than
+        # fail the submit.
+        warm_task, run = self._warm_run()
+        run.state["cancel_requested_at"] = django_timezone.now().isoformat()
+        run.save(update_fields=["state"])
+
+        with (
+            patch(f"{FACADE}.signal_task_run_user_message") as m_signal,
+            patch(f"{FACADE}._trigger_task_processing_workflow"),
+        ):
+            dto = self._create()
+
+        m_signal.assert_not_called()
+        assert str(dto.id) != str(warm_task.id)
+        assert Task.objects.filter(team=self.team, deleted=False).count() == 2
+
+    def test_warm_run_that_starts_canceling_after_selection_reports_unavailable(self):
+        # Cancellation can land between selection and delivery, where the run refuses the message.
+        # Delivery must report it as unavailable, which the endpoint answers with its retry response.
+        _, run = self._warm_run()
+        run.state["cancel_requested_at"] = django_timezone.now().isoformat()
+        run.save(update_fields=["state"])
+
+        with (
+            patch(f"{FACADE}._find_idling_warm_run", return_value=run),
+            self.assertRaises(facade.WarmRunActivationUnavailable) as caught,
+        ):
+            self._create()
+
+        assert caught.exception.reason == "target_unavailable"
+        run.refresh_from_db()
+        assert run.state["await_user_message"] is True
+
     def test_reuses_matching_warm_task_and_activates_it_in_place(self) -> None:
         warm_task, run = self._warm_run()
         handle = MagicMock(signal=AsyncMock())

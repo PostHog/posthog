@@ -6506,7 +6506,8 @@ def _find_idling_warm_run(
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
     A warm Run is a non-terminal Run of the same origin product, for the same optional repo+branch, still
-    awaiting its first user message (the ``await_user_message`` state marker). This is the backend's single
+    awaiting its first user message (the ``await_user_message`` state marker) and not already stopping (a
+    run with ``cancel_requested_at`` refuses a message). This is the backend's single
     source of truth for the warm pool: it dedupes warm provisioning (so a repeated ``warm`` call reuses the
     live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
     warm Run on submit. Team + user scoped; branch compared as ``None``-normalized exact match.
@@ -6550,6 +6551,8 @@ def _find_idling_warm_run(
     )
     for run in candidates:
         state = run.state or {}
+        if state.get("cancel_requested_at"):
+            continue
         have_repositories = [
             repo.lower() for repo in (run.task.repositories or ([run.task.repository] if run.task.repository else []))
         ]
@@ -6676,7 +6679,13 @@ def _deliver_warm_run_message(
 
     try:
         current_run = eligible_runs.first()
-        if current_run is None or current_run.workflow_id != workflow_id:
+        # A run that is already stopping refuses a message, so surface the retryable unavailable
+        # response the caller handles instead of letting that refusal reach the client as a 500.
+        if (
+            current_run is None
+            or current_run.workflow_id != workflow_id
+            or (current_run.state or {}).get("cancel_requested_at")
+        ):
             raise WarmRunActivationUnavailable("target_unavailable")
         try:
             delivered = signal_task_run_user_message(
