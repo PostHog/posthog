@@ -2,11 +2,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.backends.cache import SessionStore
+from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory
 
 from parameterized import parameterized
@@ -51,7 +52,7 @@ class TestFormatDuration:
         assert format_duration(_BASE, _BASE + timedelta(seconds=elapsed_seconds)) == expected
 
     @parameterized.expand([("missing_start", None, _BASE), ("missing_end", _BASE, None)])
-    def test_missing_bound_is_none(self, _name: str, started, completed) -> None:
+    def test_missing_bound_is_none(self, _name: str, started: datetime | None, completed: datetime | None) -> None:
         assert format_duration(started, completed) is None
 
     def test_negative_duration_is_none(self) -> None:
@@ -140,7 +141,7 @@ class TestRecalculationAdminPanel(BaseTest):
         assert by_uuid["m-named"]["error"] == "timeout in ClickHouse"
 
     @patch("products.experiments.backend.admin.recalculation_panel.start_metrics_recalculation_workflow")
-    def test_retry_failures_reuses_window_and_redirects_to_new_run(self, mock_start) -> None:
+    def test_retry_failures_reuses_window_and_redirects_to_new_run(self, mock_start: MagicMock) -> None:
         exp = self._launched_experiment()
         prior = ExperimentMetricsRecalculation.objects.create(
             team=self.team,
@@ -173,3 +174,26 @@ class TestRecalculationAdminPanel(BaseTest):
         assert new_run.trigger == ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE
         assert str(new_run.pk) in response.url
         mock_start.assert_called_once()
+
+    @patch("products.experiments.backend.admin.recalculation_panel.start_metrics_recalculation_workflow")
+    def test_retry_failures_denied_without_change_permission(self, mock_start: MagicMock) -> None:
+        exp = self._launched_experiment()
+        prior = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.FAILED,
+            total_metrics=1,
+            metric_uuids=["m-named"],
+            metric_errors={"m-named": {"message": "boom"}},
+            started_at=datetime(2026, 1, 2, 10, 0, 0, tzinfo=UTC),
+            completed_at=datetime(2026, 1, 2, 10, 4, 10, tzinfo=UTC),
+        )
+
+        admin = ExperimentMetricsRecalculationAdmin(ExperimentMetricsRecalculation, AdminSite())
+        request = RequestFactory().post("/")
+        request.user = self.user
+        with patch.object(admin, "has_change_permission", return_value=False), pytest.raises(PermissionDenied):
+            admin.retry_failures_view(request, str(prior.pk))
+
+        assert not ExperimentMetricsRecalculation.objects.filter(experiment=exp).exclude(pk=prior.pk).exists()
+        mock_start.assert_not_called()

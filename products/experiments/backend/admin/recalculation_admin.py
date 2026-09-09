@@ -96,9 +96,6 @@ class ExperimentMetricsRecalculationAdmin(admin.ModelAdmin):
                 "admin:experiments_recalculation_mark_completed", args=[obj.pk]
             )
             extra_context["start_recalculation_url"] = reverse("admin:experiments_recalculation_start", args=[obj.pk])
-            extra_context["retry_recalculation_url"] = reverse(
-                "admin:experiments_recalculation_retry_failures", args=[obj.pk]
-            )
         return super().change_view(request, object_id, form_url, extra_context)
 
     def get_urls(self):
@@ -175,7 +172,7 @@ class ExperimentMetricsRecalculationAdmin(admin.ModelAdmin):
             request, obj, change_url, trigger=ExperimentMetricsRecalculation.Trigger.MANUAL
         )
 
-    def retry_failures_view(self, request, object_id):
+    def retry_failures_view(self, request: HttpRequest, object_id: str) -> HttpResponseRedirect:
         obj = self.get_object(request, object_id)
         if obj is None:
             return HttpResponseRedirect(reverse("admin:experiments_experimentmetricsrecalculation_changelist"))
@@ -186,7 +183,9 @@ class ExperimentMetricsRecalculationAdmin(admin.ModelAdmin):
             request, obj, change_url, trigger=ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE
         )
 
-    def _dispatch_recalculation(self, request, obj, change_url: str, *, trigger: str):
+    def _dispatch_recalculation(
+        self, request: HttpRequest, obj: ExperimentMetricsRecalculation, change_url: str, *, trigger: str
+    ) -> HttpResponseRedirect:
         if not self.has_change_permission(request, obj):
             raise PermissionDenied
 

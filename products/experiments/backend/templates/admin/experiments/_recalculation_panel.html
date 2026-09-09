@@ -61,14 +61,14 @@
                     gap: 8px;
                     align-items: center;
                     flex-wrap: wrap">
-            {% if panel.has_failures %}
+            {% if panel.has_failures and panel.can_retry %}
                 <button type="submit"
                         formaction="{{ panel.retry_url }}"
                         formmethod="post"
                         formnovalidate
                         class="button"
                         style="padding: 8px 14px;
-                               background: #417690">Retry failures</button>
+                               background: #417690">Retry latest failures</button>
             {% endif %}
             <a href="{{ panel.all_recalculations_url }}"
                class="button"
