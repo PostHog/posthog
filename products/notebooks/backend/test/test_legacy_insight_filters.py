@@ -1,4 +1,5 @@
 import json
+import importlib
 from collections import Counter
 from typing import Any
 
@@ -422,3 +423,40 @@ class TestNotebookLegacyFilterBackfill(BaseTest):
     def test_oversized_batch_is_rejected(self):
         with pytest.raises(ValueError):
             backfill_notebook_legacy_insight_filters(team_id=self.team.id, batch_size=10_000)
+
+
+def test_migration_copy_matches_this_module():
+    # Migration 0018 carries its own copy of the transform, so that deleting this module later
+    # cannot break a replay. This is what catches the two copies drifting apart.
+    migration = importlib.import_module("products.notebooks.backend.migrations.0018_backfill_legacy_insight_filters")
+
+    fixtures: list[dict[str, Any]] = [
+        {"kind": "TrendsQuery", "trendsFilter": {"show_legend": True, "compare": True, "decimal_places": 2}},
+        {
+            "kind": "FunnelsQuery",
+            "funnelsFilter": {
+                "funnel_viz_type": "steps",
+                "exclusions": [{"id": "$pageleave", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}],
+            },
+        },
+        {
+            "kind": "RetentionQuery",
+            "retentionFilter": {
+                "retention_type": "retention_first_time",
+                "target_entity": {"id": "$pageview", "type": "events", "math": "total"},
+            },
+        },
+        {"kind": "PathsQuery", "pathsFilter": {"funnel_filter": {"a": 1}, "step_limit": 4}},
+        {"kind": "StickinessQuery", "stickinessFilter": {"hidden_legend_keys": {"0": True, "1": False}}},
+        {"kind": "LifecycleQuery", "lifecycleFilter": {"show_values_on_series": True}},
+        {"kind": "TrendsQuery", "breakdown": {"breakdown": "$browser", "breakdown_type": "event"}},
+        {"kind": "TrendsQuery", "trendsFilter": {"showLegend": True}},
+    ]
+
+    for source in fixtures:
+        content = {"type": "doc", "content": [{"type": "ph-query", "attrs": {"query": _viz(source)}}]}
+
+        from_module = rewrite_notebook_content(json.loads(json.dumps(content)), Counter()).content
+        from_migration = migration._rewrite_content(json.loads(json.dumps(content)))
+
+        assert from_module == from_migration, f"copies disagree on {source['kind']}"
