@@ -2515,9 +2515,7 @@ describe('Cyclotron V2', () => {
         })
 
         it('measureQueueDepths reports the age of the oldest ready job, and 0 once the queue drains', async () => {
-            // Depth cannot tell a backlog from a queue nobody works, so a run parked on an
-            // unworked queue shows no signal at all. Age is that signal. It must fall back to
-            // 0 when the queue empties, or an alert on it fires while the queue is idle.
+            // The fall back to 0 matters: without it an alert on age fires on an idle queue.
             await insertRawJob({
                 id: uuidv7(),
                 queue_name: 'queue-ages',

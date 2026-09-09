@@ -76,10 +76,8 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
-// Depth alone cannot tell a busy queue from an unworked one, because a large backlog
-// and a queue with no worker both read as deep. Age separates them: a queue whose
-// oldest ready job keeps getting older has nobody draining it. This is the only signal
-// a parked run gives before a customer reports a step stuck at RUNNING.
+// Depth reads the same for a backlog and for a queue with no worker. Age separates them:
+// an oldest ready job that keeps aging means nobody is draining that queue.
 const queueOldestAvailableGauge = new Gauge({
     name: 'cdp_cyclotron_v2_queue_oldest_available_seconds',
     help: 'Age in seconds of the oldest job that is ready to run per queue',
