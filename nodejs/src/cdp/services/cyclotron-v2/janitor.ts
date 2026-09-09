@@ -76,11 +76,13 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
-// Depth reads the same for a backlog and for a queue with no worker. Age separates them:
-// an oldest ready job that keeps aging means nobody is draining that queue.
+// This measures queue latency, not worker liveness. The oldest ready job also ages while
+// workers are healthy: the SES token bucket throttles the email queue, and strict priority
+// holds a low-priority job behind higher-priority ones. Read cdp_cyclotron_jobs_processed
+// to see whether a worker still dequeues.
 const queueOldestAvailableGauge = new Gauge({
     name: 'cdp_cyclotron_v2_queue_oldest_available_seconds',
-    help: 'Age in seconds of the oldest job that is ready to run per queue',
+    help: 'Age in seconds of the oldest job that is ready to run per queue. Queue latency, not worker liveness.',
     labelNames: ['queue'],
 })
 
