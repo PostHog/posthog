@@ -170,10 +170,10 @@ class RemoveFieldAnalyzer(OperationAnalyzer):
             score=5,
             reason="Dropping column breaks backwards compatibility and can't rollback",
             details={"model": op.model_name, "field": op.name},
-            guidance=f"""Multi-phase column drop:
-1. Remove field from Django model (keeps column in DB)
+            guidance=f"""Use SeparateDatabaseAndState for multi-phase column drops:
+1. Remove field from Django state (state_operations only, column stays in DB)
 2. Wait at least one full deployment cycle
-3. Optionally drop column with RemoveField
+3. Drop the column with RunSQL: ALTER TABLE ... DROP COLUMN IF EXISTS
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
         )
