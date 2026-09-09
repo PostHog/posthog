@@ -40,7 +40,8 @@ tools:
             own flag. Release conditions, rollout percentages, multivariate variants, and payloads all go in the
             structured `filters` param (`filters.groups` for release conditions, `filters.multivariate.variants` for
             variants, `filters.payloads` for JSON-encoded payloads). Use `update-feature-flag` to change an existing
-            flag, and `feature-flag-get-all` first to check whether the key is already taken.
+            flag. Check the key first: `feature-flag-get-definition-by-key` when you already have the exact key it will
+            use, `feature-flag-get-all` when you only know part of the key or the name.
         include_params:
             - key
             - name
