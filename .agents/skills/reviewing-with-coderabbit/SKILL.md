@@ -31,13 +31,18 @@ The correct outcome is a PR that opens without a local pass.
 
 ## Setup
 
+Flox activation installs the pinned CLI and puts `coderabbit` and `cr` on PATH.
+Sign in once per machine:
+
 ```sh
-brew install coderabbit          # or: curl -fsSL https://cli.coderabbit.ai/install.sh | sh
 cr auth login                    # opens a browser; use the @posthog.com account
 cr auth status                   # confirms the session and the organization
 ```
 
 `cr doctor` reports what is wrong and exits non-zero when a check fails.
+
+Outside flox, install it by hand with `brew install coderabbit`.
+An activation that failed to install the CLI prints a warning and keeps the previous version, and retries on the next activation.
 
 ## The flow
 
