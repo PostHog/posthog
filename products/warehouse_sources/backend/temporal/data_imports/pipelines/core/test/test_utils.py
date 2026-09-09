@@ -256,6 +256,38 @@ def test_table_from_py_list_with_lists():
     )
 
 
+@pytest.mark.parametrize(
+    "rows,expected",
+    [
+        # Same-length non-null tuples make the NumPy object-array fallback stack into a 2D array,
+        # which the ndim guard catches. Without a guard, pa.Table.from_pydict raises ArrowInvalid
+        # ("only handle 1-dimensional arrays").
+        ([{"column": ("a", 1)}, {"column": ("b", 2)}], ['["a",1]', '["b",2]']),
+        # A None row keeps the fallback array 1-dimensional, so the ndim guard does not fire; the
+        # tuple must still JSON-stringify instead of reaching pa.array() as a raw tuple.
+        ([{"column": ("a", 1)}, {"column": None}, {"column": ("b", 2)}], ['["a",1]', None, '["b",2]']),
+        # Ragged tuples also stay 1-dimensional.
+        ([{"column": ("a", 1)}, {"column": ("b", 2, 3)}], ['["a",1]', '["b",2,3]']),
+        # Homogeneous tuples stay a pyarrow list array rather than an object ndarray, so neither the
+        # ndim guard nor a 2D stack applies; they must still land as JSON text.
+        ([{"column": (1, 2)}, {"column": (3, 4)}], ["[1,2]", "[3,4]"]),
+    ],
+)
+def test_table_from_py_list_with_tuple_columns(rows, expected):
+    # A column of tuples (e.g. a Postgres composite/record type) must import as JSON text instead
+    # of crashing the sync, whatever shape the tuples take.
+    table = table_from_py_list(rows)
+
+    assert table.equals(pa.table({"column": expected}))
+    assert table.schema.equals(
+        pa.schema(
+            [
+                ("column", pa.string()),
+            ]
+        )
+    )
+
+
 def test_table_from_py_list_with_nan():
     table = table_from_py_list([{"column": 1.0}, {"column": float("NaN")}])
 

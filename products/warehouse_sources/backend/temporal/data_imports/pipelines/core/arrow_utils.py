@@ -1691,8 +1691,26 @@ def _process_batch(
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
-        # Convert any dict/lists to json strings to avoid schema mismatches in nested objects
-        if issubclass(py_type, dict | list):
+        # A fallback object ndarray becomes 2-dimensional when every row holds a same-length
+        # sequence (e.g. a Postgres composite or record column of tuples). NumPy stacks those
+        # rows into a 2D array that pa.Table.from_pydict rejects with "only handle 1-dimensional
+        # arrays". JSON-stringify each row so the column lands as text. Ragged, nullable, or
+        # already-typed tuple columns stay 1-dimensional and are handled by the dict/list/tuple
+        # branch below instead.
+        column_data = columnar_table_data[field_name]
+        if isinstance(column_data, np.ndarray) and column_data.ndim > 1:
+            json_str_array = pa.array([None if s is None else _json_dumps(s) for s in _to_list_array(column_data)])
+            columnar_table_data[field_name] = json_str_array
+            py_type = str
+            unique_types_in_column = {str}
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
+
+        # Convert any dict/list/tuple values to json strings to avoid schema mismatches in nested
+        # objects. A tuple column (e.g. a Postgres composite/record) reaches here when it stayed
+        # 1-dimensional, so the ndim guard above did not fire: ragged or nullable rows, or a
+        # homogeneous tuple column that pyarrow already typed as a list.
+        if issubclass(py_type, dict | list | tuple):
             json_str_array = pa.array(
                 [None if s is None else _json_dumps(s) for s in _to_list_array(columnar_table_data[field_name])]
             )
