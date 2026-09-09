@@ -215,12 +215,18 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
             ui: { resourceUri },
             [RESOURCE_URI_META_KEY]: resourceUri,
         }
-        // `structuredContent` was dropped so the model reads the compact formatted
-        // table, but the UI app still needs the data to render. `_meta` is host-
-        // and app-only (never surfaced to the model), so carry the app payload here
-        // and let `useToolResult` hydrate from it. See APP_DATA_META_KEY.
-        if (suppressStructuredContent && hasUiResource) {
-            payload._meta[APP_DATA_META_KEY] = structuredContent as Record<string, unknown>
+    }
+    // `structuredContent` was dropped so the model reads the compact formatted
+    // table, but the UI app still needs the data to render. `_meta` is host-
+    // and app-only (never surfaced to the model), so carry the app payload here
+    // and let `useToolResult` hydrate from it. See APP_DATA_META_KEY. This does not
+    // depend on `includeUiResponseMeta`, because a host that registers the tools
+    // directly already knows the resource URI from `tools/list` and still mounts the
+    // app, so withholding the payload here leaves that app with nothing to draw.
+    if (suppressStructuredContent && hasUiResource) {
+        payload._meta = {
+            ...payload._meta,
+            [APP_DATA_META_KEY]: structuredContent as Record<string, unknown>,
         }
     }
     // `-prepare` tools have no UI resource, so UI apps driving a confirmed action

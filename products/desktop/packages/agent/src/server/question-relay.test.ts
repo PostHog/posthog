@@ -39,6 +39,7 @@ interface TestableAgentServer {
   relayAgentResponse: (
     payload: Record<string, unknown>,
     messageId?: string,
+    traceId?: string | null,
   ) => Promise<void>;
   sendInitialTaskMessage: (
     payload: Record<string, unknown>,
@@ -600,10 +601,11 @@ describe("Question relay", () => {
         "agent response",
         ["first part", "agent response"],
         undefined,
+        undefined,
       );
     });
 
-    it("passes the initiating message id through to relayMessage", async () => {
+    it("passes the initiating message id and the turn's trace id through to relayMessage", async () => {
       const relaySpy = vi
         .spyOn(server.posthogAPI, "relayMessage")
         .mockResolvedValue(undefined);
@@ -619,7 +621,11 @@ describe("Question relay", () => {
       };
 
       server.questionRelayedToSlack = false;
-      await server.relayAgentResponse(TEST_PAYLOAD, "msg-123");
+      await server.relayAgentResponse(
+        TEST_PAYLOAD,
+        "msg-123",
+        "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
+      );
 
       expect(relaySpy).toHaveBeenCalledWith(
         "test-task-id",
@@ -627,6 +633,7 @@ describe("Question relay", () => {
         "agent response",
         ["agent response"],
         "msg-123",
+        "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
       );
     });
 
@@ -984,7 +991,7 @@ describe("Question relay", () => {
       expect(updateTaskRunSpy).not.toHaveBeenCalled();
     });
 
-    it("surfaces the shared provider failure message once upstream retries are exhausted", async () => {
+    it("stores the classified cause once upstream retries are exhausted", async () => {
       vi.spyOn(server.posthogAPI, "getTask").mockResolvedValue({
         id: "test-task-id",
         title: "t",
@@ -1031,7 +1038,7 @@ describe("Question relay", () => {
         "test-run-id",
         {
           status: "failed",
-          error_message: UPSTREAM_PROVIDER_FAILURE_MESSAGE,
+          error_message: `upstream_connection_error: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
         },
       );
     });

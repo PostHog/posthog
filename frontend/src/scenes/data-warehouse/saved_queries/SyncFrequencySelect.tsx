@@ -50,7 +50,6 @@ const PACE_ICON_CLASS = 'text-xl text-secondary shrink-0'
  * cadence write, so a live control only buys a 400. The reason carries the way out instead.
  */
 const MODE_DISABLED_REASONS: Record<string, string> = {
-    dag_schedule: 'This view refreshes on a shared schedule. Its frequency is not set per view.',
     managed_viewset: 'PostHog manages this view, including how often it refreshes.',
     no_node: 'This view is not set up for scheduled refreshes yet. Save it again, then pick a cadence.',
 }

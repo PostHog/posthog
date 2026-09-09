@@ -5,14 +5,22 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
+import {
+    columnConfigurationsCreate,
+    columnConfigurationsDestroy,
+    columnConfigurationsList,
+    columnConfigurationsPartialUpdate,
+} from 'products/product_analytics/frontend/generated/api'
+import type {
+    ColumnConfigurationApi,
+    PatchedColumnConfigurationApi,
+} from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { UserType } from '../../../../../frontend/src/types'
 import { ACCOUNTS_COLUMN_CONFIG_KEY, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
@@ -53,60 +61,36 @@ export interface accountsViewsLogicValues {
     currentViewId: string | null
     isCreating: boolean
     isDirty: boolean
-    isNewViewFormSubmitting: boolean
-    isNewViewFormValid: boolean
-    isRenameViewFormSubmitting: boolean
-    isRenameViewFormValid: boolean
+    isViewFormSubmitting: boolean
+    isViewFormValid: boolean
     liveViewState: AccountsViewState
-    newViewForm: {
+    showViewFormErrors: boolean
+    viewForm: {
         name: string
         visibility: ViewVisibility
     }
-    newViewFormAllErrors: Record<string, any>
-    newViewFormChanged: boolean
-    newViewFormErrors: DeepPartialMap<
+    viewFormAllErrors: Record<string, any>
+    viewFormChanged: boolean
+    viewFormErrors: DeepPartialMap<
         {
             name: string
             visibility: ViewVisibility
         },
         ValidationErrorType
     >
-    newViewFormHasErrors: boolean
-    newViewFormManualErrors: Record<string, any>
-    newViewFormTouched: boolean
-    newViewFormTouches: Record<string, boolean>
-    newViewFormValidationErrors: DeepPartialMap<
+    viewFormHasErrors: boolean
+    viewFormManualErrors: Record<string, any>
+    viewFormTouched: boolean
+    viewFormTouches: Record<string, boolean>
+    viewFormValidationErrors: DeepPartialMap<
         {
             name: string
             visibility: ViewVisibility
         },
         ValidationErrorType
     >
-    renameViewForm: {
-        name: string
-    }
-    renameViewFormAllErrors: Record<string, any>
-    renameViewFormChanged: boolean
-    renameViewFormErrors: DeepPartialMap<
-        {
-            name: string
-        },
-        ValidationErrorType
-    >
-    renameViewFormHasErrors: boolean
-    renameViewFormManualErrors: Record<string, any>
-    renameViewFormTouched: boolean
-    renameViewFormTouches: Record<string, boolean>
-    renameViewFormValidationErrors: DeepPartialMap<
-        {
-            name: string
-        },
-        ValidationErrorType
-    >
-    showNewViewFormErrors: boolean
-    showRenameViewFormErrors: boolean
     viewToDelete: string | null
-    viewToRename: string | null
+    viewToEdit: string | null
     views: ColumnConfigurationApi[]
     viewsLoading: boolean
 }
@@ -212,15 +196,10 @@ export interface accountsViewsLogicActions {
     reportColumnResize: () => {
         value: true
     }
-    resetNewViewForm: (values?: { name: string; visibility: ViewVisibility }) => {
+    resetViewForm: (values?: { name: string; visibility: ViewVisibility }) => {
         values?: {
             name: string
             visibility: ViewVisibility
-        }
-    }
-    resetRenameViewForm: (values?: { name: string }) => {
-        values?: {
-            name: string
         }
     }
     selectView: (id: string) => {
@@ -239,17 +218,17 @@ export interface accountsViewsLogicActions {
     setIsCreating: (isCreating: boolean) => {
         isCreating: boolean
     }
-    setNewViewFormManualErrors: (errors: Record<string, any>) => {
+    setViewFormManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
-    setNewViewFormValue: (
+    setViewFormValue: (
         key: FieldName,
         value: any
     ) => {
         name: FieldName
         value: any
     }
-    setNewViewFormValues: (
+    setViewFormValues: (
         values: DeepPartial<{
             name: string
             visibility: ViewVisibility
@@ -258,84 +237,42 @@ export interface accountsViewsLogicActions {
         values: DeepPartial<{
             name: string
             visibility: ViewVisibility
-        }>
-    }
-    setRenameViewFormManualErrors: (errors: Record<string, any>) => {
-        errors: Record<string, any>
-    }
-    setRenameViewFormValue: (
-        key: FieldName,
-        value: any
-    ) => {
-        name: FieldName
-        value: any
-    }
-    setRenameViewFormValues: (
-        values: DeepPartial<{
-            name: string
-        }>
-    ) => {
-        values: DeepPartial<{
-            name: string
         }>
     }
     setViewToDelete: (id: string | null) => {
         id: string | null
     }
-    setViewToRename: (id: string | null) => {
+    setViewToEdit: (id: string | null) => {
         id: string | null
     }
-    submitNewViewForm: () => {
+    submitViewForm: () => {
         value: boolean
     }
-    submitNewViewFormFailure: (
+    submitViewFormFailure: (
         error: Error,
         errors: Record<string, any>
     ) => {
         error: Error
         errors: Record<string, any>
     }
-    submitNewViewFormRequest: (newViewForm: { name: string; visibility: ViewVisibility }) => {
-        newViewForm: {
+    submitViewFormRequest: (viewForm: { name: string; visibility: ViewVisibility }) => {
+        viewForm: {
             name: string
             visibility: ViewVisibility
         }
     }
-    submitNewViewFormSuccess: (newViewForm: { name: string; visibility: ViewVisibility }) => {
-        newViewForm: {
+    submitViewFormSuccess: (viewForm: { name: string; visibility: ViewVisibility }) => {
+        viewForm: {
             name: string
             visibility: ViewVisibility
         }
     }
-    submitRenameViewForm: () => {
-        value: boolean
-    }
-    submitRenameViewFormFailure: (
-        error: Error,
-        errors: Record<string, any>
-    ) => {
-        error: Error
-        errors: Record<string, any>
-    }
-    submitRenameViewFormRequest: (renameViewForm: { name: string }) => {
-        renameViewForm: {
-            name: string
-        }
-    }
-    submitRenameViewFormSuccess: (renameViewForm: { name: string }) => {
-        renameViewForm: {
-            name: string
-        }
-    }
-    touchNewViewFormField: (key: string) => {
+    touchViewFormField: (key: string) => {
         key: string
     }
-    touchRenameViewFormField: (key: string) => {
-        key: string
-    }
-    updateView: ({ id, updates }: { id: string; updates: Partial<ColumnConfigurationApi> }) => {
+    updateView: ({ id, updates }: { id: string; updates: PatchedColumnConfigurationApi }) => {
         id: string
-        updates: Partial<ColumnConfigurationApi>
+        updates: PatchedColumnConfigurationApi
     }
     updateViewFailure: (
         error: string,
@@ -348,13 +285,13 @@ export interface accountsViewsLogicActions {
         views: ColumnConfigurationApi[],
         payload?: {
             id: string
-            updates: Partial<ColumnConfigurationApi>
+            updates: PatchedColumnConfigurationApi
         }
     ) => {
         views: ColumnConfigurationApi[]
         payload?: {
             id: string
-            updates: Partial<ColumnConfigurationApi>
+            updates: PatchedColumnConfigurationApi
         }
     }
 }
@@ -376,7 +313,7 @@ export interface accountsViewsLogicMeta {
         ) => AccountsViewState
         currentView: (views: ColumnConfigurationApi[], currentViewId: string | null) => ColumnConfigurationApi | null
         isDirty: (currentView: ColumnConfigurationApi | null, liveViewState: AccountsViewState) => boolean
-        canEditCurrentView: (currentView: ColumnConfigurationApi | null, user: UserType | null) => boolean
+        canEditCurrentView: (currentView: ColumnConfigurationApi | null) => boolean
     }
 }
 
@@ -427,14 +364,16 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
         reportColumnResize: true,
         setIsCreating: (isCreating: boolean) => ({ isCreating }),
         setViewToDelete: (id: string | null) => ({ id }),
-        setViewToRename: (id: string | null) => ({ id }),
+        setViewToEdit: (id: string | null) => ({ id }),
     }),
     loaders(({ values }) => ({
         views: [
             [] as ColumnConfigurationApi[],
             {
                 loadViews: async (): Promise<ColumnConfigurationApi[]> => {
-                    const response = await api.columnConfigurations.list({ context_key: ACCOUNTS_COLUMN_CONFIG_KEY })
+                    const response = await columnConfigurationsList(String(values.currentTeamId), {
+                        context_key: ACCOUNTS_COLUMN_CONFIG_KEY,
+                    })
                     return response.results
                 },
                 updateView: async ({
@@ -442,15 +381,15 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                     updates,
                 }: {
                     id: string
-                    updates: Partial<ColumnConfigurationApi>
+                    updates: PatchedColumnConfigurationApi
                 }): Promise<ColumnConfigurationApi[]> => {
                     const data =
                         Object.keys(updates).length === 0 ? serializeAccountsView(values.liveViewState) : updates
-                    const response = await api.columnConfigurations.update({ id, data })
+                    const response = await columnConfigurationsPartialUpdate(String(values.currentTeamId), id, data)
                     return values.views.map((view) => (view.id === id ? response : view))
                 },
                 deleteView: async ({ id }: { id: string }): Promise<ColumnConfigurationApi[]> => {
-                    await api.columnConfigurations.delete({ id })
+                    await columnConfigurationsDestroy(String(values.currentTeamId), id)
                     return values.views.filter((view) => view.id !== id)
                 },
                 patchViewProperties: async ({
@@ -460,7 +399,9 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                     id: string
                     properties: AccountsViewProperties
                 }): Promise<ColumnConfigurationApi[]> => {
-                    const response = await api.columnConfigurations.update({ id, data: { properties } })
+                    const response = await columnConfigurationsPartialUpdate(String(values.currentTeamId), id, {
+                        properties,
+                    })
                     return values.views.map((view) => (view.id === id ? response : view))
                 },
             },
@@ -492,20 +433,22 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             false,
             {
                 setIsCreating: (_, { isCreating }) => isCreating,
-                submitNewViewFormSuccess: () => false,
+                submitViewFormSuccess: () => false,
             },
         ],
         viewToDelete: [
             null as string | null,
             {
                 setViewToDelete: (_, { id }) => id,
+                deleteViewSuccess: () => null,
             },
         ],
-        viewToRename: [
+        viewToEdit: [
             null as string | null,
             {
-                setViewToRename: (_, { id }) => id,
-                updateViewSuccess: () => null,
+                setViewToEdit: (_, { id }) => id,
+                updateViewSuccess: (state, { payload }) =>
+                    payload?.id === state && Object.keys(payload.updates).length > 0 ? null : state,
             },
         ],
     })),
@@ -565,43 +508,35 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                     : false,
         ],
         canEditCurrentView: [
-            (s) => [s.currentView, s.user],
-            (currentView: ColumnConfigurationApi | null, user: null | import('~/types').UserType): boolean =>
-                !!currentView && !!user && currentView.created_by === user.id,
+            (s) => [s.currentView],
+            (currentView: ColumnConfigurationApi | null): boolean => !!currentView,
         ],
     }),
     forms(({ actions, values }) => ({
-        newViewForm: {
+        viewForm: {
             defaults: { name: '', visibility: 'private' as ViewVisibility },
             errors: ({ name }: { name: string }) => ({ name: !name?.trim() ? 'Name is required' : undefined }),
             submit: async ({ name, visibility }: { name: string; visibility: ViewVisibility }) => {
-                const response = await api.columnConfigurations.create({
-                    data: {
-                        ...serializeAccountsView(values.liveViewState),
-                        context_key: ACCOUNTS_COLUMN_CONFIG_KEY,
-                        name: name.trim(),
-                        visibility,
-                    },
+                if (values.viewToEdit) {
+                    actions.updateView({ id: values.viewToEdit, updates: { name: name.trim(), visibility } })
+                    return
+                }
+                const response = await columnConfigurationsCreate(String(values.currentTeamId), {
+                    ...serializeAccountsView(values.liveViewState),
+                    context_key: ACCOUNTS_COLUMN_CONFIG_KEY,
+                    name: name.trim(),
+                    visibility,
                 })
                 actions.loadViews()
                 actions.applyView(response)
-                actions.resetNewViewForm()
-                posthog.capture(AccountsEvents.ViewSaved, { visibility })
-            },
-        },
-        renameViewForm: {
-            defaults: { name: '' },
-            errors: ({ name }: { name: string }) => ({ name: !name?.trim() ? 'Name is required' : undefined }),
-            submit: ({ name }: { name: string }) => {
-                if (values.viewToRename) {
-                    actions.updateView({ id: values.viewToRename, updates: { name: name.trim() } })
-                }
+                actions.resetViewForm()
+                posthog.capture(AccountsEvents.ViewSaved, { visibility }) // [PostHog] Event: dynamic event name
             },
         },
     })),
     listeners(({ actions, values }) => ({
         reportColumnResize: () => {
-            posthog.capture(AccountsEvents.ColumnResized)
+            posthog.capture(AccountsEvents.ColumnResized) // [PostHog] Event: dynamic event name
         },
         selectView: ({ id }) => {
             const view = values.views.find((v) => v.id === id)
@@ -625,18 +560,20 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             actions.setTiles(state.tiles)
             actions.setTileFilter(state.filters.tileFilter)
             actions.setCurrentViewId(view.id)
-            posthog.capture(AccountsEvents.ViewSelected, { visibility: view.visibility })
+            posthog.capture(AccountsEvents.ViewSelected, { visibility: view.visibility }) // [PostHog] Event: dynamic event name
         },
-        setViewToRename: ({ id }) => {
-            const view = id ? values.views.find((v) => v.id === id) : undefined
+        setViewToEdit: ({ id }) => {
+            const view = id ? values.views.find((candidate) => candidate.id === id) : undefined
             if (view) {
-                actions.setRenameViewFormValue('name', view.name)
+                actions.setViewFormValues({ name: view.name ?? '', visibility: view.visibility ?? 'shared' })
             }
         },
-        updateViewSuccess: () => {
+        updateViewSuccess: ({ payload }) => {
             lemonToast.success('View updated')
-            posthog.capture(AccountsEvents.ViewUpdated)
-            actions.resetRenameViewForm()
+            posthog.capture(AccountsEvents.ViewUpdated) // [PostHog] Event: dynamic event name
+            if (payload && Object.keys(payload.updates).length > 0) {
+                actions.resetViewForm()
+            }
         },
         updateViewFailure: ({ error }) => {
             posthog.captureException(error)
@@ -644,7 +581,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
         },
         deleteViewSuccess: () => {
             lemonToast.success('View deleted')
-            posthog.capture(AccountsEvents.ViewDeleted)
+            posthog.capture(AccountsEvents.ViewDeleted) // [PostHog] Event: dynamic event name
         },
         deleteViewFailure: ({ error }) => {
             posthog.captureException(error)
@@ -655,7 +592,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             lemonToast.error('Failed to load views')
             actions.setAwaitingSavedView(false)
         },
-        submitNewViewFormFailure: ({ error }) => {
+        submitViewFormFailure: ({ error }) => {
             posthog.captureException(error)
             lemonToast.error('Failed to save view')
         },
