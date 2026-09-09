@@ -25,9 +25,10 @@ EXECUTION_LATENCY_HISTOGRAM = "alerts_product_activity_execution_latency"
 
 # `posthog/temporal/common/worker.py` registers these boundaries for the two queues above, and the
 # names must match or the histograms keep Temporal's defaults. The second entry is Temporal's own
-# per-attempt queue-wait histogram, which already carries the queue and the activity type. Its
-# default buckets stop at 10 seconds, which cannot separate a 30-second backlog from a 30-minute
-# one, so the fleets retune it instead of emitting a second series that measures the same thing.
+# per-attempt queue-wait histogram. It carries the queue but not the activity type, so a queue with
+# more than one activity cannot separate their queue waits. Its default buckets stop at 10 seconds,
+# which cannot separate a 30-second backlog from a 30-minute one, so the fleets retune it instead of
+# emitting a second series that measures the same thing.
 ALERTS_PRODUCT_LATENCY_HISTOGRAM_METRICS = (
     EXECUTION_LATENCY_HISTOGRAM,
     "temporal_activity_schedule_to_start_latency",
