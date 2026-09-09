@@ -38,6 +38,32 @@ EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
 )
 
 
+def is_expected_activity_failure(error: BaseException) -> bool:
+    """Whether an activity failure is expected rather than a defect, so it must not reach error tracking.
+
+    Cancellations (worker drain, activity timeout, workflow cancellation), a cooperative worker
+    shutdown (raised mid-activity during a deploy, always retried on a fresh worker), our own
+    egress-budget backpressure (a deliberate "defer and retry later" signal that our rate limiter
+    already records via record_outbound_decision), errors explicitly marked non-reportable
+    (expected customer/upstream conditions, e.g. a REST API serving a login page instead of JSON),
+    expected-control-flow ApplicationErrors (activity-retry-as-poll probes), and a saturated or
+    restarting database that clears on its own.
+
+    The activity interceptor below re-raises these without reporting them. An activity that also
+    captures locally must apply the same filter, or a worker drain mints an error tracking issue
+    that nobody can action.
+    """
+    return (
+        temporalio.exceptions.is_cancelled_exception(error)
+        or isinstance(error, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
+        or (
+            isinstance(error, temporalio.exceptions.ApplicationError)
+            and error.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+        )
+        or is_transient_db_error(error)
+    )
+
+
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
     """Tag the active span (the Temporal RunActivity/RunWorkflow span, when OTel tracing is
     enabled on the worker) with team_id read from the activity/workflow input.
@@ -83,35 +109,20 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
-            # Cancellations (worker drain, activity timeout, workflow cancellation), a cooperative
-            # worker shutdown (raised mid-activity during a deploy, always retried on a fresh
-            # worker), our own egress-budget backpressure (a deliberate "defer and retry later"
-            # signal that our rate limiter already records via record_outbound_decision), errors
-            # explicitly marked non-reportable (expected customer/upstream conditions, e.g. a REST
-            # API serving a login page instead of JSON), and expected-control-flow ApplicationErrors
-            # (activity-retry-as-poll probes) are not defects — re-raise without reporting them to
-            # error tracking.
-            if (
-                temporalio.exceptions.is_cancelled_exception(e)
-                or isinstance(e, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
-                or (
-                    isinstance(e, temporalio.exceptions.ApplicationError)
-                    and e.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
-                )
-            ):
+            if is_expected_activity_failure(e):
+                # A saturated connection pool clears on its own and Temporal retries the activity,
+                # so a burst of them would otherwise mint a fresh error tracking issue per module
+                # for a condition nobody can action per-activity. Log it instead, and leave the
+                # retry to Temporal — a pool problem that outlives the retries surfaces as a
+                # workflow failure.
+                if is_transient_db_error(e):
+                    await logger.awarning(
+                        "Transient database error in activity %s, leaving retry to Temporal",
+                        activity.info().activity_type,
+                        exc_info=e,
+                    )
                 raise
             activity_info = activity.info()
-            # A saturated connection pool clears on its own and Temporal retries the activity, so
-            # a burst of them would otherwise mint a fresh error tracking issue per module for a
-            # condition nobody can action per-activity. Log it instead, and leave the retry to
-            # Temporal — a pool problem that outlives the retries surfaces as a workflow failure.
-            if is_transient_db_error(e):
-                await logger.awarning(
-                    "Transient database error in activity %s, leaving retry to Temporal",
-                    activity_info.activity_type,
-                    exc_info=e,
-                )
-                raise
             capture_kwargs = {
                 "properties": {
                     # Ambient properties (e.g. warehouse-sources JobContext) first so the explicit

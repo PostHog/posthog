@@ -13,6 +13,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import ph_background_capture
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
 from products.error_tracking.backend.models import (
@@ -299,10 +300,14 @@ def merge_similar_fingerprints(
             closest_fingerprints=closest_fingerprints,
         )
     except Exception as err:
-        _capture_activity_exception(
-            err,
-            inputs,
-            activity_name=activity_name,
-            workflow_name=workflow_name,
-        )
+        # A drained worker raises a cancellation straight into this thread, usually while the
+        # merge waits on a row lock, so the trace looks like a database fault. Ask the shared
+        # filter instead of reading the trace.
+        if not is_expected_activity_failure(err):
+            _capture_activity_exception(
+                err,
+                inputs,
+                activity_name=activity_name,
+                workflow_name=workflow_name,
+            )
         raise

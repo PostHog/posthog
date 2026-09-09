@@ -15,6 +15,7 @@ from posthog.api.embedding_worker import generate_embedding
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 from posthog.models import Team
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -145,17 +146,17 @@ def generate_issue_created_embedding_activity(
     # short blip into a burst of noisy error-tracking issues. Real bugs are still surfaced.
     try:
         return _prepare_issue_created_embedding(inputs)
-    except ApplicationError as error:
-        if error.type != EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE:
+    except Exception as error:
+        if not is_expected_activity_failure(error):
             posthoganalytics.capture_exception(error)
         raise
-    except Exception as error:
-        posthoganalytics.capture_exception(error)
-        raise
 
 
+# capture_exceptions=False on the three activities below: they add no properties of their own, so
+# the shared activity interceptor is the better reporter. It knows which failures are expected,
+# and it reports each defect once.
 @activity.defn
-@posthoganalytics.scoped()
+@posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
 def persist_issue_created_embedding_activity(inputs: GeneratedIssueEmbedding) -> None:
     merge_inputs = inputs.merge_inputs
@@ -186,7 +187,7 @@ def persist_issue_created_embedding_activity(inputs: GeneratedIssueEmbedding) ->
 
 
 @activity.defn
-@posthoganalytics.scoped()
+@posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
 def merge_issue_created_fingerprint_activity(
     inputs: FingerprintEmbeddingResultInputs,
@@ -199,7 +200,7 @@ def merge_issue_created_fingerprint_activity(
 
 
 @activity.defn
-@posthoganalytics.scoped()
+@posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
 def emit_issue_created_internal_event_activity(inputs: IssueCreatedWorkflowInputs) -> None:
     produce_issue_lifecycle_internal_event(
