@@ -14,7 +14,7 @@ class VercelBaseClaims:
     type: Literal["access_token", "id_token"] | None
 
 
-@dataclass
+@dataclass(frozen=False)
 class VercelUserClaims(VercelBaseClaims):
     user_id: str
     user_role: Literal["ADMIN", "USER"]
