@@ -97,7 +97,7 @@ function makeEntry(suffix: string): ContextMillResource {
     }
 }
 
-const MANIFEST_CURRENT_KEY = 'mcp:shared-blob:context-mill:manifest:v2:current'
+const MANIFEST_CURRENT_KEY = 'mcp:shared-blob:{context-mill:manifest}:v3:current'
 
 describe('ResourceCatalog', () => {
     let redis: MockRedis
