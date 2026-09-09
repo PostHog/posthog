@@ -1279,19 +1279,22 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             props.filters ?? getDefaultFilters(props.personUUID, props.pinnedFilters),
             { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
             {
+                // Keep what the viewer has when a caller sends a payload this reducer cannot read.
+                // Defaults throw away the range and the properties they chose, and leave them nothing to
+                // recover from. A bad value rehydrated from storage is still dropped in `afterMount`.
                 setFilters: (state, { filters }) => {
                     try {
                         if (!isValidRecordingFilters(filters)) {
                             posthog.captureException(new Error('Invalid filters provided'), {
                                 filters,
                             })
-                            return getDefaultFilters(props.personUUID, props.pinnedFilters)
+                            return state
                         }
 
                         return applyFilterUpdate(state, filters, props.pinnedFilters)
                     } catch (e) {
                         posthog.captureException(e)
-                        return getDefaultFilters(props.personUUID, props.pinnedFilters)
+                        return state
                     }
                 },
                 resetFilters: () => getDefaultFilters(props.personUUID, props.pinnedFilters),

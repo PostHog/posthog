@@ -1720,6 +1720,15 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
             }).toMatchValues({ filters: expect.objectContaining({ date_from: '-7d', date_to: null }) })
         })
+
+        it('keeps what the viewer chose when a caller sends an unusable payload', async () => {
+            logic.actions.setFilters({ date_from: '-7d', filter_test_accounts: true })
+            const chosen = logic.values.filters
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ filter_group: 'not-a-group' } as any)
+            }).toMatchValues({ filters: chosen })
+        })
     })
 
     describe('superseding or unmounting an in-flight load', () => {
