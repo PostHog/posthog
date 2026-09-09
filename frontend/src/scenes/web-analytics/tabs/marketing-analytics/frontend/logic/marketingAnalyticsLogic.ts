@@ -728,7 +728,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             optionsOpen: [false as boolean, { setOptionsOpen: (_, { optionsOpen }) => optionsOpen }],
             _integrationFilter: [
                 { integrationSourceIds: [] } as IntegrationFilter,
-                persistConfig,
+                // pinned: localStorage key. Kea derives it from the reducer name, so the rename above
+                // would otherwise point it at a fresh key. That resets a selection someone already made,
+                // and strands the unreadable value under the old key for a rollback to find again.
+                { ...persistConfig, storageKey: 'scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter' },
                 {
                     setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
                     syncFromUrl: (state, { params }) =>
