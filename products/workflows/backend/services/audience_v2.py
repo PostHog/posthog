@@ -32,8 +32,11 @@ SAMPLE_MODULUS = 64
 
 # Below this many sampled matches the extrapolation is too noisy, so rerun exact. The relative
 # error of the estimate is about sqrt(63 / matched_persons), so 10,000 sampled matches
-# (~640k matched persons) keeps the worst case near 3%. The exact query is cheap in that
-# regime: few matching persons means the id prefilter keeps the dedup aggregation small.
+# (~640k matched persons) keeps the worst case near 3%. The exact query is usually cheap in
+# that regime: few matching persons means the id prefilter keeps the dedup aggregation small.
+# Caveat: the prefilter matches any historical row version, so a churny property (many persons
+# matched once, few match now) can make the exact rerun carry a candidate set far larger than
+# the current match count suggests.
 MIN_SAMPLED_MATCHES = 10_000
 
 

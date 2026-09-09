@@ -6,6 +6,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex
@@ -47,7 +48,9 @@ def get_batch_audience_person_ids(
         select_query = _build_audience_person_query(team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-        response = execute_hogql_query(query=select_query, team=team, settings=settings)
+        # Background traffic: the only caller is the internal batch-send resolver, so route to
+        # the offline pool like the group branch does, away from interactive product queries.
+        response = execute_hogql_query(query=select_query, team=team, settings=settings, workload=Workload.OFFLINE)
 
     return [str(row[0]) for row in response.results] if response.results else []
 
