@@ -84,7 +84,7 @@ describe('reusableWidgetLogic', () => {
         jest.useRealTimers()
     })
 
-    it.each(['failed', 'ready'])(
+    it.each(['failed', 'ready'] as const)(
         'preserves the prompt when generation ends with %s and no draft',
         async (lifecycle) => {
             logic.mount()
