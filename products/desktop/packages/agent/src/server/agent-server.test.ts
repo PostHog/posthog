@@ -420,7 +420,7 @@ describe("AgentServer HTTP Mode", () => {
     appendLogCalls = [];
     // Use a unique high port per test to avoid reuse and browser-blocked ports.
     port = getNextTestPort();
-  });
+  }, 30_000);
 
   afterEach(async () => {
     const runningServer = server;
@@ -429,7 +429,7 @@ describe("AgentServer HTTP Mode", () => {
       await runningServer?.stop();
     } finally {
       mswServer.resetHandlers();
-      await repo.cleanup();
+      await repo?.cleanup();
     }
   });
 
