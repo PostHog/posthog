@@ -21,3 +21,15 @@ export const UntrustedImage: Story = {
             'Here is the chart you asked for:\n\n![Weekly signups](https://example.com/pixel.png?leak=conversation)',
     },
 }
+
+/**
+ * A PostHog-hosted image must draw as a link too, because a PostHog host reads request data from the query
+ * string. Plain `disableImages` renders this case as an <img>, so the story catches a drop back to it.
+ */
+export const PostHogHostedImage: Story = {
+    args: {
+        id: 'posthog-hosted-image',
+        content:
+            'Here is the chart you asked for:\n\n![Weekly signups](https://us.i.posthog.com/static/weekly-signups.png)',
+    },
+}
