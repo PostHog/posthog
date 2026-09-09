@@ -1748,6 +1748,7 @@ CLOUD_REGION_TO_URL = {
 POSTHOG_AI_PRODUCTS = [
     "posthog_ai",
     "slack_app",
+    "workflows",
     "subscriptions",
     "alert_investigation_agent",
     "product_analytics",
