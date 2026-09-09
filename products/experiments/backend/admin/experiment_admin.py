@@ -232,14 +232,9 @@ class ExperimentAdmin(admin.ModelAdmin):
         extra_context["can_migrate"] = not has_unmigrated_legacy_shared_metric
 
         latest_recalculation = get_latest_recalculation(obj)
-        if latest_recalculation is not None:
-            panel = build_recalculation_panel(latest_recalculation)
-            # The retry endpoint lives on the recalculation admin and checks the recalculation change
-            # permission, so gate the button on that same permission to avoid offering an action that 403s.
-            panel["can_retry"] = request.user.has_perm("experiments.change_experimentmetricsrecalculation")
-            extra_context["recalculation_panel"] = panel
-        else:
-            extra_context["recalculation_panel"] = None
+        extra_context["recalculation_panel"] = (
+            build_recalculation_panel(latest_recalculation) if latest_recalculation is not None else None
+        )
 
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
