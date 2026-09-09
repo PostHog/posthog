@@ -14167,6 +14167,44 @@ export namespace Schemas {
       state: string | null;
     }
 
+    /**
+     * * `auto` - auto
+     * * `manual` - manual
+     */
+    export type BreakdownColorConfigSourceEnum = typeof BreakdownColorConfigSourceEnum[keyof typeof BreakdownColorConfigSourceEnum];
+
+
+    export const BreakdownColorConfigSourceEnum = {
+      Auto: 'auto',
+      Manual: 'manual',
+    } as const;
+
+    export interface BreakdownColorConfig {
+      /** The breakdown value this color applies to, as it appears in the chart legend. */
+      breakdownValue: string;
+      /**
+         * Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.
+         * @nullable
+         * @pattern ^preset-[1-9][0-9]*$
+         */
+      colorToken: string | null;
+      /**
+         * Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.
+         * @nullable
+         */
+      breakdownType?: string | null;
+      /**
+         * Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.
+         * @nullable
+         */
+      breakdownProperty?: string | null;
+      /** `manual` for a color a person picked, `auto` for one the dashboard assigned.
+       *
+       * * `auto` - auto
+       * * `manual` - manual */
+      source?: BreakdownColorConfigSourceEnum | null;
+    }
+
     export interface BreakdownItem {
       label: string;
       value: string | number;
@@ -21445,8 +21483,11 @@ export namespace Schemas {
       readonly filters: DashboardFilters;
       /** @nullable */
       readonly variables: DashboardVariables;
-      /** Custom color mapping for breakdown values. */
-      breakdown_colors?: unknown;
+      /**
+         * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+         * @nullable
+         */
+      breakdown_colors?: BreakdownColorConfig[] | null;
       /**
          * ID of the color theme used for chart visualizations.
          * @nullable
@@ -66265,8 +66306,11 @@ export namespace Schemas {
       pinned?: boolean;
       /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
       filters?: DashboardFiltersOpenApi;
-      /** Custom color mapping for breakdown values. */
-      breakdown_colors?: unknown;
+      /**
+         * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+         * @nullable
+         */
+      breakdown_colors?: BreakdownColorConfig[] | null;
       /**
          * ID of the color theme used for chart visualizations.
          * @nullable
