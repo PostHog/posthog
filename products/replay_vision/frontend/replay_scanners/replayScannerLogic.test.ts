@@ -150,6 +150,25 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
             expect(router.values.searchParams.filters).toBeUndefined()
         })
+
+        // The replay filters entry point sends both when the filters scope to an experiment, since
+        // exposure can't ride inside the query. Keeping only the targeting would silently widen the
+        // scanner to every session; keeping only the filters would drop the experiment entirely.
+        it('combines an experiment deep link with a ?filters= query rather than dropping either', async () => {
+            useMocks({
+                get: { '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }] },
+            })
+            const query = { kind: 'RecordingsQuery', events: [{ id: '$pageview', type: 'events' }] }
+            router.actions.push(urls.replayVisionScannerConfigure('new'), {
+                experiment: '7',
+                filters: JSON.stringify(query),
+            })
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.scanner?.experiment_targeting).toMatchObject({ experiment_id: 7 })
+            expect(logic.values.scanner?.query).toMatchObject({ events: query.events })
+        })
     })
 
     describe('draftScannerFromGoal', () => {

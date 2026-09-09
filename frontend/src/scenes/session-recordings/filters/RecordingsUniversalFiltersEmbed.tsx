@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { deepEqual as equal } from 'fast-equals'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import {
     IconAsterisk,
@@ -74,6 +74,7 @@ import {
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import { scannerHandoffFromFilters } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffFromFilters'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -90,7 +91,6 @@ import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBann
 import {
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
     DURATION_KEYS,
-    convertUniversalFiltersToRecordingsQuery,
     deriveOperand,
     isValidRecordingOrder,
     recordingsQueryToUniversalFilters,
@@ -746,6 +746,9 @@ export const ReplayFiltersTab = ({
     )
     const showFeedbackButton = useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON')
     const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_REPLAY_FILTERS')
+    // A scanner keeps less of the filter set than this panel does, so what it would actually watch
+    // decides both the destination and whether the button is worth offering.
+    const scannerHandoff = useMemo(() => scannerHandoffFromFilters(filters), [filters])
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -1044,17 +1047,11 @@ export const ReplayFiltersTab = ({
                                         data-attr="replay-save-filters-as-scanner"
                                         tooltip="Create a Replay vision scanner that keeps watching sessions matching these filters. The date range does not carry over, so the scanner watches sessions from now on."
                                         disabledReason={
-                                            (totalFiltersCount ?? 0) === 0
-                                                ? 'Add a filter first. A scanner with no filters watches every session.'
-                                                : undefined
+                                            scannerHandoff.narrowsSessions
+                                                ? undefined
+                                                : 'Add an event or property filter. A date range and pinned sessions do not carry over to a scanner.'
                                         }
                                         onClick={() => {
-                                            // Session IDs pin the query to recordings that already exist, and nothing
-                                            // downstream removes them, so a scanner built from them would match
-                                            // nothing ever while looking healthy in the list.
-                                            const query = convertUniversalFiltersToRecordingsQuery(
-                                                stripSessionIds(filters)
-                                            )
                                             void addProductIntentForCrossSell({
                                                 from: ProductKey.SESSION_REPLAY,
                                                 to: ProductKey.REPLAY_VISION,
@@ -1062,9 +1059,10 @@ export const ReplayFiltersTab = ({
                                                     ProductIntentContext.SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER,
                                             })
                                             router.actions.push(
-                                                combineUrl(urls.replayVisionScannerConfigure('new'), {
-                                                    filters: JSON.stringify(query),
-                                                }).url
+                                                combineUrl(
+                                                    urls.replayVisionScannerConfigure('new'),
+                                                    scannerHandoff.searchParams
+                                                ).url
                                             )
                                         }}
                                     >

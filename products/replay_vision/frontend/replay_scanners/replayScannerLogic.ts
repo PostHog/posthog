@@ -1671,6 +1671,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         router.actions.replace(router.values.location.pathname, nextParams, router.values.hashParams)
                     }
                     if (experimentParams) {
+                        // The two deep links combine rather than compete: the replay filters entry
+                        // point sends targeting and filters together, because exposure can't ride
+                        // inside `query` and dropping either one silently rescopes the scanner.
+                        const experimentBase = prefillQuery
+                            ? { ...newScanner(templateKey, teamName), query: prefillQuery }
+                            : newScanner(templateKey, teamName)
                         // An experiment deep link expresses fresh intent, so it outranks a saved
                         // draft; restoringDraft guards persistDraft so the prefill can't clobber the
                         // draft this user may already have for the next plain entry.
@@ -1681,7 +1687,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                 experiment,
                                 variantKey: reconcileVariantKey(experiment, experimentParams.variantKey),
                             }
-                            const prefilled = prefillScannerForExperiment(newScanner(templateKey, teamName), context)
+                            const prefilled = prefillScannerForExperiment(experimentBase, context)
                             // Set the context only after the prefill is built, so a throw inside it
                             // doesn't leave a dangling context that the next startFromTemplate re-applies.
                             actions.setExperimentContext(context)
@@ -1690,7 +1696,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             // Clear any context a partial run left set before surfacing the failure.
                             actions.setExperimentContext(null)
                             lemonToast.error("Couldn't load the experiment. Set recording filters manually instead.")
-                            actions.loadScannerSuccess(newScanner(templateKey, teamName))
+                            // Keep the filters that came with the link: they're the part of the
+                            // hand-off that survived, and re-entering them by hand is the fallback.
+                            actions.loadScannerSuccess(experimentBase)
                         } finally {
                             cache.restoringDraft = false
                         }
