@@ -114,6 +114,17 @@ case "$RS_SVC" in
     export KAFKA_METRICS_TOPIC=metrics_ingestion
     ;;
 
+  capture-apm-metrics)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export BIND_HOST=0.0.0.0
+    export BIND_PORT=4321 # Next to capture-logs (4320)
+    export MANAGEMENT_BIND_PORT=3312
+    export KAFKA_HOSTS=localhost:9092
+    export KAFKA_TOPIC=logs_ingestion
+    export KAFKA_METRICS_TOPIC=metrics_ingestion
+    ;;
+
   cymbal)
     # Only cymbal crates at debug; everything else at info to keep the dev
     # log readable. rdkafka stays explicitly at warn because its info-level

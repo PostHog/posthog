@@ -355,7 +355,10 @@ class _FakeS3:
         return entries
 
     async def _cat_file(self, path):
-        return self.store[pps._s3_key(path)]
+        key = pps._s3_key(path)
+        if key not in self.store:
+            raise FileNotFoundError(path)
+        return self.store[key]
 
     async def _pipe_file(self, path, data):
         self._clock += 1
@@ -411,6 +414,20 @@ class TestSnapshotCompaction:
 
         assert len(keys) == 1
         assert hashes == {"a": "h2", "b": "h2"}
+
+    @pytest.mark.asyncio
+    async def test_read_tolerates_file_deleted_by_concurrent_compaction(self):
+        """A concurrent _write_snapshot_hashes run can merge a listed file into a new one and delete it
+        between our listing and our read of it — the read must skip the vanished file, not crash."""
+        fake = _FakeS3()
+        with _fake_s3_patch(fake):
+            await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-1", {"a": "h1"})
+            keys = await pps._list_snapshot_files(fake, pps._snapshot_prefix(1, _SCHEMA, "src"))
+            await fake._rm(keys)
+
+            hashes = await pps._merge_snapshot_files(fake, keys)
+
+        assert hashes == {}
 
 
 class TestGroupTarget:

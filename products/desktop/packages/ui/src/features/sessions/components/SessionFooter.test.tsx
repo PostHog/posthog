@@ -22,6 +22,21 @@ describe("SessionFooter", () => {
     expect(screen.queryByText(/Esc to stop/)).not.toBeInTheDocument();
   });
 
+  it("shows the current task phase while generating", () => {
+    render(
+      <Theme>
+        <SessionFooter
+          isPromptPending
+          promptStartedAt={Date.now()}
+          lastGenerationDuration={null}
+          currentWork="Writing regression tests"
+        />
+      </Theme>,
+    );
+
+    expect(screen.getByText("Writing regression tests...")).toBeInTheDocument();
+  });
+
   it("shows the generating footer for a background Codex turn", () => {
     render(
       <Theme>

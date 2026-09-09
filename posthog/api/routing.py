@@ -33,6 +33,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
+    ActiveOrganizationPermission,
     APIScopePermission,
     MCPAccessPermission,
     OrganizationMemberPermissions,
@@ -257,9 +258,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
         else:
-            # Domain enforcement and the MCP cap are tenant boundaries, not authorization
-            # levels. Views that shape their own permission chain cannot remove them.
-            return [*dangerously_defined, VerifiedDomainEnforcementPermission(), MCPAccessPermission()]
+            # These are tenant boundaries, not authorization levels. Views that shape their own
+            # permission chain cannot remove them.
+            return [
+                *dangerously_defined,
+                VerifiedDomainEnforcementPermission(),
+                MCPAccessPermission(),
+                ActiveOrganizationPermission(),
+            ]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
             return [IsAuthenticated()]
@@ -288,6 +294,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # its message must not disclose another organization's security settings.
         permission_classes.append(VerifiedDomainEnforcementPermission)
         permission_classes.append(MCPAccessPermission)
+        permission_classes.append(ActiveOrganizationPermission)
 
         permission_classes.extend(self.permission_classes)
         return [permission() for permission in permission_classes]
@@ -467,7 +474,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 team = Team.objects.select_related("organization").get(id=self.team_id)
             except (Team.DoesNotExist, ValueError):
                 raise NotFound(
-                    detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
+                    # TODO: "Environment" instead of "Project" when project environments are rolled out.
+                    # Keep in sync with SCOPE_NOT_FOUND_DETAILS in frontend/src/lib/api-error.ts, which
+                    # matches this exact text to stop dead-scope polling and to skip error reports.
+                    detail="Project not found."
                 )
 
         tag_queries(**get_team_query_tags(team))
@@ -597,7 +607,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                     current_team = self.request.user.team
                     if current_team is None:
                         raise NotFound(
-                            "Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
+                            # TODO: "Environment" instead of "Project" when project environments are rolled out.
+                            # Keep in sync with SCOPE_NOT_FOUND_DETAILS in frontend/src/lib/api-error.ts.
+                            "Project not found."
                         )
                     query_value = current_team.id
                 elif query_lookup == "project_id":
@@ -614,7 +626,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 try:
                     query_value = team_from_request.id if team_from_request else int(query_value)
                 except ValueError:
-                    raise NotFound("Project not found.")  # TODO: "Environment"
+                    # TODO: "Environment" instead of "Project" when project environments are rolled out.
+                    # Keep in sync with SCOPE_NOT_FOUND_DETAILS in frontend/src/lib/api-error.ts.
+                    raise NotFound("Project not found.")
             elif query_lookup == "project_id":
                 try:
                     query_value = team_from_request.project_id if team_from_request else int(query_value)

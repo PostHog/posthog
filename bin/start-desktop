@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/../products/desktop"
+cd "$(dirname "$0")/.."
+
+export POSTHOG_DESKTOP_SKILLS="${POSTHOG_DESKTOP_SKILLS:-local}"
+if [[ "$POSTHOG_DESKTOP_SKILLS" == "local" ]]; then
+    bin/wait-for-postgres-tables posthog_team posthog_project posthog_instancesetting
+fi
+
+cd products/desktop
 
 pnpm install --frozen-lockfile
 
-exec pnpm exec turbo dev --filter=@posthog/code --filter=@posthog/agent --filter=@posthog/git --filter=@posthog/platform --filter=@posthog/enricher
+exec node scripts/dev-with-skills.mjs pnpm exec turbo dev --filter=@posthog/code --filter=@posthog/agent --filter=@posthog/git --filter=@posthog/platform --filter=@posthog/enricher

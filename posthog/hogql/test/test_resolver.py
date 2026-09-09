@@ -1455,6 +1455,20 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
 
+        # a duration typed as DateTime brings back the toTimeZone wrap that fails with code 43
+        node = self._select("select timestamp - timestamp as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+
+        # Int32 days, where Float would lose divideDecimal on a division of a decimal branch
+        node = self._select("select toDate(timestamp) - toDate(timestamp) as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+        node = self._select("select timestamp - 1 as key from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, ast.DateTimeType(nullable=False))
+
     def test_boolean_types(self):
         node: ast.SelectQuery = self._select("select true and false as key from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
