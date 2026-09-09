@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from redis.exceptions import RedisError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot
+from posthog.temporal.common.errors import NonReportableError
 
 from products.alerts.backend.forecasting.capacity import (
     FORECAST_SIMULATION_GLOBAL_CONCURRENCY,
@@ -116,10 +117,14 @@ def test_scheduled_evaluation_reports_saturation_for_the_workflow_to_defer() -> 
         patch("products.alerts.backend.forecasting.capacity.TEST", False),
         patch("products.alerts.backend.forecasting.capacity._get_global_limiter", return_value=global_limiter),
         patch("products.alerts.backend.forecasting.capacity._get_team_limiter", return_value=MagicMock()),
-        pytest.raises(ForecastEvaluationCapacityExceeded),
+        pytest.raises(ForecastEvaluationCapacityExceeded) as saturation,
         forecast_evaluation_slot(team_id=1),
     ):
         pass
+
+    # The Temporal activity interceptor keys off this marker to skip error tracking, so a
+    # saturated pool retries without minting an event per attempt.
+    assert isinstance(saturation.value, NonReportableError)
 
 
 @pytest.mark.parametrize("unreachable_limiter", ["global", "team"])

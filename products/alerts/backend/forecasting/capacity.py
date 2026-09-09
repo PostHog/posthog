@@ -6,6 +6,7 @@ from redis.exceptions import RedisError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.settings import TEST
+from posthog.temporal.common.errors import NonReportableError
 
 # Conservative launch limits for CPU-heavy synchronous fits. Saturation is recorded by
 # RateLimit, so these can be tuned from production data without changing the API contract.
@@ -29,8 +30,14 @@ class ForecastSimulationCapacityExceeded(Exception):
     pass
 
 
-class ForecastEvaluationCapacityExceeded(Exception):
-    """Scheduled forecast capacity is full, so the next sweep must retry the due check."""
+class ForecastEvaluationCapacityExceeded(NonReportableError):
+    """Scheduled forecast capacity is full, so the next sweep must retry the due check.
+
+    Saturation is a limiter decision the pool is designed to make, and RateLimit already records
+    it. The activity interceptor reports every other exception to error tracking on each attempt,
+    so without the NonReportableError marker one full pool mints an event per retry for every due
+    forecast alert, which is loudest exactly when the system is busiest.
+    """
 
 
 class ForecastCapacityUnavailable(Exception):
