@@ -188,7 +188,8 @@ pub async fn serve_with_rate_limiter_clock<C>(
     };
     tracing::info!(
         other_flags_caches,
-        flags_with_cohorts = flag_definitions_cluster.as_str(),
+        flags_with_cohorts = flag_definitions_cluster.cluster(),
+        flags_with_cohorts_reason = flag_definitions_cluster.reason(),
         "Feature flags Redis cluster per cache"
     );
 
@@ -620,7 +621,7 @@ pub async fn serve_with_rate_limiter_clock<C>(
         FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE,
         &[(
             "reason".to_string(),
-            flag_definitions_cluster.as_str().to_string(),
+            flag_definitions_cluster.reason().to_string(),
         )],
         if flag_definitions_cluster.reads_dedicated() {
             1.0
@@ -755,7 +756,16 @@ enum FlagDefinitionsCluster {
 }
 
 impl FlagDefinitionsCluster {
-    fn as_str(self) -> &'static str {
+    /// The cluster the reader serves from. Two of the three outcomes read shared, so this
+    /// answers "which cluster" where `reason` answers "why".
+    fn cluster(self) -> &'static str {
+        match self {
+            Self::Dedicated => "dedicated",
+            Self::Disabled | Self::NoDedicatedClient => "shared",
+        }
+    }
+
+    fn reason(self) -> &'static str {
         match self {
             Self::Disabled => "disabled",
             Self::Dedicated => "dedicated",
