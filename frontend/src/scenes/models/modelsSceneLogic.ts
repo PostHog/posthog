@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
+import { BehindScheduleModel, modelsBehindSchedule } from 'products/data_modeling/frontend/freshness'
 import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
 import { buildAdjacencyMaps, traverseLineage } from 'products/data_modeling/frontend/lineage/lineageSearch'
@@ -46,6 +47,7 @@ export interface modelsSceneLogicValues {
     suspendedNodes: DataModelingNode[]
     suspensionBySavedQueryId: Record<string, NodeSuspensionApi | undefined>
     attentionModels: AttentionModel[]
+    behindSchedule: BehindScheduleModel[]
 }
 
 export interface modelsSceneLogicActions {
@@ -67,6 +69,7 @@ export interface modelsSceneLogicMeta {
             nodes: DataModelingNode[],
             savedQueries: DataWarehouseSavedQuery[]
         ) => AttentionModel[]
+        behindSchedule: (nodes: DataModelingNode[], attentionModels: AttentionModel[]) => BehindScheduleModel[]
     }
 }
 
@@ -188,6 +191,15 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                     }
                     return b.downstreamCount - a.downstreamCount
                 })
+            },
+        ],
+        behindSchedule: [
+            (s) => [s.nodes, s.attentionModels],
+            (nodes: DataModelingNode[], attentionModels: AttentionModel[]): BehindScheduleModel[] => {
+                // A failed or suspended model is behind as a consequence, and its own row
+                // already says why, so reporting it here would only repeat the same problem.
+                const reported = new Set(attentionModels.map((row) => row.node.id))
+                return modelsBehindSchedule(nodes, Date.now()).filter((row) => !reported.has(row.node.id))
             },
         ],
         dataQualityTabEnabled: [

@@ -3,14 +3,18 @@ import { useValues } from 'kea'
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { BehindScheduleModel } from 'products/data_modeling/frontend/freshness'
 import { checkDisplayName } from 'products/data_quality/frontend/checksConstants'
 import { CheckStatusCell } from 'products/data_quality/frontend/CheckStatusCell'
 import { DataQualityOverviewCheckApi } from 'products/data_quality/frontend/generated/api.schemas'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
+import { SyncFrequencyLabelMap } from 'products/data_warehouse/frontend/utils'
 
 import { AttentionModel, modelsSceneLogic } from '../modelsSceneLogic'
 
@@ -96,6 +100,43 @@ const ATTENTION_COLUMNS: LemonTableColumns<AttentionModel> = [
     },
 ]
 
+const BEHIND_COLUMNS: LemonTableColumns<BehindScheduleModel> = [
+    {
+        title: 'Model',
+        key: 'name',
+        render: (_, row) => <LemonTableLink to={urls.nodeDetail(row.node.id)} title={row.node.name} />,
+    },
+    {
+        title: 'Refreshes',
+        key: 'target',
+        width: 0,
+        render: (_, row) => (row.node.sync_interval ? SyncFrequencyLabelMap[row.node.sync_interval] : '-'),
+    },
+    {
+        title: 'Last successful run',
+        key: 'last_run_at',
+        width: 0,
+        render: (_, row) =>
+            row.node.last_run_at ? (
+                <TZLabel time={row.node.last_run_at} />
+            ) : (
+                <Tooltip title="This model has never finished a run since it was created.">
+                    <span className="text-secondary">Never</span>
+                </Tooltip>
+            ),
+    },
+    {
+        title: 'Behind by',
+        key: 'behind',
+        width: 0,
+        render: (_, row) => (
+            <span className="whitespace-nowrap">
+                {humanFriendlyDuration(row.ageSeconds - row.intervalSeconds, { maxUnits: 2 })}
+            </span>
+        ),
+    },
+]
+
 const CHECK_COLUMNS: LemonTableColumns<DataQualityOverviewCheckApi> = [
     {
         title: 'Check',
@@ -127,9 +168,9 @@ function OverviewBody({
     failingChecks: DataQualityOverviewCheckApi[]
     checksLoading: boolean
 }): JSX.Element {
-    const { attentionModels, nodesLoading } = useValues(modelsSceneLogic)
+    const { attentionModels, behindSchedule, nodesLoading } = useValues(modelsSceneLogic)
 
-    if (!nodesLoading && attentionModels.length === 0 && failingChecks.length === 0) {
+    if (!nodesLoading && attentionModels.length === 0 && behindSchedule.length === 0 && failingChecks.length === 0) {
         return (
             <div className="flex items-center gap-2" data-attr="models-overview-healthy">
                 <IconCheckCircle className="text-success text-xl" />
@@ -157,6 +198,20 @@ function OverviewBody({
                         rowKey={(row) => row.node.id}
                         size="small"
                         data-attr="models-overview-attention"
+                    />
+                </Section>
+            )}
+            {behindSchedule.length > 0 && (
+                <Section
+                    title="Models behind schedule"
+                    description="Each of these declares how fresh it should be, but has gone more than twice that long without finishing a run. Nothing reported a failure, so they may have stopped quietly."
+                >
+                    <LemonTable
+                        columns={BEHIND_COLUMNS}
+                        dataSource={behindSchedule}
+                        rowKey={(row) => row.node.id}
+                        size="small"
+                        data-attr="models-overview-behind"
                     />
                 </Section>
             )}

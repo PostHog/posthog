@@ -6280,7 +6280,7 @@ export interface DataModelingNode {
     upstream_count: number
     downstream_count: number
     user_tag?: string
-    last_run_at?: string
+    last_run_at?: string | null
     last_run_status?: DataModelingJobStatus
     sync_interval?: DataModelingSyncInterval
     suspended?: NodeApiSuspended

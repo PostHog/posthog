@@ -44,8 +44,16 @@ describe('modelsSceneLogic', () => {
                 '/api/environments/:team_id/data_modeling_nodes/': {
                     count: 6,
                     results: [
-                        buildNode('healthy', { last_run_status: 'Completed' }),
-                        buildNode('broken', { last_run_status: 'Failed' }),
+                        buildNode('healthy', {
+                            last_run_status: 'Completed',
+                            sync_interval: '1hour',
+                            last_run_at: '2024-01-01T00:00:00Z',
+                        }),
+                        buildNode('broken', {
+                            last_run_status: 'Failed',
+                            sync_interval: '1hour',
+                            last_run_at: '2024-01-01T00:00:00Z',
+                        }),
                         buildNode('child', { last_run_status: 'Skipped' }),
                         buildNode('grandchild', { last_run_status: 'Skipped' }),
                         buildNode('paused', {
@@ -132,5 +140,14 @@ describe('modelsSceneLogic', () => {
         expect(broken.reason).toEqual('Unknown table foo')
         expect(broken.downstreamCount).toEqual(2)
         expect(broken.skippedCount).toEqual(2)
+    })
+
+    it('lists models behind schedule, minus the ones already listed as broken', async () => {
+        await mount('/models')
+        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess', 'loadEdgesSuccess'])
+
+        // Both blew their cadence, but a broken model is already named above, and saying it
+        // twice would send the reader to the same place for two different reasons.
+        expect(logic.values.behindSchedule.map((row) => row.node.id)).toEqual(['healthy'])
     })
 })
