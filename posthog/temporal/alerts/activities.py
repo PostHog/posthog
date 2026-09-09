@@ -68,7 +68,7 @@ from products.notifications.backend.facade.api import (
 logger = structlog.get_logger(__name__)
 
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
-MAX_DUE_ALERTS_PER_SCHEDULE_RUN = 50
+MAX_DUE_ALERTS_PER_SCHEDULE_RUN = 300
 
 
 @temporalio.activity.defn
