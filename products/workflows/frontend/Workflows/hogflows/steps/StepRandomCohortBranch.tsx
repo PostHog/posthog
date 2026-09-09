@@ -5,12 +5,11 @@ import { useMemo, useState } from 'react'
 import { IconBalance, IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { HogFlowBranchNameInput } from './HogFlowBranchNameInput'
 import {
     cohortPercentagesAddUp,
     normalizeCohortPercentages,
@@ -124,22 +123,20 @@ export function StepRandomCohortBranchConfiguration({
     const shortfall = 100 - totalPercentage
 
     return (
-        <>
+        <div className="flex flex-col gap-3">
             <StepSchemaErrors />
 
             {cohorts.map((cohort, index) => (
                 <div key={index} className="flex flex-col gap-2 p-2 rounded border">
-                    <div className="flex justify-between items-center">
-                        <LemonLabel>Cohort {index + 1}</LemonLabel>
+                    <div className="flex justify-between items-center gap-2">
+                        <HogFlowBranchNameInput
+                            value={localCohortNames[index]}
+                            onChange={(value) => handleNameChange(index, value)}
+                            placeholder={`Cohort ${index + 1}`}
+                            ariaLabel={`Cohort ${index + 1} name`}
+                        />
                         <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCohort(index)} />
                     </div>
-
-                    <LemonInput
-                        value={localCohortNames[index] || ''}
-                        onChange={(value) => handleNameChange(index, value)}
-                        placeholder={`Cohort #${index + 1}`}
-                        size="small"
-                    />
 
                     <div className="flex items-center gap-2">
                         <input
@@ -173,6 +170,6 @@ export function StepRandomCohortBranchConfiguration({
                     <IconBalance />
                 </LemonButton>
             </div>
-        </>
+        </div>
     )
 }
