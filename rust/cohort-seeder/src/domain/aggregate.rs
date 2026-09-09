@@ -5,12 +5,12 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::num::NonZeroU32;
-use std::sync::Arc;
 
 use cohort_core::events::CohortStreamEvent;
 use cohort_core::filters::{TeamFilters, TeamId};
 use cohort_core::hogvm::{
-    build_behavioral_globals, classify_vm_error, CohortEvaluator, EvalOutcome, VmErrorClass,
+    build_behavioral_globals, classify_vm_error, CohortEvaluator, ConditionProgram, EvalOutcome,
+    VmErrorClass,
 };
 use uuid::Uuid;
 
@@ -69,7 +69,7 @@ impl VmFailureCounts {
 
 struct ActiveCandidate {
     hash: ConditionHash,
-    bytecode: Arc<Vec<serde_json::Value>>,
+    program: ConditionProgram,
 }
 
 pub struct ChunkAccumulator {
@@ -93,12 +93,12 @@ impl ChunkAccumulator {
                     .iter()
                     .filter_map(|candidate| active.get(candidate).map(|hash| (candidate, hash)))
                     .map(|(candidate, hash)| {
-                        let bytecode = filters
-                            .by_condition_to_bytecode
+                        let program = filters
+                            .by_condition_to_program
                             .get(candidate)
-                            .map(Arc::clone)
+                            .cloned()
                             .ok_or(AggregateError::MissingBytecode(hash))?;
-                        Ok(ActiveCandidate { hash, bytecode })
+                        Ok(ActiveCandidate { hash, program })
                     })
                     .collect::<Result<Vec<_>, AggregateError>>()?;
                 Ok((event_name.clone(), candidates))
@@ -145,10 +145,7 @@ impl ChunkAccumulator {
             .map_or(&[][..], Vec::as_slice);
         let mut stats = RecordStats::default();
         for candidate in candidates {
-            match self
-                .evaluator
-                .evaluate_detailed(Arc::clone(&candidate.bytecode))
-            {
+            match self.evaluator.evaluate_detailed(&candidate.program) {
                 EvalOutcome::Matched(true) => {
                     increment_outcome(&mut stats.matched, OutcomeKind::Matched)?;
                 }
@@ -324,7 +321,8 @@ mod tests {
                     "properties": { "type": "AND", "values": [
                         { "type": "behavioral", "value": "performed_event", "key": "false", "conditionHash": HASH_FALSE, "time_value": 7, "time_interval": "day", "bytecode": ["_H", 1, 30] },
                         { "type": "behavioral", "value": "performed_event", "key": "unknown", "conditionHash": HASH_UNKNOWN, "time_value": 7, "time_interval": "day", "bytecode": ["_H", 1, 2, "definitelyNotANative", 0] },
-                        { "type": "behavioral", "value": "performed_event", "key": "broken", "conditionHash": HASH_BROKEN, "time_value": 7, "time_interval": "day", "bytecode": [] },
+                        // Loads (the header is valid) but 9999 is no opcode, so it fails at run time.
+                        { "type": "behavioral", "value": "performed_event", "key": "broken", "conditionHash": HASH_BROKEN, "time_value": 7, "time_interval": "day", "bytecode": ["_H", 1, 9999] },
                     ]}
                 }),
             )

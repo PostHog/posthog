@@ -1,7 +1,6 @@
 //! Per-team reverse indices, dedup set, and eligibility classification.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use chrono_tz::{Tz, UTC};
 use metrics::counter;
@@ -15,6 +14,7 @@ use crate::filters::leaf_classifier::LeafDropReason;
 use crate::filters::tree::{parse_cohort_tree, CohortLeaf, CohortTree, FilterNode, LeafSink};
 use crate::filters::{CohortId, FilterError, TeamId};
 use crate::fingerprint::CatalogFingerprint;
+use crate::hogvm::ConditionProgram;
 use crate::leaf_state::key::LeafStateKey;
 use crate::leaf_state::select::{
     effective_window_days, pick_state_variant, EvictionWindow, PredicateOp,
@@ -43,8 +43,8 @@ pub struct TeamFilters {
     pub by_condition_to_lsk: HashMap<[u8; 16], Vec<LeafStateKey>>,
     /// `conditionHash → [CohortId]` for the Stage 2 walk back to owning cohorts.
     pub by_condition_to_cohorts: HashMap<[u8; 16], Vec<CohortId>>,
-    /// `conditionHash → bytecode`. One entry per conditionHash.
-    pub by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
+    /// `conditionHash → loaded program`. One entry per conditionHash.
+    pub by_condition_to_program: HashMap<[u8; 16], ConditionProgram>,
     pub unique_condition_hashes: HashSet<[u8; 16]>,
     pub by_lsk: HashMap<LeafStateKey, LeafStateMeta>,
     /// conditionHashes whose leaves are behavioral. Disjoint from person-property conditions.
@@ -85,7 +85,7 @@ impl Default for TeamFilters {
         Self {
             by_condition_to_lsk: HashMap::new(),
             by_condition_to_cohorts: HashMap::new(),
-            by_condition_to_bytecode: HashMap::new(),
+            by_condition_to_program: HashMap::new(),
             unique_condition_hashes: HashSet::new(),
             by_lsk: HashMap::new(),
             behavioral_conditions: HashSet::new(),
@@ -120,7 +120,7 @@ impl TeamFilters {
 pub struct TeamFiltersBuilder {
     by_condition_to_lsk: HashMap<[u8; 16], HashSet<LeafStateKey>>,
     by_condition_to_cohorts: HashMap<[u8; 16], HashSet<CohortId>>,
-    by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
+    by_condition_to_program: HashMap<[u8; 16], ConditionProgram>,
     unique_condition_hashes: HashSet<[u8; 16]>,
     cohorts: HashMap<CohortId, CohortTree>,
     /// Per-cohort eligibility signals captured during parse.
@@ -135,7 +135,7 @@ impl LeafSink for TeamFiltersBuilder {
         cohort_id: CohortId,
         condition_hash: [u8; 16],
         leaf_state_key: LeafStateKey,
-        bytecode: &Arc<Vec<Value>>,
+        bytecode: &[Value],
     ) {
         self.by_condition_to_lsk
             .entry(condition_hash)
@@ -145,9 +145,12 @@ impl LeafSink for TeamFiltersBuilder {
             .entry(condition_hash)
             .or_default()
             .insert(cohort_id);
-        self.by_condition_to_bytecode
+        self.by_condition_to_program
             .entry(condition_hash)
-            .or_insert_with(|| Arc::clone(bytecode));
+            .or_insert_with(|| {
+                ConditionProgram::from_stored(bytecode)
+                    .expect("the leaf classifier validated the program header")
+            });
         self.unique_condition_hashes.insert(condition_hash);
 
         let flags = self.flags.entry(cohort_id).or_default();
@@ -160,7 +163,11 @@ impl LeafSink for TeamFiltersBuilder {
 
     fn record_dropped(&mut self, cohort_id: CohortId, reason: LeafDropReason) {
         counter!(FILTER_CATALOG_SKIPPED_LEAVES, "reason" => reason.as_str()).increment(1);
-        self.flags.entry(cohort_id).or_default().has_dropped_leaf = true;
+        let flags = self.flags.entry(cohort_id).or_default();
+        flags.has_dropped_leaf = true;
+        if reason == LeafDropReason::MalformedBytecode {
+            flags.malformed_leaf_count += 1;
+        }
     }
 }
 
@@ -196,6 +203,16 @@ impl TeamFiltersBuilder {
     /// ref-bearing cohorts become [`CohortEligibility::Stage2ComposableRef`] and join the composable
     /// emit-map by their own leaves; otherwise they stay `Excluded(HasCohortRef)`.
     pub fn freeze_with(self, timezone: Tz, cascade_enabled: bool) -> TeamFilters {
+        // Aggregate corrupt leaves per cohort so one large filter tree cannot flood each refresh.
+        for (cohort_id, flags) in &self.flags {
+            if flags.malformed_leaf_count > 0 {
+                warn!(
+                    cohort_id = cohort_id.0,
+                    malformed_leaves = flags.malformed_leaf_count,
+                    "cohort has bytecode the HogVM cannot load; excluding the cohort",
+                );
+            }
+        }
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
         let mut behavioral_by_event_name: HashMap<String, HashSet<[u8; 16]>> = HashMap::new();
@@ -305,7 +322,7 @@ impl TeamFiltersBuilder {
         TeamFilters {
             by_condition_to_lsk: sorted_vec_map(self.by_condition_to_lsk),
             by_condition_to_cohorts: sorted_vec_map(self.by_condition_to_cohorts),
-            by_condition_to_bytecode: self.by_condition_to_bytecode,
+            by_condition_to_program: self.by_condition_to_program,
             unique_condition_hashes: self.unique_condition_hashes,
             by_lsk,
             behavioral_conditions,
@@ -568,19 +585,67 @@ mod tests {
 
     #[test]
     fn identical_leaves_dedupe_to_single_entries() {
-        let mut builder = TeamFiltersBuilder::default();
-        let filters = wrap(vec![
-            behavioral_performed_event(7),
-            behavioral_performed_event(7),
-        ]);
-        builder
-            .add_cohort(CohortId(1), TeamId(7), &filters)
-            .unwrap();
-        let frozen = builder.freeze(UTC);
+        for (leaf, hash) in [
+            (behavioral_performed_event(7), HASH),
+            (person_leaf(), PERSON_HASH),
+        ] {
+            let filters = wrap(vec![leaf.clone(), leaf]);
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(CohortId(1), TeamId(7), &filters)
+                .unwrap();
+            builder
+                .add_cohort(CohortId(2), TeamId(7), &filters)
+                .unwrap();
+            let frozen = builder.freeze(UTC);
 
-        assert_eq!(frozen.by_condition_to_lsk[&HASH].len(), 1);
-        assert_eq!(frozen.by_condition_to_cohorts[&HASH], vec![CohortId(1)]);
-        assert_eq!(frozen.unique_condition_hashes.len(), 1);
+            assert_eq!(frozen.by_condition_to_lsk[&hash].len(), 1);
+            assert_eq!(
+                frozen.by_condition_to_cohorts[&hash],
+                vec![CohortId(1), CohortId(2)]
+            );
+            assert_eq!(frozen.unique_condition_hashes.len(), 1);
+            assert_eq!(frozen.by_condition_to_program.len(), 1);
+            for tree in frozen.cohorts.values() {
+                let FilterNode::Group { children, .. } = &tree.root else {
+                    panic!("expected a group");
+                };
+                assert_eq!(children.len(), 2);
+            }
+        }
+    }
+
+    /// Decoding is the cost this catalog pays once, so a repeat occurrence must reuse the decoded
+    /// tokens rather than produce an equal copy of them. With `Program`'s fields private, slice
+    /// identity is the only public probe.
+    #[test]
+    fn a_repeated_condition_hash_reuses_the_first_decoded_program() {
+        for (leaf, hash) in [
+            (behavioral_performed_event(7), HASH),
+            (person_leaf(), PERSON_HASH),
+        ] {
+            let filters = wrap(vec![leaf.clone(), leaf]);
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(CohortId(1), TeamId(7), &filters)
+                .unwrap();
+            let first_program = builder.by_condition_to_program[&hash].clone();
+            builder
+                .add_cohort(CohortId(2), TeamId(7), &filters)
+                .unwrap();
+            let frozen = builder.freeze(UTC);
+
+            let retained = frozen.by_condition_to_program[&hash]
+                .program()
+                .body_tokens();
+            // Two empty slices can compare pointer-equal, so prove the comparison has something to
+            // bite on.
+            assert!(!retained.is_empty());
+            assert!(std::ptr::eq(
+                first_program.program().body_tokens(),
+                retained,
+            ));
+        }
     }
 
     #[test]
@@ -608,11 +673,11 @@ mod tests {
             vec![CohortId(1), CohortId(2)]
         );
         assert_eq!(frozen.unique_condition_hashes.len(), 1);
-        assert_eq!(frozen.by_condition_to_bytecode.len(), 1);
+        assert_eq!(frozen.by_condition_to_program.len(), 1);
     }
 
     #[test]
-    fn bytecode_is_captured_under_its_condition_hash() {
+    fn the_loaded_program_is_captured_under_its_condition_hash() {
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -623,11 +688,62 @@ mod tests {
             .unwrap();
         let frozen = builder.freeze(UTC);
 
-        let bytecode = frozen
-            .by_condition_to_bytecode
+        let program = frozen
+            .by_condition_to_program
             .get(&HASH)
-            .expect("bytecode captured under the conditionHash");
-        assert_eq!(bytecode.as_ref(), &behavioral_bytecode_loaded());
+            .expect("the program is captured under the conditionHash");
+        assert_eq!(program.tokens(), &behavioral_bytecode_loaded());
+    }
+
+    #[test]
+    fn a_leaf_with_unloadable_bytecode_excludes_its_cohort_and_indexes_nothing() {
+        // The cohort keeps a healthy person leaf, so the exclusion is the malformed leaf's doing,
+        // not an empty tree. Nothing about the dropped leaf reaches any index: a hash left behind in
+        // one of them would be evaluated, swept, or fingerprinted for a cohort that never emits.
+        let mut malformed = person_leaf();
+        malformed["bytecode"] = json!(["not-a-header", 1, 29]);
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7), malformed]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf),
+        );
+        assert!(!frozen.by_condition_to_program.contains_key(&PERSON_HASH));
+        assert!(!frozen.by_condition_to_lsk.contains_key(&PERSON_HASH));
+        assert!(!frozen
+            .by_lsk
+            .contains_key(&LeafStateKey::for_person_property(&PERSON_HASH)));
+        assert!(!frozen.person_property_conditions.contains(&PERSON_HASH));
+        // The healthy sibling still indexed, so the drop is scoped to the malformed leaf.
+        assert!(frozen.by_condition_to_program.contains_key(&HASH));
+
+        for malformed_first in [true, false] {
+            let mut malformed = person_leaf();
+            malformed["bytecode"] = json!(["not-a-header", 1, 29]);
+            let mut leaves = vec![malformed, person_leaf()];
+            if !malformed_first {
+                leaves.reverse();
+            }
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(CohortId(1), TeamId(7), &wrap(leaves))
+                .unwrap();
+            let frozen = builder.freeze(UTC);
+            assert_eq!(
+                frozen.eligibility[&CohortId(1)],
+                CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf),
+                "a valid duplicate must not mask a malformed leaf",
+            );
+            assert_eq!(frozen.by_condition_to_program.len(), 1);
+        }
     }
 
     #[test]

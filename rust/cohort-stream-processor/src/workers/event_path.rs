@@ -13,7 +13,6 @@
 //! `cf_person_records`, updated per the freshness decision table in [`crate::stage1::person_record`].
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use metrics::{counter, histogram};
 use uuid::Uuid;
@@ -837,11 +836,11 @@ fn eval_behavioral_condition(
     evaluator: &mut CohortEvaluator,
     applies: &mut Vec<BehavioralApply>,
 ) {
-    let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
+    let Some(program) = filters.by_condition_to_program.get(&hash) else {
         return;
     };
     counter!(STAGE1_CONDITIONS_EVALUATED, "kind" => "behavioral").increment(1);
-    if !evaluator.evaluate(Arc::clone(bytecode)) {
+    if !evaluator.evaluate(program) {
         return;
     }
     let Some(lsks) = filters.by_condition_to_lsk.get(&hash) else {
@@ -880,7 +879,7 @@ fn eval_person_conditions(
     let mut true_hashes: Vec<[u8; 16]> = Vec::new();
     let mut effective_catalog: Vec<[u8; 16]> = Vec::new();
     for &hash in &filters.person_conditions_ordered {
-        let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
+        let Some(program) = filters.by_condition_to_program.get(&hash) else {
             continue;
         };
         // A hash whose LSK meta is missing or not a `PersonProperty` variant is skipped, so it is not
@@ -899,7 +898,7 @@ fn eval_person_conditions(
         // `person_conditions_ordered` is sorted, so pushing in iteration order keeps the effective
         // catalog sorted for the binary searches in `diff`/`apply_eval`.
         effective_catalog.push(hash);
-        if evaluator.evaluate(Arc::clone(bytecode)) {
+        if evaluator.evaluate(program) {
             true_hashes.push(hash);
         }
     }
