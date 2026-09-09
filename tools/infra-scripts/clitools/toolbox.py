@@ -14,8 +14,9 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import functions from the modular package
-from toolbox.kubernetes import ensure_context_access, select_context, validate_context
+from toolbox.kubernetes import TOOLBOX_ENVIRONMENTS, ensure_context_access, select_context, validate_context
 from toolbox.pod import ClaimRaceError, claim_pod, connect_to_pod, delete_pod, get_toolbox_pod
+from toolbox.tailscale import ensure_tailscale_connected
 from toolbox.telemetry import capture_invocation, prompt_for_reason
 from toolbox.user import get_current_user
 
@@ -39,7 +40,14 @@ POOLS = {
         },
     },
     "flags-cache-jumphost": {
+        # `namespace_by_environment` names the namespace for each environment
+        # that has moved to the posthog-app golden chart; `default_namespace`
+        # covers the rest, and `KUBE_NAMESPACE` overrides both. Add an entry as
+        # each environment migrates, and collapse this back to a single
+        # `default_namespace` once every environment is listed
+        # (PostHog/charts#14843).
         "default_namespace": "posthog",
+        "namespace_by_environment": {"dev": "flags-cache-jumphost"},
         "app_label": "flags-cache-jumphost",
         "claimed_label_key": "flags-jumphost-claimed",
     },
@@ -47,6 +55,31 @@ POOLS = {
 
 # Bound the claim-race retry budget so a permanently-contended pool can't loop forever.
 MAX_CLAIM_RETRIES = 3
+
+
+def resolve_namespace(pool: dict, kube_context: str | None) -> str:
+    """Pick the namespace a pool lives in, honouring per-environment overrides.
+
+    `KUBE_NAMESPACE` wins outright. Otherwise a pool may map an environment to
+    its own namespace, which is what a partly-finished migration looks like: one
+    environment on the golden chart in a per-app namespace, the rest still in
+    `posthog`. Contexts are named `<environment>-<access suffix>`, so the
+    environment comes from the context when one is set.
+
+    With no context set the caller is prompted for an environment later, so
+    there is nothing to key on yet. Return the pool's own default, which is the
+    unmigrated namespace, and let `KUBE_NAMESPACE` cover the rest.
+    """
+    if override := os.environ.get("KUBE_NAMESPACE"):
+        return override
+
+    by_environment = pool.get("namespace_by_environment") or {}
+    if by_environment and kube_context:
+        for environment in TOOLBOX_ENVIRONMENTS:
+            if kube_context.startswith(f"{environment}-") or kube_context == environment:
+                return by_environment.get(environment, pool["default_namespace"])
+
+    return pool["default_namespace"]
 
 
 def _exit_for_signal(signum, _frame):
@@ -95,6 +128,10 @@ def main():
         )
         args = parser.parse_args()
 
+        # The cluster endpoints are only reachable over the tailnet; without this
+        # check a disconnected Tailscale surfaces as opaque kubectl timeouts.
+        ensure_tailscale_connected()
+
         # Ask up front (before the kubectl waits) what this session is for; skipped
         # automatically on non-interactive stdin so automation never blocks.
         usage_reason = prompt_for_reason()
@@ -102,19 +139,11 @@ def main():
         pool = POOLS[args.pool]
         app_label = pool["app_label"]
         claimed_label_key = pool["claimed_label_key"]
-        # Each pool advertises its own default namespace; `KUBE_NAMESPACE`
+        # Each pool advertises its own default namespace, and may override it per
+        # environment while a migration is only partly done. `KUBE_NAMESPACE`
         # remains the escape hatch (e.g. to point the toolbox-django pool back
         # at the legacy `posthog` namespace during migration).
-        namespace = os.environ.get("KUBE_NAMESPACE", pool["default_namespace"])
-        # The base selector is `app.kubernetes.io/name=<app_label>`. Some
-        # namespaces also host other workloads that share that label (e.g. the
-        # golden chart deploys a per-app pgbouncer under the same name in the
-        # `posthog-toolbox-django` namespace), so we may need a further
-        # discriminator to pick only the main pool pods.
-        extra_selector = pool.get("extra_selectors_by_namespace", {}).get(namespace)
-
-        print(f"🛠️  Connecting to {args.pool} pool in namespace {namespace}...")  # noqa: T201
-
+        namespace = resolve_namespace(pool, os.environ.get("KUBE_CONTEXT"))
         # Resolve which kubernetes context to use without ever calling
         # `kubectl config use-context`. Switching kubeconfig globally would persist past
         # this script and silently redirect later operational commands.
@@ -127,7 +156,21 @@ def main():
             selected_context = kube_context
         else:
             selected_context = select_context(namespace)
+            # The environment was only chosen inside select_context, so a pool
+            # with per-environment namespaces has to be resolved again now that
+            # the answer exists.
+            namespace = resolve_namespace(pool, selected_context)
         print(f"🔄 Using kubernetes context: {selected_context}")  # noqa: T201
+
+        # The base selector is `app.kubernetes.io/name=<app_label>`. Some
+        # namespaces also host other workloads that share that label (e.g. the
+        # golden chart deploys a per-app pgbouncer under the same name in the
+        # `posthog-toolbox-django` namespace), so we may need a further
+        # discriminator to pick only the main pool pods. Resolved after the
+        # context, because the namespace can depend on the chosen environment.
+        extra_selector = pool.get("extra_selectors_by_namespace", {}).get(namespace)
+
+        print(f"🛠️  Connecting to {args.pool} pool in namespace {namespace}...")  # noqa: T201
 
         # Get current user labels
         user_labels = get_current_user(claimed_label_key=claimed_label_key, context=selected_context)

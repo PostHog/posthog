@@ -8,6 +8,10 @@ const dateTimeSchema = z.custom<DateTime>((val) => val instanceof DateTime)
 export const RawEventMessageSchema = z.object({
     distinct_id: z.string(),
     data: z.string(),
+    // Capture stamps both at the same instant; their difference is the sender's clock offset.
+    // Optional: capture omits sent_at when the client sends none.
+    sent_at: z.string().optional(),
+    now: z.string().optional(),
 })
 
 export type RawEventMessage = z.infer<typeof RawEventMessageSchema>
@@ -60,14 +64,17 @@ export const PRE_SERIALIZED_FLAG_ACTIVE = 1
 export const PRE_SERIALIZED_FLAG_CLICK = 2
 export const PRE_SERIALIZED_FLAG_KEYPRESS = 4
 export const PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY = 8
+export const PRE_SERIALIZED_FLAG_FULL_SNAPSHOT = 16
 
 export const PreSerializedEventMetaSchema = z.object({
     ts: z.number(),
     flags: z.number(),
     href: z.string().optional(),
+    jsonLd: z.object({ rootTypes: z.array(z.string()), fullSnapshotTimestamp: z.number().optional() }).optional(),
 })
 
 export const PreSerializedEventsSchema = z.object({
+    windowId: z.string().optional(),
     lines: z.instanceof(Buffer),
     events: z.array(PreSerializedEventMetaSchema),
     consoleLogCount: z.number(),

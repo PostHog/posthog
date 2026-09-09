@@ -11,7 +11,13 @@ from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutConfig, SignalScoutRun
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportAction,
+    SignalReportArtefact,
+    SignalScoutConfig,
+    SignalScoutRun,
+)
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.inactivity import (
     ESTABLISHED_REPORT_AGE,
@@ -189,15 +195,23 @@ class TestScoutInactivitySweep(BaseTest):
 
     @parameterized.expand(
         [
-            ("log_artefact", SignalReportArtefact.ArtefactType.NOTE, None),
-            ("dismissal_artefact", SignalReportArtefact.ArtefactType.DISMISSAL, None),
+            ("log_artefact", SignalReportArtefact.ArtefactType.NOTE, None, None),
+            ("dismissal_artefact", SignalReportArtefact.ArtefactType.DISMISSAL, None, None),
             # `resolved` includes the GitHub webhook's resolve-on-merge, which is how a merged PR
             # counts as consumption even when the merge never touched the app.
-            ("resolved_status", None, SignalReport.Status.RESOLVED),
+            ("resolved_status", None, SignalReport.Status.RESOLVED, None),
+            # Reading is consumption: a report someone opens (or rates) is not a report nobody
+            # wanted, even when they never resolve or dismiss it.
+            ("view_action", None, None, SignalReportAction.ActionType.VIEW),
+            ("feedback_action", None, None, SignalReportAction.ActionType.FEEDBACK),
         ]
     )
     def test_engagement_with_a_report_keeps_a_scout_running(
-        self, _name: str, artefact_type: str | None, report_status: str | None
+        self,
+        _name: str,
+        artefact_type: str | None,
+        report_status: str | None,
+        action_type: SignalReportAction.ActionType | None,
     ) -> None:
         report = self._report()
         self._emitting_runs(report)
@@ -209,11 +223,33 @@ class TestScoutInactivitySweep(BaseTest):
             SignalReport.objects.filter(pk=report.pk).update(
                 status=report_status, updated_at=self.now - timedelta(days=1)
             )
+        if action_type is not None:
+            SignalReportAction.record(
+                team_id=self.team.pk, report_id=str(report.pk), user_id=self.user.pk, action_type=action_type
+            )
 
         outcome = sweep_inactive_scouts(now=self.now)
 
         assert outcome.warned == []
         assert self._reload().status == SignalScoutConfig.Status.ACTIVE
+
+    def test_a_view_older_than_the_window_is_not_engagement(self) -> None:
+        # The action feed is judged on recency like every other evidence stream: a report read
+        # once months ago must not keep a since-abandoned scout alive forever.
+        report = self._report()
+        self._emitting_runs(report)
+        SignalReportAction.record(
+            team_id=self.team.pk,
+            report_id=str(report.pk),
+            user_id=self.user.pk,
+            action_type=SignalReportAction.ActionType.VIEW,
+        )
+        SignalReportAction.all_teams.filter(report=report).update(
+            last_at=self.now - INACTIVITY_WINDOW - timedelta(days=1)
+        )
+
+        assert [c.pk for c in sweep_inactive_scouts(now=self.now).warned] == [self.config.pk]
+        assert self._reload().pause_reason == SignalScoutConfig.PauseReason.IGNORED
 
     def test_a_webhook_suppressed_report_is_not_engagement(self) -> None:
         # The GitHub webhook suppresses a report whose PR closed unmerged, which a stale-bot can

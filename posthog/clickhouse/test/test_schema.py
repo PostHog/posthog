@@ -1,4 +1,7 @@
+import re
 import uuid
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -16,7 +19,14 @@ from posthog.models.event.sql import (
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
     KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL,
 )
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_KAFKA_COLUMNS, FLAG_EVALUATIONS_MV_SQL
+from posthog.models.flag_evaluations.sql import (
+    DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
+    FLAG_EVALUATIONS_KAFKA_COLUMNS,
+    FLAG_EVALUATIONS_MV_SQL,
+    FLAG_EVALUATIONS_TABLE_SQL,
+)
+from posthog.settings.data_stores import SUFFIX
+from posthog.settings.kafka import KAFKA_PREFIX
 
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=get_table_name)
@@ -54,14 +64,30 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
     assert f"FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_EVENTS_NATIVE_JSON_TABLE}" in mv_query
 
 
-def _declared_column_names(block: str) -> list[str]:
-    names: list[str] = []
+def _column_definition_lines(block: str) -> Iterator[str]:
     for raw_line in block.splitlines():
         line = raw_line.strip().lstrip(",").strip()
-        if not line or line.startswith("--"):
+        if not line or line.startswith("--") or line.startswith("INDEX "):
             continue
-        names.append(line.split()[0])
-    return names
+        yield line
+
+
+def _declared_column_names(block: str) -> list[str]:
+    return [line.split()[0] for line in _column_definition_lines(block)]
+
+
+# Cuts a column definition down to its name and type, so a parenthesized type
+# survives intact while a MATERIALIZED expression or a COMMENT is dropped.
+_COLUMN_MODIFIER = re.compile(r"\s+(?:MATERIALIZED|DEFAULT|ALIAS|COMMENT|CODEC)\b")
+
+
+def _flag_evaluations_table_columns(create_sql: str) -> list[str]:
+    # Fail closed: without the anchor, rpartition would hand back the whole
+    # statement and every caller would compare the same junk list, passing while
+    # checking nothing.
+    body, anchor, _ = create_sql.split("(", 1)[1].rpartition(")\nENGINE")
+    assert anchor, f"no column list found in {create_sql[:60]!r}"
+    return [_COLUMN_MODIFIER.split(line, maxsplit=1)[0] for line in _column_definition_lines(body)]
 
 
 def _mv_projected_names(mv_sql: str) -> list[str]:
@@ -87,8 +113,49 @@ def test_flag_evaluations_mv_projection_matches_column_template():
     assert _mv_projected_names(FLAG_EVALUATIONS_MV_SQL()) == template_columns + kafka_meta_columns
 
 
+def test_flag_evaluations_read_table_declares_every_stored_column():
+    # The typed property columns carry their DEFAULT expression on
+    # sharded_flag_evaluations, which computes them, and are repeated as plain
+    # columns on the Distributed read table, which computes nothing. Those two
+    # lists are maintained by hand, so a column or a type changed in one and not
+    # the other stays invisible until a query asks flag_evaluations for
+    # something only the shards have.
+    stored_columns = _flag_evaluations_table_columns(FLAG_EVALUATIONS_TABLE_SQL())
+    assert stored_columns
+
+    assert _flag_evaluations_table_columns(DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL()) == stored_columns
+
+
 @pytest.fixture(autouse=True)
 def mock_uuid4(mocker):
     mock_uuid4 = mocker.patch("uuid.uuid4")
     mock_uuid4.return_value = uuid.UUID("77f1df52-4b43-11e9-910f-b8ca3a9b9f3e")
     yield mock_uuid4
+
+
+def _kafka_topics_in_schema() -> set[str]:
+    # Topic names are built as KAFKA_PREFIX + name + SUFFIX, and the test settings set a
+    # suffix the dev stack does not use. Compare the bare names the bootstrap file holds.
+    topics: set[str] = set()
+    for query in CREATE_KAFKA_TABLE_QUERIES:
+        sql = build_query(query)
+        topics.update(re.findall(r"kafka_topic_list\s*=\s*'([^']+)'", sql))
+        topics.update(re.findall(r"Kafka\('[^']*',\s*'([^']+)'", sql))
+    return {t.removeprefix(KAFKA_PREFIX).removesuffix(SUFFIX) for t in topics}
+
+
+def test_dev_stack_pre_creates_every_kafka_table_topic():
+    bootstrap = Path(__file__).parents[3] / "docker" / "kafka" / "topics.txt"
+    listed = {
+        stripped
+        for line in bootstrap.read_text().splitlines()
+        if (stripped := line.strip()) and not stripped.startswith("#")
+    }
+
+    missing = sorted(_kafka_topics_in_schema() - listed)
+
+    assert not missing, (
+        f"{bootstrap.name} does not list {missing}. A ClickHouse Kafka table whose topic is "
+        "absent never gets a partition assignment, so it holds a thread and repeats the "
+        "request for as long as a local stack runs. Add each topic to that file."
+    )

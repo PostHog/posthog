@@ -4,8 +4,12 @@ Facade API for mcp_store.
 This is the ONLY module other apps are allowed to import.
 """
 
+import json
 import uuid
+from collections import Counter, defaultdict
 from collections.abc import Iterable
+from typing import Any
+from urllib.parse import urlsplit
 
 from django.db.models import Q
 
@@ -14,16 +18,32 @@ import structlog
 from products.mcp_store.backend.agents import (
     built_in_agent_key_for_task_origin,
     create_gateway_agent_token,
+    credential_owner_eligible,
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.facade.contracts import ActiveInstallation, ConnectorCallOutcome, ConnectorTool
+from products.mcp_store.backend.gateway import (
+    agent_grant_owner_label,
+    agent_grant_proxy_path,
+    installation_for_agent_access,
+    reachable_agent_grants,
+)
 from products.mcp_store.backend.models import (
+    MCPMemberServerRevocation,
     MCPServerInstallation,
     MCPServerInstallationTool,
+    MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
-from products.mcp_store.backend.policy import GatewayCaller, PolicyContext
+from products.mcp_store.backend.policy import GatewayCaller, PolicyContext, is_read_only_connector_tool
+from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
+from products.mcp_store.backend.tools import ToolCallError, ToolsFetchError, call_upstream_tool
+
+# Re-exported for the presentation layer ("presentation must use facade"
+# import-linter contract): the single MCP URL policy entry point — shared SSRF
+# validation, overridden only by the exact team-scoped internal allowlist.
+from products.mcp_store.backend.url_policy import check_mcp_url_policy as check_mcp_url_policy
 
 logger = structlog.get_logger(__name__)
 
@@ -107,6 +127,14 @@ def _resolve_name(installation: MCPServerInstallation) -> str:
     return installation.url
 
 
+def _resolve_description(installation: MCPServerInstallation) -> str:
+    if installation.description:
+        return installation.description
+    if installation.template and installation.template.description:
+        return installation.template.description
+    return ""
+
+
 def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
     if installation.auth_type != "oauth":
         return True
@@ -118,36 +146,131 @@ def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
     return True
 
 
-def _to_info(
-    installation: MCPServerInstallation,
-    team_id: int,
-    *,
-    agent_proxy_token: str | None = None,
-) -> ActiveInstallationInfo:
-    if agent_proxy_token is not None and installation.gateway_server_id is not None:
-        proxy_path = f"/api/mcp_store/gateway/servers/{installation.gateway_server_id}/proxy/"
-    else:
-        proxy_path = f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/"
-
-    return ActiveInstallationInfo(
+def _to_info(installation: MCPServerInstallation, team_id: int) -> ActiveInstallation:
+    return ActiveInstallation(
         id=str(installation.id),
         name=_resolve_name(installation),
-        proxy_path=proxy_path,
+        proxy_path=f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/",
+        description=_resolve_description(installation),
         scope=installation.scope,
-        proxy_token=agent_proxy_token,
     )
 
 
-def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallationInfo]:
-    """Return active, ready-to-use personal MCP installations for a user.
+def _mounts_for_agent_run(
+    team_id: int,
+    agent_account: MCPServiceAccount,
+    credential_owner_id: int | None,
+    allowed_gateway_server_ids: list[str] | None = None,
+) -> list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]]:
+    """The (grant, credential) pairs this run mounts.
 
-    Filters out disabled installations and OAuth installations that
-    need reauthorization or are still pending token exchange.
+    Health resolution runs before per-server precedence, not after. A grant only
+    becomes a candidate once its credential still resolves, is enabled, sits on a
+    server the team has left on, and (for OAuth) holds a usable token. Precedence
+    is then applied over what survived, so a broken credential of the run's own
+    owner falls out of the way of teammates' working team shares instead of
+    suppressing them and mounting nothing for that server.
+
+    Among the survivors of one server, the run's own credential owner wins
+    outright, so the run acts through its own person's connection rather than
+    borrowing one. Servers the owner has no working grant for mount every
+    surviving team share side by side.
+
+    That precedence is the default mount choice, not a gateway invariant: the
+    agent catalog lists every reachable grant and the proxy's `credential_owner`
+    query parameter lets a run name a teammate's team share instead. Selection
+    is confined to the grants the run already reaches, so it never escalates.
+
+    `allowed_gateway_server_ids` narrows the mounts to the listed gateway
+    servers (a scout's per-scout selection). It gates every grant regardless of
+    scope, so a run that passes it mounts exactly the selected servers and
+    nothing else. None leaves mounts unfiltered; an empty list mounts nothing.
     """
+    allowed = {str(server_id) for server_id in allowed_gateway_server_ids or []}
+    rows = (
+        MCPServiceAccountServerAccess.objects.for_team(team_id)
+        .filter(service_account=agent_account)
+        .filter(reachable_agent_grants(team_id, credential_owner_id))
+        .select_related("installation__template", "installation__gateway_server", "user")
+        .order_by("created_at", "id")
+    )
+
+    healthy_by_server: dict[uuid.UUID, list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]]] = defaultdict(
+        list
+    )
+    for access in rows:
+        if allowed_gateway_server_ids is not None and str(access.gateway_server_id) not in allowed:
+            continue
+        # Same resolution the gateway proxy and the API serializers use, so a
+        # grant whose credential drifted off its team, server, or owner is
+        # dropped here too instead of being mounted into the sandbox.
+        installation = installation_for_agent_access(access)
+        if installation is None or not installation.is_enabled:
+            continue
+        # The admin kill switch overrides grants: a server turned off for the
+        # team is withheld from agents too.
+        if installation.gateway_server is None or not installation.gateway_server.is_team_enabled:
+            continue
+        if not _is_oauth_ready(installation):
+            continue
+        healthy_by_server[access.gateway_server_id].append((access, installation))
+
+    mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]] = []
+    for server_mounts in healthy_by_server.values():
+        own = (
+            [(access, installation) for access, installation in server_mounts if access.user_id == credential_owner_id]
+            if credential_owner_id
+            else []
+        )
+        mounts.extend(own or server_mounts)
+    return mounts
+
+
+def _agent_installation_infos(
+    agent_account: MCPServiceAccount,
+    mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]],
+    credential_owner_id: int | None,
+) -> list[ActiveInstallation]:
+    if not mounts:
+        return []
+    proxy_token = create_gateway_agent_token(agent_account, credential_owner_id=credential_owner_id)
+    mounts_per_server = Counter(access.gateway_server_id for access, _installation in mounts)
+
+    infos: list[ActiveInstallation] = []
+    for access, installation in mounts:
+        name = _resolve_name(installation)
+        if mounts_per_server[access.gateway_server_id] > 1:
+            # Sandboxes key MCP servers by name, so two members' credentials for
+            # the same server need distinct ones.
+            name = f"{name} ({agent_grant_owner_label(access)})"
+        infos.append(
+            ActiveInstallation(
+                id=str(installation.id),
+                name=name,
+                proxy_path=agent_grant_proxy_path(access),
+                scope=installation.scope,
+                proxy_token=proxy_token,
+            )
+        )
+    return infos
+
+
+def get_active_installations(team_id: int, user_id: int, *, include_shared: bool = False) -> list[ActiveInstallation]:
+    """Return active, ready-to-use MCP installations a user can mount.
+
+    Personal installations owned by the user by default; ``include_shared`` adds the
+    team's shared-scope installations, mirroring what ``get_installations_for_sandbox``
+    resolves for an unmapped run. Filters out disabled installations and OAuth
+    installations that need reauthorization or are still pending token exchange.
+    """
+    scope_filter = Q(scope="personal", user_id=user_id)
+    if include_shared:
+        scope_filter |= Q(scope="shared")
     try:
         # list() evaluates the lazy queryset here so DB errors hit this handler.
         installations = list(
-            MCPServerInstallation.objects.filter(team_id=team_id, user_id=user_id, is_enabled=True, scope="personal")
+            MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True)
+            .filter(scope_filter)
             .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
             .exclude(gateway_server__member_revocations__user_id=user_id)
             .select_related("template")
@@ -156,7 +279,7 @@ def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallat
         logger.warning("Error fetching MCP installations", error=str(e), team_id=team_id)
         return []
 
-    results: list[ActiveInstallationInfo] = []
+    results: list[ActiveInstallation] = []
     for installation in installations:
         if not _is_oauth_ready(installation):
             logger.debug(
@@ -177,15 +300,24 @@ def get_installations_for_sandbox(
     include_personal: bool = False,
     task_origin: str | None = None,
     task_agent_key: str | None = None,
-) -> list[ActiveInstallationInfo]:
+    credential_owner_id: int | None = None,
+    allowed_installation_ids: list[str] | None = None,
+    allowed_gateway_server_ids: list[str] | None = None,
+) -> list[ActiveInstallation]:
     """Return MCP installations for sandbox agent use.
 
     Generic tasks retain the legacy team-shared installation behavior. A
     server-stamped built-in agent task gets only the credentials explicitly
-    delegated through its service-account grants, and only while the gateway
-    server stays enabled for the team. Origin alone is not trusted:
-    the persisted task agent key must match the origin mapping. A mapped origin
-    without that marker gets no MCP Store installations. Built-in agent
+    delegated through its service-account grants: those granted by
+    ``credential_owner_id`` (the person whose credentials the run may borrow,
+    not necessarily the user it acts as) plus any member's team-scoped grants,
+    and only while the gateway server stays enabled for the team. An agent task
+    with no credential owner mounts team-scoped grants alone. A named owner's
+    eligibility (active user with current effective team access) is re-checked
+    on every call, so an offboarded owner's grants stop mounting even though
+    the grant rows persist. Origin alone is not
+    trusted: the persisted task agent key must match the origin mapping. A
+    mapped origin without that marker gets no MCP Store installations. Built-in agent
     handling is gated per team on the `mcp-gateway` rollout flag; teams
     without it resolve mapped origins like unmapped tasks. Unmapped origins
     retain the legacy member behavior and optionally include the user's
@@ -193,6 +325,17 @@ def get_installations_for_sandbox(
     is provided. When the user has a ready personal installation for the same
     URL as a shared one, only the personal one is returned — the user acts as
     themselves rather than through the shared credential.
+
+    ``allowed_installation_ids`` narrows the member mounts to the listed
+    installations (a loop run's snapshotted selection): None leaves them
+    unfiltered, an empty list mounts nothing. It only applies on the member
+    path, so a run whose snapshot carries no installation ids mounts nothing
+    there while its gateway selection still applies.
+    ``allowed_gateway_server_ids`` narrows the mounts to the listed gateway
+    servers regardless of grant scope (a scout's per-scout selection, or a
+    workflow step's connector selection); see ``_mounts_for_agent_run``. It
+    binds on both paths: passing ``[]`` mounts no MCP Store servers at all, and
+    passing ``None`` leaves the mounts unnarrowed.
     """
     try:
         base_queryset = MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True).select_related(
@@ -217,33 +360,32 @@ def get_installations_for_sandbox(
         if agent_key is not None and agent_account is not None and agent_account.status != "active":
             return []
 
+        installations: list[MCPServerInstallation] = []
+        agent_mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]] = []
         if agent_key is not None:
-            if agent_account is None:
-                installations = []
-            else:
-                access_rows = list(
-                    MCPServiceAccountServerAccess.objects.for_team(team_id)
-                    .filter(service_account=agent_account)
-                    .values_list("installation_id", "gateway_server_id")
-                )
-                bound_servers = {
-                    installation_id: gateway_server_id
-                    for installation_id, gateway_server_id in access_rows
-                    if installation_id is not None
-                }
-                # The admin kill switch overrides grants: a server turned off
-                # for the team is withheld from agents too.
-                candidates = list(base_queryset.filter(id__in=bound_servers, gateway_server__is_team_enabled=True))
-                installations = [
-                    installation
-                    for installation in candidates
-                    if bound_servers.get(installation.id) == installation.gateway_server_id
-                ]
+            if agent_account is not None:
+                if credential_owner_id is not None and not credential_owner_eligible(credential_owner_id, team_id):
+                    # Grants survive offboarding, so an owner who was deactivated
+                    # or lost team access since delegating mounts nothing.
+                    logger.warning(
+                        "Refusing MCP installations for an ineligible credential owner",
+                        team_id=team_id,
+                        task_origin=task_origin,
+                    )
+                else:
+                    agent_mounts = _mounts_for_agent_run(
+                        team_id, agent_account, credential_owner_id, allowed_gateway_server_ids
+                    )
         else:
             shared_queryset = base_queryset.filter(scope="shared")
             shared_queryset = shared_queryset.filter(
                 Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True)
             )
+            if allowed_gateway_server_ids is not None:
+                # An explicit allowlist binds here too, so a caller that narrowed its mounts does
+                # not silently get every shared installation while the team waits for the
+                # `mcp-gateway` rollout. An empty list means the run wants no MCP Store servers.
+                shared_queryset = shared_queryset.filter(gateway_server_id__in=allowed_gateway_server_ids)
             if user_id is not None:
                 shared_queryset = shared_queryset.exclude(gateway_server__member_revocations__user_id=user_id)
             # list() evaluates the lazy querysets here so DB errors hit this handler.
@@ -259,24 +401,26 @@ def get_installations_for_sandbox(
         logger.warning("Error fetching MCP installations for sandbox", error=str(e), team_id=team_id)
         return []
 
-    ready = [installation for installation in installations if _is_oauth_ready(installation)]
-    if include_personal and user_id is not None:
-        personal_urls = {installation.url for installation in ready if installation.scope == "personal"}
-        ready = [
-            installation
-            for installation in ready
-            if installation.scope == "personal" or installation.url not in personal_urls
-        ]
-
-    agent_proxy_token = create_gateway_agent_token(agent_account) if agent_account is not None and ready else None
-    results = [
-        _to_info(
-            installation,
-            team_id,
-            agent_proxy_token=agent_proxy_token if agent_account is not None else None,
+    results: list[ActiveInstallation]
+    if agent_key is not None:
+        results = (
+            _agent_installation_infos(agent_account, agent_mounts, credential_owner_id)
+            if agent_account is not None
+            else []
         )
-        for installation in ready
-    ]
+    else:
+        ready = [installation for installation in installations if _is_oauth_ready(installation)]
+        if include_personal and user_id is not None:
+            personal_urls = {installation.url for installation in ready if installation.scope == "personal"}
+            ready = [
+                installation
+                for installation in ready
+                if installation.scope == "personal" or installation.url not in personal_urls
+            ]
+        if allowed_installation_ids is not None:
+            allowed_installations = {str(installation_id) for installation_id in allowed_installation_ids}
+            ready = [installation for installation in ready if str(installation.id) in allowed_installations]
+        results = [_to_info(installation, team_id) for installation in ready]
 
     logger.debug(
         "Found MCP installations for sandbox",
@@ -287,3 +431,242 @@ def get_installations_for_sandbox(
         has_trusted_agent_key=agent_key is not None,
     )
     return results
+
+
+def get_sandbox_mcp_server_names(
+    team_id: int,
+    *,
+    user_id: int | None = None,
+    include_personal: bool = False,
+    task_origin: str | None = None,
+    task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
+    allowed_installation_ids: list[str] | None = None,
+    allowed_gateway_server_ids: list[str] | None = None,
+) -> list[str]:
+    """The names of the servers ``get_installations_for_sandbox`` would mount, in mount order.
+
+    For callers that steer an agent at its mounted servers by name before the sandbox launches
+    (the Signals scout run prompt), without being handed the mount credentials. Implemented as a
+    projection of the full resolution so the two can never disagree on what mounts; the signed
+    proxy token that resolution derives is stateless, so discarding it here spends nothing.
+    """
+    return [
+        installation.name
+        for installation in get_installations_for_sandbox(
+            team_id,
+            user_id=user_id,
+            include_personal=include_personal,
+            task_origin=task_origin,
+            task_agent_key=task_agent_key,
+            credential_owner_id=credential_owner_id,
+            allowed_installation_ids=allowed_installation_ids,
+            allowed_gateway_server_ids=allowed_gateway_server_ids,
+        )
+    ]
+
+
+def resolve_agent_gateway_server_ids(
+    team_id: int,
+    *,
+    agent_key: str,
+    credential_owner_id: int | None,
+    connector_ids: Iterable[str],
+) -> dict[str, str | None]:
+    """Map saved connector ids to the gateway servers a built-in agent run may mount.
+
+    An id resolves when it names a gateway server the agent reaches (a grant of the run's
+    credential owner, or any member's team share) that is enabled for the team. Health is
+    not checked: a connection that needs reauthorization still resolves and drops out at
+    mount time, like it does for any agent run. An id that names a Store installation on
+    such a server resolves to that server, so a selection saved when connectors were keyed
+    by installation keeps working. Every other id maps to None.
+    """
+    requested = [str(connector_id) for connector_id in connector_ids]
+    if not requested:
+        return {}
+    account = get_built_in_agent(team_id, agent_key)
+    if account is None:
+        return dict.fromkeys(requested)
+    reachable_server_ids = set(
+        MCPServiceAccountServerAccess.objects.for_team(team_id)
+        .filter(service_account=account, gateway_server__is_team_enabled=True)
+        .filter(reachable_agent_grants(team_id, credential_owner_id))
+        .values_list("gateway_server_id", flat=True)
+    )
+    reachable = {str(server_id) for server_id in reachable_server_ids}
+    resolved: dict[str, str | None] = {
+        connector_id: connector_id if connector_id in reachable else None for connector_id in requested
+    }
+    legacy_ids: dict[uuid.UUID, str] = {}
+    for connector_id, server_id in resolved.items():
+        if server_id is not None:
+            continue
+        try:
+            legacy_ids[uuid.UUID(connector_id)] = connector_id
+        except ValueError:
+            continue
+    if not legacy_ids:
+        return resolved
+    installations = MCPServerInstallation.objects.filter(
+        team_id=team_id, id__in=legacy_ids, gateway_server_id__in=reachable_server_ids
+    ).values_list("id", "gateway_server_id")
+    for installation_id, server_id in installations:
+        resolved[legacy_ids[installation_id]] = str(server_id)
+    return resolved
+
+
+def _installation_host(url: str) -> str:
+    return (urlsplit(url).hostname or "").lower()
+
+
+def member_installation_for_host(team_id: int, user_id: int, server_host: str) -> MCPServerInstallation | None:
+    """The member's own enabled connection to the server at ``server_host``,
+    else the team's shared one. A member never rides another member's
+    personal credential."""
+    host = server_host.lower()
+    candidates = (
+        MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True, url__icontains=host)
+        .filter(Q(user_id=user_id, scope="personal") | Q(scope="shared"))
+        .select_related("gateway_server")
+        .order_by("created_at")
+    )
+    matching = [installation for installation in candidates if _installation_host(installation.url) == host]
+    own = next((installation for installation in matching if installation.scope == "personal"), None)
+    if own is not None:
+        return own
+    return next((installation for installation in matching if installation.scope == "shared"), None)
+
+
+def _connector_tool(tool: MCPServerInstallationTool) -> ConnectorTool:
+    annotations = tool.annotations or {}
+    return ConnectorTool(
+        name=tool.tool_name,
+        description=tool.description or "",
+        input_schema=tool.input_schema or {},
+        read_only=is_read_only_connector_tool(tool.tool_name, annotations),
+    )
+
+
+def member_server_tools(team_id: int, user_id: int, server_host: str) -> list[ConnectorTool] | None:
+    """The tools the member's connection to ``server_host`` exposes, or None
+    when the member has no usable connection to that server."""
+    installation = member_installation_for_host(team_id, user_id, server_host)
+    if installation is None:
+        return None
+    seen: set[str] = set()
+    tools: list[ConnectorTool] = []
+    for tool in installation.tools.filter(removed_at__isnull=True).order_by("tool_name", "-last_seen_at", "-id"):
+        if tool.tool_name in seen:
+            continue
+        seen.add(tool.tool_name)
+        tools.append(_connector_tool(tool))
+    return tools
+
+
+def _member_access_outcome(
+    installation: MCPServerInstallation, team_id: int, user_id: int
+) -> ConnectorCallOutcome | None:
+    """The gates the member proxy applies before any call: the admin kill
+    switch, per-member revocation, and credential health."""
+    gateway_server = installation.gateway_server
+    if gateway_server is not None:
+        if not gateway_server.is_team_enabled:
+            return ConnectorCallOutcome(status="blocked", detail="This server is turned off for the team.")
+        if (
+            MCPMemberServerRevocation.objects.for_team(team_id)
+            .filter(gateway_server=gateway_server, user_id=user_id)
+            .exists()
+        ):
+            return ConnectorCallOutcome(status="blocked", detail="An admin turned this server off for you.")
+    ok, error_response = validate_installation_auth(installation)
+    if ok or error_response is None:
+        return None
+    detail = json.loads(error_response.content).get("error", "The connection cannot be used.")
+    if error_response.status_code == 401:
+        return ConnectorCallOutcome(status="needs_reauth", detail=detail)
+    return ConnectorCallOutcome(status="blocked", detail=detail)
+
+
+def call_member_server_tool(
+    team_id: int,
+    user_id: int,
+    server_host: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    *,
+    actor_label: str = "",
+    allow_writes: bool = True,
+) -> ConnectorCallOutcome:
+    """Call one tool on the server at ``server_host`` with the member's own
+    connection (or the team's shared one). Runs the same policy resolution
+    and audit as the member proxy, so a canvas cannot reach a tool the member
+    could not call from the MCP settings page."""
+    installation = member_installation_for_host(team_id, user_id, server_host)
+    if installation is None:
+        return ConnectorCallOutcome(status="not_connected", detail=f"You have not connected {server_host}.")
+    access_outcome = _member_access_outcome(installation, team_id, user_id)
+    if access_outcome is not None:
+        return access_outcome
+
+    tool = installation.tools.filter(tool_name=tool_name).order_by("-last_seen_at", "-id").first()
+    if tool is None:
+        return ConnectorCallOutcome(
+            status="tool_missing", detail=f"Tool '{tool_name}' is not registered for this connection."
+        )
+    if not allow_writes and not _connector_tool(tool).read_only:
+        return ConnectorCallOutcome(
+            status="write_blocked", detail=f"Tool '{tool_name}' may write; only reads are allowed."
+        )
+
+    gateway_server = installation.gateway_server
+    caller = GatewayCaller(kind="member", user_id=user_id)
+    policy_context = (
+        PolicyContext(team_id=team_id, caller=caller, gateway_server=gateway_server, installation=installation)
+        if gateway_server is not None
+        else None
+    )
+    decision, block_reason = resolve_call_decision(tool, policy_context)
+    if gateway_server is not None:
+        record_tool_call_audit(installation, gateway_server, caller, actor_label, tool_name, decision)
+    if block_reason == "removed":
+        return ConnectorCallOutcome(status="tool_missing", detail=f"Tool '{tool_name}' is no longer available.")
+    if block_reason == "needs_approval":
+        return ConnectorCallOutcome(
+            status="blocked", detail=f"Tool '{tool_name}' needs your approval in Settings → MCP servers."
+        )
+    if block_reason is not None:
+        return ConnectorCallOutcome(status="blocked", detail=f"Tool '{tool_name}' is turned off by team policy.")
+
+    try:
+        result = call_upstream_tool(installation, tool_name, arguments)
+    except (ToolCallError, ToolsFetchError) as exc:
+        logger.warning(
+            "mcp_store member tool call failed",
+            team_id=team_id,
+            installation_id=str(installation.id),
+            tool_name=tool_name,
+            error=str(exc),
+        )
+        return ConnectorCallOutcome(status="upstream_error", detail=f"The server could not run '{tool_name}': {exc}")
+
+    # The upstream server is untrusted input: a malformed `content` degrades
+    # to no blocks instead of raising.
+    content = result.get("content")
+    blocks = tuple(block for block in content if isinstance(block, dict)) if isinstance(content, list) else ()
+    return ConnectorCallOutcome(
+        status="ok",
+        content=blocks,
+        structured_content=result.get("structuredContent"),
+        is_error=bool(result.get("isError")),
+    )
+
+
+def member_server_hosts(team_id: int, user_id: int) -> list[str]:
+    """Hosts of every enabled server the member can call: their own connections and the team's shared ones."""
+    urls = (
+        MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True)
+        .filter(Q(user_id=user_id, scope="personal") | Q(scope="shared"))
+        .values_list("url", flat=True)
+    )
+    return sorted({host for url in urls if (host := _installation_host(url))})

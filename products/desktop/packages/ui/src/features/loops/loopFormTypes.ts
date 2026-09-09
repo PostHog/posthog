@@ -51,25 +51,122 @@ export interface LoopFormValues {
    * unrelated change never drops a loop's other repository associations.
    */
   repositories: LoopSchemas.LoopRepositoryEntry[];
+  sandboxEnvironmentId: string | null;
   triggers: LoopTriggerDraft[];
   behaviors: LoopSchemas.LoopBehaviors;
   notifications: LoopSchemas.LoopNotifications;
   contextTarget: LoopContextTargetDraft | null;
+  /** Names of team skills attached to a workflow-backed loop. The loops API
+   * has no equivalent and ignores it. */
+  teamSkills: string[];
 }
 
-export function emptyLoopScheduleTriggerConfig(): LoopSchemas.LoopScheduleTriggerConfig {
+function emptyLoopScheduleTriggerConfig(): LoopSchemas.LoopScheduleTriggerConfig {
   return { cron_expression: "0 9 * * 1", timezone: systemTimezone() };
 }
 
-export function emptyLoopGithubTriggerConfig(): LoopSchemas.LoopGithubTriggerConfig {
+function emptyLoopGithubTriggerConfig(): LoopSchemas.LoopGithubTriggerConfig {
   return { github_integration_id: 0, repository: "", events: [] };
 }
 
-export function emptyLoopApiTriggerConfig(): LoopSchemas.LoopApiTriggerConfig {
+function emptyLoopApiTriggerConfig(): LoopSchemas.LoopApiTriggerConfig {
   return {};
 }
 
-export function defaultLoopNotifications(): LoopSchemas.LoopNotifications {
+/** The `action` values GitHub sends for each webhook event we subscribe to. Push carries no
+ * action at all. */
+const GITHUB_EVENT_ACTIONS: Record<
+  LoopSchemas.LoopGithubTriggerEventEnum,
+  string[]
+> = {
+  push: [],
+  pull_request: [
+    "opened",
+    "reopened",
+    "closed",
+    "synchronize",
+    "edited",
+    "ready_for_review",
+    "converted_to_draft",
+    "review_requested",
+    "review_request_removed",
+    "labeled",
+    "unlabeled",
+    "assigned",
+    "unassigned",
+  ],
+  issues: [
+    "opened",
+    "reopened",
+    "closed",
+    "edited",
+    "deleted",
+    "labeled",
+    "unlabeled",
+    "assigned",
+    "unassigned",
+    "pinned",
+    "unpinned",
+    "transferred",
+  ],
+  issue_comment: ["created", "edited", "deleted"],
+};
+
+/** Actions offerable for a set of events, which is their intersection rather than their union:
+ * one `filters.actions` list is matched against every event on the trigger, so an action only
+ * some of them can send would stop the others firing entirely. */
+export function githubTriggerActionOptions(
+  events: LoopSchemas.LoopGithubTriggerEventEnum[],
+): string[] {
+  if (events.length === 0) {
+    return [];
+  }
+  return events
+    .map((event) => GITHUB_EVENT_ACTIONS[event] ?? [])
+    .reduce((shared, actions) =>
+      shared.filter((action) => actions.includes(action)),
+    );
+}
+
+/** Every action GITHUB_EVENT_ACTIONS models. GitHub keeps adding actions, and the API accepts any
+ * string, so a trigger can hold one we don't list — we can't tell which events send it. */
+const MODELLED_GITHUB_ACTIONS = new Set(
+  Object.values(GITHUB_EVENT_ACTIONS).flat(),
+);
+
+/** Sets the trigger's events, dropping any selected action the new set can't all send. Leaving
+ * a stale action behind would silently stop the newly ticked event from ever firing.
+ *
+ * Actions we don't model are kept: dropping one would widen the trigger to every action of the
+ * event, and since the user was never shown a control for it they'd get no say in that. */
+export function withGithubTriggerEvents(
+  config: LoopSchemas.LoopGithubTriggerConfig,
+  events: LoopSchemas.LoopGithubTriggerEventEnum[],
+): LoopSchemas.LoopGithubTriggerConfig {
+  const offerable = githubTriggerActionOptions(events);
+  const actions = (config.filters?.actions ?? []).filter(
+    (action) =>
+      offerable.includes(action) || !MODELLED_GITHUB_ACTIONS.has(action),
+  );
+  return withGithubTriggerFilters({ ...config, events }, { actions });
+}
+
+/** Applies a filter patch, dropping keys that end up empty so an untouched trigger doesn't
+ * grow `{actions: [], payload: []}` noise in its stored config. */
+export function withGithubTriggerFilters(
+  config: LoopSchemas.LoopGithubTriggerConfig,
+  patch: Partial<LoopSchemas.LoopGithubTriggerFilters>,
+): LoopSchemas.LoopGithubTriggerConfig {
+  const merged = { ...config.filters, ...patch };
+  const filters = Object.fromEntries(
+    Object.entries(merged).filter(
+      ([, value]) => !Array.isArray(value) || value.length > 0,
+    ),
+  ) as LoopSchemas.LoopGithubTriggerFilters;
+  return { ...config, filters };
+}
+
+function defaultLoopNotifications(): LoopSchemas.LoopNotifications {
   const off = { enabled: false, events: [], params: {} };
   return { push: { ...off }, email: { ...off }, slack: { ...off } };
 }
@@ -111,7 +208,7 @@ export function nextDraftTriggerKey(): string {
   return `draft-trigger-${draftKeySeq}`;
 }
 
-export function defaultLoopScheduleTrigger(): LoopTriggerDraft {
+function defaultLoopScheduleTrigger(): LoopTriggerDraft {
   return {
     key: nextDraftTriggerKey(),
     type: "schedule",
@@ -147,10 +244,12 @@ export function emptyLoopFormValues(): LoopFormValues {
     model: "",
     reasoningEffort: null,
     repositories: [],
+    sandboxEnvironmentId: null,
     triggers: [defaultLoopScheduleTrigger()],
     behaviors: defaultLoopBehaviors(),
     notifications: defaultLoopNotifications(),
     contextTarget: null,
+    teamSkills: [],
   };
 }
 
@@ -187,6 +286,7 @@ export function loopToFormValues(loop: LoopSchemas.Loop): LoopFormValues {
     model: loop.model,
     reasoningEffort: loop.reasoning_effort,
     repositories: [...loop.repositories],
+    sandboxEnvironmentId: loop.sandbox_environment_id,
     triggers: loop.triggers.map((trigger) => ({
       key: trigger.id,
       id: trigger.id,
@@ -203,6 +303,7 @@ export function loopToFormValues(loop: LoopSchemas.Loop): LoopFormValues {
           outputs: loop.context_target.outputs,
         }
       : null,
+    teamSkills: [],
   };
 }
 
@@ -220,11 +321,17 @@ export function formValuesToLoopWrite(
     model: values.model.trim(),
     reasoning_effort: values.reasoningEffort,
     repositories: values.repositories,
+    sandbox_environment: values.sandboxEnvironmentId,
     triggers: values.triggers.map((trigger) => ({
       id: trigger.id,
       type: trigger.type,
       enabled: trigger.enabled,
-      config: trigger.config,
+      config:
+        trigger.type === "github"
+          ? withNormalizedPayloadConditions(
+              trigger.config as LoopSchemas.LoopGithubTriggerConfig,
+            )
+          : trigger.config,
     })),
     behaviors: values.behaviors,
     notifications: values.notifications,
@@ -238,7 +345,22 @@ export function formValuesToLoopWrite(
   };
 }
 
-export function isLoopFormValid(values: LoopFormValues): boolean {
+/**
+ * What a loop's backend can store. The loops API takes any trigger list; a
+ * workflow holds exactly one trigger, resolves the GitHub repository itself
+ * (so no integration id is needed), and listens to one event type.
+ */
+export interface LoopFormRules {
+  backend: "loops" | "workflow";
+}
+
+export const LOOPS_API_RULES: LoopFormRules = { backend: "loops" };
+export const WORKFLOW_RULES: LoopFormRules = { backend: "workflow" };
+
+export function isLoopFormValid(
+  values: LoopFormValues,
+  rules: LoopFormRules = LOOPS_API_RULES,
+): boolean {
   if (!values.name.trim()) {
     return false;
   }
@@ -248,21 +370,82 @@ export function isLoopFormValid(values: LoopFormValues): boolean {
   if (values.contextTarget && values.visibility !== "team") {
     return false;
   }
-  return values.triggers.every((trigger) => isTriggerDraftValid(trigger));
+  return isTriggerListValid(values.triggers, rules);
 }
 
-export function isTriggerDraftValid(trigger: LoopTriggerDraft): boolean {
+/** Whether the trigger list can be saved: the loops API takes any list, an
+ * empty one included, and a workflow needs exactly one enabled trigger. */
+export function isTriggerListValid(
+  triggers: LoopTriggerDraft[],
+  rules: LoopFormRules = LOOPS_API_RULES,
+): boolean {
+  if (rules.backend === "workflow") {
+    const [trigger, ...rest] = triggers;
+    if (!trigger || rest.length > 0 || !trigger.enabled) {
+      return false;
+    }
+  }
+  return triggers.every((trigger) => isTriggerDraftValid(trigger, rules));
+}
+
+export function isTriggerDraftValid(
+  trigger: LoopTriggerDraft,
+  rules: LoopFormRules = LOOPS_API_RULES,
+): boolean {
   if (trigger.type === "schedule") {
     const config = trigger.config as LoopSchemas.LoopScheduleTriggerConfig;
     return !!config.run_at || !!config.cron_expression;
   }
   if (trigger.type === "github") {
     const config = trigger.config as LoopSchemas.LoopGithubTriggerConfig;
+    const workflow = rules.backend === "workflow";
     return (
       !!config.repository &&
-      config.github_integration_id > 0 &&
-      config.events.length > 0
+      (workflow || config.github_integration_id > 0) &&
+      (workflow ? config.events.length === 1 : config.events.length > 0) &&
+      (config.filters?.payload ?? []).every(isPayloadConditionValid)
     );
   }
-  return true;
+  return rules.backend !== "workflow";
+}
+
+/** Each accepted value is its own chip in the editor, never a delimited string. An earlier
+ * version split this field on commas, which both lost a value that legitimately contains one
+ * (`pull_request.title` is a matchable path) and quietly widened the gate: an exact condition
+ * of "release, approved" became two alternatives, so a PR titled just "approved" matched. */
+function payloadConditionValues(
+  condition: LoopSchemas.LoopGithubTriggerPayloadFilter,
+): string[] {
+  const values = Array.isArray(condition.equals)
+    ? condition.equals
+    : [condition.equals];
+  return values.map((value) => value.trim()).filter(Boolean);
+}
+
+function withNormalizedPayloadConditions(
+  config: LoopSchemas.LoopGithubTriggerConfig,
+): LoopSchemas.LoopGithubTriggerConfig {
+  const conditions = config.filters?.payload;
+  if (!conditions) {
+    return config;
+  }
+  return {
+    ...config,
+    filters: {
+      ...config.filters,
+      payload: conditions.map((condition) => ({
+        path: condition.path.trim(),
+        equals: payloadConditionValues(condition),
+      })),
+    },
+  };
+}
+
+// A half-filled row would submit and come back as a 400 from the trigger serializer.
+function isPayloadConditionValid(
+  condition: LoopSchemas.LoopGithubTriggerPayloadFilter,
+): boolean {
+  return (
+    !!condition.path.trim() && payloadConditionValues(condition).length > 0
+  );
 }

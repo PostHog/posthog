@@ -7,9 +7,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyItem, TeamTaxonomyQuery
+
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
-from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     QueryPlan,
     QueryPlanStep,
@@ -31,11 +34,14 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     _pinned_event_names,
     _recent_event_names,
     _select_relevant_events,
+    _top_event_names,
     build_context_blob,
     build_frozen_prompt,
     compute_report_window,
     generate_query_plan,
+    get_ai_query_plan_status,
     sanitize_prompt,
+    validate_stored_query_plan,
 )
 
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
@@ -731,6 +737,101 @@ class TestContextBlob(APIBaseTest):
 
         assert "Events matching your request" not in blob
 
+    @parameterized.expand(
+        [
+            ("clickhouse_timeout", ClickHouseQueryTimeOut()),
+            ("unexpected_error", Exception("boom")),
+        ]
+    )
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    def test_builds_blob_when_top_events_lookup_fails(self, _name: str, exc: Exception, _mock_groups: object) -> None:
+        # The top-events list is only a hint; on a high-volume project its 30-day scan can exceed
+        # ClickHouse's execution limit. Losing the hint must not cost the whole report, so the blob
+        # still has to carry the parts the planner cannot work without.
+        window = _window(7)
+
+        with patch(f"{_SG}._top_event_names", side_effect=exc):
+            blob = build_context_blob(self.team, window)
+
+        assert f"Analysis window start (inclusive, project timezone): {window.start_literal}" in blob
+        assert "{{date_range}}" in blob
+        # A failed lookup must not read as an empty project: the projects whose scan times out are the
+        # ones with the most data, so "none recorded yet" here would invite a "nothing happened" report.
+        assert "none recorded yet" not in blob
+        assert "- Top events: (unavailable this run)" in blob
+        # The blob is quoted verbatim into the synthesis prompt, so this line has to stay a statement of
+        # state — an imperative aimed at the planner can reach the reader as report prose. (The blob does
+        # carry imperatives elsewhere, e.g. the date-placeholder rule, hence asserting on this line only.)
+        (top_events_line,) = [line for line in blob.splitlines() if line.startswith("- Top events:")]
+        assert "do NOT" not in top_events_line
+
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    def test_still_injects_relevant_event_schema_when_top_events_lookup_fails(self, _mock_groups: object) -> None:
+        # The relevant-events section cross-references the top-events list to avoid repeating names, so
+        # the failure path has to stay compatible with it rather than blowing up downstream.
+        EventDefinition.objects.create(team=self.team, name="export created")
+        EventProperty.objects.create(team=self.team, event="export created", property="duration_ms")
+
+        with patch(f"{_SG}._top_event_names", side_effect=ClickHouseQueryTimeOut()):
+            blob = build_context_blob(self.team, _window(7), relevant_events=["export created"])
+
+        assert "export created" in blob
+        assert "duration_ms" in blob
+
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_still_reports_a_genuinely_empty_project_as_empty(self, _mock_top: object, _mock_groups: object) -> None:
+        # The counterpart to the failure case: a project that really has no events must keep saying so,
+        # or the two states become indistinguishable to the planner.
+        blob = build_context_blob(self.team, _window(7))
+
+        assert "- Top events: (none recorded yet)" in blob
+
+
+class TestTopEventNames(APIBaseTest):
+    def _run_with_results(self, results: list[TeamTaxonomyItem], limit: int) -> tuple[list[str], TeamTaxonomyQuery]:
+        response = CachedTeamTaxonomyQueryResponse(
+            cache_key="test_key",
+            is_cached=True,
+            last_refresh=datetime(2026, 1, 1, tzinfo=UTC),
+            next_allowed_client_refresh=datetime(2026, 1, 1, 1, 0, tzinfo=UTC),
+            timezone="UTC",
+            results=results,
+        )
+        with patch(f"{_SG}.TeamTaxonomyQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value = response
+            names = _top_event_names(self.team, limit)
+        return names, mock_runner.call_args.args[0]
+
+    def test_asks_for_no_limit_so_the_cache_key_is_shared(self) -> None:
+        # `limit` is hashed into the cache key but applied to the query's output rows, so passing one
+        # buys no ClickHouse saving and partitions us off the entry other AI callers keep warm —
+        # turning every run into a recompute of a scan that may not finish.
+        _, query = self._run_with_results([TeamTaxonomyItem(event="$pageview", count=1)], limit=20)
+
+        assert query.limit is None
+
+    def test_returns_at_most_limit_names_ranked_by_volume(self) -> None:
+        results = [TeamTaxonomyItem(event=f"event_{i}", count=100 - i) for i in range(5)]
+
+        names, _ = self._run_with_results(results, limit=3)
+
+        assert names == ["event_0", "event_1", "event_2"]
+
+    def test_excludes_zero_count_padding_events(self) -> None:
+        # The runner appends WELL_KNOWN_EVENT_NAMES at count=0 when there are no more real rows. Under a
+        # "Top events" heading those read as events that fired, so a project with fewer real events than
+        # the limit would be handed fabricated ones — the same misinformation the None/empty split avoids.
+        results = [
+            TeamTaxonomyItem(event="export created", count=42),
+            TeamTaxonomyItem(event="$pageleave", count=0),
+            TeamTaxonomyItem(event="$identify", count=0),
+        ]
+
+        names, _ = self._run_with_results(results, limit=20)
+
+        assert names == ["export created"]
+
 
 class TestGenerateQueryPlanSubstitution(APIBaseTest):
     """Test the substitution *behaviour* — that the planner actually receives the prompt and context
@@ -768,10 +869,29 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
             generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)
 
 
+class TestStoredQueryPlan:
+    def test_validated_stored_plan_exposes_named_fields(self) -> None:
+        raw_plan = QueryPlan(
+            overall_intent="count events",
+            steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
+        ).model_dump()
+        stored = {
+            "version": AI_QUERY_PLAN_VERSION,
+            "plan": raw_plan,
+            "relevant_events": ["export created"],
+        }
+
+        validated = validate_stored_query_plan(stored)
+
+        assert validated.plan.model_dump() == raw_plan
+        assert validated.relevant_events == ("export created",)
+
+
 class TestBuildFrozenPrompt(APIBaseTest):
     """The deterministic reuse path: reconstruct the spec from a persisted plan with NO LLM calls."""
 
-    def _stored_plan(self) -> dict:
+    @staticmethod
+    def _stored_plan() -> dict:
         return {
             "version": AI_QUERY_PLAN_VERSION,
             "plan": QueryPlan(
@@ -779,6 +899,19 @@ class TestBuildFrozenPrompt(APIBaseTest):
                 steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
             ).model_dump(),
         }
+
+    def test_classifies_stored_plan_lifecycle(self) -> None:
+        cases: list[tuple[object, AIQueryPlanStatus]] = [
+            (None, AIQueryPlanStatus.NOT_FROZEN),
+            ([], AIQueryPlanStatus.NOT_FROZEN),
+            ({"version": True, "plan": {}}, AIQueryPlanStatus.NOT_FROZEN),
+            ({"version": float(AI_QUERY_PLAN_VERSION), "plan": {}}, AIQueryPlanStatus.NOT_FROZEN),
+            ({"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, AIQueryPlanStatus.PLANNER_UPDATED),
+            ({"version": AI_QUERY_PLAN_VERSION, "plan": {}}, AIQueryPlanStatus.NOT_FROZEN),
+            (self._stored_plan(), AIQueryPlanStatus.FROZEN),
+        ]
+        for stored, expected in cases:
+            assert get_ai_query_plan_status(stored) == expected
 
     @patch(f"{_SG}.MaxChatOpenAI")
     @patch(f"{_SG}._select_relevant_events")
@@ -790,7 +923,7 @@ class TestBuildFrozenPrompt(APIBaseTest):
         stored = self._stored_plan()
 
         spec = build_frozen_prompt(
-            team=self.team, prompt="how are exports doing?", window=_window(7), ai_query_plan=stored
+            team=self.team, user=self.user, prompt="how are exports doing?", window=_window(7), ai_query_plan=stored
         )
 
         # Neither the event-selection model nor the planner runs on the frozen path...
@@ -807,7 +940,7 @@ class TestBuildFrozenPrompt(APIBaseTest):
         # dropping them leaves the reuse path with a property-blind blob and a schema-blind fixer.
         stored = {**self._stored_plan(), "relevant_events": ["export created"]}
 
-        spec = build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored)
+        spec = build_frozen_prompt(team=self.team, user=self.user, prompt="p", window=_window(7), ai_query_plan=stored)
 
         assert mock_blob.call_args.kwargs["relevant_events"] == ["export created"]
         assert spec.relevant_events == ["export created"]
@@ -823,13 +956,26 @@ class TestBuildFrozenPrompt(APIBaseTest):
                 "malformed",
             ),
             ("stale_version", {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "stale"),
-            ("pre_versioning_shape", {"overall_intent": "i", "steps": []}, "stale"),
+            ("pre_versioning_shape", {"overall_intent": "i", "steps": []}, "version"),
+            ("non_object_envelope", [], "envelope"),
+            ("boolean_version", {"version": True, "plan": {}}, "version"),
+            ("floating_version", {"version": float(AI_QUERY_PLAN_VERSION), "plan": {}}, "version"),
+            (
+                "non_list_relevant_events",
+                {**_stored_plan(), "relevant_events": "event"},
+                "relevant events",
+            ),
+            (
+                "non_string_relevant_event",
+                {**_stored_plan(), "relevant_events": [123]},
+                "relevant events",
+            ),
         ]
     )
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
     def test_invalid_stored_plan_raises_recoverable_error(
-        self, _name: str, stored: dict, match: str, _mock_top: object, _mock_groups: object
+        self, _name: str, stored: object, match: str, _mock_top: object, _mock_groups: object
     ) -> None:
         with pytest.raises(StoredPlanInvalidError, match=match):
-            build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored)
+            build_frozen_prompt(team=self.team, user=self.user, prompt="p", window=_window(7), ai_query_plan=stored)

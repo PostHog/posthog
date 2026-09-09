@@ -205,7 +205,7 @@ class TestBackfillTeamMemberDetection(BaseTest):
         _files,
         mock_resolve,
     ):
-        def resolve_side_effect(client, slack_user_id):
+        def resolve_side_effect(client, slack_user_id, *, workspace=""):
             if slack_user_id == "U_TEAM":
                 return _team_member_user_info(self.user.email)
             return _customer_user_info()
@@ -217,7 +217,7 @@ class TestBackfillTeamMemberDetection(BaseTest):
             replies.append({"ts": f"1700000000.000{200 + i * 100}", "user": user, "text": f"reply {i}"})
         client = self._mock_client(replies)
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL_ID, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL_ID, PARENT_TS, slack_team_id="T123")
 
         self.ticket.refresh_from_db()
         assert self.ticket.unread_team_count == expected_unread_team
@@ -245,7 +245,7 @@ class TestSlackEchoPreventionSignal(BaseTest):
             slack_thread_ts=PARENT_TS,
         )
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
     def test_from_slack_team_message_does_not_echo_back(self, mock_delay, _on_commit):
         Comment.objects.create(
             team=self.team,
@@ -258,7 +258,7 @@ class TestSlackEchoPreventionSignal(BaseTest):
 
         mock_delay.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
     def test_posthog_ui_team_message_does_echo_to_slack(self, mock_delay, _on_commit):
         Comment.objects.create(
             team=self.team,
@@ -273,7 +273,7 @@ class TestSlackEchoPreventionSignal(BaseTest):
         call_kwargs = mock_delay.call_args[1]
         assert call_kwargs["author_email"] == self.user.email
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
     def test_from_slack_customer_message_does_not_echo(self, mock_delay, _on_commit):
         Comment.objects.create(
             team=self.team,

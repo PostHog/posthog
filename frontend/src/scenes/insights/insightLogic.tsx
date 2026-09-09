@@ -19,9 +19,9 @@ import posthog from 'posthog-js'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
+import { isTransientServerError, shouldReportApiFailure } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -80,7 +80,7 @@ import type { InsightFilterOverrideContextApi } from '../../../../products/produ
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
-import type { QueryStatus } from '../../queries/schema/schema-general'
+import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import type { MathDefinition } from '../trends/mathsLogic'
@@ -120,9 +120,11 @@ export interface insightLogicValues {
     highlightedSeries: IndexedTrendResult | null
     insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
     insightChanged: boolean
+    insightDuplicating: boolean
     insightFeedback: 'disliked' | 'liked' | null
     insightId: number | null
     insightLoading: boolean
+    insightMissing: boolean
     insightName: string
     insightProps: InsightLogicProps
     insightSaving: boolean
@@ -130,8 +132,6 @@ export interface insightLogicValues {
     isInExperimentContext: boolean
     isInViewMode: boolean
     isSavingTags: boolean
-    isUsingPathsV1: boolean
-    isUsingPathsV2: boolean | string | undefined
     previousQuery: Node | null
     query: Node | null
     savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
@@ -156,6 +156,9 @@ export interface insightLogicActions {
     ) => {
         insight: QueryBasedInsightModel<Node<Record<string, any>>>
         redirectToInsight: any
+    }
+    duplicateInsightComplete: () => {
+        value: true
     }
     handleInsightSuggested: (suggestedInsight: Node | null) => {
         suggestedInsight: Node<Record<string, any>> | null
@@ -186,6 +189,7 @@ export interface insightLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
@@ -209,11 +213,13 @@ export interface insightLogicActions {
             order: number | null
             query: Node<Record<string, any>> | null
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at: string
             user_access_level: AccessControlLevel
             view_count?: number | undefined
@@ -230,6 +236,7 @@ export interface insightLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
@@ -253,11 +260,13 @@ export interface insightLogicActions {
             order: number | null
             query: Node<Record<string, any>> | null
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at: string
             user_access_level: AccessControlLevel
             view_count?: number | undefined
@@ -351,6 +360,7 @@ export interface insightLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
             dashboard_tiles?: DashboardTileBasicType[] | null | undefined
@@ -374,11 +384,13 @@ export interface insightLogicActions {
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result?: any
             saved?: boolean | undefined
             short_id?: InsightShortId | undefined
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at?: string | undefined
             user_access_level?: AccessControlLevel | undefined
             view_count?: number | undefined
@@ -394,6 +406,7 @@ export interface insightLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
             dashboard_tiles?: DashboardTileBasicType[] | null | undefined
@@ -417,11 +430,13 @@ export interface insightLogicActions {
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result?: any
             saved?: boolean | undefined
             short_id?: InsightShortId | undefined
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at?: string | undefined
             user_access_level?: AccessControlLevel | undefined
             view_count?: number | undefined
@@ -432,6 +447,9 @@ export interface insightLogicActions {
                 Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
             >
         }
+    }
+    setInsightMissing: () => {
+        value: true
     }
     setPreviousQuery: (previousQuery: Node | null) => {
         previousQuery: Node<Record<string, any>> | null
@@ -503,8 +521,6 @@ export interface insightLogicMeta {
             insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
             activeSceneId: string | null
         ) => boolean | null
-        isUsingPathsV1: (featureFlags: FeatureFlagsSet) => boolean
-        isUsingPathsV2: (featureFlags: FeatureFlagsSet) => boolean | string | undefined
         hasOverrides: (arg: any, arg2: any, arg3: any) => boolean
         editingDisabledReason: (hasOverrides: boolean) => 'Discard overrides to edit the insight.' | null
     }
@@ -603,6 +619,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         }),
         highlightSeries: (series: IndexedTrendResult | null) => ({ series }),
         setAccessDeniedToInsight: true,
+        setInsightMissing: true,
         handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
         onRejectSuggestedInsight: true,
         onReapplySuggestedInsight: true,
@@ -613,6 +630,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insight,
             redirectToInsight,
         }),
+        duplicateInsightComplete: true,
         deleteInsight: (dashboardId: number | null) => ({ dashboardId }),
         confirmDeleteInsight: (dashboardId: number | null) => ({ dashboardId }),
         setInsightFeedback: (feedback: 'liked' | 'disliked') => ({ feedback }),
@@ -648,6 +666,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         )
 
                         if (!insight) {
+                            actions.setInsightMissing()
                             throw new Error(`Insight with shortId ${shortId} not found`)
                         }
 
@@ -739,6 +758,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             null as IndexedTrendResult | null,
             {
                 highlightSeries: (_, { series }) => series,
+            },
+        ],
+        insightDuplicating: [
+            false,
+            {
+                duplicateInsight: () => true,
+                duplicateInsightComplete: () => false,
             },
         ],
         insight: {
@@ -840,6 +866,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
         },
         accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
+        insightMissing: [false, { setInsightMissing: () => true, loadInsight: () => false }],
         /** The insight's state as it is in the database. */
         savedInsight: [
             () => props.cachedInsight || ({} as Partial<QueryBasedInsightModel>),
@@ -1005,16 +1032,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     Scene.ExperimentsSharedMetrics,
                 ].includes(activeSceneId),
         ],
-        isUsingPathsV1: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
-                !featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2],
-        ],
-        isUsingPathsV2: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
-                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2],
-        ],
         hasOverrides: [
             () => [
                 (_, props) => props.filtersOverride,
@@ -1082,6 +1099,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
+                if (isTransientServerError(e)) {
+                    // Gateway timeouts (e.g. an empty-bodied 503) carry no actionable detail and usually
+                    // succeed on retry. We've handled the failure, so stop here rather than rethrowing an
+                    // already-handled error into error tracking as an unhandled rejection.
+                    lemonToast.error('Saving your insight timed out. Try again in a moment.')
+                    return
+                }
                 if (e instanceof ApiError) {
                     lemonToast.error(e.detail ?? 'Could not save insight')
                 } else {
@@ -1246,22 +1270,37 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            let insightToDuplicate = insight
-            if (insight.short_id) {
-                try {
-                    const cleanInsight = await insightsApi.getByShortId(insight.short_id)
-                    if (cleanInsight) {
-                        insightToDuplicate = cleanInsight
+            try {
+                let insightToDuplicate = insight
+                if (insight.short_id) {
+                    try {
+                        const cleanInsight = await insightsApi.getByShortId(insight.short_id)
+                        if (cleanInsight) {
+                            insightToDuplicate = cleanInsight
+                        }
+                    } catch {
+                        // Fall through to duplicate the original insight
                     }
-                } catch {
-                    // Fall through to duplicate the original insight
                 }
+                const newInsight = await insightsApi.duplicate(insightToDuplicate)
+                for (const logic of savedInsightsLogic.findAllMounted()) {
+                    logic.actions.addInsight(newInsight)
+                }
+                lemonToast.success('Insight duplicated')
+                redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
+            } catch (e: any) {
+                // Nothing downstream reports this: the copy is created by a plain listener rather than
+                // a loader, so without a toast here a failure is indistinguishable from a dead button.
+                lemonToast.error(e.detail ?? 'Could not duplicate insight')
+                // Catching here also skips the gate `initKea` applies to loader failures, so reapply
+                // it: a recovered failure shares its stack with every other ApiError, so filing it
+                // buries the crashes worth seeing.
+                if (shouldReportApiFailure(e)) {
+                    posthog.captureException(e)
+                }
+            } finally {
+                actions.duplicateInsightComplete()
             }
-            const newInsight = await insightsApi.duplicate(insightToDuplicate)
-            for (const logic of savedInsightsLogic.findAllMounted()) {
-                logic.actions.addInsight(newInsight)
-            }
-            redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
         deleteInsight: ({ dashboardId }) => {
             LemonDialog.open({

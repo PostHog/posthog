@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT person_id FROM lifecycle_op_person\n        WHERE op_id = $1 AND status = 'sealed'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1d9bbbca7e556ac4851177dbc0b9a9ada897a718ec0f1f551b83f126a0b6fddb"
+}

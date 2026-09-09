@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.ver
     _floor_to_day,
     _focus_charge_id,
     _iso8601_utc,
+    _ms_to_iso8601,
     _should_stop_desc,
     get_billing_rows,
     get_rows,
@@ -91,6 +92,22 @@ class TestBuildParams:
                 None,
                 None,
                 {"limit": PAGE_SIZE, "teamId": "team_1", "withPayload": "true"},
+            ),
+            # events' since/until must be ISO 8601 strings, not raw Unix-ms integers — Vercel's
+            # OpenAPI spec types them as strings and 400s a raw ms value (unlike deployments above,
+            # which documents since/until as numbers).
+            (
+                "events_since_and_until_as_iso",
+                "events",
+                None,
+                123,
+                456,
+                {
+                    "limit": PAGE_SIZE,
+                    "withPayload": "true",
+                    "since": "1970-01-01T00:00:00.123Z",
+                    "until": "1970-01-01T00:00:00.456Z",
+                },
             ),
         ]
     )
@@ -265,9 +282,10 @@ class TestGetRows:
 
         assert [r["id"] for r in rows] == ["e1", "e2", "e3"]
         assert "until=" not in calls[0]
-        # The oldest row on each page bounds the next, so page two asks for until=200, not 300.
-        assert "until=200" in calls[1]
-        assert "until=100" in calls[2]
+        # The oldest row on each page bounds the next, so page two asks for until=200, not 300 —
+        # encoded as the ISO string events requires, not the raw ms integer.
+        assert "until=1970-01-01T00%3A00%3A00.200Z" in calls[1]
+        assert "until=1970-01-01T00%3A00%3A00.100Z" in calls[2]
 
     def test_events_stop_when_a_whole_page_shares_one_timestamp(self, monkeypatch: Any) -> None:
         # The derived cursor can't advance past a page whose rows share a timestamp; the walk has
@@ -297,7 +315,7 @@ class TestGetRows:
         )
 
         assert [r["id"] for r in rows] == ["e1", "e2", "e3"]
-        assert "since=150" in calls[0]
+        assert "since=1970-01-01T00%3A00%3A00.150Z" in calls[0]
         assert len(calls) == 2
 
     def test_mid_page_yield_checkpoints_current_page_not_next(self, monkeypatch: Any) -> None:
@@ -322,6 +340,79 @@ class TestGetRows:
         assert manager.saved == [VercelResumeConfig(until=200)]
 
 
+def _collect_fanout(monkeypatch: Any, responses: list[dict], team_id: str | None = None):
+    calls = _patch_fetch(monkeypatch, responses)
+    rows: list[dict] = []
+    for table in vercel.get_fanout_rows(access_token="t", endpoint="check_runs", team_id=team_id, logger=MagicMock()):
+        rows.extend(table.to_pylist())
+    return rows, calls
+
+
+class TestGetFanoutRows:
+    def test_fans_out_one_child_request_per_parent_deployment(self, monkeypatch: Any) -> None:
+        responses: list[dict] = [
+            {
+                "deployments": [{"uid": "d1", "created": 200}, {"uid": "d2", "created": 100}],
+                "pagination": {"next": None},
+            },
+            {"runs": [{"id": "r1", "deploymentId": "d1"}]},
+            {"runs": [{"id": "r2", "deploymentId": "d2"}, {"id": "r3", "deploymentId": "d2"}]},
+        ]
+        rows, calls = _collect_fanout(monkeypatch, responses, team_id="team_1")
+
+        assert [r["id"] for r in rows] == ["r1", "r2", "r3"]
+        # The parent is paged from the deployments endpoint; each child request fills the deployment
+        # id into the check-runs path and carries teamId.
+        assert "/v6/deployments" in calls[0]
+        assert "/v2/deployments/d1/check-runs" in calls[1]
+        assert "/v2/deployments/d2/check-runs" in calls[2]
+        assert "teamId=team_1" in calls[1]
+        # The check-runs endpoint documents no limit/pagination params, so the shared `limit` must
+        # not be appended to the child request.
+        assert "limit=" not in calls[1]
+
+    def test_deployment_with_no_check_runs_still_visits_every_parent(self, monkeypatch: Any) -> None:
+        responses: list[dict] = [
+            {
+                "deployments": [{"uid": "d1", "created": 200}, {"uid": "d2", "created": 100}],
+                "pagination": {"next": None},
+            },
+            {"runs": []},
+            {"runs": [{"id": "r2", "deploymentId": "d2"}]},
+        ]
+        rows, calls = _collect_fanout(monkeypatch, responses)
+
+        assert [r["id"] for r in rows] == ["r2"]
+        assert len(calls) == 3
+
+    def test_parent_row_missing_the_fan_out_field_is_skipped(self, monkeypatch: Any) -> None:
+        # A deployment row without `uid` can't seed a child path; skip it rather than crash the sync.
+        responses: list[dict] = [
+            {"deployments": [{"uid": "d1", "created": 200}, {"created": 100}], "pagination": {"next": None}},
+            {"runs": [{"id": "r1", "deploymentId": "d1"}]},
+        ]
+        rows, calls = _collect_fanout(monkeypatch, responses)
+
+        assert [r["id"] for r in rows] == ["r1"]
+        # Only the uid-bearing parent issues a child request.
+        assert len(calls) == 2
+
+    def test_fans_out_across_every_parent_page(self, monkeypatch: Any) -> None:
+        # The parent deployments list paginates; the fan-out must visit deployments from every page,
+        # not silently cap the child table at the first page of parents.
+        responses: list[dict] = [
+            {"deployments": [{"uid": "d1", "created": 300}], "pagination": {"next": 300}},
+            {"runs": [{"id": "r1", "deploymentId": "d1"}]},
+            {"deployments": [{"uid": "d2", "created": 100}], "pagination": {"next": None}},
+            {"runs": [{"id": "r2", "deploymentId": "d2"}]},
+        ]
+        rows, calls = _collect_fanout(monkeypatch, responses)
+
+        assert [r["id"] for r in rows] == ["r1", "r2"]
+        # Page two of the parent is requested with the first page's cursor.
+        assert "until=300" in calls[2]
+
+
 class TestVercelSource:
     @parameterized.expand(
         [
@@ -331,6 +422,7 @@ class TestVercelSource:
             ("teams", "id"),
             ("domains", "id"),
             ("aliases", "uid"),
+            ("check_runs", "id"),
         ]
     )
     def test_source_response_primary_key_and_sort(self, endpoint: str, expected_pk: str) -> None:
@@ -378,6 +470,20 @@ class TestIso8601Utc:
     def test_formats_as_utc_z_with_millis(self) -> None:
         formatted = _iso8601_utc(datetime(2025, 1, 2, 3, 4, 5, tzinfo=UTC))
         assert formatted == "2025-01-02T03:04:05.000Z"
+
+
+class TestMsToIso8601:
+    @parameterized.expand(
+        [
+            ("whole_second", 1700000000000, "2023-11-14T22:13:20.000Z"),
+            # Millisecond digits must survive, not just the second — a truncated cursor would
+            # under-report `until` and re-request rows the previous page already yielded.
+            ("preserves_millis", 1699999999123, "2023-11-14T22:13:19.123Z"),
+            ("epoch", 0, "1970-01-01T00:00:00.000Z"),
+        ]
+    )
+    def test_ms_to_iso8601(self, _name: str, ms: int, expected: str) -> None:
+        assert _ms_to_iso8601(ms) == expected
 
 
 class TestFocusChargeId:

@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import DEFAULT_RETRY
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.polar import PolarSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar import polar as polar_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar.source import PolarSource
@@ -22,6 +23,14 @@ class _FakeResponse:
                 f"{self.status_code} Client Error: Unauthorized for url: https://api.polar.sh/v1/organizations/?limit=1",
                 response=self,  # type: ignore[arg-type]
             )
+
+
+class TestGetPolarSession:
+    def test_retries_transient_errors_instead_of_failing_the_sync_outright(self) -> None:
+        # A no-retry adapter previously made a single dropped connection or 5xx during
+        # pagination fail the whole sync activity instead of being absorbed here.
+        session = polar_module._get_polar_session()
+        assert session.adapters["https://"].max_retries is DEFAULT_RETRY
 
 
 class TestPolarValidateCredentials:

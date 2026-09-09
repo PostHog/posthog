@@ -427,6 +427,7 @@ mod tests {
                         id: item.id,
                         result: Some(resolve_outcome::Result::Done(Done {
                             resolved_exception_json: item.exception_json,
+                            release_id: String::new(),
                         })),
                     };
                     tx.send(Ok(outcome)).await.expect("test receiver is alive");

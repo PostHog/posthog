@@ -91,6 +91,9 @@ tools:
             List all managed reverse proxies configured for the current organization. Returns each proxy's domain, CNAME
             target, provisioning status, and the maximum number of proxies allowed by the current plan. Use this to
             check whether a reverse proxy is set up before recommending one.
+    proxy-records-partial-update:
+        operation: proxy_records_partial_update
+        enabled: false
     proxy-retry:
         operation: proxy_records_retry_create
         enabled: true

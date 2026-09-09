@@ -92,7 +92,6 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                     <SceneDivider />
 
                     <ProductIntroduction
-                        productName="Revenue tracking"
                         thingName="revenue source"
                         description=""
                         isEmpty={hasNoEvents && hasNoDataWarehouseSources}
@@ -131,9 +130,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
                                     <span className="text-xs text-muted-alt">
                                         Only Stripe is supported currently. <br />
-                                        <Link to="https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement,feature/revenue-analytics%2C+feature&projects=&template=feature_request.yml&title=New%20revenue%20source:%20%3Cinsert%20source%3E">
-                                            Request more revenue integrations.
-                                        </Link>
+                                        <Link to="https://posthog.com/roadmap">Request more revenue integrations.</Link>
                                     </span>
                                 </div>
                             </>

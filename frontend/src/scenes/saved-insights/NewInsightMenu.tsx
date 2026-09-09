@@ -5,7 +5,6 @@ import { IconPlusSmall, IconSparkles } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconInsightNumber, IconInsightPie, IconInsightTable, IconInsightWorldMap } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -15,7 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
+import { INSIGHT_TYPES_METADATA, isInsightTypeCreatable } from 'scenes/saved-insights/insightTypesMetadata'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -162,11 +161,7 @@ function useNewInsightCards(): {
 
     const byType: Partial<Record<InsightType, NewInsightCardSpec>> = {}
     for (const [insightType, metadata] of Object.entries(INSIGHT_TYPES_METADATA)) {
-        if (
-            !metadata.inMenu ||
-            insightType === InsightType.JSON ||
-            (!featureFlags[FEATURE_FLAGS.HOG] && insightType === InsightType.HOG)
-        ) {
+        if (!isInsightTypeCreatable(metadata, featureFlags) || insightType === InsightType.JSON) {
             continue
         }
         const spec: NewInsightCardSpec = {
@@ -232,6 +227,7 @@ const SHORT_CARD_DESCRIPTIONS: Record<string, string> = {
     [InsightType.FUNNELS]: 'Conversion through a sequence of steps.',
     [InsightType.RETENTION]: 'How many users come back later.',
     [InsightType.PATHS]: 'The routes users take through your product.',
+    [InsightType.JOURNEYS]: 'The steps users take and where they stop.',
     [InsightType.SQL]: 'Query your data with SQL.',
     [InsightType.HOG]: 'Query your data with Hog.',
     ai: 'Describe an insight and let AI build it.',
@@ -264,7 +260,12 @@ function useQuestionSections(): QuestionSection[] {
         {
             title: 'How do users behave?',
             description: 'Funnels, retention, and journeys through your product.',
-            cards: [byType[InsightType.FUNNELS], byType[InsightType.RETENTION], byType[InsightType.PATHS]],
+            cards: [
+                byType[InsightType.FUNNELS],
+                byType[InsightType.RETENTION],
+                byType[InsightType.PATHS],
+                byType[InsightType.JOURNEYS],
+            ],
         },
         {
             title: 'Build your own',
@@ -299,25 +300,37 @@ function QuestionSectionBlock({ section }: { section: QuestionSection }): JSX.El
     )
 }
 
-export function NewInsightMenuOverlay(): JSX.Element {
+/**
+ * The insight-type card grid, without any sizing of its own - the dropdown and the
+ * empty state's modal each give it the width they can spare. The two columns stack
+ * once the surface is too narrow to hold them side by side.
+ */
+export function NewInsightMenuContent(): JSX.Element {
     const sections = useQuestionSections()
     const columns = [sections.slice(0, 2), sections.slice(2)]
     return (
-        <div
-            className="flex w-[58rem] max-w-[calc(100vw-1rem)] gap-4 overflow-y-auto p-4 max-h-[calc(100vh-10rem)]"
-            data-attr="new-insight-menu"
-        >
-            <div className="flex flex-1 flex-col gap-6">
-                {columns[0].map((section) => (
-                    <QuestionSectionBlock key={section.title} section={section} />
-                ))}
+        <div className="@container/new-insight-menu" data-attr="new-insight-menu">
+            <div className="flex flex-col gap-6 @min-[44rem]/new-insight-menu:flex-row @min-[44rem]/new-insight-menu:gap-4">
+                <div className="flex flex-1 flex-col gap-6">
+                    {columns[0].map((section) => (
+                        <QuestionSectionBlock key={section.title} section={section} />
+                    ))}
+                </div>
+                <LemonDivider vertical className="hidden self-stretch @min-[44rem]/new-insight-menu:block" />
+                <div className="flex flex-1 flex-col gap-6">
+                    {columns[1].map((section) => (
+                        <QuestionSectionBlock key={section.title} section={section} />
+                    ))}
+                </div>
             </div>
-            <LemonDivider vertical className="self-stretch" />
-            <div className="flex flex-1 flex-col gap-6">
-                {columns[1].map((section) => (
-                    <QuestionSectionBlock key={section.title} section={section} />
-                ))}
-            </div>
+        </div>
+    )
+}
+
+export function NewInsightMenuOverlay(): JSX.Element {
+    return (
+        <div className="w-[58rem] max-w-[calc(100vw-1rem)] overflow-y-auto p-4 max-h-[calc(100vh-10rem)]">
+            <NewInsightMenuContent />
         </div>
     )
 }

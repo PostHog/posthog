@@ -34,6 +34,10 @@
             "description": "Filter replies to a specific parent comment.",
             "minLength": 1,
             "type": "string"
+        },
+        "task_id": {
+            "description": "Owning task for task, task_artifact, and desktop_canvas comment scopes.",
+            "type": "string"
         }
     },
     "type": "object"

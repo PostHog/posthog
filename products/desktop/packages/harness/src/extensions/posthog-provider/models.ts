@@ -1,6 +1,8 @@
+import type { ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import type { CloudRegion } from "@posthog/shared";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import { getLlmGatewayUrl } from "./gateway";
 
 export const DEFAULT_MODEL = "claude-opus-4-8";
@@ -21,6 +23,14 @@ export interface GatewayModel {
 type ModelFamily = "anthropic" | "openai" | "cloudflare" | "baseten";
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+// The gateway serves models before pi ships a builtin record for them. Without
+// a map, pi offers the generic level range: it adds `off` and drops `xhigh`
+// and `max`. Adaptive-thinking models reject a disabled-thinking request, so
+// mark `off` unsupported until the builtin catalog catches up.
+const THINKING_LEVEL_MAP_OVERRIDES: Record<string, ThinkingLevelMap> = {
+  "claude-fable-5-1": { off: null, xhigh: "xhigh", max: "max" },
+};
 
 function findBuiltinModel(family: ModelFamily, id: string) {
   if (family === "cloudflare" || family === "baseten") {
@@ -50,9 +60,8 @@ function detectFamily(model: GatewayModel): ModelFamily {
 
 /**
  * The gateway URL a model of the given pi `api` should be routed through for
- * a given region. `openai-responses` models are served off the gateway's
- * `/v1` surface; every other API this provider uses is served off the
- * product root.
+ * a given region. OpenAI-compatible models are served off the gateway's `/v1`
+ * surface; Anthropic Messages is served off the product root.
  */
 export function gatewayBaseUrlForApi(
   api: string,
@@ -60,7 +69,7 @@ export function gatewayBaseUrlForApi(
   baseUrl = getLlmGatewayUrl(region),
 ): string {
   const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
-  if (api !== "openai-responses" || normalizedBaseUrl.endsWith("/v1")) {
+  if (!api.startsWith("openai-") || normalizedBaseUrl.endsWith("/v1")) {
     return normalizedBaseUrl;
   }
 
@@ -79,8 +88,10 @@ function toModelConfig(
     : ["text"];
 
   const builtin = findBuiltinModel(family, model.id);
-  const thinkingLevelMap = builtin?.thinkingLevelMap
-    ? { thinkingLevelMap: builtin.thinkingLevelMap }
+  const resolvedThinkingLevelMap =
+    THINKING_LEVEL_MAP_OVERRIDES[model.id] ?? builtin?.thinkingLevelMap;
+  const thinkingLevelMap = resolvedThinkingLevelMap
+    ? { thinkingLevelMap: resolvedThinkingLevelMap }
     : {};
 
   if (family === "openai") {
@@ -102,7 +113,8 @@ function toModelConfig(
     return {
       id: model.id,
       name,
-      api: "anthropic-messages",
+      api: "openai-completions",
+      baseUrl: gatewayBaseUrlForApi("openai-completions", region),
       reasoning: false,
       input,
       cost: ZERO_COST,
@@ -161,6 +173,12 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     id: "claude-haiku-4-5",
     owned_by: "anthropic",
     context_window: 200000,
+    supports_vision: true,
+  },
+  {
+    id: "gpt-6-astra",
+    owned_by: "openai",
+    context_window: 922000,
     supports_vision: true,
   },
   {
@@ -231,10 +249,17 @@ export function fallbackModelConfigs(
 export async function fetchPosthogGatewayModels(
   baseUrl: string,
   apiKey?: string,
+  projectId?: number,
 ): Promise<GatewayModel[]> {
   try {
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/models`, {
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+      headers:
+        apiKey || projectId
+          ? {
+              ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+              ...buildPosthogProjectHeaderRecord(projectId),
+            }
+          : undefined,
       signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {
@@ -266,6 +291,7 @@ export async function resolveModelConfigs(
   region: CloudRegion,
   baseUrl?: string,
   apiKey?: string,
+  projectId?: number,
 ): Promise<ProviderModelConfig[]> {
   if (process.env.PI_OFFLINE || process.env.HARNESS_STATIC_MODELS) {
     return fallbackModelConfigs(region);
@@ -274,6 +300,7 @@ export async function resolveModelConfigs(
   const models = await fetchPosthogGatewayModels(
     baseUrl ?? getLlmGatewayUrl(region),
     apiKey,
+    projectId,
   );
   return resolveModelConfigsFromGatewayModels(models, region);
 }

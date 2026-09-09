@@ -1,14 +1,13 @@
 use std::{borrow::Cow, fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
-use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
+use aho_corasick::AhoCorasick;
+use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
-use sqlx::{Executor, Postgres};
 use tracing::warn;
-use uuid::Uuid;
 
-use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_ISSUED, UPDATES_SKIPPED};
+use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_SKIPPED};
 
 // Custom deserializer that can handle both string and integer values
 fn deserialize_string_or_i32<'de, D>(deserializer: D) -> Result<i32, D::Error>
@@ -80,15 +79,14 @@ pub const SKIP_PROPERTIES: [&str; 9] = [
 // rare cases it arrives as a top-level event property, and carries little cardinality weight.
 pub const SKIP_EVENT_PROPERTY_PREFIXES: [&str; 2] = ["$feature/", "$feature_enrollment/"];
 
-const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 7] = [
-    "time",
-    "timestamp",
-    "date",
-    "_at",
-    "-at",
-    "createdat",
-    "updatedat",
-];
+// "timestamp" is deliberately absent: any key that contains it already contains "time".
+const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 6] =
+    ["time", "date", "_at", "-at", "createdat", "updatedat"];
+
+// One automaton pass over the key replaces a `str::contains` per keyword, which
+// paid a two-way searcher setup per call on a per-property hot path.
+static DATETIME_KEYWORD_MATCHER: LazyLock<AhoCorasick> =
+    LazyLock::new(|| AhoCorasick::new(DATETIME_PROPERTY_NAME_KEYWORDS).unwrap());
 
 // TRICKY: the pattern below is a best-effort attempt to classify likely DateTime properties by
 // a string prefix of their value. While this doesn't enforce compliance to standard formats,
@@ -109,17 +107,6 @@ pub enum PropertyParentType {
     Person = 2,
     Group = 3,
     Session = 4,
-}
-
-impl From<PropertyParentType> for i32 {
-    fn from(parent_type: PropertyParentType) -> i32 {
-        match parent_type {
-            PropertyParentType::Event => 1,
-            PropertyParentType::Person => 2,
-            PropertyParentType::Group => 3,
-            PropertyParentType::Session => 4,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, PartialOrd, Ord)]
@@ -143,6 +130,24 @@ impl fmt::Display for PropertyValueType {
     }
 }
 
+// Inverse of the Display impl above, which is the form batch writes store in
+// posthog_propertydefinition.property_type. Unknown strings are an error; the
+// caller decides whether to treat the row as untyped.
+impl FromStr for PropertyValueType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "DateTime" => Ok(PropertyValueType::DateTime),
+            "String" => Ok(PropertyValueType::String),
+            "Numeric" => Ok(PropertyValueType::Numeric),
+            "Boolean" => Ok(PropertyValueType::Boolean),
+            "Duration" => Ok(PropertyValueType::Duration),
+            _ => Err(()),
+        }
+    }
+}
+
 // The grouptypemapping table uses i32's, but we get group types by name, so we have to resolve them before DB writes, sigh
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum GroupType {
@@ -158,10 +163,9 @@ impl GroupType {
         }
     }
 
-    /// Returns the Unresolved form of this group type. The shared dedup cache
-    /// always stores entries as Unresolved (inserted by the producer before
-    /// resolution), so cache removal after a failed batch write must use this
-    /// form to match the original key.
+    /// Returns the Unresolved form of this group type. The dedup cache keys
+    /// group properties by name, so cache operations accept either form; this
+    /// exists for call sites that want the canonical producer-side shape.
     pub fn as_unresolved(&self) -> Self {
         match self {
             GroupType::Unresolved(_) => self.clone(),
@@ -181,9 +185,6 @@ pub struct PropertyDefinition {
     pub property_type: Option<PropertyValueType>,
     pub event_type: PropertyParentType,
     pub group_type_index: Option<GroupType>,
-    pub property_type_format: Option<String>, // Deprecated
-    pub volume_30_day: Option<i64>,           // Deprecated
-    pub query_usage_30_day: Option<i64>,      // Deprecated
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
@@ -193,7 +194,9 @@ pub struct EventDefinition {
     pub team_id: i32,
     #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
-    pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
+    // Always floored to EVENTDEF_LAST_SEEN_FLOOR_SECS, so this Eq derive is safe for deduping:
+    // two sightings within the same floor period compare equal and collapse to one write.
+    pub last_seen_at: DateTime<Utc>,
 }
 
 // Derived hash since these are keyed on all fields in the DB
@@ -225,19 +228,31 @@ pub struct Event {
     pub properties: Option<String>,
 }
 
-impl From<&Event> for EventDefinition {
-    fn from(event: &Event) -> Self {
+impl Event {
+    fn to_event_definition(&self, last_seen_floor_secs: i64) -> EventDefinition {
+        let name = sanitize_string(&self.event);
+        // Seed on the sanitized name because that is what ends up in the dedup key.
+        let jitter_seed = last_seen_jitter_seed(self.team_id, &name);
+
         EventDefinition {
-            name: sanitize_string(&event.event),
-            team_id: event.team_id,
-            project_id: event.project_id,
-            last_seen_at: get_floored_last_seen(),
+            last_seen_at: floor_last_seen(Utc::now(), last_seen_floor_secs, jitter_seed),
+            name,
+            team_id: self.team_id,
+            project_id: self.project_id,
         }
     }
-}
 
-impl Event {
     pub fn into_updates(self, skip_threshold: usize) -> Vec<Update> {
+        self.into_updates_with(skip_threshold, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS)
+    }
+
+    /// As `into_updates`, but with an explicit flooring period for the event-definition dedup
+    /// key. See `floor_last_seen` for what the period controls.
+    pub fn into_updates_with(
+        self,
+        skip_threshold: usize,
+        last_seen_floor_secs: i64,
+    ) -> Vec<Update> {
         if EVENTS_WITHOUT_PROPERTIES.contains(&self.event.as_str()) {
             metrics::counter!(EVENTS_SKIPPED, &[("reason", "no_properties_event")]).increment(1);
             return vec![];
@@ -252,7 +267,7 @@ impl Event {
         let team_id = self.team_id;
         let event = self.event.clone();
 
-        let updates = self.into_updates_inner();
+        let updates = self.into_updates_inner(last_seen_floor_secs);
         if updates.len() > skip_threshold {
             warn!(
                 "Event {} for team {} has more than {} properties, skipping",
@@ -265,8 +280,10 @@ impl Event {
         updates
     }
 
-    fn into_updates_inner(self) -> Vec<Update> {
-        let mut updates = vec![Update::Event(EventDefinition::from(&self))];
+    fn into_updates_inner(self, last_seen_floor_secs: i64) -> Vec<Update> {
+        let mut updates = vec![Update::Event(
+            self.to_event_definition(last_seen_floor_secs),
+        )];
         let Some(props) = &self.properties else {
             return updates;
         };
@@ -330,6 +347,9 @@ impl Event {
         group_type: Option<GroupType>,
     ) {
         updates.reserve(set.len() * 2);
+        // The event name repeats in every EventProperty row pushed below, so
+        // sanitize it once instead of once per property.
+        let sanitized_event = sanitize_string(&self.event);
         for (key, value) in set {
             if SKIP_PROPERTIES.contains(&key.as_str()) && parent_type == PropertyParentType::Event {
                 continue;
@@ -366,7 +386,7 @@ impl Event {
                     updates.push(Update::EventProperty(EventProperty {
                         team_id: self.team_id,
                         project_id: self.project_id,
-                        event: sanitize_string(&self.event),
+                        event: sanitized_event.clone(),
                         property: sanitize_string(key),
                     }));
                 }
@@ -383,9 +403,6 @@ impl Event {
                 property_type,
                 event_type: parent_type,
                 group_type_index: group_type.clone(),
-                property_type_format: None,
-                volume_30_day: None,
-                query_usage_30_day: None,
             }));
         }
     }
@@ -468,18 +485,13 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
 }
 
 fn detect_timestamp_property_by_key_and_value(key: &str, value: &Value) -> bool {
-    if DATETIME_PROPERTY_NAME_KEYWORDS
-        .iter()
-        .any(|kw| key.contains(*kw))
-    {
-        return match value {
-            Value::String(s) if is_likely_date_string(s) => true,
-            Value::Number(n) if is_likely_unix_timestamp(n) => true,
-            _ => false,
-        };
+    // Match on the value first: only strings and numbers can classify as
+    // timestamps, so other value types skip the key scan entirely.
+    match value {
+        Value::String(s) => DATETIME_KEYWORD_MATCHER.is_match(key) && is_likely_date_string(s),
+        Value::Number(n) => DATETIME_KEYWORD_MATCHER.is_match(key) && is_likely_unix_timestamp(n),
+        _ => false,
     }
-
-    false
 }
 
 fn is_likely_date_string(s: &str) -> bool {
@@ -538,21 +550,69 @@ impl Hash for GroupType {
     }
 }
 
-// We round last seen to the nearest hour. Unwrap is safe here because
-// the duration is positive, non-zero, and smaller than time since epoch
-pub fn get_floored_last_seen() -> DateTime<Utc> {
-    floor_datetime(Utc::now(), Duration::hours(1)).unwrap()
+// An event definition's `last_seen_at` participates in its Hash and Eq, so flooring it is what
+// bounds how often we re-issue the definition's write: one per (team, name) per period, per pod.
+// The value itself never reaches Postgres — the write path binds a fresh Utc::now() per attempt —
+// so a coarser period trades a staler stored last_seen_at for proportionally fewer writes.
+pub const DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS: i64 = 3600;
+
+// Upper bound on the period, 30 days. Nothing operational wants a window this coarse — the cap
+// exists so the jitter offset stays small enough that the bucket arithmetic below cannot overflow
+// or leave chrono's representable range, which is what makes its fallback unreachable.
+pub const MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS: i64 = 30 * 24 * 3600;
+
+/// Start of the current `period_secs` window containing `now`, offset per identity by
+/// `jitter_seed` so that different identities roll over at different points in the period.
+///
+/// Without the offset every pod rotates every key at the same wall-clock instant, so each rollover
+/// makes the entire active keyspace writable at once. That is tolerable hourly and decidedly not
+/// at coarser periods, where a day's worth of definition writes would land in the minutes after
+/// the boundary, on a table that already struggles to keep autovacuum ahead of its dead tuples.
+///
+/// The result always falls in `(now - period, now]`, matching un-jittered flooring, so it can
+/// never produce a future timestamp.
+///
+/// The period is clamped into `1..=MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS`, with a non-positive value
+/// treated as `DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS`. Both ends of that clamp guard the same
+/// failure: an unfloored `last_seen_at` is unique per event, so the dedup cache filters nothing
+/// and the full event stream reaches `posthog_eventdefinition` as row updates. A non-positive
+/// period would produce that directly; an unbounded one would produce it via the fallback below,
+/// since a large enough offset pushes `bucket_start` outside chrono's range. Config validation at
+/// startup rejects out-of-range values loudly; this clamp backstops callers that bypass `Config`.
+///
+/// With the period capped, `offset` stays under a month of seconds, so `shifted` cannot overflow
+/// and `bucket_start` stays within a month of `now` — `from_timestamp` therefore cannot fail and
+/// the `unwrap_or` never fires.
+pub fn floor_last_seen(now: DateTime<Utc>, period_secs: i64, jitter_seed: u64) -> DateTime<Utc> {
+    let period_secs = if period_secs > 0 {
+        period_secs.min(MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS)
+    } else {
+        DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS
+    };
+
+    let offset = (jitter_seed % period_secs as u64) as i64;
+    let shifted = now.timestamp() + offset;
+    let bucket_start = shifted.div_euclid(period_secs) * period_secs - offset;
+
+    DateTime::from_timestamp(bucket_start, 0).unwrap_or(now)
 }
 
-fn floor_datetime(dt: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>, RoundingError> {
-    let rounded = dt.duration_round(duration)?;
+/// Stable per-identity hash used to spread definition rollovers across the flooring period.
+///
+/// Hand-rolled FNV-1a rather than a standard library or `ahash` hasher because the offset has to
+/// be identical on every pod, across restarts, and across dependency upgrades. `DefaultHasher` and
+/// `ahash`'s default state are randomized per process, and any change to the hash shifts every
+/// key's boundary at once, which is the synchronized rewrite the offset exists to prevent.
+pub fn last_seen_jitter_seed(team_id: i32, name: &str) -> u64 {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
-    // If we rounded up
-    if rounded > dt {
-        Ok(rounded - duration)
-    } else {
-        Ok(rounded)
+    let mut hash = FNV_OFFSET_BASIS;
+    for byte in team_id.to_le_bytes().iter().chain(name.as_bytes()) {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
     }
+    hash
 }
 
 // We impose some limits on some fields for legacy reasons, and drop updates that don't conform to them
@@ -565,33 +625,12 @@ fn will_fit_in_postgres_column(str: &str) -> bool {
 // This allocates, so only do it right when hitting the DB. We handle nulls
 // in strings just fine.
 pub fn sanitize_string(s: &str) -> String {
-    s.replace('\u{0000}', "\u{FFFD}")
-}
-
-// The queries below are pulled more-or-less exactly from the TS impl.
-
-impl EventDefinition {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        let res = sqlx::query!(
-            r#"
-            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
-            VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW())
-            ON CONFLICT (coalesce(project_id, team_id::bigint), name)
-            DO UPDATE SET last_seen_at = $5
-        "#,
-            Uuid::now_v7(),
-            self.name,
-            self.team_id,
-            self.project_id,
-            Utc::now() // We floor the update datetime to the nearest day for cache purposes, but can insert the exact time we see the event
-        ).execute(executor).await.map(|_| ());
-
-        metrics::counter!(UPDATES_ISSUED, &[("type", "event_definition")]).increment(1);
-
-        res
+    // NUL bytes are effectively absent from real traffic, so gate the per-char
+    // replace walk behind a byte scan and take the straight copy otherwise.
+    if s.contains('\u{0000}') {
+        s.replace('\u{0000}', "\u{FFFD}")
+    } else {
+        s.to_owned()
     }
 }
 

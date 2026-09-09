@@ -290,6 +290,9 @@ export const McpGatewayServersPoliciesCreateBody = /* @__PURE__ */ zod.object({
                 policy_state: zod
                     .enum(['approved', 'needs_approval', 'do_not_use'])
                     .describe(
+                        '\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
+                    )
+                    .describe(
                         'State to apply for this scope.\n\n\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
                     ),
             })
@@ -338,15 +341,45 @@ export const McpGatewayServiceAccountsPartialUpdateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Grant or revoke this agent's access to one gateway server.
+ * Share, or stop sharing, one gateway server with this agent.
+ *
+ * Sharing is personal. `enabled=true` delegates the caller's own
+ * connection, and the agent may use it only when acting for the caller,
+ * unless the caller sends `scope=team` to lend it to the project's agent
+ * runs generally. Scope only ever applies to the caller's own share: it is
+ * their credential to lend, so no admin permission is involved and no
+ * member can change someone else's share.
+ * `enabled=false` removes the caller's own share and leaves other members'
+ * shares, and the agent's tool policies, in place.
+ *
+ * Project admins can send `all=true` alongside `enabled=false` to remove
+ * every member's share of this server with this agent, along with the
+ * agent's tool policies for it.
  */
+export const mcpGatewayServiceAccountsAccessCreateBodyScopeDefault = `personal`
+export const mcpGatewayServiceAccountsAccessCreateBodyAllDefault = false
 export const mcpGatewayServiceAccountsAccessCreateBodyPoliciesItemToolNameMax = 200
 
 export const mcpGatewayServiceAccountsAccessCreateBodyPoliciesMax = 1000
 
 export const McpGatewayServiceAccountsAccessCreateBody = /* @__PURE__ */ zod.object({
-    gateway_server_id: zod.uuid().describe('Gateway server to grant or revoke.'),
-    enabled: zod.boolean().describe('True grants access, false revokes it.'),
+    gateway_server_id: zod.uuid().describe('Gateway server to share or stop sharing.'),
+    enabled: zod
+        .boolean()
+        .describe("True shares the caller's own connection with the agent, false removes the caller's share."),
+    scope: zod
+        .enum(['personal', 'team'])
+        .describe('\* `personal` - Personal\n\* `team` - Team')
+        .default(mcpGatewayServiceAccountsAccessCreateBodyScopeDefault)
+        .describe(
+            "Applies to the caller's own share, and only alongside enabled=true. 'personal' lets the agent use the connection when it works for the caller. 'team' lets it use the connection for the whole project's agent runs, including runs nobody started. It never lets another person use the connection. Defaults to personal, so re-sharing without this field resets the caller's share to personal.\n\n\* `personal` - Personal\n\* `team` - Team"
+        ),
+    all: zod
+        .boolean()
+        .default(mcpGatewayServiceAccountsAccessCreateBodyAllDefault)
+        .describe(
+            "Only valid with enabled=false. Removes every member's share of this server with this agent, along with the agent's tool policies for it. Project admins only."
+        ),
     policies: zod
         .array(
             zod.object({
@@ -356,6 +389,9 @@ export const McpGatewayServiceAccountsAccessCreateBody = /* @__PURE__ */ zod.obj
                     .describe('Tool to set the policy for, up to 200 characters.'),
                 policy_state: zod
                     .enum(['approved', 'needs_approval', 'do_not_use'])
+                    .describe(
+                        '\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
+                    )
                     .describe(
                         'State to apply for this scope.\n\n\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
                     ),
@@ -373,7 +409,6 @@ export const mcpServerInstallationsCreateBodyUrlMax = 2048
 export const McpServerInstallationsCreateBody = /* @__PURE__ */ zod.object({
     display_name: zod.string().max(mcpServerInstallationsCreateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsCreateBodyUrlMax).optional(),
-    description: zod.string().optional(),
     auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
     is_enabled: zod.boolean().optional(),
 })
@@ -385,7 +420,6 @@ export const mcpServerInstallationsUpdateBodyUrlMax = 2048
 export const McpServerInstallationsUpdateBody = /* @__PURE__ */ zod.object({
     display_name: zod.string().max(mcpServerInstallationsUpdateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsUpdateBodyUrlMax).optional(),
-    description: zod.string().optional(),
     auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
     is_enabled: zod.boolean().optional(),
 })
@@ -396,6 +430,26 @@ export const McpServerInstallationsPartialUpdateBody = /* @__PURE__ */ zod.objec
     is_enabled: zod.boolean().optional(),
 })
 
+/**
+ * Invoke one tool on a connected MCP server.
+ *
+ * The request/response shape is plain REST rather than the JSON-RPC envelope
+ * `proxy` speaks, because the caller here is an agent surface (the PostHog MCP's
+ * `exec`) that wants one tool result, not an MCP transport of its own.
+ */
+export const mcpServerInstallationsCallToolCreateBodyToolNameMax = 200
+
+export const McpServerInstallationsCallToolCreateBody = /* @__PURE__ */ zod.object({
+    tool_name: zod
+        .string()
+        .max(mcpServerInstallationsCallToolCreateBodyToolNameMax)
+        .describe('Name of the tool to invoke, exactly as the upstream server reports it.'),
+    arguments: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Arguments object passed straight to the tool, matching its input schema.'),
+})
+
 export const mcpServerInstallationsProxyCreateBodyDisplayNameMax = 200
 
 export const mcpServerInstallationsProxyCreateBodyUrlMax = 2048
@@ -403,7 +457,6 @@ export const mcpServerInstallationsProxyCreateBodyUrlMax = 2048
 export const McpServerInstallationsProxyCreateBody = /* @__PURE__ */ zod.object({
     display_name: zod.string().max(mcpServerInstallationsProxyCreateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsProxyCreateBodyUrlMax).optional(),
-    description: zod.string().optional(),
     auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
     is_enabled: zod.boolean().optional(),
 })
@@ -422,7 +475,6 @@ export const mcpServerInstallationsToolsRefreshCreateBodyUrlMax = 2048
 export const McpServerInstallationsToolsRefreshCreateBody = /* @__PURE__ */ zod.object({
     display_name: zod.string().max(mcpServerInstallationsToolsRefreshCreateBodyDisplayNameMax).optional(),
     url: zod.url().max(mcpServerInstallationsToolsRefreshCreateBodyUrlMax).optional(),
-    description: zod.string().optional(),
     auth_type: zod.enum(['api_key', 'oauth']).optional().describe('\* `api_key` - API Key\n\* `oauth` - OAuth'),
     is_enabled: zod.boolean().optional(),
 })
@@ -461,17 +513,18 @@ export const McpServerInstallationsInstallCustomCreateBody = /* @__PURE__ */ zod
         .describe('\* `personal` - personal\n\* `shared` - shared')
         .default(mcpServerInstallationsInstallCustomCreateBodyScopeDefault)
         .describe(
-            "'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.\n\n\* `personal` - personal\n\* `shared` - shared"
+            "'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.\n\n\* `personal` - personal\n\* `shared` - shared"
         ),
     team_enabled: zod
         .boolean()
         .default(mcpServerInstallationsInstallCustomCreateBodyTeamEnabledDefault)
         .describe('Whether the server starts enabled for the whole team. Non-default values are admin-only.'),
-    agent_ids: zod
-        .array(zod.uuid())
+    agent_scope: zod
+        .enum(['personal', 'team'])
+        .describe('\* `personal` - Personal\n\* `team` - Team')
         .optional()
         .describe(
-            'Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access.'
+            "How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.\n\n\* `personal` - Personal\n\* `team` - Team"
         ),
     return_path: zod
         .string()
@@ -501,17 +554,18 @@ export const McpServerInstallationsInstallTemplateCreateBody = /* @__PURE__ */ z
         .describe('\* `personal` - personal\n\* `shared` - shared')
         .default(mcpServerInstallationsInstallTemplateCreateBodyScopeDefault)
         .describe(
-            "'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.\n\n\* `personal` - personal\n\* `shared` - shared"
+            "'personal' is per-user; 'shared' makes the credential available to project members. PostHog agents get access to the connection automatically; see agent_scope.\n\n\* `personal` - personal\n\* `shared` - shared"
         ),
     team_enabled: zod
         .boolean()
         .default(mcpServerInstallationsInstallTemplateCreateBodyTeamEnabledDefault)
         .describe('Whether the server starts enabled for the whole team. Non-default values are admin-only.'),
-    agent_ids: zod
-        .array(zod.uuid())
+    agent_scope: zod
+        .enum(['personal', 'team'])
+        .describe('\* `personal` - Personal\n\* `team` - Team')
         .optional()
         .describe(
-            'Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access.'
+            "How far the automatic agent grants for this connection reach. 'personal' (the default) lets PostHog agents use it only on runs for you; 'team' lets every agent run in the project use it. Grants are created when the caller may manage agent access: project admins always, members when team settings allow it. Sending a value without that permission is rejected.\n\n\* `personal` - Personal\n\* `team` - Team"
         ),
     return_path: zod
         .string()

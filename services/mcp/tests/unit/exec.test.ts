@@ -9,16 +9,21 @@ import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
+import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { getToolsFromContext } from '@/tools'
 import {
     createExecTool,
+    describeApiValidationError,
+    describeExecCommand,
     describeValidationError,
     type ExecInnerCallProperties,
     type ExecToolOptions,
     formatInputValidationError,
+    rewrapFlattenedArguments,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
-import { ExecHelpCatalog } from '@/tools/exec-help'
+import { ExecLearnCatalog } from '@/tools/exec-learn'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { withInformationalResponse } from '@/tools/tool-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
@@ -71,76 +76,230 @@ function createExec(
 
 describe('exec tool', () => {
     describe('learn command', () => {
-        const helpCatalog = new ExecHelpCatalog([
+        const guides = [
             {
                 id: 'analytics',
-                kind: 'guide',
                 title: 'Analytics',
                 description: 'Detailed analytics guidance.',
                 content: '### Retrieving data\n\nUse the analytics tools.',
             },
             {
-                id: 'retention-analysis',
-                kind: 'skill',
-                title: 'Retention analysis',
-                description: 'A retention workflow.',
-                content: '### Retention analysis\n\nFollow the workflow.',
+                id: 'visualizations',
+                title: 'Visualizations',
+                description: 'Rendering guidance.',
+                content: '### Rendering\n\nRender the chart.',
             },
-        ])
+        ]
+        const learnCatalog = new ExecLearnCatalog(guides, { posthog: undefined })
 
-        it('lists topic metadata without loading topic content', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
+        it('lists guide metadata and skill discovery commands without loading content', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog })
 
             const result = JSON.parse((await exec.handler(mockContext, { command: 'learn' })) as string)
 
-            expect(result).toEqual([
-                {
-                    id: 'analytics',
-                    kind: 'guide',
-                    title: 'Analytics',
-                    description: 'Detailed analytics guidance.',
+            expect(result).toEqual({
+                guides: guides.map(({ content: _content, ...summary }) => summary),
+                skills: {
+                    posthogAvailable: false,
+                    projectAvailable: false,
+                    commands: [
+                        'learn skills',
+                        'learn -s <query>',
+                        'learn -d <source>:<skill> [...]',
+                        'learn posthog:<skill> [path]',
+                        'learn project:<skill> [path]',
+                        'learn <source>:<skill> <path> [path...]',
+                        'learn <source>:<skill> [<source>:<skill>...]',
+                        'learn <source>:<skill> <path> -s <query>',
+                        'learn <source>:<skill> <path> --lines <start>:<end>',
+                    ],
                 },
-                {
-                    id: 'retention-analysis',
-                    kind: 'skill',
-                    title: 'Retention analysis',
-                    description: 'A retention workflow.',
-                },
-            ])
+            })
         })
 
-        it('loads a topic by its globally unique ID', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
+        it('loads a built-in guide', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog })
 
             await expect(exec.handler(mockContext, { command: 'learn analytics' })).resolves.toBe(
                 '### Retrieving data\n\nUse the analytics tools.'
             )
         })
 
-        it('loads multiple unique topics in the requested order', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
+        it('loads multiple unique guides in the requested order', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog })
 
             await expect(
-                exec.handler(mockContext, { command: 'learn retention-analysis analytics retention-analysis' })
+                exec.handler(mockContext, { command: 'learn visualizations analytics visualizations' })
             ).resolves.toBe(
-                '## Retention analysis\n\n### Retention analysis\n\nFollow the workflow.\n\n## Analytics\n\n### Retrieving data\n\nUse the analytics tools.'
+                '## Visualizations\n\n### Rendering\n\nRender the chart.\n\n## Analytics\n\n### Retrieving data\n\nUse the analytics tools.'
             )
         })
 
-        it('reports the available IDs when a topic is unknown', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
-
-            await expect(exec.handler(mockContext, { command: 'learn unknown' })).rejects.toThrow(
-                'Unknown learning topic: "unknown". Available: analytics, retention-analysis'
-            )
-        })
-
-        it('reports every unknown ID without returning partial topic content', async () => {
-            const exec = createExec(undefined, undefined, { helpCatalog })
+        it('reports every unknown guide as a typed learn error without partial content', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog })
 
             await expect(
                 exec.handler(mockContext, { command: 'learn analytics unknown missing unknown' })
-            ).rejects.toThrow('Unknown learning topics: "unknown", "missing". Available: analytics, retention-analysis')
+            ).rejects.toMatchObject({
+                name: 'ExecCommandError',
+                reason: 'unknown_learn_topic',
+                message: 'Unknown learning topics: "unknown", "missing". Available: analytics, visualizations',
+            })
+        })
+
+        it('keeps core exec usable and reports each unavailable skill source', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog })
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'learn skills' })) as string)
+            expect(result.posthog.available).toBe(false)
+            expect(result.project.available).toBe(false)
+            // A source outage is an operational error, not an agent mistake, so it must
+            // keep its own class rather than be typed as a usage error.
+            await expect(exec.handler(mockContext, { command: 'learn posthog:missing' })).rejects.toMatchObject({
+                name: 'SkillsUnavailableError',
+                message: expect.stringContaining('PostHog skills are temporarily unavailable'),
+            })
+            await expect(exec.handler(mockContext, { command: 'tools' })).resolves.toContain('mock-tool')
+        })
+    })
+
+    describe('skills-first gate', () => {
+        const guideCatalog = (): ExecLearnCatalog =>
+            new ExecLearnCatalog(
+                [{ id: 'analytics', title: 'Analytics', description: 'Guidance.', content: 'Use the tools.' }],
+                {
+                    posthog: new SkillCatalog([
+                        {
+                            name: 'bot-traffic',
+                            description: 'Filtering bot traffic.',
+                            files: [makeSkillFile('SKILL.md', '# Bot traffic\n\nFilter bots.')],
+                        },
+                    ]),
+                }
+            )
+
+        function makeSkillsSession(): NonNullable<ExecToolOptions['skillsSession']> {
+            const state: { learnedAt?: number; ackAt?: number } = {}
+            return {
+                hasLearned: async () => state.learnedAt !== undefined,
+                markLearned: async () => {
+                    state.learnedAt = Date.now()
+                },
+                hasAcknowledgedNoSkills: async () => state.ackAt !== undefined,
+                markAcknowledgedNoSkills: async () => {
+                    state.ackAt = Date.now()
+                },
+            }
+        }
+
+        it('rejects an un-learned call with a typed reason and passes it after a skill load', async () => {
+            const exec = createExec(undefined, undefined, {
+                learnCatalog: guideCatalog(),
+                skillsSession: makeSkillsSession(),
+            })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toMatchObject({
+                name: 'ExecCommandError',
+                reason: 'skills_gate',
+                message: expect.stringContaining('No skills loaded this session'),
+            })
+
+            await exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
+        })
+
+        // Each of these is a way an agent can touch `learn` without loading a skill; none
+        // may open the gate, and the quoting cases fail a naive whitespace split.
+        it.each([
+            { label: 'a generic guide read', command: 'learn analytics' },
+            { label: 'a bare search', command: 'learn -s bot traffic' },
+            { label: 'a quoted search flag', command: "learn '-s' bot traffic" },
+            { label: 'a listing', command: 'learn skills' },
+        ])('does not open the gate for $label', async ({ command }) => {
+            const exec = createExec(undefined, undefined, {
+                learnCatalog: guideCatalog(),
+                skillsSession: makeSkillsSession(),
+            })
+
+            await exec.handler(mockContext, { command })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow(
+                'No skills loaded this session'
+            )
+        })
+
+        it('opens the gate when the skill identifier is quoted', async () => {
+            const exec = createExec(undefined, undefined, {
+                learnCatalog: guideCatalog(),
+                skillsSession: makeSkillsSession(),
+            })
+
+            // A leading quote defeats a naive `startsWith('posthog:')` check, so a
+            // real skill load would fail to open the gate.
+            await exec.handler(mockContext, { command: "learn 'posthog:bot-traffic'" })
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
+        })
+
+        it('call --no-skills acknowledges once and opens the gate for the session', async () => {
+            const exec = createExec(undefined, undefined, {
+                learnCatalog: guideCatalog(),
+                skillsSession: makeSkillsSession(),
+            })
+
+            await expect(exec.handler(mockContext, { command: 'call --no-skills mock-tool {}' })).resolves.toBeDefined()
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
+        })
+
+        it('opens the gate when the session store fails', async () => {
+            const down = async (): Promise<never> => {
+                throw new Error('redis down')
+            }
+            const failing: NonNullable<ExecToolOptions['skillsSession']> = {
+                hasLearned: down,
+                markLearned: down,
+                hasAcknowledgedNoSkills: down,
+                markAcknowledgedNoSkills: down,
+            }
+            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: failing })
+
+            await expect(exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })).resolves.toContain(
+                'Bot traffic'
+            )
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
+        })
+    })
+
+    describe('user-get uuid contract', () => {
+        // `user-get` fetches the caller's own profile, so CLI clients routinely dispatch
+        // `call user-get` with no body — the exec parser then hands the schema an empty
+        // `{}`. The generated schema defaults `uuid` to `@me`, so that shape must validate
+        // and reach the handler as `@me`. An explicit UUID must still pass through.
+        const userGetFactory = GENERATED_TOOL_MAP['user-get']
+        if (!userGetFactory) {
+            throw new Error('user-get generated tool is missing')
+        }
+        const userGetSchema = userGetFactory().schema
+
+        it.each([
+            { name: 'empty body defaults uuid to @me', command: 'call user-get', expected: { uuid: '@me' } },
+            {
+                name: 'explicit uuid passes through unchanged',
+                command: 'call user-get {"uuid":"00000000-0000-0000-0000-000000000abc"}',
+                expected: { uuid: '00000000-0000-0000-0000-000000000abc' },
+            },
+        ])('$name', async ({ command, expected }) => {
+            let received: Record<string, unknown> | undefined
+            const userGet = makeMockTool({
+                name: 'user-get',
+                schema: userGetSchema,
+                handler: async (_context, params) => {
+                    received = params as Record<string, unknown>
+                    return { ok: true }
+                },
+            })
+            await createExec([userGet]).handler(mockContext, { command })
+            expect(received).toEqual(expected)
         })
     })
 
@@ -250,14 +409,14 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
             )
         })
 
@@ -1105,6 +1264,22 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
 
+        it('reminds agents to inspect the catalog before matching data-domain tools', async () => {
+            const exec = createExec([
+                makeMockTool({ name: 'metric-list' }),
+                makeMockTool({ name: 'metric-describe' }),
+                makeMockTool({ name: 'data-catalog-metric-run' }),
+                makeMockTool({ name: 'billing-usage-get', title: 'Get billable usage' }),
+            ])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
+
+            expect(result.matches).toEqual(['billing-usage-get'])
+            expect(result.hint).toContain('metric-list')
+            expect(result.hint).toContain('metric-describe')
+            expect(result.hint).toContain('data-catalog-metric-run')
+        })
+
         it('ranks tools for a multi-word plain-language query that a single regex would miss', async () => {
             // /create dashboard insight/i matches no tool literally; routing to
             // ranked search is the whole point of this command.
@@ -1158,6 +1333,77 @@ describe('exec tool', () => {
         })
     })
 
+    describe('flag-gated tool redirects', () => {
+        const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-create-markdown' })
+
+        it('names the successor a flag retired the tool for', async () => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call notebooks-create {}' })).rejects.toThrow(
+                /retired[\s\S]*notebooks-create-markdown/
+            )
+            await expect(exec.handler(mockContext, { command: 'info notebooks-create' })).rejects.toThrow(
+                /notebooks-create-markdown/
+            )
+        })
+
+        it('reports a gated tool with no successor as not enabled, not as unknown', async () => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [{ name: 'notebooks-add-cell', supersededBy: [] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call notebooks-add-cell {}' })).rejects.toThrow(
+                /is not enabled on this PostHog connection/
+            )
+            await expect(exec.handler(mockContext, { command: 'call notebooks-add-cell {}' })).rejects.not.toThrow(
+                /Unknown tool/
+            )
+        })
+
+        // A successor behind its own gate is no more callable than the tool it replaced,
+        // so pointing at it would send the agent on a second dead-end round trip.
+        it('falls back to the not-enabled message when no declared successor is registered', async () => {
+            const exec = createExec([makeMockTool()], undefined, {
+                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call notebooks-create {}' })).rejects.toThrow(
+                /is not enabled on this PostHog connection/
+            )
+        })
+
+        // The hint is free text, so an author can name a tool that is behind its own
+        // gate here. Held to the same rule as the successors, or the redirect trades
+        // one dead end for another.
+        it.each<[string, string, boolean]>([
+            ['a tool the catalog serves', 'Pair it with notebooks-create-markdown for the new shape.', true],
+            ['a tool this connection cannot serve', 'Read the notebook with notebooks-get first.', false],
+            ['a hyphenated word that is not a tool', 'The revamped notebooks are cell-based.', true],
+        ])('holds a hint naming %s to the same reachability rule', async (_case, redirectHint, kept) => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [
+                    { name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'], redirectHint },
+                ],
+            })
+
+            const message = await exec.handler(mockContext, { command: 'call notebooks-create {}' }).then(
+                () => '',
+                (error: Error) => error.message
+            )
+
+            expect(message).toContain('is retired on this PostHog connection')
+            expect(message.includes(redirectHint)).toBe(kept)
+        })
+
+        it('still reports a name we do not own as unknown', async () => {
+            const exec = createExec([notebooksCreateMarkdown], undefined, {
+                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+            })
+            await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toThrow(
+                /Unknown tool[\s\S]*search not-a-posthog-tool/
+            )
+        })
+    })
+
     describe('deprecated tool redirects', () => {
         it.each([
             ['read-data-warehouse-schema', 'execute-sql'],
@@ -1167,6 +1413,7 @@ describe('exec tool', () => {
             ['property-definitions', 'read-data-schema'],
             ['query-generate-hogql-from-question', 'execute-sql'],
             ['query-run', 'execute-sql'],
+            ['self-driving-inbox-get', 'inbox-reports-list'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
@@ -1253,6 +1500,56 @@ describe('exec tool', () => {
             ['   '],
         ])('returns undefined for "%s"', (command) => {
             expect(parseExecCallInnerToolName(command)).toBeUndefined()
+        })
+    })
+
+    describe('describeExecCommand', () => {
+        const isKnownToolName = (name: string): boolean => ['execute-sql', 'query-trends', 'my-tool'].includes(name)
+
+        // The verb/target pair is what separates schema discovery from tool search
+        // from a mistyped verb in analytics. Flag handling differs per verb, so a
+        // parser regression silently collapses the funnel back into one bucket.
+        it.each([
+            ['tools', 'tools', undefined],
+            ['search query-', 'search', undefined],
+            ['info execute-sql', 'info', 'execute-sql'],
+            ['info --json execute-sql', 'info', 'execute-sql'],
+            ['schema query-trends series', 'schema', 'query-trends'],
+            // `info` matches the whole remainder as an exact tool name, so a
+            // trailing token makes the lookup fail — telemetry must mirror the
+            // dispatcher's rejection, not credit the valid first token.
+            ['info execute-sql extra', 'info', 'unrecognized'],
+            ['call my-tool {"a":1}', 'call', 'my-tool'],
+            ['call --json --confirm my-tool {}', 'call', 'my-tool'],
+            ['  info   execute-sql  ', 'info', 'execute-sql'],
+            // A removed tool is still one of our own names, so the redirect it
+            // triggers stays diagnosable.
+            ['call query-run {}', 'call', 'query-run'],
+            // Verb present, target absent: nothing to record for the tool, but the
+            // verb still is.
+            ['info', 'info', undefined],
+            ['call', 'call', undefined],
+            ['', undefined, undefined],
+        ])('describes "%s" as verb=%s target=%s', (command, expectedVerb, expectedTarget) => {
+            expect(describeExecCommand(command, isKnownToolName)).toEqual({
+                verb: expectedVerb,
+                ...(expectedTarget !== undefined ? { targetTool: expectedTarget } : {}),
+            })
+        })
+
+        // Both fields reach analytics, and a token the grammar rejected is caller
+        // text — sanitizing its charset would leave an identifier-shaped secret
+        // intact, so it is replaced outright. Same value-free constraint
+        // `describeValidationError` holds for schema rejections.
+        it.each([
+            ['an unknown verb', 'sk-live-abc123 {"a":1}', { verb: 'unrecognized' }],
+            ['an unresolvable call target', 'call sk-live-abc123 {}', { verb: 'call', targetTool: 'unrecognized' }],
+            ['an unresolvable info target', 'info sk-live-abc123', { verb: 'info', targetTool: 'unrecognized' }],
+        ])('records a sentinel instead of %s', (_label, command, expected) => {
+            const shape = describeExecCommand(command, isKnownToolName)
+
+            expect(shape).toEqual(expected)
+            expect(JSON.stringify(shape)).not.toContain('sk-live-abc123')
         })
     })
 
@@ -1362,7 +1659,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input)
+            const detail = describeValidationError(result.error!, input, schema)
 
             expect(detail.inputKeys).toEqual(['organizationId'])
             // Never record input values — the raw uuid must not appear anywhere.
@@ -1375,10 +1672,111 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input)
+            const detail = describeValidationError(result.error!, input, schema)
 
-            expect(detail.fields).toContain('projectId:invalid_type')
+            expect(detail.fields).toContain('projectId:invalid_type:string')
             expect(JSON.stringify(detail)).not.toContain('not-a-number')
+        })
+
+        // `invalid_type` alone conflates an omitted parameter with one sent under the
+        // right name but the wrong shape — the two dominant rejection classes, and
+        // they need different fixes (aliasing vs coercion/envelope). The received
+        // type is what separates them.
+        it.each([
+            ['omitted entirely', {}, 'id:invalid_type:undefined'],
+            ['sent as the wrong primitive', { id: 42 }, 'id:invalid_type:number'],
+            ['sent as an envelope object', { id: { value: 'x' } }, 'id:invalid_type:object'],
+            ['sent as an array', { id: ['x'] }, 'id:invalid_type:array'],
+            ['sent as null', { id: null }, 'id:invalid_type:null'],
+        ])('distinguishes a required param %s', (_label, input, expected) => {
+            const schema = z.object({ id: z.string() })
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input as Record<string, unknown>, schema).fields).toEqual([
+                expected,
+            ])
+        })
+
+        // The received type is only meaningful for the type-shaped codes; appending it
+        // to every code would bloat the descriptor and say nothing (`too_big:string`).
+        it('omits the received type for a code the type does not explain', () => {
+            const schema = z.object({ description: z.string().max(3) })
+            const input = { description: 'far too long' }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['description:too_big'])
+        })
+
+        // A malformed array produces one issue per element. Collapsing indices keeps
+        // them a single descriptor — otherwise they fill the 20-descriptor cap with
+        // restatements of one defect and evict the genuinely different field that
+        // failed after them, which is the information the event exists to carry.
+        it('collapses array indices so one bad array cannot evict other failed fields', () => {
+            const schema = z.object({
+                series: z.array(z.object({ event: z.string() })),
+                dateRange: z.string(),
+            })
+            const input = {
+                series: Array.from({ length: 50 }, () => ({ event: 123 })),
+                dateRange: 456,
+            }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const { fields } = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+
+            expect(fields).toEqual(['series.N.event:invalid_type:number', 'dateRange:invalid_type:number'])
+        })
+
+        // The full issue path is what distinguishes a flattened envelope from a bad
+        // discriminator, but under an open record (`generate-app-url`'s `params`) the
+        // path's own segments are the caller's keys. Masking them keeps the field that
+        // held the bad value visible without recording anything the caller chose.
+        it('masks a path segment the schema never declared', () => {
+            const schema = z.object({
+                url: z.string(),
+                params: z.record(z.string(), z.string()),
+            })
+            const input = { url: '/project/2', params: { 'sk-live-abc123': 42 } }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const detail = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+
+            expect(detail.fields).toEqual(['params.*:invalid_type:number'])
+            expect(JSON.stringify(detail)).not.toContain('sk-live-abc123')
+        })
+
+        // Nested schema fields are ours, so they must survive the mask — otherwise
+        // every descriptor collapses to `*` and the reason the PR widened the path
+        // (telling `query:invalid_union` apart from `query.kind:invalid_type`) is lost.
+        it('keeps a declared nested path intact', () => {
+            const schema = z.object({ query: z.object({ kind: z.literal('TrendsQuery') }) })
+            const input = { query: { kind: 'trends' } }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['query.kind:invalid_value'])
+        })
+    })
+
+    describe('describeApiValidationError', () => {
+        // API-layer rejections carried no structured field at all, so they could only
+        // be reached by string-parsing $mcp_error_message. Same format as the schema
+        // path so a single query spans both.
+        it.each([
+            ['name', 'required', 'name:required'],
+            ['series.0.event', 'invalid', 'series.N.event:invalid'],
+            [undefined, 'invalid', '(root):invalid'],
+            ['name', undefined, 'name:unknown'],
+        ])('describes attr=%s code=%s as %s', (attr, code, expected) => {
+            expect(describeApiValidationError(attr, code)).toEqual([expected])
+        })
+
+        it('bounds an over-long attr to the shared key-length cap', () => {
+            expect(describeApiValidationError('a'.repeat(200), 'invalid')[0]).toBe(`${'a'.repeat(64)}:invalid`)
         })
     })
 
@@ -1407,6 +1805,306 @@ describe('exec tool', () => {
 
             expect(message).toMatch(/parameter "tags": /)
             expect(message).not.toContain('undefined')
+        })
+
+        // A tool whose whole payload sits under one required object is the shape
+        // agents flatten most often, and zod strips the misplaced keys — so
+        // "sent everything, unwrapped" and "sent nothing" both arrive as a bare
+        // `missing required parameter`. These lock in the disambiguation.
+        describe('a required object parameter the caller flattened', () => {
+            const wrapperSchema = z.object({
+                query: z.object({
+                    dateRange: z.object({ date_from: z.string() }).optional(),
+                    orderBy: z.enum(['latest', 'earliest']).optional(),
+                    limit: z.number().optional(),
+                }),
+            })
+
+            const formatFor = (input: unknown): string => {
+                const result = wrapperSchema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('query-logs', result.error!, input, wrapperSchema)
+            }
+
+            it('shows the accepted shape, with the fields the caller sent nested inside it', () => {
+                const message = formatFor({ dateRange: { date_from: '-1h' }, limit: 10 })
+
+                expect(message).toBe(
+                    'Invalid input for "query-logs": missing required parameter: query; the fields you sent belong inside it, so resend them as {"query": {"dateRange": ..., "limit": ...}}'
+                )
+            })
+
+            it('still identifies the nesting when the nested fields have their own errors', () => {
+                // Without this the caller fixes `orderBy`, resends flattened, and
+                // fails again on the same ambiguous message.
+                const message = formatFor({ orderBy: 'newest', limit: 10 })
+
+                expect(message).toContain('resend them as {"query": {"orderBy": ..., "limit": ...}}')
+            })
+
+            it('names only wrapper fields, so an undeclared key cannot reach the message', () => {
+                // The rendered shape is returned to the caller and recorded as the
+                // analytics error message, so every key in it has to come from the
+                // tool's own schema rather than the caller's payload.
+                const message = formatFor({ limit: 10, sneaky_key: 'x' })
+
+                expect(message).toContain('{"query": {"limit": ...}}')
+                expect(message).not.toContain('sneaky_key')
+            })
+
+            it('caps the fields it names so a large payload cannot inflate the message', () => {
+                const wide = z.object({
+                    query: z.object(
+                        Object.fromEntries(
+                            Array.from({ length: 8 }, (_unused, index) => [`field${index}`, z.string().optional()])
+                        )
+                    ),
+                })
+                const input = Object.fromEntries(Array.from({ length: 8 }, (_unused, index) => [`field${index}`, 'x']))
+                const result = wide.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                const message = formatInputValidationError('query-logs', result.error!, input, wide)
+
+                expect(message).toContain('{"query": {"field0": ..., "field1": ..., "field2": ..., "field3": ...')
+                expect(message).toContain('...}}')
+                expect(message).not.toContain('"field5"')
+            })
+
+            it('falls back to the bare shape when no key the caller sent belongs to the wrapper', () => {
+                // A union-typed wrapper the caller half-guessed still gets a shape to
+                // copy, rather than a message naming fields the wrapper never had.
+                const looseWrapper = z.object({ query: z.looseObject({}).refine(() => true) })
+                const input = { unknown_field: 1 }
+                const result = looseWrapper.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                expect(formatInputValidationError('query-logs', result.error!, input, looseWrapper)).toContain(
+                    'resend them as {"query": {...}}'
+                )
+            })
+
+            it.each([
+                ['an empty input, which is a caller that sent nothing', {}],
+                ['keys the nested schema does not declare', { nonsense: 1, alsoNonsense: 2 }],
+                ['a non-object input', 'just a string'],
+            ])('does not claim a nesting mistake for %s', (_label, input) => {
+                expect(formatFor(input)).not.toContain('resend them')
+            })
+
+            it('names only schema-declared fields, never the values the caller sent', () => {
+                const message = formatFor({ dateRange: { date_from: 'secret-value' } })
+
+                expect(message).not.toContain('secret-value')
+            })
+
+            it('keeps the bare message when the caller gives no input or schema to compare', () => {
+                const input = { dateRange: { date_from: '-1h' } }
+                const result = wrapperSchema.safeParse(input, { reportInput: true })
+
+                expect(formatInputValidationError('query-logs', result.error!)).toBe(
+                    'Invalid input for "query-logs": missing required parameter: query'
+                )
+            })
+
+            describe('a required parameter missing while undeclared keys were sent', () => {
+                const SOME_UUID = '00000000-0000-4000-8000-000000000000'
+
+                const formatFor = (toolName: string, input: unknown): string => {
+                    const tool = GENERATED_TOOL_MAP[toolName]!()
+                    const result = tool.schema.safeParse(input, { reportInput: true })
+                    expect(result.success).toBe(false)
+                    return formatInputValidationError(toolName, result.error!, input, tool.schema)
+                }
+
+                it.each([
+                    ['vision-scanners-get', 'scanner_id', 'replay scanner'],
+                    ['vision-observations-retrieve', 'observation_id', 'replay observation'],
+                ])('names the key %s dropped, so the caller can see it was not read', (toolName, sentKey, entity) => {
+                    expect(formatFor(toolName, { [sentKey]: SOME_UUID })).toBe(
+                        `Invalid input for "${toolName}": missing required parameter: id (A UUID string identifying this ${entity}.); this tool ignored these keys it does not accept: "${sentKey}"`
+                    )
+                })
+
+                it('does not tell the caller to resend a scanner id as an observation id', () => {
+                    // `vision-observations-retrieve` does not declare `scanner_id`, and its
+                    // `id` has no format constraint. Matching the two by name suffix would
+                    // advise reusing a value that identifies a different entity.
+                    const message = formatFor('vision-observations-retrieve', { scanner_id: SOME_UUID })
+
+                    expect(message).toContain('"scanner_id"')
+                    expect(message).not.toContain('resend')
+                    expect(message).not.toContain('as "id"')
+                })
+
+                it('does not name a value the caller sent', () => {
+                    expect(formatFor('vision-scanners-get', { scanner_id: SOME_UUID })).not.toContain(SOME_UUID)
+                })
+
+                it('stays quiet when every key the caller sent is a real field of the tool', () => {
+                    // `vision-scanners-observations-get` declares `scanner_id`, so nothing
+                    // was dropped: the caller omitted the observation id rather than
+                    // having a key silently discarded.
+                    expect(formatFor('vision-scanners-observations-get', { scanner_id: SOME_UUID })).toBe(
+                        'Invalid input for "vision-scanners-observations-get": missing required parameter: id (A UUID string identifying this replay observation.)'
+                    )
+                })
+
+                it('names no ignored keys for a caller that sent nothing at all', () => {
+                    expect(formatFor('vision-scanners-get', {})).toBe(
+                        'Invalid input for "vision-scanners-get": missing required parameter: id (A UUID string identifying this replay scanner.)'
+                    )
+                })
+
+                it('says nothing was ignored when the schema rejected the keys instead', () => {
+                    // This tool's schema is strict, so `hash` was refused rather than dropped.
+                    expect(formatFor('change-requests-approve-execute', { hash: 'x', confirmation: 'confirm' })).toBe(
+                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash (The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.); unexpected property: hash'
+                    )
+                })
+
+                it('caps how many keys it names so the analytics message stays bounded', () => {
+                    const input = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`junk_${i}`, i]))
+                    const message = formatFor('vision-scanners-get', input)
+
+                    expect(message.match(/junk_/g)).toHaveLength(5)
+                })
+            })
+
+            it('fires for the real generated query-logs tool, not just a stand-in schema', () => {
+                // Guards the assumption behind this whole branch: that the shipped
+                // tool really does wrap its payload in one required `query` object.
+                const tool = GENERATED_TOOL_MAP['query-logs']!()
+                const input = { dateRange: { date_from: '-1h' }, limit: 10 }
+                const result = tool.schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                expect(formatInputValidationError('query-logs', result.error!, input, tool.schema)).toContain(
+                    'resend them as {"query": {"dateRange": ..., "limit": ...}}'
+                )
+            })
+
+            describe('rewrapping it into the call the caller meant', () => {
+                const rewrapFor = (schema: ZodObjectAny, input: unknown): Record<string, unknown> | undefined => {
+                    const result = schema.safeParse(input, { reportInput: true })
+                    expect(result.success).toBe(false)
+                    return rewrapFlattenedArguments(result.error!, input, schema)
+                }
+
+                it('nests the flattened fields under the wrapper', () => {
+                    expect(rewrapFor(wrapperSchema, { dateRange: { date_from: '-1h' }, limit: 10 })).toEqual({
+                        query: { dateRange: { date_from: '-1h' }, limit: 10 },
+                    })
+                })
+
+                it('leaves a sibling the outer schema declares at the top level', () => {
+                    // Folding `baselineDateRange` inside `query` would have the nested schema strip it,
+                    // and the caller would get a diff against the default baseline without being told.
+                    const tool = GENERATED_TOOL_MAP['logs-patterns-diff']!()
+                    const input = {
+                        serviceNames: ['api'],
+                        dateRange: { date_from: '-1d' },
+                        baselineDateRange: { date_from: '-2d', date_to: '-1d' },
+                    }
+
+                    expect(rewrapFor(tool.schema, input)).toEqual({
+                        query: { serviceNames: ['api'], dateRange: { date_from: '-1d' } },
+                        baselineDateRange: { date_from: '-2d', date_to: '-1d' },
+                    })
+                })
+
+                it.each([
+                    ['an empty input, which is a caller that sent nothing', {}],
+                    ['keys the nested schema does not declare', { nonsense: 1, alsoNonsense: 2 }],
+                    ['a nested field the wrapper still rejects', { orderBy: 'newest' }],
+                ])('leaves %s to its own rejection', (_label, input) => {
+                    expect(rewrapFor(wrapperSchema, input)).toBeUndefined()
+                })
+
+                it('leaves a typo alone rather than running a query the caller did not ask for', () => {
+                    // `query-logs` defaults most of its query fields, so wrapping `dateRagne` parses
+                    // into a full set of defaults and would run an unfiltered query over the default
+                    // window. The caller has to see the typo instead of plausible but wrong rows.
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+
+                    expect(rewrapFor(tool.schema, { dateRagne: { date_from: '-7d' } })).toBeUndefined()
+                })
+
+                it('leaves a payload alone when only some of its keys belong inside the wrapper', () => {
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+                    const input = { serviceNames: ['api'], dateRagne: { date_from: '-7d' } }
+
+                    expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                it('leaves a rejection that names more than the missing wrapper alone', () => {
+                    // Two complaints mean the payload is wrong in a way nesting cannot fix,
+                    // so guessing at one of them would hide the other.
+                    const strictWrapper = z.object({
+                        query: z.object({ limit: z.number().optional() }),
+                        mode: z.enum(['fast', 'full']),
+                    })
+
+                    expect(rewrapFor(strictWrapper, { limit: 10, mode: 'quick' })).toBeUndefined()
+                })
+            })
+        })
+
+        // A caller that omits an identifier usually never held one, so a rejection
+        // naming only the field sends it back to retry the same empty call. These
+        // lock in that the field's own description rides along with the rejection.
+        describe('a missing parameter whose schema documents where the value comes from', () => {
+            const formatFor = (schema: ZodObjectAny, input: unknown): string => {
+                const result = schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('some-tool', result.error!, input, schema)
+            }
+
+            it('tells the caller which tool returns the identifier it omitted', () => {
+                const schema = z.object({ short_id: z.string().describe('Get it from `notebooks-list`.') })
+
+                expect(formatFor(schema, {})).toBe(
+                    'Invalid input for "some-tool": missing required parameter: short_id (Get it from `notebooks-list`.)'
+                )
+            })
+
+            it('names the field alone when its schema documents nothing', () => {
+                const schema = z.object({ short_id: z.string() })
+
+                expect(formatFor(schema, {})).toBe(
+                    'Invalid input for "some-tool": missing required parameter: short_id'
+                )
+            })
+
+            it('caps a long description so the analytics error message stays bounded', () => {
+                const schema = z.object({ short_id: z.string().describe('word '.repeat(100)) })
+                const message = formatFor(schema, {})
+
+                expect(message.length).toBeLessThan(300)
+                expect(message).toContain('...)')
+            })
+
+            it('leaves a nested miss alone, since that field is not the one to fill next', () => {
+                const schema = z.object({
+                    query: z.object({ limit: z.number().describe('How many rows to return.') }),
+                })
+
+                expect(formatFor(schema, { query: {} })).toBe(
+                    'Invalid input for "some-tool": missing required parameter: query.limit'
+                )
+            })
+
+            it('fires for the real generated notebooks-retrieve tool, not just a stand-in schema', () => {
+                // The failure this whole branch exists for: agents call the shipped
+                // tool with no short_id, so its rejection has to name notebooks-list.
+                const tool = GENERATED_TOOL_MAP['notebooks-retrieve']!()
+                const result = tool.schema.safeParse({}, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                expect(formatInputValidationError('notebooks-retrieve', result.error!, {}, tool.schema)).toContain(
+                    '`notebooks-list`'
+                )
+            })
         })
     })
 })

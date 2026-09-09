@@ -52,6 +52,10 @@ MAX_RETRY_AFTER_SECONDS = 120
 # ~30 minutes as incomplete. Bounding `end` keeps the incremental watermark behind the
 # consistency horizon so late-arriving events aren't skipped on the next sync.
 EVENTS_CONSISTENCY_LAG_SECONDS = 30 * 60
+# Backstop for a `paging.next` chain that never terminates and never repeats a URL, which the
+# seen-URL guard below can't catch. Sized far above any real page count (the largest paging
+# endpoint fetches 1000 rows a page) so it only trips on a runaway.
+MAX_PAGES_PER_CHAIN = 100_000
 
 
 class MailgunRetryableError(Exception):
@@ -192,7 +196,11 @@ def _next_page_url(
     if items_count == 0:
         return None
     next_url = (data.get("paging") or {}).get("next")
-    return next_url or None
+    if not next_url or next_url == current_url:
+        # Some endpoints (tags is the known one) hand back a stable cursor that points at the
+        # page we just read instead of an empty page, so following it re-serves the same rows.
+        return None
+    return next_url
 
 
 def _normalize_row(config: MailgunEndpointConfig, domain: Optional[str], item: dict[str, Any]) -> dict[str, Any]:
@@ -274,7 +282,21 @@ def get_domain_names(api_key: str, base_url: str, logger: FilteringBoundLogger) 
         skip += config.page_size
 
 
-def validate_credentials(api_key: str, region: str) -> bool:
+# Mailgun keys are scoped to one region, so a good key checked against the wrong region is
+# rejected exactly like a bad key. Naming both leaves something to act on either way.
+INVALID_KEY_ERROR = (
+    "Mailgun rejected the API key. Check that you copied the private API key from Settings > API "
+    "security, and that the region matches where your account is hosted."
+)
+FORBIDDEN_ERROR = (
+    "Mailgun denied access with this API key. Use a key that can read your sending domains, then try again."
+)
+UNREACHABLE_ERROR = (
+    "Couldn't reach Mailgun to check your API key. This is usually temporary, so try again in a few minutes."
+)
+
+
+def validate_credentials(api_key: str, region: str) -> tuple[bool, str | None]:
     """Confirm the private API key is valid for the region. A 1-item domain listing is a cheap probe."""
     try:
         response = make_tracked_session().get(
@@ -283,9 +305,16 @@ def validate_credentials(api_key: str, region: str) -> bool:
             auth=("api", api_key),
             timeout=10,
         )
-        return response.status_code == 200
     except Exception:
-        return False
+        return False, UNREACHABLE_ERROR
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code == 403:
+        return False, FORBIDDEN_ERROR
+    if response.status_code >= 500:
+        return False, UNREACHABLE_ERROR
+    return False, INVALID_KEY_ERROR
 
 
 def get_rows(
@@ -323,14 +352,39 @@ def get_rows(
         current_domain = None
         current_url = _initial_url(base_url, config, None, begin)
 
+    # Mailgun's `paging.next` cursors aren't guaranteed to advance — the tags endpoint returns a
+    # stable `page=next&tag=<last>` URL that keeps re-serving the terminal page rather than an
+    # empty one. Without this guard the chain re-yields the same rows until the activity is killed,
+    # and every re-yielded row is billed as a synced row even though the merge dedupes them away.
+    seen_urls: set[str] = set()
+
     while current_url is not None or pending_domains:
         if current_url is None:
+            seen_urls.clear()
             current_domain = pending_domains.pop(0)
             current_url = _initial_url(base_url, config, current_domain, begin)
             if current_url is None:
                 current_domain = None
                 resumable_source_manager.save_state(MailgunResumeConfig(pending_domains=pending_domains))
                 continue
+
+        loop_reason: Optional[str] = None
+        if current_url in seen_urls:
+            loop_reason = "the page URL repeated"
+        elif len(seen_urls) >= MAX_PAGES_PER_CHAIN:
+            loop_reason = f"the chain exceeded {MAX_PAGES_PER_CHAIN} pages"
+
+        if loop_reason is not None:
+            logger.warning(
+                f"Mailgun: stopping pagination for {endpoint} because {loop_reason}; "
+                f"domain={current_domain}, url={current_url}"
+            )
+            current_url = None
+            current_domain = None
+            resumable_source_manager.save_state(MailgunResumeConfig(pending_domains=pending_domains))
+            continue
+
+        seen_urls.add(current_url)
 
         try:
             data = _fetch_page(current_url, api_key, logger)

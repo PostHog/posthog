@@ -65,6 +65,7 @@ import {
 } from '~/types'
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
+import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
 import { SurveyUrlAudienceEstimate } from './components/SurveyUrlAudienceEstimate'
 import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 import { COMMON_LANGUAGES, getBaseLanguage, getSurveyLanguageName } from './language'
@@ -503,6 +504,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         </>
                     }
                 />
+                <SurveyPublicContentNotice />
                 <div className="sticky top-[34px] z-[100] bg-bg-3000">
                     {(() => {
                         const shouldShowValidationErrors = hasVisibleTranslationValidationErrors

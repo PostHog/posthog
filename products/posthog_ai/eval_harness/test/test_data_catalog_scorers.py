@@ -5,11 +5,21 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.data_catalog.evals.constants import DEPRECATION_CANONICAL_SOURCE_NAME, DEPRECATION_STALE_SOURCE_NAME
+from products.data_catalog.evals.constants import (
+    DEPRECATION_CANONICAL_SOURCE_NAME,
+    DEPRECATION_STALE_SOURCE_NAME,
+    EVAL_DESCRIPTION_CHAR_LIMIT,
+    METRIC_CREATE_TOOL,
+    METRIC_UPDATE_TOOL,
+)
 from products.data_catalog.evals.scorers import (
     CanonicalMetricRun,
     DeprecationProposed,
+    MetricDescriptionConcise,
+    MetricDescriptionQuality,
+    MetricsCatalogBeforeAnswer,
     MetricsCatalogBeforeDataDiscovery,
+    MetricsCatalogQueried,
     SemanticMetadataQueried,
 )
 
@@ -225,12 +235,39 @@ def test_metrics_catalog_before_data_discovery(
     assert score.score == expected_score
 
 
+def test_metric_list_counts_as_a_catalog_lookup() -> None:
+    calls: list[tuple[str, dict[str, Any], str]] = [
+        ("metric-list", {"offset": 0, "limit": 100}, "completed"),
+        ("execute-sql", {"query": "SELECT * FROM paid_bills LIMIT 1"}, "completed"),
+    ]
+    output = {"raw_log": _tool_log(calls)}
+
+    queried = MetricsCatalogQueried()._run_eval_sync(output, {"metrics_catalog_queried": {}})
+    before_answer = MetricsCatalogBeforeAnswer()._run_eval_sync(output, {"metrics_catalog_before_answer": {}})
+    before_discovery = MetricsCatalogBeforeDataDiscovery()._run_eval_sync(
+        output, {"metrics_catalog_before_data_discovery": {}}
+    )
+
+    assert queried.score == 1.0
+    assert before_answer.score == 1.0
+    assert before_discovery.score == 1.0
+
+
 @parameterized.expand(
     [
         (
             "succeeded",
             [
                 ("execute-sql", {"query": CATALOG_QUERY}, "completed"),
+                ("data-catalog-metric-run", {"name": METRIC_NAME}, "completed"),
+            ],
+            {"metric_name": METRIC_NAME, "outcome": "succeeded"},
+            1.0,
+        ),
+        (
+            "succeeded_after_metric_list",
+            [
+                ("metric-list", {"offset": 0, "limit": 100}, "completed"),
                 ("data-catalog-metric-run", {"name": METRIC_NAME}, "completed"),
             ],
             {"metric_name": METRIC_NAME, "outcome": "succeeded"},
@@ -404,6 +441,7 @@ def test_deprecation_proposed(
         (MetricsCatalogBeforeDataDiscovery(), "metrics_catalog_before_data_discovery"),
         (CanonicalMetricRun(), "canonical_metric_run"),
         (DeprecationProposed(), "deprecation_proposed"),
+        (MetricDescriptionConcise(), "metric_description_concise"),
     ]
 )
 def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_name: str) -> None:
@@ -411,3 +449,72 @@ def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_na
 
     assert score.name == scorer_name
     assert score.score is None
+
+
+_SHORT_DESCRIPTION = "Canonical MRR over the trailing 30 days, excluding personal/free plans."
+_LONG_DESCRIPTION = "x" * (EVAL_DESCRIPTION_CHAR_LIMIT + 1)
+
+
+@parameterized.expand(
+    [
+        (
+            "short_create_passes",
+            [(METRIC_CREATE_TOOL, {"name": "mrr", "description": _SHORT_DESCRIPTION}, "completed")],
+            1.0,
+        ),
+        (
+            "long_create_fails",
+            [(METRIC_CREATE_TOOL, {"name": "mrr", "description": _LONG_DESCRIPTION}, "completed")],
+            0.0,
+        ),
+        (
+            "short_create_then_long_update_fails",
+            [
+                (METRIC_CREATE_TOOL, {"name": "mrr", "description": _SHORT_DESCRIPTION}, "completed"),
+                (METRIC_UPDATE_TOOL, {"name": "mrr", "description": _LONG_DESCRIPTION}, "completed"),
+            ],
+            0.0,
+        ),
+        (
+            "failed_long_create_ignored",
+            [(METRIC_CREATE_TOOL, {"name": "mrr", "description": _LONG_DESCRIPTION}, "failed")],
+            None,
+        ),
+        (
+            "no_metric_write",
+            [("execute-sql", {"query": CATALOG_QUERY}, "completed")],
+            None,
+        ),
+    ]
+)
+def test_metric_description_concise(
+    _name: str,
+    calls: list[tuple[str, dict[str, Any], str]],
+    expected_score: float | None,
+) -> None:
+    score = MetricDescriptionConcise()._run_eval_sync(
+        {"raw_log": _tool_log(calls)},
+        {"metric_description_concise": {}},
+    )
+
+    assert score.score == expected_score
+
+
+def test_metric_description_quality_judges_the_stored_description() -> None:
+    narrating_update = "First it sums amount_usd, then it filters to the last 30 days, then it groups by plan."
+    calls: list[tuple[str, dict[str, Any], str]] = [
+        (
+            METRIC_CREATE_TOOL,
+            {"name": "mrr", "description": _SHORT_DESCRIPTION, "definition": {"kind": "HogQLQuery"}},
+            "completed",
+        ),
+        (METRIC_UPDATE_TOOL, {"name": "mrr", "description": narrating_update}, "completed"),
+    ]
+
+    prepared = MetricDescriptionQuality()._prepare(
+        {"raw_log": _tool_log(calls)},
+        {"metric_description_quality": {}},
+    )
+
+    assert prepared["output"]["description"] == narrating_update
+    assert prepared["output"]["definition"] == json.dumps({"kind": "HogQLQuery"})

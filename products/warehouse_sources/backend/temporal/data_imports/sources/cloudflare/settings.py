@@ -229,6 +229,12 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
         # match SourceResponse's ascending sort mode.
         params={"direction": "asc"},
         incremental_param="since",
+        # This list has no `result_info.total_pages`, so the paginator only learns it has
+        # reached the end from a short page; when an account's true count is an exact
+        # multiple of PAGE_SIZE, the page right past the end gets a 400 rather than an
+        # empty list. Treat it like the end of the list — the next sync's `since` picks up
+        # where this one stopped.
+        extra_skip_status_codes=(400,),
     ),
     "billing_usage": CloudflareEndpointConfig(
         name="billing_usage",

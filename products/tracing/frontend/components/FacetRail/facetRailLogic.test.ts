@@ -5,7 +5,7 @@ import { UniversalFiltersGroup } from '~/types'
 
 import { tracingFiltersLogic } from '../../tracingFiltersLogic'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetSource, FilterGroupFacetSource, facetFilterValues } from './facets'
+import { FacetSelection, FacetSource, FilterGroupFacetSource, facetFilterSelection } from './facets'
 
 const SERVICE_SOURCE: FacetSource = { type: 'column', column: 'service_name' }
 const STATUS_SOURCE: FilterGroupFacetSource = { type: 'column', column: 'status_code' }
@@ -50,25 +50,31 @@ describe('facetRailLogic', () => {
     describe.each<[string, FilterGroupFacetSource]>([
         ['status column facet', STATUS_SOURCE],
         ['resource-attribute facet', NAMESPACE_SOURCE],
-    ])('%s toggling', (_, source) => {
-        const read = (): string[] => facetFilterValues(filtersLogic.values.filterGroup, source)
+    ])('%s cycling', (_, source) => {
+        const read = (): FacetSelection => facetFilterSelection(filtersLogic.values.filterGroup, source)
+        const click = async (value: string): Promise<void> => {
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(source, value)).toFinishAllListeners()
+        }
 
-        it('adds, accumulates (OR), and removes values as a property filter in the group', async () => {
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(source, 'a')).toFinishAllListeners()
-            expect(read()).toEqual(['a'])
+        it('cycles a value included → excluded → cleared through the shared filters logic', async () => {
+            await click('a')
+            expect(read()).toEqual({ included: ['a'], excluded: [] })
 
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(source, 'b')).toFinishAllListeners()
-            expect(read()).toEqual(['a', 'b'])
+            await click('a')
+            expect(read()).toEqual({ included: [], excluded: ['a'] })
 
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(source, 'a')).toFinishAllListeners()
-            expect(read()).toEqual(['b'])
+            await click('a')
+            expect(read()).toEqual({ included: [], excluded: [] })
+            expect((filtersLogic.values.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([])
         })
 
-        it('removing the last value drops the filter from the group entirely', async () => {
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(source, 'a')).toFinishAllListeners()
-            await expectLogic(logic, () => logic.actions.toggleFacetValue(source, 'a')).toFinishAllListeners()
-            expect(read()).toEqual([])
-            expect((filtersLogic.values.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([])
+        it('holds one value included while another is excluded', async () => {
+            await click('a')
+            await click('b')
+            expect(read()).toEqual({ included: ['a', 'b'], excluded: [] })
+
+            await click('a')
+            expect(read()).toEqual({ included: ['b'], excluded: ['a'] })
         })
     })
 

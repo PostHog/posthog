@@ -11,6 +11,7 @@ import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
+import { sessionStoreSetters } from "@posthog/core/sessions/sessionStore";
 import { resolveService } from "@posthog/di/container";
 import {
   HOST_TRPC_CLIENT,
@@ -21,6 +22,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useReviewViewedStore } from "@posthog/ui/features/code-review/reviewViewedStore";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { useFocusStore } from "@posthog/ui/features/focus/focusStore";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { pinnedTasksApi } from "@posthog/ui/features/sidebar/taskMetaApi";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { destroyTaskTerminals } from "@posthog/ui/features/terminal/destroyTaskTerminals";
@@ -82,7 +84,7 @@ export function getCachedArchiveTask(
       .flatMap(([, tasks]) => tasks ?? [])
       .find((item) => item.id === taskId) ??
     queryClient
-      .getQueriesData<Schemas.TaskSummary[]>({
+      .getQueriesData<Schemas.TaskSummaryDTO[]>({
         queryKey: taskKeys.allSummaries(),
       })
       .flatMap(([, tasks]) => tasks ?? [])
@@ -93,7 +95,7 @@ export function getCachedArchiveTask(
 function makeOrchestrationDeps(
   queryClient: QueryClient,
   keys: ArchiveCacheKeys,
-  options?: { skipNavigate?: boolean; navigateSpace?: "code" | "website" },
+  options?: { skipNavigate?: boolean; navigateUnscoped?: boolean },
 ): ArchiveOrchestrationDeps {
   const hostClient = resolveService<HostTrpcClient>(HOST_TRPC_CLIENT);
   return {
@@ -111,7 +113,7 @@ function makeOrchestrationDeps(
       const view = getAppViewSnapshot();
       if (view.type === "task-detail" && view.taskId === taskId) {
         openTaskInput(
-          options?.navigateSpace ? { space: options.navigateSpace } : undefined,
+          options?.navigateUnscoped ? { unscoped: true } : undefined,
         );
       }
     },
@@ -143,6 +145,23 @@ function makeOrchestrationDeps(
         taskId,
         runId,
       ),
+    cancelPendingPermissions: async (taskId) => {
+      const sessionService = resolveService<SessionService>(SESSION_SERVICE);
+      const session = sessionStoreSetters.getSessionByTaskId(taskId);
+      if (!session) return;
+      // Snapshot the ids first: cancelling resolves them out of the map the
+      // loop would otherwise be walking.
+      for (const toolCallId of [...session.pendingPermissions.keys()]) {
+        try {
+          await sessionService.cancelPermission(taskId, toolCallId);
+        } catch (error) {
+          // An unanswerable prompt is better than a failed archive: the task is
+          // going away either way, so this is worth a line in the log and
+          // nothing more.
+          log.error("Failed to cancel a prompt while archiving", error);
+        }
+      }
+    },
     disconnectFromTask: (taskId) =>
       resolveService<SessionService>(SESSION_SERVICE).disconnectFromTask(
         taskId,
@@ -165,14 +184,14 @@ function makeOrchestrationDeps(
   };
 }
 
-export async function archiveTaskImperative(
+async function archiveTaskImperative(
   taskId: string,
   queryClient: QueryClient,
   keys: ArchiveCacheKeys,
   options?: {
     skipNavigate?: boolean;
     optimistic?: boolean;
-    navigateSpace?: "code" | "website";
+    navigateUnscoped?: boolean;
   },
 ): Promise<void> {
   await archiveTask(
@@ -200,34 +219,39 @@ export async function archiveTasksImperative(
 }
 
 export function useArchiveTask(options?: {
-  // Which new-task screen to land on if the archived task is the active view.
-  // Defaults to Code; the bluebird/channels nav passes "website" so archiving
-  // from there returns to the website new-task screen instead.
-  navigateSpace?: "code" | "website";
+  // Ignore the scoped space when the archived task is the active view, landing
+  // on the unscoped new-task screen instead of the space's own.
+  navigateUnscoped?: boolean;
 }) {
   const queryClient = useQueryClient();
   const keys = useArchiveCacheKeys();
   const { restore } = useUnarchiveTask();
 
   const archiveTask = async ({ taskId }: { taskId: string }) => {
-    // Non-optimistic: keep the row in place (with a spinner) until the archive
-    // is confirmed, rather than removing it instantly and rolling back on error.
-    await archiveTaskImperative(taskId, queryClient, keys, {
-      optimistic: false,
-      navigateSpace: options?.navigateSpace,
-    });
-    const toastId = `archive-undo-${taskId}`;
-    toast.success("Task archived", {
-      id: toastId,
-      duration: UNDO_TOAST_DURATION_MS,
-      action: {
-        label: "Undo",
-        onClick: () => {
-          toast.dismiss(toastId);
-          void undoArchive(taskId, restore);
+    const store = useArchivingTasksStore.getState();
+    if (store.isArchiving(taskId)) return;
+
+    store.startArchiving(taskId);
+    try {
+      await archiveTaskImperative(taskId, queryClient, keys, {
+        optimistic: false,
+        navigateUnscoped: options?.navigateUnscoped,
+      });
+      const toastId = `archive-undo-${taskId}`;
+      toast.success("Task archived", {
+        id: toastId,
+        duration: UNDO_TOAST_DURATION_MS,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            toast.dismiss(toastId);
+            void undoArchive(taskId, restore);
+          },
         },
-      },
-    });
+      });
+    } finally {
+      useArchivingTasksStore.getState().stopArchiving(taskId);
+    }
   };
 
   return { archiveTask };

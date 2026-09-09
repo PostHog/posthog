@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { LemonDropdown } from './LemonDropdown'
 
@@ -8,6 +8,32 @@ describe('LemonDropdown', () => {
     // jest.setupAfterEnv does not enable RTL auto-cleanup; unmount between tests so the portal stays isolated.
     afterEach(() => {
         cleanup()
+        jest.useRealTimers()
+    })
+
+    it('delays opening a hover dropdown when configured', () => {
+        jest.useFakeTimers()
+        const onVisibilityChange = jest.fn()
+
+        render(
+            <LemonDropdown
+                trigger="hover"
+                hoverOpenDelayMs={500}
+                onVisibilityChange={onVisibilityChange}
+                overlay={<div>Menu</div>}
+            >
+                <button>Open</button>
+            </LemonDropdown>
+        )
+
+        fireEvent.mouseEnter(screen.getByText('Open'))
+        expect(onVisibilityChange).not.toHaveBeenCalled()
+
+        act(() => jest.advanceTimersByTime(499))
+        expect(onVisibilityChange).not.toHaveBeenCalled()
+
+        act(() => jest.advanceTimersByTime(1))
+        expect(onVisibilityChange).toHaveBeenCalledWith(true)
     })
 
     // `e.relatedTarget` on a mouseleave is null when the cursor leaves the document and can be a

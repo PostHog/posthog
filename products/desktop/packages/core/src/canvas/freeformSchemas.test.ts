@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { canvasToHostMessageSchema } from "./freeformSchemas";
+import {
+  canvasNavIntentSchema,
+  canvasToHostMessageSchema,
+  hostToCanvasMessageSchema,
+  limitCanvasCommentHighlights,
+} from "./freeformSchemas";
 
-describe("canvasToHostMessageSchema open-external", () => {
+describe("canvasToHostMessageSchema", () => {
   const message = (url: string) => ({
     channel: "posthog-canvas",
     type: "open-external",
@@ -31,5 +36,145 @@ describe("canvasToHostMessageSchema open-external", () => {
     expect(canvasToHostMessageSchema.safeParse(message(url)).success).toBe(
       false,
     );
+  });
+
+  // The bridge dispatches on `method` after this schema parse, so a method
+  // missing from the enum is a bridge verb the host silently drops.
+  it.each([
+    "stateGet",
+    "stateSet",
+    "stateList",
+    "actionInvoke",
+    "connectorCall",
+  ])("accepts %s data requests", (method) => {
+    expect(
+      canvasToHostMessageSchema.safeParse({
+        channel: "posthog-canvas",
+        type: "data-request",
+        id: "request-1",
+        method,
+        payload: {},
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a bounded text selection and rejects oversized selected text", () => {
+    const selection = {
+      channel: "posthog-canvas",
+      type: "text-selection",
+      selection: {
+        quote: "selected text",
+        prefix: "before ",
+        suffix: " after",
+        start: 7,
+        end: 20,
+        rect: { top: 10, right: 80, bottom: 30, left: 20 },
+      },
+    };
+
+    expect(canvasToHostMessageSchema.safeParse(selection).success).toBe(true);
+    expect(
+      canvasToHostMessageSchema.safeParse({
+        ...selection,
+        selection: { ...selection.selection, quote: "x".repeat(10_001) },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts an explicit selection-cleared event", () => {
+    expect(
+      canvasToHostMessageSchema.safeParse({
+        channel: "posthog-canvas",
+        type: "text-selection-cleared",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a bounded comment activation", () => {
+    expect(
+      canvasToHostMessageSchema.safeParse({
+        channel: "posthog-canvas",
+        type: "comment-activate",
+        id: "comment-1",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts bounded comment highlights", () => {
+    expect(
+      hostToCanvasMessageSchema.safeParse({
+        channel: "posthog-canvas",
+        type: "set-comment-highlights",
+        highlights: [
+          {
+            id: "comment-1",
+            active: false,
+            anchor: {
+              quote: "selected text",
+              prefix: "before ",
+              suffix: " after",
+              start: 7,
+              end: 20,
+            },
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    {
+      name: "protocol item limit",
+      count: 501,
+      quote: "x",
+      expected: 500,
+    },
+    {
+      name: "aggregate anchor text budget",
+      count: 11,
+      quote: "x".repeat(10_000),
+      expected: 10,
+    },
+  ])("limits highlights by $name", ({ count, quote, expected }) => {
+    const highlights = Array.from({ length: count }, (_, index) => ({
+      id: `comment-${index}`,
+      active: false,
+      anchor: {
+        quote,
+        prefix: "",
+        suffix: "",
+        start: 0,
+        end: quote.length,
+      },
+    }));
+
+    expect(limitCanvasCommentHighlights(highlights)).toHaveLength(expected);
+  });
+
+  it("accepts a host request to clear native text selection", () => {
+    expect(
+      hostToCanvasMessageSchema.parse({
+        channel: "posthog-canvas",
+        type: "clear-text-selection",
+      }),
+    ).toEqual({
+      channel: "posthog-canvas",
+      type: "clear-text-selection",
+    });
+  });
+});
+
+describe("connector navigation", () => {
+  it.each([
+    ["github", true],
+    ["mcp:mcp.example.com", true],
+    ["slack", false],
+    ["githbu", false],
+    ["mcp:", false],
+    ["mcp:https://example.com", false],
+  ])("validates provider %s", (provider, allowed) => {
+    expect(
+      canvasNavIntentSchema.safeParse({ target: "connect", provider }).success,
+    ).toBe(allowed);
   });
 });

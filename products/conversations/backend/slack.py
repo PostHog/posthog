@@ -11,8 +11,8 @@ All three converge to create_or_update_slack_ticket().
 
 import re
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -22,12 +22,17 @@ from django.db.models import F
 
 import structlog
 import posthoganalytics
-from slack_sdk import WebClient
 
+from posthog.comment.formatting import (
+    extract_slack_user_ids,
+    slack_to_content_and_rich_content,
+    strip_slack_user_mentions,
+)
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
 from posthog.models.comment import Comment
-from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
@@ -35,16 +40,11 @@ from posthog.ph_client import ph_scoped_capture
 from .cache import (
     NUDGE_COOLDOWN_TTL,
     get_cached_bot_user_id,
-    get_cached_slack_avatar,
-    get_cached_slack_user,
     is_nudge_suppressed,
     set_cached_bot_user_id,
-    set_cached_slack_avatar,
-    set_cached_slack_user,
     slack_ticket_create_lock,
     suppress_nudge,
 )
-from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content, strip_slack_user_mentions
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
 from .services.attachments import (
@@ -59,6 +59,7 @@ from .support_slack import (
     SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
     SUPPORT_SLACK_FILE_READ_SCOPE,
     get_support_slack_bot_token,
+    get_support_slack_workspace_id,
     supporthog_missing_file_scopes,
 )
 
@@ -144,93 +145,13 @@ def get_slack_client(team: Team) -> WebClient:
     """
     bot_token = get_support_slack_bot_token(team)
     if bot_token:
-        return WebClient(token=bot_token)
-    raise ValueError("Support Slack bot token is not configured")
-
-
-_UNKNOWN_USER = MappingProxyType({"name": "Unknown", "email": None, "avatar": None})
-
-
-def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
-    """Resolve a Slack user ID to name, email, and avatar. Cached in Redis for 5 minutes."""
-    if not slack_user_id:
-        logger.warning("slack_support_user_resolve_empty_id")
-        return dict(_UNKNOWN_USER)
-
-    cached = get_cached_slack_user(slack_user_id)
-    if cached is not None:
-        return cached
-
-    try:
-        response = client.users_info(user=slack_user_id)
-        raw_data = response.data if hasattr(response, "data") else None
-        data: dict = raw_data if isinstance(raw_data, dict) else {}
-
-        if not data.get("ok"):
-            logger.warning(
-                "slack_support_user_resolve_not_ok",
-                slack_user_id=slack_user_id,
-                error=data.get("error"),
-            )
-            return dict(_UNKNOWN_USER)
-
-        user_data = data.get("user") or {}
-        profile = user_data.get("profile") or {}
-        name = profile.get("display_name") or profile.get("real_name") or "Unknown"
-        result = {
-            "name": name,
-            "email": profile.get("email"),
-            "avatar": profile.get("image_72"),
-        }
-        set_cached_slack_user(slack_user_id, result)
-        return result
-    except Exception as e:
-        logger.warning("slack_support_user_resolve_failed", slack_user_id=slack_user_id, error=str(e))
-        return dict(_UNKNOWN_USER)
-
-
-def resolve_slack_avatar_by_email(client: WebClient, email: str) -> str | None:
-    """Look up a Slack user by email and return their profile image URL. Cached in Redis."""
-    if not email:
-        return None
-
-    cached = get_cached_slack_avatar(email)
-    if cached is not None:
-        return cached or None  # empty string = negative cache
-
-    try:
-        response = client.users_lookupByEmail(email=email)
-        raw_data = response.data if hasattr(response, "data") else None
-        data: dict = raw_data if isinstance(raw_data, dict) else {}
-
-        if not data.get("ok"):
-            set_cached_slack_avatar(email, "")
-            return None
-
-        profile = (data.get("user") or {}).get("profile") or {}
-        avatar = profile.get("image_72") or ""
-        set_cached_slack_avatar(email, avatar)
-        return avatar or None
-    except Exception:
-        # Don't negative-cache on transient errors (rate limits, network)
-        # so the next reply retries the lookup.
-        logger.warning("slack_avatar_lookup_failed", email=email)
-        return None
-
-
-def resolve_posthog_user_for_slack(email: str | None, team: Team) -> User | None:
-    """Match a Slack user's email to a PostHog user within the team's organization."""
-    if not email:
-        return None
-    membership = (
-        OrganizationMembership.objects.filter(
-            organization_id=team.organization_id,
-            user__email=email,
+        return WebClient(
+            token=bot_token,
+            source="conversations",
+            workspace_id=get_support_slack_workspace_id(team),
+            app_id="support",
         )
-        .select_related("user")
-        .first()
-    )
-    return membership.user if membership else None
+    raise ValueError("Support Slack bot token is not configured")
 
 
 def get_bot_user_id(client: WebClient) -> str | None:
@@ -346,15 +267,21 @@ def _is_inline_image(attachment: dict) -> bool:
     return (attachment.get("mimetype") or "").startswith("image/") and not attachment.get("unavailable")
 
 
-def split_slack_attachments(attachments: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Partition extracted attachments into (images, non-image files) by mimetype.
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SplitAttachments:
+    images: list[dict]
+    files: list[dict]
+
+
+def split_slack_attachments(attachments: list[dict]) -> SplitAttachments:
+    """Partition extracted attachments into images and non-image files by mimetype.
 
     Attachments we couldn't re-host go to the file bucket whatever their mimetype:
     they point at Slack, so they can only be rendered as a link, not inlined.
     """
     images = [a for a in attachments if _is_inline_image(a)]
     files = [a for a in attachments if not _is_inline_image(a)]
-    return images, files
+    return SplitAttachments(images=images, files=files)
 
 
 def _rehost_slack_file(f: dict, team: Team, bot_token: str | None) -> dict | None:
@@ -498,10 +425,10 @@ def create_or_update_slack_ticket(
     )
 
     # Extract attachments from Slack files, making them publicly accessible
-    images, file_attachments = split_slack_attachments(extract_slack_files(files, team, client))
+    attachments = split_slack_attachments(extract_slack_files(files, team, client))
 
     # Resolve Slack user info for this message author
-    user_info = resolve_slack_user(client, slack_user_id)
+    user_info = resolve_slack_user(client, slack_user_id, workspace=slack_team_id or "")
 
     # Check if this Slack user is a PostHog team member
     posthog_user = resolve_posthog_user_for_slack(user_info.get("email"), team)
@@ -514,7 +441,7 @@ def create_or_update_slack_ticket(
         if uid == slack_user_id and user_info["name"] != "Unknown":
             user_names[uid] = user_info["name"]
         elif uid not in user_names:
-            info = resolve_slack_user(client, uid)
+            info = resolve_slack_user(client, uid, workspace=slack_team_id or "")
             if info["name"] != "Unknown":
                 user_names[uid] = info["name"]
 
@@ -539,7 +466,7 @@ def create_or_update_slack_ticket(
             Ticket.objects.filter(id=ticket.id, team=team).update(slack_team_id=slack_team_id)
 
         # Allow messages with only attachments (no text)
-        if not cleaned_text and not images and not file_attachments:
+        if not cleaned_text and not attachments.images and not attachments.files:
             logger.warning(
                 "🧵 slack_support_ticket_ingest_empty_after_processing",
                 team_id=team_id,
@@ -549,7 +476,9 @@ def create_or_update_slack_ticket(
             )
             return ticket
 
-        content, rich_content = build_content_with_images(cleaned_text, rich_content, images, file_attachments)
+        content, rich_content = build_content_with_images(
+            cleaned_text, rich_content, attachments.images, attachments.files
+        )
 
         Comment.objects.create(
             team=team,
@@ -566,8 +495,8 @@ def create_or_update_slack_ticket(
                 "slack_author_name": user_info["name"],
                 "slack_author_email": user_info.get("email"),
                 "slack_author_avatar": user_info.get("avatar"),
-                "slack_images": images if images else None,
-                "slack_files": file_attachments if file_attachments else None,
+                "slack_images": attachments.images if attachments.images else None,
+                "slack_files": attachments.files if attachments.files else None,
             },
         )
 
@@ -580,7 +509,7 @@ def create_or_update_slack_ticket(
 
     # New ticket from top-level message
     # Allow messages with only attachments (no text)
-    if not cleaned_text and not images and not file_attachments:
+    if not cleaned_text and not attachments.images and not attachments.files:
         logger.warning(
             "🧵 slack_support_ticket_ingest_empty_after_processing",
             team_id=team_id,
@@ -590,7 +519,7 @@ def create_or_update_slack_ticket(
         )
         return None
 
-    content, rich_content = build_content_with_images(cleaned_text, rich_content, images, file_attachments)
+    content, rich_content = build_content_with_images(cleaned_text, rich_content, attachments.images, attachments.files)
 
     # Serialize concurrent ticket creation for the same Slack thread via Redis lock.
     # Without this, two reaction_added events from different users race through the
@@ -648,8 +577,8 @@ def create_or_update_slack_ticket(
             "slack_author_name": user_info["name"],
             "slack_author_email": user_info.get("email"),
             "slack_author_avatar": user_info.get("avatar"),
-            "slack_images": images if images else None,
-            "slack_files": file_attachments if file_attachments else None,
+            "slack_images": attachments.images if attachments.images else None,
+            "slack_files": attachments.files if attachments.files else None,
         },
     )
 
@@ -700,7 +629,7 @@ def _configured_support_channels(settings: dict) -> set[str]:
 
 
 def _record_last_slack_message(
-    team: Team, *, channel: str, slack_user_id: str, message_ts: str | None, is_bot: bool
+    team: Team, *, channel: str, slack_user_id: str, message_ts: str | None, is_bot: bool, slack_team_id: str
 ) -> None:
     """Record the message time on the customer analytics account bound to `channel`.
 
@@ -719,7 +648,7 @@ def _record_last_slack_message(
         account = customer_analytics.get_account_ref_by_slack_channel_id(team_id, channel)
         if account is None:
             return
-        slack_user = resolve_slack_user(get_slack_client(team), slack_user_id)
+        slack_user = resolve_slack_user(get_slack_client(team), slack_user_id, workspace=slack_team_id)
         # An unresolved email may belong to a teammate, so treat it as one.
         email = slack_user.get("email")
         if not email or resolve_posthog_user_for_slack(email, team):
@@ -766,7 +695,14 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     thread_ts = event.get("thread_ts")
     message_ts = event.get("ts")
 
-    _record_last_slack_message(team, channel=channel, slack_user_id=slack_user_id, message_ts=message_ts, is_bot=is_bot)
+    _record_last_slack_message(
+        team,
+        channel=channel,
+        slack_user_id=slack_user_id,
+        message_ts=message_ts,
+        is_bot=is_bot,
+        slack_team_id=slack_team_id,
+    )
 
     if thread_ts:
         if is_bot:
@@ -810,7 +746,9 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         # click "Open ticket" (handled by the interactivity endpoint). Heuristics
         # keep us from pestering the whole channel.
         if settings_dict.get("slack_nudge_enabled", True):
-            decision = _should_send_nudge(team, channel, slack_user_id, text, blocks, files, message_ts or "")
+            decision = _should_send_nudge(
+                team, channel, slack_user_id, text, blocks, files, message_ts or "", slack_team_id
+            )
             if decision.send:
                 post_ticket_confirmation_prompt(
                     team=team,
@@ -1021,6 +959,7 @@ def _should_send_nudge(
     blocks: list[dict] | None,
     files: list[dict] | None,
     message_ts: str,
+    slack_team_id: str,
 ) -> NudgeDecision:
     """Heuristics to avoid pestering the channel: nudge only external users on substantive
     messages, skipping anyone recently nudged/dismissed or who @mentioned the bot (which
@@ -1044,7 +983,7 @@ def _should_send_nudge(
     # External users only — internal teammates don't need nudging. Skipped in local
     # dev, where the tester's own account is the only org member and would never nudge.
     if not settings.DEBUG:
-        user_info = resolve_slack_user(client, slack_user_id)
+        user_info = resolve_slack_user(client, slack_user_id, workspace=slack_team_id)
         if resolve_posthog_user_for_slack(user_info.get("email"), team):
             return NudgeDecision(send=False, classifier_verdict="skipped")
 
@@ -1173,7 +1112,9 @@ def _create_ticket_and_backfill(
         post_confirmation=post_confirmation,
     )
     if ticket:
-        _backfill_thread_replies(client, team, ticket, slack_channel_id, thread_ts, after_ts=after_ts)
+        _backfill_thread_replies(
+            client, team, ticket, slack_channel_id, thread_ts, slack_team_id=slack_team_id, after_ts=after_ts
+        )
     return ticket
 
 
@@ -1343,6 +1284,8 @@ def _backfill_thread_replies(
     ticket: Ticket,
     channel: str,
     thread_ts: str,
+    *,
+    slack_team_id: str | None,
     after_ts: str | None = None,
 ) -> None:
     """Fetch existing thread replies and add them as comments on the ticket.
@@ -1397,10 +1340,10 @@ def _backfill_thread_replies(
         if not reply_text.strip() and not reply_files:
             continue
 
-        images, file_attachments = split_slack_attachments(extract_slack_files(reply_files, team, client))
+        attachments = split_slack_attachments(extract_slack_files(reply_files, team, client))
 
         if reply_user not in user_cache:
-            user_cache[reply_user] = resolve_slack_user(client, reply_user)
+            user_cache[reply_user] = resolve_slack_user(client, reply_user, workspace=slack_team_id or "")
         user_info = user_cache[reply_user]
 
         if reply_user not in posthog_user_cache:
@@ -1413,14 +1356,14 @@ def _backfill_thread_replies(
         reply_user_names: dict[str, str] = {}
         for uid in mentioned_ids:
             if uid not in user_cache:
-                user_cache[uid] = resolve_slack_user(client, uid)
+                user_cache[uid] = resolve_slack_user(client, uid, workspace=slack_team_id or "")
             if user_cache[uid]["name"] != "Unknown":
                 reply_user_names[uid] = user_cache[uid]["name"]
 
         cleaned_text, rich_content = slack_to_content_and_rich_content(
             reply_text, reply_blocks, user_names=reply_user_names
         )
-        if not cleaned_text and not images and not file_attachments:
+        if not cleaned_text and not attachments.images and not attachments.files:
             continue
 
         if is_team_member:
@@ -1428,7 +1371,9 @@ def _backfill_thread_replies(
         else:
             customer_message_count += 1
 
-        content, rich_content = build_content_with_images(cleaned_text, rich_content, images, file_attachments)
+        content, rich_content = build_content_with_images(
+            cleaned_text, rich_content, attachments.images, attachments.files
+        )
 
         comments_to_create.append(
             Comment(
@@ -1446,8 +1391,8 @@ def _backfill_thread_replies(
                     "slack_author_name": user_info["name"],
                     "slack_author_email": user_info.get("email"),
                     "slack_author_avatar": user_info.get("avatar"),
-                    "slack_images": images if images else None,
-                    "slack_files": file_attachments if file_attachments else None,
+                    "slack_images": attachments.images if attachments.images else None,
+                    "slack_files": attachments.files if attachments.files else None,
                 },
             )
         )
@@ -1624,6 +1569,7 @@ def _handle_member_event(
     team: Team,
     *,
     joined: bool,
+    slack_team_id: str,
     client: WebClient | None = None,
     own_bot_user_id: str | None = None,
 ) -> None:
@@ -1673,7 +1619,7 @@ def _handle_member_event(
 
     # Members of the team's own organization are internal teammates, not the external
     # participants these alerts surface — skip them.
-    slack_user = resolve_slack_user(client, user)
+    slack_user = resolve_slack_user(client, user, workspace=slack_team_id)
     if resolve_posthog_user_for_slack(slack_user.get("email"), team):
         return
 
@@ -1707,9 +1653,11 @@ def handle_member_joined_channel(event: dict, team: Team, slack_team_id: str) ->
     client = get_slack_client(team)
     own_bot_user_id = get_bot_user_id_cached(team, client)
     _track_bot_joined_channel(event, team, slack_team_id, own_bot_user_id=own_bot_user_id)
-    _handle_member_event(event, team, joined=True, client=client, own_bot_user_id=own_bot_user_id)
+    _handle_member_event(
+        event, team, joined=True, slack_team_id=slack_team_id, client=client, own_bot_user_id=own_bot_user_id
+    )
 
 
 def handle_member_left_channel(event: dict, team: Team, slack_team_id: str) -> None:
     """Handle a Slack 'member_left_channel' event by alerting the configured channel."""
-    _handle_member_event(event, team, joined=False)
+    _handle_member_event(event, team, joined=False, slack_team_id=slack_team_id)

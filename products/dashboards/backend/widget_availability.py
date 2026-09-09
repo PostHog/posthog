@@ -22,6 +22,8 @@ def is_widget_availability_requirement_met(requirement: str, team: Team) -> bool
         # reads as not-enabled here. We avoid the events-received check to keep this off
         # the hot widget-add path (no ClickHouse query).
         return bool(team.autocapture_exceptions_opt_in)
+    if requirement == "conversations_enabled":
+        return bool(team.conversations_enabled)
     return None
 
 

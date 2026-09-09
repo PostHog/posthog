@@ -24,17 +24,18 @@ Layer table, registry shapes, copy/move, analytics, and typing details: [`.agent
 
 **Canonical guide:** [`.agents/skills/manage-dashboard-widgets/`](../../.agents/skills/manage-dashboard-widgets/) (`/manage-dashboard-widgets` — ship new types or update shipped types; intake only for new types).
 
-| Task                                | Doc                                                                                                                                |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Add a new widget type               | [`SKILL.md` §2 Ship](../../.agents/skills/manage-dashboard-widgets/SKILL.md#2-ship-a-new-widget_type) → intake, then checklist     |
-| First widget in a new product area  | Same — checklist §4c                                                                                                               |
-| Update an existing widget type      | [`SKILL.md` §3 Update](../../.agents/skills/manage-dashboard-widgets/SKILL.md#3-update-a-shipped-type) → managing-existing-widgets |
-| Tile min/max size on dashboard grid | [`references/layout-and-ux.md`](../../.agents/skills/manage-dashboard-widgets/references/layout-and-ux.md) (§ Tile min/max size)   |
-| WidgetCard, loading, headers        | [`references/composition.md`](../../.agents/skills/manage-dashboard-widgets/references/composition.md)                             |
-| RBAC, copy/move, shared dashboards  | [`references/permissions-and-sharing.md`](../../.agents/skills/manage-dashboard-widgets/references/permissions-and-sharing.md)     |
-| Architecture, naming, scaling rules | [`references/architecture.md`](../../.agents/skills/manage-dashboard-widgets/references/architecture.md)                           |
-| MCP / REST                          | [`references/mcp.md`](../../.agents/skills/manage-dashboard-widgets/references/mcp.md)                                             |
-| Keep skill docs in sync             | [`references/skill-maintenance.md`](../../.agents/skills/manage-dashboard-widgets/references/skill-maintenance.md)                 |
+| Task                                | Doc                                                                                                                                         |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Add a new widget type               | [`SKILL.md` §2 Ship](../../.agents/skills/manage-dashboard-widgets/SKILL.md#2-ship-a-new-widget_type) → intake, then checklist              |
+| First widget in a new product area  | Same — checklist §4c                                                                                                                        |
+| Update an existing widget type      | [`SKILL.md` §3 Update](../../.agents/skills/manage-dashboard-widgets/SKILL.md#3-update-a-shipped-type) → managing-existing-widgets          |
+| Live / self-updating widget         | [`references/live-widgets.md`](../../.agents/skills/manage-dashboard-widgets/references/live-widgets.md) → `frontend/widgets/live/` toolkit |
+| Tile min/max size on dashboard grid | [`references/layout-and-ux.md`](../../.agents/skills/manage-dashboard-widgets/references/layout-and-ux.md) (§ Tile min/max size)            |
+| WidgetCard, loading, headers        | [`references/composition.md`](../../.agents/skills/manage-dashboard-widgets/references/composition.md)                                      |
+| RBAC, copy/move, shared dashboards  | [`references/permissions-and-sharing.md`](../../.agents/skills/manage-dashboard-widgets/references/permissions-and-sharing.md)              |
+| Architecture, naming, scaling rules | [`references/architecture.md`](../../.agents/skills/manage-dashboard-widgets/references/architecture.md)                                    |
+| MCP / REST                          | [`references/mcp.md`](../../.agents/skills/manage-dashboard-widgets/references/mcp.md)                                                      |
+| Keep skill docs in sync             | [`references/skill-maintenance.md`](../../.agents/skills/manage-dashboard-widgets/references/skill-maintenance.md)                          |
 
 **Critical rules:**
 
@@ -56,7 +57,8 @@ Config shape has one SSOT; UI metadata stays hand-written.
 | FE config property keys    | `frontend/generated/widget-config-property-keys.json`                 | Codegen — `generate-widget-config-zod.mjs` (parity tests)                                      |
 | Widget date presets        | `frontend/generated/widget-date-from-options.json`                    | Codegen — `build-dashboard-widget-types.py` (`constants.py` values + labels)                   |
 | Widget form field picks    | `frontend/generated/widget-form-fields.json`                          | Codegen — `WidgetSpec.form_fields` in `registry.py`                                            |
-| FE UI catalog              | `frontend/widget_types/catalog.ts`                                    | Yes — layouts, previews, copy                                                                  |
+| FE UI catalog              | `frontend/widget_types/catalog.ts`                                    | Yes — layouts, copy                                                                            |
+| FE previews                | `frontend/widgets/previews/dashboardWidgetPreviews.ts`                | Yes — preview component per widget type (kept out of the catalog so the app shell stays small) |
 | FE runtime registry        | `frontend/widgets/registry.tsx`                                       | Yes — Component, EditModal                                                                     |
 
 See [config-and-codegen.md](../../.agents/skills/manage-dashboard-widgets/references/config-and-codegen.md).

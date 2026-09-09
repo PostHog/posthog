@@ -5,14 +5,14 @@ import logging
 import binascii
 from datetime import datetime, timedelta
 from typing import Any, cast
-from zoneinfo import available_timezones
 
+from django.conf import settings
+from django.db import models
 from django.utils import timezone as django_timezone
 
 import posthoganalytics
-from croniter import croniter
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -24,15 +24,17 @@ from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ip
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
+from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
     ChannelInstructionsDTO,
+    DesktopAccessReason,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
+    SlackThreadReferenceDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
-    TaskAutomationDTO,
     TaskDetailDTO,
     TaskMentionDTO,
     TaskRunDetailDTO,
@@ -41,12 +43,15 @@ from products.tasks.backend.facade.contracts import (
     TaskUserBasicInfo,
     WizardCloudRunDTO,
 )
+from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES
+from products.tasks.backend.facade.model_catalogue import ModelChoice
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     CONTEXT_WINDOW_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
     PUBLIC_REASONING_EFFORTS,
+    WARMABLE_ORIGIN_PRODUCTS,
     LLMProvider,
     PrAuthorshipMode,
     RunSource,
@@ -54,7 +59,9 @@ from products.tasks.backend.facade.run_config import (
     TaskArtifactAdapter,
     TaskArtifactStatus,
     TaskArtifactType,
+    get_model_access_error,
     get_reasoning_effort_error,
+    get_runtime_adapter_for_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +91,36 @@ def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
         for_control=True,
     )
     return task_runtime == tasks_facade.TaskRuntime.PI
+
+
+def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]) -> None:
+    request = context.get("request")
+    if request is None:
+        return
+    access = attrs.get("claude_model_access")
+    if access is None and (run_id := attrs.get("resume_from_run_id")):
+        view = context.get("view")
+        kwargs = getattr(view, "kwargs", {})
+        task_id = kwargs.get("parent_lookup_task_id") or kwargs.get("pk")
+        team = context.get("team")
+        if team is not None and task_id is not None:
+            run = tasks_facade.get_task_run_detail(run_id, task_id, team.id)
+            if run is not None:
+                access = run.state.get("claude_model_access")
+                if access == "own-subscription" and not is_sandbox_oauth_request(request):
+                    raise serializers.ValidationError(
+                        {"claude_model_access": "Open PostHog Desktop to resume this run with your Claude plan."}
+                    )
+    if access == "own-subscription" and is_sandbox_oauth_request(request):
+        raise serializers.ValidationError({"claude_model_access": "Only a user can select a Claude subscription."})
+
+
+def request_distinct_id(context: dict[str, Any]) -> str | None:
+    """The acting user's distinct id, for flag evaluation. `None` when there isn't one."""
+    user = getattr(context.get("request"), "user", None)
+    if user is None or not user.is_authenticated or not user.distinct_id:
+        return None
+    return str(user.distinct_id)
 
 
 def _capture_rejected_reasoning_effort(
@@ -136,8 +173,18 @@ class TaskUserBasicInfoSerializer(DataclassSerializer):
         dataclass = TaskUserBasicInfo
 
 
+class SlackThreadReferenceSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SlackThreadReferenceDTO
+
+
 TASK_RUN_ARTIFACT_MAX_SIZE_BYTES = 30 * 1024 * 1024
 TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES = 10 * 1024 * 1024
+# Inline uploads carry their content in the JSON body, which Django bounds with
+# DATA_UPLOAD_MAX_MEMORY_SIZE before any serializer runs. Base64 inflates content by four
+# thirds, so only three quarters of that ceiling is reachable, less room for the surrounding
+# JSON. Larger artifacts go through prepare_upload, which presigns straight to object storage.
+TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES = (settings.DATA_UPLOAD_MAX_MEMORY_SIZE * 3) // 4 - 1024 * 1024
 TASK_RUN_ARTIFACT_TYPE_CHOICES = [
     "plan",
     "context",
@@ -151,6 +198,23 @@ TASK_RUN_ARTIFACT_TYPE_CHOICES = [
 TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES = ["utf-8", "base64"]
 TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES = ["zip"]
 TASK_RUN_SKILL_SOURCE_CHOICES = ["user", "repo", "marketplace", "codex"]
+POSTHOG_OBJECT_KIND_CHOICES = [
+    "insight",
+    "hogql",
+    "dashboard",
+    "error",
+    "replay",
+    "flag",
+    "experiment",
+    "survey",
+    "ticket",
+    "trace",
+    "eval",
+    "event",
+    "cohort",
+    "action",
+    "person",
+]
 TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES = [choice for choice, _label in TaskArtifactType.choices]
 TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES = [choice for choice, _label in TaskArtifactAdapter.choices]
 TASK_RUN_LIVING_ARTIFACT_WRITE_ADAPTER_CHOICES = TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES
@@ -171,6 +235,17 @@ def get_task_run_artifact_max_size_bytes(
         return TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES
 
     return TASK_RUN_ARTIFACT_MAX_SIZE_BYTES
+
+
+def get_task_run_artifact_inline_max_size_bytes(
+    artifact_name: str | None,
+    content_type: str | None,
+    artifact_type: str | None = None,
+) -> int:
+    return min(
+        get_task_run_artifact_max_size_bytes(artifact_name, content_type, artifact_type),
+        TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES,
+    )
 
 
 def build_task_run_artifact_size_error(
@@ -216,17 +291,21 @@ class TaskRunUpdateSerializer(serializers.Serializer):
         allow_empty=False,
         help_text="State keys to remove atomically before applying any state updates.",
     )
+    state_append = serializers.DictField(
+        required=False,
+        allow_empty=False,
+        help_text=(
+            "State keys whose value to append to the list stored at that key, atomically under the row "
+            "lock. Use instead of sending the whole list back through `state`, which loses concurrent "
+            "appends to a read-modify-write race."
+        ),
+    )
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )
-    environment = serializers.ChoiceField(
-        choices=["local"],
-        required=False,
-        help_text="Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.",
-    )
 
 
-class TaskRunArtifactMetadataSerializer(serializers.Serializer):
+class TaskRunSkillBundleMetadataSerializer(serializers.Serializer):
     skill_name = serializers.CharField(
         allow_blank=False,
         max_length=255,
@@ -247,6 +326,70 @@ class TaskRunArtifactMetadataSerializer(serializers.Serializer):
     schema_version = serializers.IntegerField(
         min_value=1,
         help_text="Version of the local skill bundle metadata schema.",
+    )
+
+
+class TaskRunPostHogReferenceMetadataSerializer(serializers.Serializer):
+    reference_type = serializers.ChoiceField(
+        choices=["posthog_object"],
+        help_text="Reference metadata type. posthog_object identifies a live PostHog object.",
+    )
+    object_kind = serializers.ChoiceField(
+        choices=POSTHOG_OBJECT_KIND_CHOICES,
+        help_text="PostHog object kind used to resolve the reference.",
+    )
+    object_id = serializers.CharField(
+        max_length=16384,
+        help_text="Exact PostHog object identifier, flag key, event name, or SQL query.",
+    )
+    source_message_ids = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        max_length=100,
+        help_text="Completed assistant message identifiers that referenced the object.",
+    )
+    occurrence_count = serializers.IntegerField(
+        min_value=1,
+        help_text="Number of distinct completed assistant messages that referenced the object.",
+    )
+
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="TaskRunArtifactMetadata",
+        serializers=[TaskRunSkillBundleMetadataSerializer, TaskRunPostHogReferenceMetadataSerializer],
+        resource_type_field_name=None,
+    )
+)
+class TaskRunArtifactMetadataField(serializers.JSONField):
+    pass
+
+
+def get_initial_permission_mode_error(initial_permission_mode: str | None, runtime_adapter: str | None) -> str | None:
+    """Error message when a permission mode does not belong to the selected runtime, else ``None``.
+
+    The field's own ``ChoiceField`` accepts the union of both runtimes' vocabularies, which share only
+    ``plan`` and ``auto``. Pairing is checked here so every entry point that takes a mode — run, warm,
+    and task create — agrees on which pairs are valid, rather than a warm booting a sandbox on a mode
+    the matching run request would reject.
+    """
+    if initial_permission_mode is None:
+        return None
+    # With no runtime pinned the mode rides along and is clamped to whichever runtime the
+    # stored defaults resolve to at run creation — requiring the adapter here would force
+    # composers to pin the model just to state a mode, blocking server-side default resolution.
+    if runtime_adapter is None:
+        return None
+    allowed_permission_modes = (
+        list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
+        if runtime_adapter == RuntimeAdapter.CODEX.value
+        else list(INITIAL_PERMISSION_MODE_CHOICES)
+    )
+    if initial_permission_mode in allowed_permission_modes:
+        return None
+    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
+    return (
+        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
+        f"'{runtime_adapter}'. Supported values: {allowed_values}."
     )
 
 
@@ -274,17 +417,34 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     )
     size = serializers.IntegerField(required=False, help_text="Artifact size in bytes")
     content_type = serializers.CharField(required=False, allow_blank=True, help_text="Optional MIME type")
-    metadata = TaskRunArtifactMetadataSerializer(
+    metadata = TaskRunArtifactMetadataField(
         required=False,
-        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+        help_text="Structured metadata for a skill bundle or a PostHog object reference.",
     )
-    storage_path = serializers.CharField(help_text="S3 object key for the artifact")
-    uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+    storage_path = serializers.CharField(
+        required=False,
+        help_text="S3 object key for file artifacts. Reference artifacts do not have one.",
+    )
+    uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded or registered")
+    uploaded_by = serializers.ChoiceField(
+        choices=["agent", "user"],
+        required=False,
+        help_text="Whether the artifact version was uploaded by the task agent or an interactive user.",
+    )
+    uploaded_by_user_id = serializers.IntegerField(
+        required=False,
+        help_text="User id for an interactive user upload. Absent for agent uploads and legacy entries.",
+    )
+    dismissed_at = serializers.CharField(
+        required=False,
+        help_text="Timestamp when a user dismissed the artifact. Absent while the artifact is shown.",
+    )
     url = serializers.URLField(
         required=False,
         help_text=(
-            "Presigned download URL for the artifact. Populated on the finalize-upload response so "
-            "the caller can link to the file directly; it is time-limited and not persisted on the manifest."
+            "Stable download URL for the artifact. Populated on the finalize-upload response so "
+            "the caller can link to the file; it redirects to a fresh presigned URL on each request "
+            "and is not persisted on the manifest."
         ),
     )
 
@@ -324,6 +484,14 @@ class TaskRunDetailSerializer(DataclassSerializer):
         required=False,
         help_text="Configured reasoning effort for this run when the selected model supports it.",
     )
+    preview_available = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True when this run's sandbox serves a dev stack preview, so clients can offer the "
+            "preview link. Open it through the run's `preview/` endpoint, which mints a fresh "
+            "access token on every request."
+        ),
+    )
 
     class Meta:
         dataclass = TaskRunDetailDTO
@@ -346,6 +514,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "created_at",
             "updated_at",
             "completed_at",
+            "preview_available",
         ]
 
 
@@ -374,6 +543,9 @@ class WizardCloudRunSerializer(DataclassSerializer):
 # Mirrors the routing-safe identifier rule in `signals` `artefact_schemas` (_IDENTIFIER_PART_RE),
 # kept inline so presentation never imports the other product's internals.
 _SIGNAL_REPORT_TASK_RELATIONSHIP_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+# String literals rather than an import: presentation must not import signals internals, and the
+# vocabulary (products/signals/backend/artefact_schemas.py TASK_RUN_TYPE_*) is stable.
+_SERVER_ONLY_SIGNAL_REPORT_TASK_RELATIONSHIPS = frozenset({"research", "repo_selection", "scout"})
 
 
 class TaskSerializer(DataclassSerializer):
@@ -386,10 +558,22 @@ class TaskSerializer(DataclassSerializer):
 
     latest_run = TaskRunDetailSerializer(allow_null=True, required=False, help_text="Latest run details for this task")
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    slack_thread_references = SlackThreadReferenceSerializer(many=True, read_only=True)
+    # Not `read_only`, even though this is a response-only serializer: `@validated_request` re-reads
+    # its own output through `to_internal_value`, which drops read-only fields, and `runtime` is
+    # required on `TaskDetailDTO` — so a read-only declaration makes that round-trip raise. Writes
+    # never reach here; they go through `TaskCreateSerializer` / `TaskWriteSerializer`.
     runtime = serializers.ChoiceField(
         choices=tasks_facade.TaskRuntime.choices,
-        read_only=True,
         help_text="Agent protocol and harness used for this task's runs.",
+    )
+    origin_key = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Stable key of the server-side flow that created this task, e.g. "
+            "`desktop_onboarding_session:<user_id>`. Null for tasks people create themselves."
+        ),
     )
 
     class Meta:
@@ -415,20 +599,30 @@ class TaskSerializer(DataclassSerializer):
             "latest_run",
             "created_at",
             "updated_at",
+            "last_activity_at",
             "created_by",
             "ci_prompt",
             "channel",
+            "slack_thread_references",
+            "origin_key",
         ]
 
 
-class TaskWriteSerializer(serializers.Serializer):
-    """Request body for creating or updating a task.
+class TaskBasicSerializer(TaskSerializer):
+    """Basic list response for a task, returned when the list is asked for ``basic=true``.
 
-    Field required/default semantics match the ``Task`` model. The view passes
-    ``validated_data`` (integration/report PK fields already resolved to instances) to the
-    facade ``create_task`` / ``update_task`` functions.
+    A surface that renders only a summary of each task asks for the basic payload and gets this
+    smaller shape. It currently drops ``description``, which dominates the list payload; more
+    heavy fields may follow. The default list response keeps every field, and ``retrieve``
+    always returns the description. A client uses the ``search`` query parameter to match
+    description text server-side.
     """
 
+    class Meta(TaskSerializer.Meta):
+        fields = [field for field in TaskSerializer.Meta.fields if field != "description"]
+
+
+class TaskWriteSerializer(serializers.Serializer):
     title = serializers.CharField(
         max_length=255,
         required=False,
@@ -493,10 +687,11 @@ class TaskWriteSerializer(serializers.Serializer):
         write_only=True,
         max_length=200,
         help_text=(
-            "How the created task relates to the signal report (e.g. 'implementation', 'discussion', "
-            "'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens "
-            "the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, "
-            "'_', '-') is accepted."
+            "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). "
+            "Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start "
+            "spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted "
+            "except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). "
+            "Non-implementation labels count toward the report's discussion task limit."
         ),
     )
     json_schema = serializers.JSONField(
@@ -504,10 +699,8 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_null=True,
         help_text="JSON schema used to validate the output of the task.",
     )
-    internal = serializers.BooleanField(
-        required=False,
-        help_text="If true, this task is for internal use and should not be exposed to end users.",
-    )
+    # `internal` is deliberately not writable here: only server-side creators (auto-start,
+    # research, loops) set it via the facade, and it decides whether the task is listed.
     archived = serializers.BooleanField(
         required=False,
         help_text="If true, the task is hidden from default list responses.",
@@ -563,6 +756,17 @@ class TaskWriteSerializer(serializers.Serializer):
         write_only=True,
         help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
     )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same "
+            "mode. Omit to reuse a warm Run whatever mode it booted on."
+        ),
+    )
     pending_user_message = serializers.CharField(
         required=False,
         default=None,
@@ -615,15 +819,23 @@ class TaskWriteSerializer(serializers.Serializer):
         cast(
             serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
         ).queryset = tasks_facade.signal_report_queryset()
-        # Channel queryset comes from the facade so presentation stays off tasks models.
         cast(serializers.PrimaryKeyRelatedField, self.fields["channel"]).queryset = tasks_facade.channel_queryset()
 
     def validate_channel(self, value):
-        """Personal channels are private: only their owner may file tasks into them."""
         request = self.context.get("request")
         user = getattr(request, "user", None)
-        if value is not None and value.channel_type == "personal" and value.created_by_id != getattr(user, "id", None):
-            raise serializers.ValidationError("Personal channels can only be used by their owner")
+        user_id = getattr(user, "id", None)
+        if value is None:
+            return value
+        if value.deleted or value.channel_type not in {"public", "personal", "private"}:
+            raise serializers.ValidationError("Space not found")
+        if value.channel_type == "personal" and value.created_by_id != user_id:
+            raise serializers.ValidationError("Private spaces can only be used by their owner")
+
+        if value.channel_type == "private" and not tasks_facade.channel_exists(
+            self.context["team"].id, value.id, user_id
+        ):
+            raise serializers.ValidationError("Space not found")
         return value
 
     def validate_github_integration(self, value):
@@ -646,11 +858,22 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
             tasks_facade.TaskOriginProduct.EXPERIMENTS,
             tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
             tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
             # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
             # forged origin would be free model access. Only create_wizard_cloud_run sets it,
             # behind its own rate limits and daily cap.
             tasks_facade.TaskOriginProduct.ONBOARDING,
+            # Exempt from the Desktop code-access gate on run endpoints, so a forged origin
+            # would bypass the waitlist. Only the signals scout-chat endpoint sets it.
+            tasks_facade.TaskOriginProduct.SIGNALS_CHAT,
+            # Attributes the task to a workflow, which the workflow_tasks endpoint proves
+            # via its service JWT. A forged origin would fake that provenance.
+            tasks_facade.TaskOriginProduct.WORKFLOW,
+            # Maps to the mintable `review_hog` gateway product, so a forged origin would
+            # mint an internally funded scoped token. Only ReviewHog's executor sets it.
+            tasks_facade.TaskOriginProduct.REVIEW_HOG,
+            tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
@@ -685,9 +908,14 @@ class TaskWriteSerializer(serializers.Serializer):
                 "Must contain only lowercase letters, numbers, underscores, or hyphens, "
                 "and start with a lowercase letter or number."
             )
+        # Labels the signals pipeline writes itself. Client-asserted, they would misrepresent a
+        # user-started task as pipeline work — and dodge the per-report cap, which counts every
+        # non-implementation label as a discussion except these server-only ones.
+        if normalized in _SERVER_ONLY_SIGNAL_REPORT_TASK_RELATIONSHIPS:
+            raise serializers.ValidationError(f"Relationship '{normalized}' is reserved for server-created tasks.")
         return normalized
 
-    def validate(self, attrs: dict) -> dict:
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if "repository" in attrs and "repositories" in attrs:
             legacy = attrs["repository"] or None
             repositories = attrs["repositories"]
@@ -713,6 +941,20 @@ class TaskWriteSerializer(serializers.Serializer):
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
 
+        # Write-only and never persisted, but it selects which warm Run gets activated, so a
+        # gated model here still runs one. Reject rather than silently cold-creating instead.
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError({"model": model_access_error})
+
+        # Same reason: this selects the warm Run to activate, so it takes the pairing rule the run
+        # request applies rather than accepting a pair no runtime can serve.
+        permission_mode_error = get_initial_permission_mode_error(
+            attrs.get("initial_permission_mode"), attrs.get("runtime_adapter")
+        )
+        if permission_mode_error is not None:
+            raise serializers.ValidationError({"initial_permission_mode": permission_mode_error})
+
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
             if not attrs.get("signal_report"):
@@ -730,10 +972,39 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"github_user_integration": "Signal report tasks use the team GitHub integration."}
             )
+        # Repo is server-resolved for these code-access-exempt tasks; a client-set repo bypasses the gate.
+        if attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT and (
+            attrs.get("repository") or attrs.get("repositories")
+        ):
+            raise serializers.ValidationError(
+                {"repository": "Signal report tasks resolve their repository server-side."}
+            )
         return attrs
 
 
 class TaskCreateSerializer(TaskWriteSerializer):
+    signal_report_discussion_question = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        max_length=4_000,
+        help_text=(
+            "Question to forward to the signal report's scout when creating a discussion task. "
+            "Send an empty string when there is no question. Omit only for older clients that embed "
+            "the question in the task description. Not persisted on the task."
+        ),
+    )
+    naming_source = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text=(
+            "Text the server generates the title from instead of `description`. Lets a client whose "
+            "`description` is only an attachment summary (e.g. pasted text stored as a file) supply the "
+            "real content for naming, so `description` (the prompt passed to the agent) stays unchanged. "
+            "Not persisted."
+        ),
+    )
     sandbox_environment_id = serializers.UUIDField(
         required=False,
         default=None,
@@ -754,6 +1025,18 @@ class TaskCreateSerializer(TaskWriteSerializer):
         help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
     )
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        # Mirror image of the signal_report_task_relationship check: a report-less signal_report
+        # task still mints under the Signals OAuth app with the interactive run scope, but skips
+        # the per-report cap entirely. Require the report so the cap and interactive budget always
+        # see the run. Create-only, since origin_product is not writable on update.
+        if attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT and not attrs.get(
+            "signal_report"
+        ):
+            raise serializers.ValidationError({"signal_report": "Requires signal_report when set."})
+        return attrs
+
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     output = serializers.JSONField(
@@ -761,11 +1044,37 @@ class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     )
 
 
+DESKTOP_ACCESS_REASON_CHOICES = [reason.value for reason in DesktopAccessReason]
+
+
+class DesktopAccessResponseSerializer(serializers.Serializer):
+    allowed = serializers.BooleanField(help_text="Whether the selected project can use PostHog Desktop.")
+    reason = serializers.ChoiceField(
+        choices=DESKTOP_ACCESS_REASON_CHOICES,
+        allow_null=True,
+        help_text="Why Desktop access is blocked, or null when access is allowed.",
+    )
+
+
+class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
+    has_access = serializers.BooleanField(help_text="Whether the current project can use PostHog Desktop.")
+    has_loops_access = serializers.BooleanField(help_text="Whether the independent Loops feature is enabled.")
+
+
 class TaskRunErrorResponseSerializer(serializers.Serializer):
     detail = serializers.CharField(required=False, help_text="Human-readable validation error")
     error = serializers.CharField(required=False, help_text="Human-readable error message")
     type = serializers.CharField(required=False, help_text="Machine-readable error type")
     code = serializers.CharField(required=False, help_text="Machine-readable error code")
+    retry_token = serializers.CharField(
+        required=False,
+        help_text="After confirmed warm startup nondelivery, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds.",
+    )
+    reason = serializers.ChoiceField(
+        choices=DESKTOP_ACCESS_REASON_CHOICES,
+        required=False,
+        help_text="Why PostHog Desktop access was denied, when applicable.",
+    )
     attr = serializers.CharField(required=False, help_text="Request field associated with the error")
     missing_artifact_ids = serializers.ListField(
         child=serializers.CharField(),
@@ -838,6 +1147,11 @@ class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
         allow_empty=True,
         help_text="Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.",
     )
+    trace_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="AI observability trace id of the turn that wrote this answer, when the sandbox reported one.",
+    )
 
 
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
@@ -850,7 +1164,12 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         default="",
         help_text="Optional source label for the artifact, such as agent_output or user_attachment",
     )
-    content = serializers.CharField(help_text="Artifact contents encoded according to content_encoding")
+    content = serializers.CharField(
+        help_text=(
+            "Artifact contents encoded according to content_encoding. "
+            f"Artifacts above {TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES // (1024 * 1024)} MB must use prepare_upload instead."
+        )
+    )
     content_encoding = serializers.ChoiceField(
         choices=TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES,
         required=False,
@@ -863,9 +1182,9 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional MIME type for the artifact",
     )
-    metadata = TaskRunArtifactMetadataSerializer(
+    metadata = TaskRunSkillBundleMetadataSerializer(
         required=False,
-        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+        help_text="Skill bundle metadata, required when the artifact type is skill_bundle.",
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -881,7 +1200,7 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         else:
             attrs["content_bytes"] = content.encode("utf-8")
 
-        max_size_bytes = get_task_run_artifact_max_size_bytes(
+        max_size_bytes = get_task_run_artifact_inline_max_size_bytes(
             attrs.get("name"),
             attrs.get("content_type"),
             attrs.get("type"),
@@ -905,6 +1224,35 @@ class TaskRunArtifactsUploadRequestSerializer(serializers.Serializer):
 
 class TaskRunArtifactsUploadResponseSerializer(serializers.Serializer):
     artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
+
+
+class TaskRunPostHogReferenceSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255, help_text="Fallback display name for the referenced object.")
+    object_kind = serializers.ChoiceField(
+        choices=POSTHOG_OBJECT_KIND_CHOICES,
+        help_text="PostHog object kind used to resolve the reference.",
+    )
+    object_id = serializers.CharField(
+        max_length=16384,
+        help_text="Exact PostHog object identifier, flag key, event name, or SQL query.",
+    )
+    source_message_id = serializers.CharField(
+        max_length=255,
+        help_text="Stable identifier of the completed assistant message containing the reference.",
+    )
+
+
+class TaskRunPostHogReferencesRequestSerializer(serializers.Serializer):
+    references = serializers.ListField(
+        child=TaskRunPostHogReferenceSerializer(),
+        allow_empty=False,
+        max_length=50,
+        help_text="PostHog object references extracted from one completed assistant message.",
+    )
+
+
+class TaskRunPostHogReferencesResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run.")
 
 
 class TaskRunLivingArtifactResponseSerializer(serializers.Serializer):
@@ -1011,7 +1359,7 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"content_base64": "Invalid base64 content"}) from exc
             attrs.pop("content_base64", None)
 
-            max_size_bytes = get_task_run_artifact_max_size_bytes(
+            max_size_bytes = get_task_run_artifact_inline_max_size_bytes(
                 attrs.get("name"),
                 attrs.get("content_type"),
                 attrs.get("artifact_type"),
@@ -1121,7 +1469,7 @@ class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"content_base64": "Invalid base64 content"}) from exc
             attrs.pop("content_base64", None)
 
-            max_size_bytes = get_task_run_artifact_max_size_bytes(attrs.get("name"), attrs.get("content_type"))
+            max_size_bytes = get_task_run_artifact_inline_max_size_bytes(attrs.get("name"), attrs.get("content_type"))
             if len(attrs["content_bytes"]) > max_size_bytes:
                 raise serializers.ValidationError(
                     {"content_base64": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
@@ -1150,9 +1498,9 @@ class TaskRunArtifactPrepareUploadSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional MIME type for the artifact upload",
     )
-    metadata = TaskRunArtifactMetadataSerializer(
+    metadata = TaskRunSkillBundleMetadataSerializer(
         required=False,
-        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+        help_text="Skill bundle metadata, required when the artifact type is skill_bundle.",
     )
 
     def validate(self, attrs):
@@ -1197,9 +1545,9 @@ class TaskRunArtifactPrepareUploadResponseSerializer(serializers.Serializer):
     )
     size = serializers.IntegerField(help_text="Expected upload size in bytes")
     content_type = serializers.CharField(required=False, allow_blank=True, help_text="Optional MIME type")
-    metadata = TaskRunArtifactMetadataSerializer(
+    metadata = TaskRunSkillBundleMetadataSerializer(
         required=False,
-        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+        help_text="Skill bundle metadata, required when the artifact type is skill_bundle.",
     )
     storage_path = serializers.CharField(help_text="S3 object key reserved for the artifact")
     expires_in = serializers.IntegerField(help_text="Presigned POST expiry in seconds")
@@ -1230,9 +1578,9 @@ class TaskRunArtifactFinalizeUploadSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional MIME type recorded for the artifact",
     )
-    metadata = TaskRunArtifactMetadataSerializer(
+    metadata = TaskRunSkillBundleMetadataSerializer(
         required=False,
-        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+        help_text="Skill bundle metadata, required when the artifact type is skill_bundle.",
     )
 
     def validate(self, attrs):
@@ -1273,9 +1621,9 @@ class TaskStagedArtifactPrepareUploadSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional MIME type for the artifact upload",
     )
-    metadata = TaskRunArtifactMetadataSerializer(
+    metadata = TaskRunSkillBundleMetadataSerializer(
         required=False,
-        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+        help_text="Skill bundle metadata, required when the artifact type is skill_bundle.",
     )
 
     def validate(self, attrs):
@@ -1314,9 +1662,9 @@ class TaskStagedArtifactPrepareUploadResponseSerializer(serializers.Serializer):
     )
     size = serializers.IntegerField(help_text="Expected upload size in bytes")
     content_type = serializers.CharField(required=False, allow_blank=True, help_text="Optional MIME type")
-    metadata = TaskRunArtifactMetadataSerializer(
+    metadata = TaskRunSkillBundleMetadataSerializer(
         required=False,
-        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+        help_text="Skill bundle metadata, required when the artifact type is skill_bundle.",
     )
     storage_path = serializers.CharField(help_text="S3 object key reserved for the staged artifact")
     expires_in = serializers.IntegerField(help_text="Presigned POST expiry in seconds")
@@ -1353,9 +1701,9 @@ class TaskStagedArtifactFinalizeUploadSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional MIME type recorded for the artifact",
     )
-    metadata = TaskRunArtifactMetadataSerializer(
+    metadata = TaskRunSkillBundleMetadataSerializer(
         required=False,
-        help_text="Optional structured metadata for special artifact types, such as skill bundles.",
+        help_text="Skill bundle metadata, required when the artifact type is skill_bundle.",
     )
 
     def validate(self, attrs):
@@ -1391,7 +1739,230 @@ class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
 
 
+class TaskRunArtifactsDismissRequestSerializer(serializers.Serializer):
+    artifact_ids = serializers.ListField(
+        child=serializers.CharField(max_length=128),
+        allow_empty=False,
+        max_length=100,
+        help_text=(
+            "Manifest ids of the artifacts to update. Pass every version of a file together so the "
+            "whole file is dismissed rather than a single upload of it."
+        ),
+    )
+    dismissed = serializers.BooleanField(
+        default=True,
+        help_text="True to hide the artifacts from clients, false to show them again.",
+    )
+
+
+class TaskRunArtifactsDismissResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
+
+
+class TaskRunPeerSerializer(serializers.Serializer):
+    """One peer agent run visible to the requesting run (agent peer messaging)."""
+
+    run_id = serializers.CharField(help_text="The peer run's id — the address send_agent_message targets.")
+    task_id = serializers.CharField(help_text="Id of the peer run's parent task.")
+    task_title = serializers.CharField(help_text="Title of the peer run's parent task.")
+    created_by_email = serializers.CharField(
+        allow_null=True, help_text="Email of the user whose task the peer run belongs to."
+    )
+    runtime = serializers.CharField(help_text="Agent runtime of the peer run's task (e.g. 'pi').")
+    model = serializers.CharField(allow_null=True, help_text="Model the peer run was started with, when recorded.")
+    repository = serializers.CharField(
+        allow_null=True, help_text="Repository the peer run works on, or null for repo-less (channel-mode) runs."
+    )
+    stage = serializers.CharField(allow_null=True, help_text="Current stage of the peer run (e.g. 'build').")
+    status = serializers.CharField(help_text="Run status: 'in_progress' or 'queued' (only these are listed).")
+    sendable = serializers.BooleanField(
+        help_text=(
+            "Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is "
+            "listed but its workflow may not exist yet. Never infer sendability from status labels."
+        )
+    )
+    updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the peer run's last update.")
+
+
+class TaskRunAnalyzeResponseSerializer(serializers.Serializer):
+    analysis_task_id = serializers.UUIDField(help_text="Id of the analysis task to navigate to.")
+    created = serializers.BooleanField(
+        help_text="True when a new analysis task was created; false when an existing analysis for this run was returned."
+    )
+
+
+class TaskAnalysisGoalKind(models.TextChoices):
+    ORIENT = "orient", "orient"
+    EXPLORE = "explore", "explore"
+    GATHER = "gather", "gather"
+    PRODUCE = "produce", "produce"
+    VERIFY = "verify", "verify"
+    SETUP_ENV = "setup_env", "setup_env"
+    SHIP = "ship", "ship"
+    WAIT = "wait", "wait"
+    OPERATE = "operate", "operate"
+    DELIVER = "deliver", "deliver"
+
+
+class TaskAnalysisOutcome(models.TextChoices):
+    WORKED = "worked", "worked"
+    FAILED = "failed", "failed"
+    ABANDONED = "abandoned", "abandoned"
+    UNKNOWN = "unknown", "unknown"
+
+
+class TaskAnalysisBlockerKind(models.TextChoices):
+    MISSING_BINARY = "missing_binary", "missing_binary"
+    MISSING_PACKAGE = "missing_package", "missing_package"
+    SERVICE_DOWN = "service_down", "service_down"
+    MISSING_BUILD_ARTIFACT = "missing_build_artifact", "missing_build_artifact"
+    MISSING_CREDENTIAL = "missing_credential", "missing_credential"
+    MEMORY_LIMIT = "memory_limit", "memory_limit"
+    NETWORK = "network", "network"
+    SHALLOW_GIT = "shallow_git", "shallow_git"
+    TOOL_ERROR = "tool_error", "tool_error"
+    TOOL_SYNTAX = "tool_syntax", "tool_syntax"
+    API_ERROR = "api_error", "api_error"
+    MISSING_FLAG = "missing_flag", "missing_flag"
+    UNCLEAR_INSTRUCTIONS = "unclear_instructions", "unclear_instructions"
+    USER_REDIRECT = "user_redirect", "user_redirect"
+
+
+class TaskRunAnalysisActivityRequestSerializer(serializers.Serializer):
+    """One activity record from a task-run analysis: what the agent tried, how it went, and what blocked it."""
+
+    goal_kind = serializers.ChoiceField(
+        choices=TaskAnalysisGoalKind.choices, help_text="Which kind of work the agent did in this span."
+    )
+    goal = serializers.CharField(min_length=3, max_length=80, help_text="What the agent tried, in 3 to 8 words.")
+    outcome = serializers.ChoiceField(
+        choices=TaskAnalysisOutcome.choices, help_text="How the activity ended for the agent."
+    )
+    blocker_kind = serializers.ChoiceField(
+        choices=TaskAnalysisBlockerKind.choices,
+        required=False,
+        allow_null=True,
+        help_text="What stopped the agent, when something did. Omit for healthy work.",
+    )
+    blocker_name = serializers.CharField(
+        max_length=120,
+        required=False,
+        allow_null=True,
+        help_text="The exact binary, package, service, file, flag, or error the blocker names. Required with blocker_kind.",
+    )
+    repair = serializers.CharField(
+        max_length=300,
+        required=False,
+        allow_null=True,
+        help_text="The command or step that removed the blocker, when the agent found one. Requires blocker_kind.",
+    )
+    evidence = serializers.CharField(
+        min_length=10,
+        max_length=200,
+        help_text="One exact quote from the run log inside the activity's line range.",
+    )
+    start_line = serializers.IntegerField(min_value=1, help_text="First log line of the activity, 1-based.")
+    end_line = serializers.IntegerField(min_value=1, help_text="Last log line of the activity, 1-based.")
+    tool_calls = serializers.IntegerField(min_value=0, help_text="Distinct tool calls started inside the line range.")
+    failed_calls = serializers.IntegerField(
+        min_value=0, help_text="Tool calls started inside the line range that ended as failed."
+    )
+    seconds = serializers.IntegerField(
+        min_value=0,
+        help_text="Wall-clock seconds from the last timestamp before the line range to the last timestamp inside it.",
+    )
+    idle_seconds = serializers.IntegerField(
+        min_value=0, help_text="Sum of the gaps longer than 4 minutes between those consecutive timestamps."
+    )
+    commands = serializers.ListField(
+        child=serializers.CharField(min_length=1, max_length=60),
+        max_length=24,
+        required=False,
+        help_text="Command heads run in the activity, in order, adjacent duplicates removed.",
+    )
+    guidance_read = serializers.ListField(
+        child=serializers.CharField(min_length=1, max_length=200),
+        max_length=20,
+        required=False,
+        help_text="Skills, AGENTS.md files, templates, and wiki pages the agent read in the activity.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs["end_line"] < attrs["start_line"]:
+            raise serializers.ValidationError("end_line must be greater than or equal to start_line.")
+        if attrs["failed_calls"] > attrs["tool_calls"]:
+            raise serializers.ValidationError("failed_calls cannot exceed tool_calls.")
+        if attrs["idle_seconds"] > attrs["seconds"]:
+            raise serializers.ValidationError("idle_seconds cannot exceed seconds.")
+        blocker_kind = attrs.get("blocker_kind")
+        blocker_name = attrs.get("blocker_name")
+        if blocker_kind and not blocker_name:
+            raise serializers.ValidationError("blocker_kind requires blocker_name.")
+        if blocker_name and not blocker_kind:
+            raise serializers.ValidationError("blocker_name requires blocker_kind.")
+        if attrs.get("repair") and not blocker_kind:
+            raise serializers.ValidationError("repair requires blocker_kind.")
+        if blocker_name and not _contains_whole_term(attrs["evidence"], blocker_name):
+            raise serializers.ValidationError("evidence must contain blocker_name as a whole word.")
+        return attrs
+
+
+def _contains_whole_term(text: str, term: str) -> bool:
+    return re.search(rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])", text, re.IGNORECASE) is not None
+
+
+class TaskRunAnalysisActivityResponseSerializer(serializers.Serializer):
+    activity_index = serializers.IntegerField(help_text="Zero-based position of the stored activity on the run.")
+
+
+class TaskRunPeersResponseSerializer(serializers.Serializer):
+    peers = TaskRunPeerSerializer(
+        many=True, help_text="Active agent runs the requesting run may message, most recently updated first."
+    )
+
+
+class TaskRunPeerMessageRequestSerializer(serializers.Serializer):
+    content = serializers.CharField(
+        max_length=16_000,
+        help_text=(
+            "Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed "
+            "provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files."
+        ),
+    )
+    artifact_ids = serializers.ListField(
+        child=serializers.CharField(max_length=128),
+        required=False,
+        default=list,
+        max_length=10,
+        help_text=(
+            "Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the "
+            "target run's own artifact storage; the receiver gets an immutable snapshot."
+        ),
+    )
+
+
+class TaskRunPeerMessageResponseSerializer(serializers.Serializer):
+    result = serializers.ChoiceField(
+        choices=["accepted", "target_finished", "rejected"],
+        help_text=(
+            "Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), "
+            "'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid)."
+        ),
+    )
+    detail = serializers.CharField(help_text="Human-readable explanation of the result.")
+    message_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Id of the recorded peer message, when one was created for this send.",
+    )
+
+
 TASK_SUMMARIES_MAX_IDS = 5000
+
+
+class TaskExecutionMode(models.TextChoices):
+    INTERACTIVE = "interactive", "interactive"
+    BACKGROUND = "background", "background"
 
 
 class TaskSummariesRequestSerializer(serializers.Serializer):
@@ -1407,30 +1978,62 @@ class TaskSummariesRequestSerializer(serializers.Serializer):
 
 
 class TaskRunSummarySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the latest run.")
     status = serializers.ChoiceField(choices=tasks_facade.TaskRunStatus.choices, allow_null=True)
     environment = serializers.ChoiceField(choices=tasks_facade.TaskRunEnvironment.choices, allow_null=True)
+    mode = serializers.ChoiceField(
+        choices=TaskExecutionMode.choices,
+        help_text="Execution mode of the latest run.",
+    )
 
 
 class TaskSummarySerializer(DataclassSerializer):
     """Summary response for a task — reads from a frozen ``TaskSummaryDTO``."""
 
+    created_by_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="ID of the user who created the task, or null for system-created tasks.",
+    )
     latest_run = TaskRunSummarySerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = TaskSummaryDTO
-        fields = ["id", "title", "repository", "created_at", "updated_at", "origin_product", "latest_run"]
+        fields = [
+            "id",
+            "title",
+            "repository",
+            "created_by_id",
+            "created_at",
+            "updated_at",
+            "origin_product",
+            "latest_run",
+        ]
 
 
 class TaskListQuerySerializer(serializers.Serializer):
     """Query parameters for listing tasks"""
 
     origin_product = serializers.CharField(required=False, help_text="Filter by origin product")
+    exclude_origin_product = serializers.ChoiceField(
+        required=False,
+        choices=tasks_facade.TaskOriginProduct.choices,
+        help_text="Exclude tasks with this origin product from the results",
+    )
     stage = serializers.CharField(required=False, help_text="Filter by task run stage")
     organization = serializers.CharField(required=False, help_text="Filter by repository organization")
     repository = serializers.CharField(
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+    basic = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return a basic payload with heavy fields dropped, for surfaces that render only a summary "
+            "of each task. Defaults to false. Currently this omits the description body, which dominates "
+            "the list payload; the search parameter still matches description text server-side."
+        ),
+    )
     search = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -1440,6 +2043,34 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False,
         choices=[choice.value for choice in tasks_facade.TaskRunStatus],
         help_text="Filter tasks by the status of their most recent run.",
+    )
+    pr_state = serializers.ChoiceField(
+        required=False,
+        choices=list(tasks_facade.PR_STATES),
+        help_text=(
+            "Filter tasks by the state of their most recent run's pull request, as last observed "
+            "from GitHub (webhooks plus the CI follow-up snapshot)."
+        ),
+    )
+    ci_status = serializers.ChoiceField(
+        required=False,
+        choices=list(tasks_facade.CI_STATUSES),
+        help_text=(
+            "Filter tasks by the CI check rollup on their most recent run's pull request, as last "
+            "observed from GitHub. 'none' means the PR has no checks."
+        ),
+    )
+    pinned = serializers.BooleanField(
+        required=False,
+        help_text="With true, only tasks the requesting user has pinned.",
+    )
+    commented_by = serializers.IntegerField(
+        required=False,
+        help_text="Filter to tasks carrying a thread comment written by this user ID.",
+    )
+    mentions = serializers.IntegerField(
+        required=False,
+        help_text="Filter to tasks whose thread mentions this user ID.",
     )
     internal = serializers.ChoiceField(
         required=False,
@@ -1460,20 +2091,69 @@ class TaskListQuerySerializer(serializers.Serializer):
         ),
     )
     channel = serializers.UUIDField(required=False, help_text="Filter tasks to a channel's feed.")
+    hog_flow_id = serializers.UUIDField(
+        required=False, help_text="Filter tasks to the runs spawned by this workflow's 'Create AI task' action."
+    )
+    ordering = serializers.ChoiceField(
+        required=False,
+        choices=sorted(tasks_facade.TASK_LIST_ORDERINGS),
+        help_text=(
+            "Sort order. '-last_activity_at' is newest activity first, where activity means a thread "
+            "message or a run starting, streaming, or finishing. Defaults to '-created_at'."
+        ),
+    )
     all_team_tasks = serializers.BooleanField(
         required=False,
         default=False,
         help_text=(
-            "Staff-only. When true, list every task on the team regardless of creator or channel, "
-            "bypassing the per-user visibility filter. Ignored for non-staff users."
+            "Local development only. With ph_debug=true, list all project tasks for debugging. "
+            "Ignored outside local development."
         ),
     )
+
+
+class TaskSearchQuerySerializer(serializers.Serializer):
+    q = serializers.CharField(min_length=1, max_length=512, help_text="Text or exact identifier to search for.")
+    limit = serializers.IntegerField(
+        required=False, default=20, min_value=1, max_value=50, help_text="Maximum number of results to return."
+    )
+
+
+class TaskSearchResultSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Search document identifier.")
+    kind = serializers.ChoiceField(
+        choices=["task", "pull_request", "artifact", "channel", "canvas"], help_text="Type of matched resource."
+    )
+    title = serializers.CharField(help_text="Primary result label.")
+    subtitle = serializers.CharField(allow_blank=True, help_text="Secondary result context.")
+    task_id = serializers.UUIDField(allow_null=True, help_text="Containing task identifier, when applicable.")
+    task_run_id = serializers.UUIDField(allow_null=True, help_text="Containing task run identifier, when applicable.")
+    channel_id = serializers.UUIDField(allow_null=True, help_text="Containing space identifier, when applicable.")
+    created_by = TaskUserBasicInfoSerializer(
+        allow_null=True, help_text="Who created the containing task, when the match has one."
+    )
+    origin_product = serializers.CharField(
+        allow_null=True, allow_blank=True, help_text="What created the containing task, for example 'slack'."
+    )
+    latest_run = TaskRunSummarySerializer(allow_null=True, help_text="Status of the containing task's most recent run.")
+    updated_at = serializers.DateTimeField(help_text="When the matched resource last changed.")
+    metadata = serializers.JSONField(help_text="Resource-specific navigation metadata.")
 
 
 class ChannelSerializer(DataclassSerializer):
     """Response shape for a task channel, read from a frozen ``ChannelDTO``."""
 
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    system_role = serializers.ChoiceField(
+        choices=tasks_facade.Channel.SystemRole.choices,
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "Identifies this channel as one of the two system-provisioned spaces "
+            "('personal' for the user's own #me space, 'general' for the team's "
+            "shared #general space). Null for an ordinary channel."
+        ),
+    )
 
     class Meta:
         dataclass = ChannelDTO
@@ -1483,17 +2163,153 @@ class ChannelSerializer(DataclassSerializer):
             "channel_type",
             "github_integration",
             "repositories",
+            "auto_archive_after_days",
             "created_at",
             "created_by",
             "starred",
+            "system_role",
         ]
 
 
-class ChannelWriteSerializer(serializers.Serializer):
-    """Request body for creating (resolve-or-create) or renaming a public channel."""
+class OnboardingSessionSerializer(serializers.Serializer):
+    """The first-run session that was started for the requester."""
 
+    task_id = serializers.UUIDField(help_text="The agent session opened in the team's #general space.")
+
+
+class OnboardingSessionTestResponseSerializer(OnboardingSessionSerializer):
+    channel_id = serializers.UUIDField(help_text="The requester's personal space containing the session.")
+
+
+class OnboardingSessionTestSerializer(serializers.Serializer):
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        allow_blank=False,
+        max_length=255,
+        help_text="Optional LLM model identifier for the test session. Omit to use the plan default.",
+    )
+    company_domain = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        max_length=253,
+        help_text="Company domain to research. Blank simulates a personal email address.",
+    )
+    joining_existing_organization = serializers.BooleanField(
+        default=False,
+        help_text="Whether the user is joining an organization that already has shared context.",
+    )
+    has_events = serializers.BooleanField(default=False, help_text="Whether the project has ingested events.")
+    signal_reports_waiting = serializers.IntegerField(
+        default=0, min_value=0, max_value=10000, help_text="Number of findings waiting in #general."
+    )
+    other_members = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        default=list,
+        max_length=25,
+        help_text="Display names of other Desktop users in the organization.",
+    )
+    sources_enabled = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        default=list,
+        max_length=25,
+        help_text="Signal sources that were already enabled.",
+    )
+    sources_watching = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        default=list,
+        max_length=25,
+        help_text="Signal sources the onboarding flow is watching.",
+    )
+    sources_newly_enabled = serializers.BooleanField(
+        default=False, help_text="Whether onboarding enabled any signal sources."
+    )
+
+    def validate_model(self, value: str | None) -> str | None:
+        model_access_error = get_model_access_error(value, distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError(model_access_error)
+        if value is not None and get_runtime_adapter_for_model(value) is None:
+            raise serializers.ValidationError(f"'{value}' is not supported for onboarding test sessions.")
+        return value
+
+
+class TeachingCanvasSerializer(serializers.Serializer):
+    canvas_id = serializers.UUIDField(help_text="The teaching canvas that was resolved or created.")
+    channel_id = serializers.UUIDField(help_text="The requester's personal space containing the canvas.")
+
+
+class ProvisionedChannelsSerializer(serializers.Serializer):
+    """The requester's default channels, plus whether this call is what created them."""
+
+    channels = ChannelSerializer(
+        many=True,
+        help_text="The full channel list after provisioning, same shape as the list endpoint.",
+    )
+    personal_created = serializers.BooleanField(
+        help_text="Whether this call created the requester's personal #me channel."
+    )
+    general_created = serializers.BooleanField(
+        help_text=(
+            "Whether this call created the team's shared #general channel. True only for "
+            "the first user to provision it, so clients can branch first-user setup on it."
+        )
+    )
+
+
+class ChannelDeleteConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the space cannot be deleted.")
+
+
+CHANNEL_MEMBERS_MAX = 100
+
+
+class ChannelWriteSerializer(serializers.Serializer):
     name = serializers.CharField(
-        max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
+        max_length=128, help_text="Channel name, shown as #<name>. Uses lowercase letters and hyphens."
+    )
+    channel_type = serializers.ChoiceField(
+        choices=CHANNEL_WRITE_TYPE_CHOICES,
+        default="public",
+        help_text=(
+            "Use 'public' for access by all project members. Use 'private' for access by channel members only. "
+            "Defaults to 'public'. This endpoint cannot create personal #me spaces."
+        ),
+    )
+    member_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=list,
+        max_length=CHANNEL_MEMBERS_MAX,
+        help_text=(
+            "User IDs to add to a private channel. The requester is always a member. "
+            "The endpoint ignores this field for public channels and skips users without project access."
+        ),
+    )
+    star = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=("Star a new channel for the requester. This field does not change stars on an existing channel."),
+    )
+
+    def validate_name(self, value: str) -> str:
+        if tasks_facade.is_personal_space_name(value):
+            raise serializers.ValidationError("That name is reserved for private spaces. Pick another name.")
+        return value
+
+
+class ChannelMembersWriteSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=True,
+        max_length=CHANNEL_MEMBERS_MAX,
+        help_text=(
+            "Required list of member user IDs. This list replaces the current members. "
+            "The creator remains a member. Send an empty list to remove all other members. "
+            "Each submitted user must have project access."
+        ),
     )
 
 
@@ -1515,6 +2331,26 @@ class ChannelUpdateSerializer(serializers.Serializer):
         max_length=10,
         help_text="GitHub repositories inherited by new tasks in this channel.",
     )
+    auto_archive_after_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=365,
+        help_text="Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.",
+    )
+    channel_type = serializers.ChoiceField(
+        choices=CHANNEL_WRITE_TYPE_CHOICES,
+        required=False,
+        help_text=(
+            "Switch a shared space between 'public' and 'private'. Making a space private keeps only the creator "
+            "and the requester as members. Making it public removes its member list. Personal #me spaces cannot change."
+        ),
+    )
+
+    def validate_name(self, value: str) -> str:
+        if tasks_facade.is_reserved_channel_name(value):
+            raise serializers.ValidationError("That name is reserved for a default space. Pick another name.")
+        return value
 
     def validate_github_integration(self, value):
         if value is not None and value.team_id != self.context["team_id"]:
@@ -1737,15 +2573,24 @@ class TaskActivitySerializer(DataclassSerializer):
         help_text="Author of the thread message tied to the latest activity, when one applies.",
     )
     activity_kind = serializers.ChoiceField(
-        choices=["awaiting_input", "completed", "mention", "message", "created"],
+        choices=[
+            "awaiting_input",
+            "completed",
+            "mention",
+            "thread_reply",
+            "owned_item_comment",
+            "message",
+            "created",
+        ],
         help_text=(
             "What the latest activity on this task was: an agent run waiting on the requester "
             "(awaiting_input), a completed run (completed), someone @-mentioning them (mention), "
-            "a thread reply (message), or their creating the task (created)."
+            "a comment-thread reply (thread_reply), a comment on their item (owned_item_comment), "
+            "a task-thread reply (message), or their creating the task (created)."
         ),
     )
     snippet = serializers.CharField(
-        help_text="Content of the thread message tied to the latest activity; empty for task-creation rows."
+        help_text="Content of the thread message or resource comment tied to the latest activity."
     )
     is_unread = serializers.BooleanField(
         help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
@@ -1764,6 +2609,9 @@ class TaskActivitySerializer(DataclassSerializer):
             "snippet",
             "latest_author",
             "latest_message_id",
+            "latest_comment_id",
+            "latest_comment_scope",
+            "latest_comment_item_id",
             "is_unread",
         ]
 
@@ -1793,6 +2641,11 @@ class TaskActivityPageSerializer(DataclassSerializer):
 
 class TaskActivityReadMarkerSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(help_text="Task whose displayed activity should be marked read.")
+    activity_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Comment activity row to mark read. Omit for collapsed task activity.",
+    )
     seen_before = serializers.DateTimeField(
         help_text="Mark activity at or before this timestamp read without clearing newer activity."
     )
@@ -1821,6 +2674,142 @@ class TaskRepositoriesResponseSerializer(serializers.Serializer):
     )
 
 
+class TaskArtifactSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable artifact id used to filter task comments.")
+    type = serializers.CharField(help_text="Artifact type: artifact or canvas.")
+    name = serializers.CharField(help_text="Display name of the artifact.")
+
+
+class TaskArtifactsResponseSerializer(serializers.Serializer):
+    artifacts = TaskArtifactSerializer(many=True, help_text="Artifacts and canvases linked to this task.")
+
+
+class TaskUsageResponseSerializer(serializers.Serializer):
+    token_cost_usd = serializers.FloatField(help_text="Estimated model cost attributed to this task in US dollars.")
+    compute_cost_usd = serializers.FloatField(
+        help_text="Estimated cloud compute cost attributed to this task in US dollars."
+    )
+    total_cost_usd = serializers.FloatField(help_text="Estimated total cost attributed to this task in US dollars.")
+
+
+class InternalTaskUsageRequestSerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(help_text="Team identifier used to scope attributed model generations.")
+    task_id = serializers.UUIDField(help_text="Task identifier used to attribute model generations.")
+    task_created_at = serializers.DateTimeField(help_text="Lower timestamp bound for attributed model generations.")
+
+
+class InternalTaskUsageResponseSerializer(serializers.Serializer):
+    token_cost_usd = serializers.FloatField(help_text="Estimated model cost attributed to this task in US dollars.")
+
+
+class TaskCommentsQuerySerializer(serializers.Serializer):
+    artifact_id = serializers.CharField(
+        required=False, max_length=72, help_text="Artifact id returned by the artifacts endpoint."
+    )
+    include_resolved = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to include resolved comment threads.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum number of root comments to return.",
+    )
+    cursor = serializers.CharField(
+        required=False, max_length=256, help_text="Opaque cursor returned by the previous page."
+    )
+
+
+class TaskCommentDetailQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum number of comments in the thread to return.",
+    )
+    cursor = serializers.CharField(
+        required=False, max_length=256, help_text="Opaque cursor returned by the previous page."
+    )
+    comment_id = serializers.UUIDField(
+        required=False,
+        help_text="Comment id whose truncated body should continue. Use with content_offset.",
+    )
+    content_offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Byte offset returned as content_next_offset for the selected comment.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("content_offset") and not attrs.get("comment_id"):
+            raise serializers.ValidationError({"comment_id": "This field is required with content_offset."})
+        if attrs.get("comment_id") and attrs.get("cursor"):
+            raise serializers.ValidationError({"cursor": "Do not combine cursor with comment_id."})
+        return attrs
+
+
+class TaskCommentTargetSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable target id.")
+    type = serializers.CharField(help_text="Target type: task, artifact, or canvas.")
+    name = serializers.CharField(help_text="Display name of the comment target.")
+
+
+class TaskCommentSummarySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Root comment id.")
+    target = TaskCommentTargetSerializer(help_text="Task, artifact, or canvas receiving the comment.")
+    content = serializers.CharField(help_text="Bounded excerpt of the root comment body.")
+    content_truncated = serializers.BooleanField(help_text="Whether the root comment body has more content.")
+    selected_text = serializers.CharField(allow_null=True, help_text="Text selected when the comment was created.")
+    created_at = serializers.DateTimeField(help_text="When the root comment was created.")
+    reply_count = serializers.IntegerField(help_text="Number of human replies.")
+    resolved = serializers.BooleanField(help_text="Whether the comment is resolved.")
+
+
+class TaskCommentsResponseSerializer(serializers.Serializer):
+    comments = TaskCommentSummarySerializer(many=True, help_text="Root comments, newest first.")
+    next = serializers.CharField(allow_null=True, help_text="Opaque cursor for the next page, or null.")
+
+
+class TaskCommentAnchorSerializer(serializers.Serializer):
+    kind = serializers.CharField(required=False, help_text="Anchor kind.")
+    quote = serializers.CharField(required=False, help_text="Selected text.")
+    prefix = serializers.CharField(required=False, help_text="Text immediately before the selection.")
+    suffix = serializers.CharField(required=False, help_text="Text immediately after the selection.")
+    start = serializers.IntegerField(required=False, min_value=0, help_text="Selection start offset.")
+    end = serializers.IntegerField(required=False, min_value=1, help_text="Selection end offset.")
+    x = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Horizontal region position.")
+    y = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Vertical region position.")
+    width = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Region width.")
+    height = serializers.FloatField(required=False, min_value=0, max_value=1, help_text="Region height.")
+
+
+class TaskCommentEntrySerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Comment id.")
+    content = serializers.CharField(help_text="Byte-bounded comment body chunk.")
+    content_truncated = serializers.BooleanField(help_text="Whether this comment body has more content.")
+    content_next_offset = serializers.IntegerField(
+        allow_null=True,
+        help_text="Byte offset for the next body chunk, or null when complete.",
+    )
+    author = serializers.CharField(allow_null=True, help_text="Comment author's display name.")
+    created_at = serializers.DateTimeField(help_text="When the comment was created.")
+    anchor = TaskCommentAnchorSerializer(allow_null=True, help_text="Normalized text or document anchor.")
+    canvas_version_id = serializers.CharField(allow_null=True, help_text="Canvas version receiving the comment.")
+
+
+class TaskCommentDetailSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Root comment id.")
+    target = TaskCommentTargetSerializer(help_text="Task, artifact, or canvas receiving the comment.")
+    resolved = serializers.BooleanField(help_text="Whether the comment is resolved.")
+    comments = TaskCommentEntrySerializer(many=True, help_text="Comments in this page, oldest first.")
+    next = serializers.CharField(allow_null=True, help_text="Opaque cursor for the next page, or null.")
+
+
 class PinnedTaskIdsResponseSerializer(serializers.Serializer):
     task_ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -1832,9 +2821,51 @@ class TaskPinRequestSerializer(serializers.Serializer):
     pinned = serializers.BooleanField(help_text="Whether the task should be pinned for the requester.")
 
 
+class TaskHandoffRequestSerializer(serializers.Serializer):
+    """Request body for handing a task off to a colleague: they become its owner."""
+
+    user = serializers.IntegerField(
+        min_value=1,
+        help_text=(
+            "ID of the user taking over the task. Must have access to this project and not be the task's current owner."
+        ),
+    )
+
+
 class TaskPinResponseSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(help_text="Task whose pin state was updated.")
     pinned = serializers.BooleanField(help_text="Current pin state for the requester.")
+
+
+class ModelChoiceSerializer(DataclassSerializer):
+    """One model a run may use. Reads a `ModelChoice` straight off the catalogue facade.
+
+    Both enums are declared with the same choices the run-detail response uses, so clients get the
+    generated adapter/effort types here rather than bare strings.
+    """
+
+    runtime_adapter = serializers.ChoiceField(
+        choices=[adapter.value for adapter in RuntimeAdapter],
+        help_text="Runtime that drives this model, such as 'claude' or 'codex'.",
+    )
+    display_name = serializers.CharField(
+        source="label", help_text="Display name for the model, such as 'Claude Opus 4.8'."
+    )
+    supported_efforts = serializers.ListField(
+        child=serializers.ChoiceField(choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS]),
+        help_text="Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control.",
+    )
+
+    class Meta:
+        dataclass = ModelChoice
+        fields = ["runtime_adapter", "model", "display_name", "supported_efforts"]
+
+
+class ModelCatalogueResponseSerializer(serializers.Serializer):
+    models = ModelChoiceSerializer(
+        many=True,
+        help_text="Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable.",
+    )
 
 
 class RepositoryReadinessQuerySerializer(serializers.Serializer):
@@ -2048,7 +3079,7 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
     REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
 
     mode = serializers.ChoiceField(
-        choices=["interactive", "background"],
+        choices=TaskExecutionMode.choices,
         required=False,
         default="background",
         help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
@@ -2175,32 +3206,43 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             "follows the server-side default (enabled); false opts this run out."
         ),
     )
+    benjamin_enabled = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted "
+            "or null lets the server decide from the feature flag; true or false pins the choice "
+            "for this run."
+        ),
+    )
+    claude_model_access = serializers.ChoiceField(
+        choices=["posthog-gateway", "own-subscription"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
+            "request a Claude token from the creating PostHog Desktop at run start; the token is "
+            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
+            "keep their billing choice and new runs use the PostHog gateway."
+        ),
+    )
 
     def validate(self, attrs):
+        _validate_subscription_caller(attrs, self.context)
         errors: dict[str, str] = {}
         if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
             errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
         runtime_adapter = attrs.get("runtime_adapter")
-        if initial_permission_mode is not None:
-            if runtime_adapter is None:
-                errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
-            else:
-                allowed_permission_modes = (
-                    list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
-                    if runtime_adapter == RuntimeAdapter.CODEX.value
-                    else list(INITIAL_PERMISSION_MODE_CHOICES)
-                )
-
-                if initial_permission_mode not in allowed_permission_modes:
-                    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
-                    errors["initial_permission_mode"] = (
-                        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
-                        f"'{runtime_adapter}'. Supported values: {allowed_values}."
-                    )
+        if permission_mode_error := get_initial_permission_mode_error(initial_permission_mode, runtime_adapter):
+            errors["initial_permission_mode"] = permission_mode_error
 
         pending_user_message = attrs.get("pending_user_message")
         pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
+        if attrs.get("claude_model_access") == "own-subscription" and _is_pi_task_run_request(self.context):
+            errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
         if pending_user_message is not None:
             trimmed_message = pending_user_message.strip()
             attrs["pending_user_message"] = trimmed_message or None
@@ -2237,6 +3279,10 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
                 error=reasoning_effort_error,
             )
 
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            errors["model"] = model_access_error
+
         if errors:
             raise serializers.ValidationError(errors)
 
@@ -2260,7 +3306,7 @@ class TaskRunBootstrapCreateRequestSerializer(
         help_text="Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.",
     )
     mode = serializers.ChoiceField(
-        choices=["interactive", "background"],
+        choices=TaskExecutionMode.choices,
         required=False,
         default="background",
         help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
@@ -2366,8 +3412,31 @@ class TaskRunBootstrapCreateRequestSerializer(
             "follows the server-side default (enabled); false opts this run out."
         ),
     )
+    benjamin_enabled = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted "
+            "or null lets the server decide from the feature flag; true or false pins the choice "
+            "for this run."
+        ),
+    )
+    claude_model_access = serializers.ChoiceField(
+        choices=["posthog-gateway", "own-subscription"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
+            "request a Claude token from the creating PostHog Desktop at run start; the token is "
+            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
+            "keep their billing choice and new runs use the PostHog gateway."
+        ),
+    )
 
     def validate(self, attrs):
+        _validate_subscription_caller(attrs, self.context)
         errors: dict[str, str] = {}
         if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
             errors["relayed_mcp_servers"] = collision_error
@@ -2375,6 +3444,8 @@ class TaskRunBootstrapCreateRequestSerializer(
         runtime_adapter = attrs.get("runtime_adapter")
         is_pi_task = _is_pi_task_run_request(self.context)
         if is_pi_task:
+            if attrs.get("claude_model_access") == "own-subscription":
+                errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
             pi_incompatible_fields = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
             for field in pi_incompatible_fields:
                 if attrs.get(field) is not None:
@@ -2388,22 +3459,8 @@ class TaskRunBootstrapCreateRequestSerializer(
                 raise serializers.ValidationError(errors)
             return attrs
 
-        if initial_permission_mode is not None:
-            if runtime_adapter is None:
-                errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
-            else:
-                allowed_permission_modes = (
-                    list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
-                    if runtime_adapter == RuntimeAdapter.CODEX.value
-                    else list(INITIAL_PERMISSION_MODE_CHOICES)
-                )
-
-                if initial_permission_mode not in allowed_permission_modes:
-                    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
-                    errors["initial_permission_mode"] = (
-                        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
-                        f"'{runtime_adapter}'. Supported values: {allowed_values}."
-                    )
+        if permission_mode_error := get_initial_permission_mode_error(initial_permission_mode, runtime_adapter):
+            errors["initial_permission_mode"] = permission_mode_error
 
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(
@@ -2434,6 +3491,10 @@ class TaskRunBootstrapCreateRequestSerializer(
                 error=reasoning_effort_error,
             )
 
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            errors["model"] = model_access_error
+
         if errors:
             raise serializers.ValidationError(errors)
 
@@ -2444,17 +3505,37 @@ class WarmTaskRequestSerializer(serializers.Serializer):
     """Request body for warming a full idling Run while composing a Code-app cloud task.
 
     Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
-    interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
-    the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
-    it to the caller's team before use.
+    interactive Run that boots and starts the agent, optionally cloning and checking out a repository,
+    then idles awaiting the first message. `github_integration` is a plain integration PK (an integer);
+    the view re-scopes it to the caller's team before use.
     """
 
     repository = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
         max_length=255,
-        help_text="Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).",
+        help_text="Optional GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).",
     )
+    repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        max_length=3,
+        help_text="GitHub repositories to clone into the warm sandbox, each in `organization/repo` format.",
+    )
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        return TaskWriteSerializer().validate_repositories(value)
+
     github_integration = serializers.IntegerField(
-        help_text="Primary key of the team's GitHub integration to clone with.",
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text=(
+            "Primary key of the team's GitHub integration. Required when a repository is selected (it is "
+            "what the sandbox clones with). Accepted without a repository too: the warm Run then boots "
+            "with that integration's GitHub credentials, matching a repo-less create that carries it."
+        ),
     )
     branch = serializers.CharField(
         required=False,
@@ -2501,13 +3582,58 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional custom base image to provision before the task is submitted; takes precedence over the environment's image.",
     )
+    origin_product = serializers.ChoiceField(
+        choices=WARMABLE_ORIGIN_PRODUCTS,
+        required=False,
+        default=tasks_facade.TaskOriginProduct.USER_CREATED,
+        help_text=(
+            "Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the "
+            "quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born "
+            "under the same origin. Defaults to the Code app."
+        ),
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text=(
+            "Permission mode to boot the agent session on. Read at session construction, so it cannot be "
+            "changed once the sandbox is warm — a submit selecting a different mode falls through to a "
+            "cold Run. Omit to take the runtime's default."
+        ),
+    )
 
-    def validate_repository(self, value: str) -> str:
+    def validate_repository(self, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip().lower()
         parts = normalized.split("/")
         if len(parts) != 2 or not parts[0] or not parts[1]:
             raise serializers.ValidationError("Repository must be in the format organization/repository")
         return normalized
+
+    def validate(self, attrs):
+        # A repository needs an integration to clone with. The reverse is allowed: the create path
+        # accepts and stores an integration on a repo-less task, and the sandbox uses it to mint a
+        # GitHub token, so a repo-less warm must carry the same integration to boot with the same
+        # credentials and to match that create on reuse.
+        if attrs.get("repository") and not attrs.get("github_integration"):
+            raise serializers.ValidationError("GitHub integration is required when a repository is provided.")
+
+        # Warming starts the agent on this model, so it bills like a run and gates like one.
+        model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError({"model": model_access_error})
+
+        # The agent session is built with this mode at boot and cannot be changed once warm, so a pair
+        # the run request would reject must not reach a sandbox here either.
+        permission_mode_error = get_initial_permission_mode_error(
+            attrs.get("initial_permission_mode"), attrs.get("runtime_adapter")
+        )
+        if permission_mode_error is not None:
+            raise serializers.ValidationError({"initial_permission_mode": permission_mode_error})
+        return attrs
 
 
 class WarmTaskResponseSerializer(serializers.Serializer):
@@ -2519,6 +3645,92 @@ class WarmTaskResponseSerializer(serializers.Serializer):
     run_id = serializers.UUIDField(
         help_text="Id of the idling warm Run. The normal create+run path reuses and activates it on submit.",
     )
+
+
+class WarmTaskResumeRequestSerializer(serializers.Serializer):
+    """Request body for warming a successor to an existing terminal task run."""
+
+    resume_from_run_id = serializers.UUIDField(
+        help_text="ID of the task's latest terminal run whose snapshot and conversation should be resumed.",
+    )
+    runtime_adapter = serializers.ChoiceField(
+        choices=[adapter.value for adapter in RuntimeAdapter],
+        required=False,
+        default=None,
+        help_text="Agent runtime adapter to start before the next message is submitted.",
+    )
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="LLM model to start before the next message is submitted.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        required=False,
+        default=None,
+        help_text="Reasoning effort to apply when the warmed successor receives its first message.",
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Initial permission mode for the warmed successor's agent session.",
+    )
+
+    def validate(self, attrs):
+        errors: dict[str, str] = {}
+        runtime_adapter = attrs.get("runtime_adapter")
+        model = attrs.get("model")
+        if (runtime_adapter is None) != (model is None):
+            missing_field = "runtime_adapter" if runtime_adapter is None else "model"
+            errors[missing_field] = "This field is required when selecting a cloud runtime."
+
+        initial_permission_mode = attrs.get("initial_permission_mode")
+        if initial_permission_mode is not None:
+            if runtime_adapter is None:
+                errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
+            else:
+                allowed_permission_modes = (
+                    list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
+                    if runtime_adapter == RuntimeAdapter.CODEX.value
+                    else list(INITIAL_PERMISSION_MODE_CHOICES)
+                )
+                if initial_permission_mode not in allowed_permission_modes:
+                    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
+                    errors["initial_permission_mode"] = (
+                        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
+                        f"'{runtime_adapter}'. Supported values: {allowed_values}."
+                    )
+
+        reasoning_effort_error = get_reasoning_effort_error(
+            runtime_adapter=runtime_adapter,
+            model=model,
+            reasoning_effort=attrs.get("reasoning_effort"),
+        )
+        if reasoning_effort_error is not None:
+            errors["reasoning_effort"] = reasoning_effort_error
+            _capture_rejected_reasoning_effort(
+                self.context,
+                runtime_adapter=runtime_adapter,
+                model=model,
+                reasoning_effort=attrs.get("reasoning_effort"),
+                error=reasoning_effort_error,
+            )
+
+        model_access_error = get_model_access_error(model, distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            errors["model"] = model_access_error
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
+class WarmTaskResumeResponseSerializer(serializers.Serializer):
+    """Response for a successfully warmed successor run on an existing task."""
+
+    task_id = serializers.UUIDField(help_text="ID of the existing task being resumed.")
+    run_id = serializers.UUIDField(help_text="ID of the idling successor run that submit will activate.")
 
 
 class TaskRunStartRequestSerializer(serializers.Serializer):
@@ -2552,6 +3764,15 @@ class TaskRunCancelRequestSerializer(serializers.Serializer):
         allow_null=True,
         max_length=500,
         help_text="Optional reason for the cancellation, recorded on the run and shown to run watchers.",
+    )
+    only_if_awaiting_first_message = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Cancel only while the run is still a warm sandbox awaiting its first message. A run that "
+            "has since received one is left alone and returned unchanged. Set this when handing a warm "
+            "sandbox back, so a release that races a submit cannot stop the run that submit started."
+        ),
     )
 
 
@@ -2595,7 +3816,7 @@ class CodexTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
 
 class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
     mode = serializers.ChoiceField(
-        choices=["interactive", "background"],
+        choices=TaskExecutionMode.choices,
         required=False,
         default="background",
         help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
@@ -2681,15 +3902,21 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "permission_response",
         "set_config_option",
         "mcp_response",
+        "credential_response",
         "pi/rpc",
         "queue_get",
         "queue_clear",
+        "side_question",
     ]
 
-    # Cap on the serialized mcp_response params (docs/cloud-mcp-relay.md): the relayed JSON-RPC
+    # Cap on the serialized mcp_response params (docs/CLOUD-MCP-RELAY.md): the relayed JSON-RPC
     # response payload plus envelope must fit in 300 KB. Params are forwarded to the sandbox
     # verbatim and never persisted or captured — they carry data from the user's private systems.
     MAX_MCP_RESPONSE_PARAMS_BYTES = 300_000
+
+    # A side question is forwarded into an agent turn, so its length is the direct lever on
+    # model spend. Generous for a one-shot question, far under the request body cap.
+    MAX_SIDE_QUESTION_CHARS = 10_000
 
     jsonrpc = serializers.ChoiceField(
         choices=["2.0"],
@@ -2756,6 +3983,14 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"params": "user_message requires a non-empty content string, artifact_ids, or both"}
                 )
+        elif method == "side_question":
+            self._require_nonempty_string(params, "question")
+            question = params["question"].strip()
+            if len(question) > self.MAX_SIDE_QUESTION_CHARS:
+                raise serializers.ValidationError(
+                    {"params": f"question must be at most {self.MAX_SIDE_QUESTION_CHARS} characters"}
+                )
+            params["question"] = question
         elif method == "pi/rpc":
             command = params.get("command")
             if not isinstance(command, dict):
@@ -2794,6 +4029,22 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
                 )
             if len(json.dumps(params)) > self.MAX_MCP_RESPONSE_PARAMS_BYTES:
                 raise serializers.ValidationError({"params": "mcp_response params exceed the 300 KB limit"})
+        elif method == "credential_response":
+            self._require_nonempty_string(params, "requestId")
+            if len(params["requestId"]) > 128:
+                raise serializers.ValidationError({"params": "requestId exceeds the 128 character limit"})
+            if params.get("credential") != "claude_subscription_token":
+                raise serializers.ValidationError({"params": "Unsupported credential"})
+            token = params.get("token")
+            error = params.get("error")
+            if (token is None) == (error is None):
+                raise serializers.ValidationError(
+                    {"params": "credential_response requires exactly one of token or error"}
+                )
+            if token is not None and (not isinstance(token, str) or not token.strip() or len(token) > 4096):
+                raise serializers.ValidationError({"params": "token must contain between 1 and 4096 characters"})
+            if error is not None and error not in ("no_token", "store_unavailable"):
+                raise serializers.ValidationError({"params": "Unsupported credential error"})
         return attrs
 
 
@@ -2802,12 +4053,12 @@ class TaskRunCommandResponseSerializer(serializers.Serializer):
 
     jsonrpc = serializers.CharField(help_text="JSON-RPC version")
     id = serializers.JSONField(required=False, default=None, help_text="Request ID echoed back (string or number)")
-    result = serializers.JSONField(required=False, help_text="Command result on success")
-    error = serializers.DictField(required=False, help_text="Error details on failure")
-
-
-class CodeInviteRedeemRequestSerializer(serializers.Serializer):
-    code = serializers.CharField(max_length=50)
+    result = serializers.JSONField(
+        required=False, help_text="Command result. Permission responses confirm acceptance only with resolved=true."
+    )
+    error = serializers.DictField(
+        required=False, help_text="JSON-RPC error details, including failures returned with HTTP 200"
+    )
 
 
 class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
@@ -2840,96 +4091,12 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
     )
 
 
-class TaskAutomationSerializer(DataclassSerializer):
-    """Detail/create/update/run response for a task automation."""
-
-    class Meta:
-        dataclass = TaskAutomationDTO
-        fields = [
-            "id",
-            "name",
-            "prompt",
-            "repository",
-            "github_integration",
-            "cron_expression",
-            "timezone",
-            "template_id",
-            "enabled",
-            "last_run_at",
-            "last_run_status",
-            "last_task_id",
-            "last_task_run_id",
-            "last_error",
-            "created_at",
-            "updated_at",
-        ]
-
-
-class TaskAutomationWriteSerializer(serializers.Serializer):
-    """Request body for creating or updating a task automation."""
-
-    name = serializers.CharField(max_length=255, help_text="Display name (stored as the backing task's title).")
-    prompt = serializers.CharField(help_text="The automation prompt (stored as the backing task's description).")
-    repository = serializers.CharField(
-        max_length=255, help_text="Target repository in the format organization/repository."
-    )
-    github_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.filter(kind="github"),
-        required=False,
-        allow_null=True,
-        help_text="GitHub integration to run as. Defaults to the team's GitHub integration when omitted.",
-    )
-    cron_expression = serializers.CharField(
-        max_length=100, help_text="Standard 5-field cron expression (minute hour day month weekday)."
-    )
-    timezone = serializers.CharField(
-        max_length=128, required=False, default="UTC", help_text="IANA timezone the schedule runs in."
-    )
-    template_id = serializers.CharField(
-        max_length=255,
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Optional template identifier this automation was created from.",
-    )
-    enabled = serializers.BooleanField(
-        required=False, default=True, help_text="Whether the schedule is active; paused when false."
-    )
-
-    def validate_github_integration(self, value):
-        if value and value.team_id != self.context["team"].id:
-            raise serializers.ValidationError("Integration must belong to the same team")
-        return value
-
-    def validate_repository(self, value: str) -> str:
-        normalized = value.strip().lower()
-        parts = normalized.split("/")
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise serializers.ValidationError("Repository must be in the format organization/repository")
-        return normalized
-
-    def validate_cron_expression(self, value: str) -> str:
-        normalized = value.strip()
-        parts = normalized.split()
-        if len(parts) != 5:
-            raise serializers.ValidationError(
-                "Only standard 5-field cron expressions are supported "
-                "(minute hour day month weekday). Example: '0 9 * * 1-5'."
-            )
-        if not croniter.is_valid(normalized):
-            raise serializers.ValidationError(
-                "Invalid cron expression. Use standard 5-field cron syntax (e.g., '0 9 * * 1-5')."
-            )
-        return normalized
-
-    def validate_timezone(self, value: str) -> str:
-        if value not in available_timezones():
-            raise serializers.ValidationError(f"'{value}' is not a valid IANA timezone.")
-        return value
-
-
+# One serializer for every read. The list used to carry a subset, and because the settings
+# page edits an environment straight off the list, each field missing there read as unset
+# rather than as unfetched: a saved variable set looked empty. Both also generated the same
+# OpenAPI component, so the narrower one is what downstream clients were typed against.
 class SandboxEnvironmentSerializer(DataclassSerializer):
-    """Detail/create/update response for a sandbox environment."""
+    """A sandbox environment, as returned by list, detail, create and update."""
 
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
 
@@ -2943,6 +4110,7 @@ class SandboxEnvironmentSerializer(DataclassSerializer):
             "include_default_domains",
             "repositories",
             "has_environment_variables",
+            "environment_variable_keys",
             "private",
             "internal",
             "effective_domains",
@@ -2953,30 +4121,16 @@ class SandboxEnvironmentSerializer(DataclassSerializer):
             "custom_image_name",
             "custom_image_status",
         ]
-
-
-class SandboxEnvironmentListSerializer(DataclassSerializer):
-    """List response for sandbox environments (subset of fields)."""
-
-    created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
-
-    class Meta:
-        dataclass = SandboxEnvironmentDTO
-        fields = [
-            "id",
-            "name",
-            "network_access_level",
-            "allowed_domains",
-            "repositories",
-            "private",
-            "internal",
-            "created_by",
-            "created_at",
-            "updated_at",
-            "custom_image_id",
-            "custom_image_name",
-            "custom_image_status",
-        ]
+        extra_kwargs = {
+            "has_environment_variables": {
+                "help_text": "Whether any environment variables are set on this environment."
+            },
+            "environment_variable_keys": {
+                "help_text": (
+                    "Names of the environment variables that are set, sorted. Values are write-only and never returned."
+                )
+            },
+        }
 
 
 class SandboxEnvironmentWriteSerializer(serializers.Serializer):
@@ -2993,6 +4147,8 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=255),
         required=False,
         default=list,
+        max_length=tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS,
+        error_messages={"max_length": f"You can allow up to {tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS} domains."},
         help_text="Allowed domains for custom network access.",
     )
     include_default_domains = serializers.BooleanField(
@@ -3040,6 +4196,14 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
                         f"Environment variable key {key!r} is reserved and managed by PostHog; it cannot be set."
                     )
         return value
+
+    def validate_allowed_domains(self, value: list[str]) -> list[str]:
+        try:
+            return tasks_facade.normalize_sandbox_allowed_domains(value)
+        except ValueError as error:
+            raise serializers.ValidationError(
+                f"{error}. Enter domain names such as example.com or *.example.com without a scheme, path, or port."
+            ) from error
 
 
 class SandboxCustomImageSerializer(DataclassSerializer):
@@ -3170,6 +4334,22 @@ class SlackThreadContextThreadSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The Slack user who triggered the task. Null when no mapping exists yet.",
     )
+    queue_workflow_id = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Temporal workflow id of the per-conversation mention queue "
+            "(`slack-app-mention-<workspace>:<channel>:<thread_ts>`) that serializes the thread's "
+            "messages before any run exists. Null when the workspace id cannot be resolved."
+        ),
+    )
+    queue_workflow_url = serializers.CharField(
+        allow_null=True,
+        help_text="Full Temporal Web UI URL for the mention queue workflow; null when `TEMPORAL_UI_HOST` is unset.",
+    )
+    mapping_admin_url = serializers.CharField(
+        allow_null=True,
+        help_text="Absolute URL to the SlackThreadTaskMapping row in Django admin. Null when no mapping exists.",
+    )
 
 
 class SlackThreadContextTaskSerializer(serializers.Serializer):
@@ -3185,6 +4365,7 @@ class SlackThreadContextTaskSerializer(serializers.Serializer):
     origin_product = serializers.CharField(help_text="`Task.OriginProduct` (`slack` for slack-originated tasks).")
     created_at = serializers.DateTimeField(help_text="When the task was created (server-side timestamp).")
     url = serializers.CharField(help_text="Absolute URL to the task detail page in the PostHog app.")
+    admin_url = serializers.CharField(help_text="Absolute URL to the Task row in Django admin.")
 
 
 class SlackThreadContextRepoResearchSerializer(serializers.Serializer):
@@ -3277,6 +4458,9 @@ class SlackThreadContextRunSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous.",
     )
+    admin_url = serializers.CharField(
+        help_text="Absolute URL to the TaskRun row in Django admin (includes a log download action).",
+    )
 
 
 class SlackThreadContextResponseSerializer(serializers.Serializer):
@@ -3303,18 +4487,18 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """
 
     kind = serializers.ChoiceField(
-        choices=["heartbeat", "awaiting_input"],
+        choices=["heartbeat", "awaiting_input", "command_dispatched", "agent_activity"],
         help_text=(
             "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
             "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
-            "interactive run finishes a turn and is waiting for user input."
+            "interactive run finishes a turn and is waiting for user input. 'command_dispatched' "
+            "and 'agent_activity' record boot milestones."
         ),
     )
     agent_active = serializers.BooleanField(
         help_text=(
             "Whether the agent is currently active (true) or idle (false). "
-            "For 'heartbeat' callbacks this is always true. "
-            "For 'awaiting_input' callbacks this is always false."
+            "This is true for 'heartbeat' and 'agent_activity', and false otherwise."
         ),
     )
     task_id = serializers.CharField(
@@ -3332,4 +4516,86 @@ class AgentProxyCallbackResponseSerializer(serializers.Serializer):
 
     dispatched = serializers.BooleanField(
         help_text="True when the requested side effect was dispatched; false when skipped (e.g. run not found)."
+    )
+
+
+class TasksAIRunPreferencesSerializer(serializers.Serializer):
+    """The default AI run triple stored at team or user level.
+
+    Write payload for the tasks config endpoints and the `ai_run_preferences` block of
+    their responses. `runtime_adapter` and `model` must be set together; send all three
+    as null to clear a stored preference.
+    """
+
+    RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
+    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+
+    runtime_adapter = serializers.ChoiceField(
+        choices=RUNTIME_ADAPTER_CHOICES,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Default agent runtime adapter for new task runs. Use 'claude' for the Claude "
+            "runtime or 'codex' for the Codex runtime. Must be set together with `model`."
+        ),
+    )
+    model = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=False,
+        default=None,
+        help_text="Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=REASONING_EFFORT_CHOICES,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Default reasoning effort for models that expose an effort control.",
+    )
+
+
+class TasksResolvedAIRunDefaultsSerializer(serializers.Serializer):
+    """The AI run triple a new run will effectively use when the caller pins nothing,
+    plus which preference level supplied it."""
+
+    # Not bound to `ResolvedAIRunConfig` via DataclassSerializer: that dataclass also carries the
+    # internal `explicit` resolution state this endpoint never returns, and its per-field defaults
+    # would mark every field optional when the response always sends all four.
+    runtime_adapter = serializers.CharField(
+        allow_null=True, help_text="Effective default runtime adapter, or null when no preference is stored."
+    )
+    model = serializers.CharField(
+        allow_null=True, help_text="Effective default model identifier, or null when no preference is stored."
+    )
+    reasoning_effort = serializers.CharField(
+        allow_null=True, help_text="Effective default reasoning effort, or null when unset or unsupported."
+    )
+    # `Field.source` exists on the base class, but the serializer metaclass pops declared fields off the
+    # class body before it ever binds, so there is no shadowing at runtime — only mypy sees a clash.
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=["user", "team", "none"],
+        help_text="Preference level that supplied the default: the caller's own per-project preference ('user'), the project default ('team'), or 'none'.",
+    )
+
+
+@extend_schema_serializer(many=False)
+class TasksTeamConfigResponseSerializer(serializers.Serializer):
+    """Team-level tasks configuration."""
+
+    ai_run_preferences = TasksAIRunPreferencesSerializer(
+        help_text="Project-wide default AI run triple; all fields null when unset."
+    )
+
+
+@extend_schema_serializer(many=False)
+class TasksUserConfigResponseSerializer(serializers.Serializer):
+    """The requesting user's per-project tasks configuration."""
+
+    ai_run_preferences = TasksAIRunPreferencesSerializer(
+        help_text="The requesting user's per-project default AI run triple; all fields null when unset."
+    )
+    resolved_ai_run_defaults = TasksResolvedAIRunDefaultsSerializer(
+        help_text="The defaults a new run will use when no explicit runtime selection is sent."
     )

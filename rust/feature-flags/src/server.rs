@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter};
+use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter, UsageReporter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::membership::{
     CachedCohortMembershipProvider, CohortMembershipProvider, NoOpCohortMembershipProvider,
@@ -13,6 +13,7 @@ use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
 use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
 use crate::flags::flag_group_type_mapping::GroupTypeCacheManager;
+use crate::metrics::consts::FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
 use crate::tokio_monitor::TokioRuntimeMonitor;
@@ -20,9 +21,11 @@ use common_cache::NegativeCache;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader, S3Client};
+use common_metrics::gauge;
 use common_redis::{
     Client, CompressionConfig, ReadWriteClient, ReadWriteClientConfig, RedisClient,
 };
+use governor::clock;
 use lifecycle::{ComponentOptions, Handle, LivenessHandler, Manager, ReadinessHandler};
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use tokio::net::TcpListener;
@@ -113,6 +116,27 @@ pub async fn serve(
     // a real object store. Uses the `new_with_s3_client` testing seam on HyperCacheReader.
     flags_with_cohorts_s3: Option<Arc<dyn S3Client + Send + Sync>>,
 ) {
+    serve_with_rate_limiter_clock(
+        config,
+        listener,
+        rayon_dispatcher,
+        handles,
+        flags_with_cohorts_s3,
+        clock::DefaultClock::default(),
+    )
+    .await;
+}
+
+pub async fn serve_with_rate_limiter_clock<C>(
+    config: Config,
+    listener: TcpListener,
+    rayon_dispatcher: RayonDispatcher,
+    handles: LifecycleHandles,
+    flags_with_cohorts_s3: Option<Arc<dyn S3Client + Send + Sync>>,
+    rate_limiter_clock: C,
+) where
+    C: clock::Clock + Clone + Send + Sync + 'static,
+{
     // Configure compression based on environment variable
     let compression_config = if *config.redis_compression_enabled {
         let config = CompressionConfig::default();
@@ -148,18 +172,26 @@ pub async fn serve(
     let dedicated_redis_client =
         create_dedicated_readwrite_client(&config, compression_config.clone()).await;
 
-    // Log the cache migration mode based on configuration
-    let cache_mode = match (
-        dedicated_redis_client.is_some(),
-        *config.flags_redis_enabled,
-    ) {
-        (false, _) => "Mode 1 (Shared-only): All caches use shared Redis",
-        (true, false) => {
-            "Mode 2 (Dual-write): Reading from shared Redis, warming dedicated Redis in background"
-        }
-        (true, true) => "Mode 3 (Dedicated-only): All flags caches use dedicated Redis",
+    // The flags-with-cohorts reader is the one flags cache with its own cluster switch.
+    let (flags_with_cohorts_redis_client, flag_definitions_cluster) =
+        resolve_flag_definitions_redis_client(
+            dedicated_redis_client.as_ref(),
+            &redis_client,
+            *config.flag_definitions_dedicated_redis_enabled,
+        );
+
+    // Per cache, not one mode string: flags_with_cohorts no longer agrees with the rest.
+    let other_flags_caches = if dedicated_redis_client.is_some() {
+        "dedicated"
+    } else {
+        "shared"
     };
-    tracing::info!("Feature flags cache migration mode: {}", cache_mode);
+    tracing::info!(
+        other_flags_caches,
+        flags_with_cohorts = flag_definitions_cluster.cluster(),
+        flags_with_cohorts_reason = flag_definitions_cluster.reason(),
+        "Feature flags Redis cluster per cache"
+    );
 
     // Create database pools with persons routing support
     let database_pools = match DatabasePools::from_config(&config).await {
@@ -303,6 +335,8 @@ pub async fn serve(
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
+    // Etag-paired on the Django writer side, which makes HyperCacheReader refuse read repair.
+    flags_hypercache_config.enable_etag = true;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -321,6 +355,18 @@ pub async fn serve(
             }
         };
 
+    // Read repair for the hypercaches that are read straight through to Redis on every
+    // request. Both feature_flags readers are left out: each carries a companion `:etag` key
+    // that a payload-only repair would leave stale, and FlagDefinitionsCache already absorbs
+    // repeat reads of a cold flags.json in process. team_metadata is left out too, below,
+    // for a different reason: it gates token authentication.
+    let read_repair_ttl_seconds =
+        if config.hypercache_read_repair_ttl_seconds == 0 || *config.skip_writes {
+            None
+        } else {
+            Some(config.hypercache_read_repair_ttl_seconds)
+        };
+
     // Create HyperCacheReader for team metadata at startup
     // Uses token-based lookup instead of team_id
     let team_redis_client = dedicated_redis_client
@@ -334,6 +380,12 @@ pub async fn serve(
         config.object_storage_bucket.clone(),
     );
     team_hypercache_config.token_based = true;
+    // Left out of read repair: a hit here is trusted as proof of a valid token (see
+    // get_team_from_cache_or_pg), with no Postgres re-check. Team deletion clears Redis
+    // before S3, so a request landing in that gap reads the deleted team from S3; repairing
+    // it would resurrect that team in Redis for up to the repair TTL, instead of the single
+    // stale response an unrepaired hit gives the one caller that landed in the gap.
+    team_hypercache_config.read_repair_ttl_seconds = None;
 
     if !config.object_storage_endpoint.is_empty() {
         team_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -353,15 +405,14 @@ pub async fn serve(
         };
 
     // Create HyperCacheReader for flags with cohorts (used by /flags/definitions endpoint)
-    // Uses the shared cache (redis_client) - same cache Django writes to via HyperCache
-    let flags_with_cohorts_redis_client = redis_client.clone();
-
     let mut flags_with_cohorts_config = HyperCacheConfig::new(
         "feature_flags".to_string(),
         "flags_with_cohorts.json".to_string(),
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
+    // Etag-paired, same as flags.json above.
+    flags_with_cohorts_config.enable_etag = true;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_with_cohorts_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -407,6 +458,7 @@ pub async fn serve(
         config.object_storage_bucket.clone(),
     );
     config_hypercache_config.token_based = true;
+    config_hypercache_config.read_repair_ttl_seconds = read_repair_ttl_seconds;
 
     if !config.object_storage_endpoint.is_empty() {
         config_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -524,10 +576,20 @@ pub async fn serve(
         tokio_monitor.start_monitoring(tokio_monitor_handle).await;
     });
 
-    let billing_aggregator: Arc<BillingAggregator> =
-        BillingAggregator::start(redis_client.clone(), config.get_billing_aggregator_config());
+    let usage_reporter = UsageReporter::new(
+        &config.usage_ingestion_addr,
+        config.usage_ingestion_tls,
+        config.usage_ingestion_teams.clone(),
+        config.usage_ingestion_timeout_ms,
+    )
+    .expect("invalid usage-ingestion configuration");
+    let billing_aggregator: Arc<BillingAggregator> = BillingAggregator::start_with_usage_reporter(
+        redis_client.clone(),
+        config.get_billing_aggregator_config(),
+        usage_reporter,
+    );
 
-    let app = router::router(
+    let app = router::router_with_rate_limiter_clock(
         redis_client,
         dedicated_redis_client,
         database_pools,
@@ -550,6 +612,22 @@ pub async fn serve(
         cohort_membership_provider,
         billing_aggregator.clone(),
         config,
+        rate_limiter_clock,
+    );
+
+    // Emitted here, not where the cluster is resolved: `router_with_rate_limiter_clock` installs
+    // the Prometheus recorder, and a gauge set before that goes to the no-op recorder.
+    gauge(
+        FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE,
+        &[(
+            "reason".to_string(),
+            flag_definitions_cluster.reason().to_string(),
+        )],
+        if flag_definitions_cluster.reads_dedicated() {
+            1.0
+        } else {
+            0.0
+        },
     );
 
     tracing::info!(
@@ -665,6 +743,68 @@ async fn create_readwrite_client(
             );
             None
         }
+    }
+}
+
+/// Which cluster the `/flags/definitions` reader resolved to. `NoDedicatedClient` is kept
+/// distinct from `Disabled` because both read shared, but only one of them is a fault.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FlagDefinitionsCluster {
+    Disabled,
+    Dedicated,
+    NoDedicatedClient,
+}
+
+impl FlagDefinitionsCluster {
+    /// The cluster the reader serves from. Two of the three outcomes read shared, so this
+    /// answers "which cluster" where `reason` answers "why".
+    fn cluster(self) -> &'static str {
+        match self {
+            Self::Dedicated => "dedicated",
+            Self::Disabled | Self::NoDedicatedClient => "shared",
+        }
+    }
+
+    fn reason(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::Dedicated => "dedicated",
+            Self::NoDedicatedClient => "no_dedicated_client",
+        }
+    }
+
+    fn reads_dedicated(self) -> bool {
+        matches!(self, Self::Dedicated)
+    }
+}
+
+/// Pick the Redis cluster the `/flags/definitions` readers use.
+///
+/// Do not give the ETag a gate of its own. Both the payload and the ETag come from this one
+/// client, so a stale-but-present ETag on one cluster can never match a client's `If-None-Match`
+/// while the other cluster holds a newer payload. That pairing answers 304 and pins the SDK to
+/// stale definitions with no error on any metric.
+fn resolve_flag_definitions_redis_client(
+    dedicated_redis_client: Option<&Arc<dyn Client + Send + Sync>>,
+    shared_redis_client: &Arc<dyn Client + Send + Sync>,
+    dedicated_enabled: bool,
+) -> (Arc<dyn Client + Send + Sync>, FlagDefinitionsCluster) {
+    match (dedicated_enabled, dedicated_redis_client) {
+        (true, Some(dedicated)) => (dedicated.clone(), FlagDefinitionsCluster::Dedicated),
+        (true, None) => {
+            tracing::warn!(
+                "FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED is set but no dedicated flags Redis \
+                 client exists. /flags/definitions keeps reading from shared Redis."
+            );
+            (
+                shared_redis_client.clone(),
+                FlagDefinitionsCluster::NoDedicatedClient,
+            )
+        }
+        (false, _) => (
+            shared_redis_client.clone(),
+            FlagDefinitionsCluster::Disabled,
+        ),
     }
 }
 
@@ -820,7 +960,9 @@ pub async fn create_redis_client(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_redis::MockRedisClient;
     use lifecycle::LifecycleError;
+    use rstest::rstest;
 
     /// Locks in the contract that drives the early-return paths in `serve()`:
     /// `fail_init` must surface a `ComponentFailure { tag: "http-server", reason }` —
@@ -851,6 +993,59 @@ mod tests {
             ),
             "expected ComponentFailure {{ tag: \"http-server\", reason: \"redis init failed\" }}, got {result:?}"
         );
+    }
+
+    /// An inverted toggle here moves a production read path with no other signal.
+    #[rstest]
+    #[case::off_with_dedicated(false, true, FlagDefinitionsCluster::Disabled, "disabled", "shared")]
+    #[case::off_without_dedicated(
+        false,
+        false,
+        FlagDefinitionsCluster::Disabled,
+        "disabled",
+        "shared"
+    )]
+    #[case::on_with_dedicated(
+        true,
+        true,
+        FlagDefinitionsCluster::Dedicated,
+        "dedicated",
+        "dedicated"
+    )]
+    #[case::on_without_dedicated(
+        true,
+        false,
+        FlagDefinitionsCluster::NoDedicatedClient,
+        "no_dedicated_client",
+        "shared"
+    )]
+    fn test_resolve_flag_definitions_redis_client(
+        #[case] dedicated_enabled: bool,
+        #[case] dedicated_present: bool,
+        #[case] expected_cluster: FlagDefinitionsCluster,
+        #[case] expected_reason: &str,
+        #[case] expected_redis: &str,
+    ) {
+        let shared: Arc<dyn Client + Send + Sync> = Arc::new(MockRedisClient::new());
+        let dedicated: Arc<dyn Client + Send + Sync> = Arc::new(MockRedisClient::new());
+
+        let (resolved, cluster) = resolve_flag_definitions_redis_client(
+            dedicated_present.then_some(&dedicated),
+            &shared,
+            dedicated_enabled,
+        );
+
+        let expected = if expected_cluster.reads_dedicated() {
+            &dedicated
+        } else {
+            &shared
+        };
+        assert!(Arc::ptr_eq(&resolved, expected));
+        assert_eq!(cluster, expected_cluster);
+        // Runbook step 2 dispatches the on-call on these two strings, so a rename here
+        // sends them to the wrong Redis endpoint during the cutover.
+        assert_eq!(cluster.reason(), expected_reason);
+        assert_eq!(cluster.cluster(), expected_redis);
     }
 
     #[tokio::test]

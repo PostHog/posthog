@@ -11,6 +11,7 @@ import {
     resolveAxisLineColor,
 } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
+import { applyChartDefaults } from '../../core/chart-config'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
@@ -72,7 +73,7 @@ export function LineChart<Meta = unknown>({ onError, ...rest }: LineChartProps<M
 function LineChartInner<Meta = unknown>({
     series,
     labels,
-    config,
+    config: rawConfig,
     theme,
     tooltip,
     onPointClick,
@@ -81,6 +82,7 @@ function LineChartInner<Meta = unknown>({
     dataAttr,
     children,
 }: LineChartProps<Meta>): React.ReactElement {
+    const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
     const {
         yScaleType = 'linear',
         percentStackView = false,

@@ -19,6 +19,7 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 from .policy import GatewayCaller, PolicyContext
+from .url_policy import check_mcp_url_policy, trust_environment_proxy
 
 logger = structlog.get_logger(__name__)
 
@@ -226,6 +227,47 @@ def _gateway_decision(policy_context: PolicyContext, tool: MCPServerInstallation
     return "auto", False
 
 
+def resolve_call_decision(
+    tool: MCPServerInstallationTool,
+    policy_context: PolicyContext | None,
+) -> tuple[str, str | None]:
+    """Decide one tool call outside the JSON-RPC proxy path.
+
+    Returns ``(audit_decision, block_reason)`` where ``block_reason`` is None when
+    the call may proceed, else one of ``"removed"``, ``"needs_approval"`` or
+    ``"disabled"``. Shares :func:`_gateway_decision` with the proxy so policy
+    resolution cannot diverge between the two entry points; the proxy keeps its own
+    JSON-RPC error mapping because its wire format is fixed by the MCP spec.
+    """
+    if tool.removed_at is not None:
+        return "blocked", "removed"
+
+    if policy_context is not None:
+        decision, blocked = _gateway_decision(policy_context, tool)
+        if not blocked:
+            return decision, None
+        return decision, "needs_approval" if decision == "pending" else "disabled"
+
+    # Pre-gateway installations fall back to the cached per-tool approval flag.
+    if tool.approval_state == "approved":
+        return "approved", None
+    if tool.approval_state == "needs_approval":
+        return "pending", "needs_approval"
+    return "blocked", "disabled"
+
+
+def record_tool_call_audit(
+    installation: MCPServerInstallation,
+    gateway_server: MCPGatewayServer,
+    caller: GatewayCaller,
+    actor_label: str,
+    tool_name: str,
+    decision: str,
+) -> None:
+    """Audit a single tool call. Same writer the proxy uses, one entry at a time."""
+    _write_audit_events(installation, gateway_server, caller, actor_label, [(tool_name, decision)])
+
+
 def _evaluate_tool_call(
     tools_by_name: dict[str, MCPServerInstallationTool],
     item: dict[str, Any],
@@ -371,6 +413,8 @@ def _write_audit_events(
     caller: GatewayCaller,
     actor_label: str,
     entries: list[tuple[str, str]],
+    credential_owner_id: int | None = None,
+    grant_scope: str = "",
 ) -> None:
     """Best-effort audit trail — a failed insert must never break the proxy."""
     try:
@@ -383,6 +427,8 @@ def _write_audit_events(
                     actor_user_id=caller.user_id,
                     actor_service_account_id=caller.service_account_id,
                     actor_label=actor_label,
+                    credential_owner_id=credential_owner_id,
+                    grant_scope=grant_scope,
                     server_name=gateway_server.name,
                     tool_name=tool_name,
                     decision=decision,
@@ -403,8 +449,16 @@ def proxy_mcp_request(
     caller: GatewayCaller | None = None,
     gateway_server: MCPGatewayServer | None = None,
     actor_label: str = "",
+    credential_owner_id: int | None = None,
+    grant_scope: str = "",
 ) -> HttpResponseBase:
-    allowed, error = is_url_allowed(installation.url)
+    """Forward one MCP request upstream, enforcing tool policy and auditing it.
+
+    `credential_owner_id` and `grant_scope` describe the agent grant the call
+    rides, so the audit trail answers whose connection an agent used. Both are
+    empty for member calls, where the actor already is the credential owner.
+    """
+    allowed, error = check_mcp_url_policy(installation.url, installation.team_id)
     if not allowed:
         logger.warning("SSRF: blocked proxy request", url=installation.url, reason=error)
         return HttpResponse(
@@ -434,7 +488,15 @@ def proxy_mcp_request(
 
     enforcement_response = enforce_tool_approval(installation, data, policy_context, audit_entries)
     if gateway_server is not None and caller is not None and audit_entries:
-        _write_audit_events(installation, gateway_server, caller, actor_label, audit_entries)
+        _write_audit_events(
+            installation,
+            gateway_server,
+            caller,
+            actor_label,
+            audit_entries,
+            credential_owner_id=credential_owner_id,
+            grant_scope=grant_scope,
+        )
     if enforcement_response:
         return enforcement_response
 
@@ -470,7 +532,10 @@ def proxy_mcp_request(
     if mcp_session_id:
         headers["Mcp-Session-Id"] = mcp_session_id
 
-    client = httpx.Client(timeout=UPSTREAM_TIMEOUT)
+    client = httpx.Client(
+        timeout=UPSTREAM_TIMEOUT,
+        trust_env=trust_environment_proxy(installation.url, installation.team_id),
+    )
     try:
         upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(
             client,

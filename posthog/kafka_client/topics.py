@@ -61,10 +61,6 @@ KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC = f"{KAFKA_PREFIX}document_embeddings_inpu
 KAFKA_DOCUMENT_EMBEDDING_RESULTS_TOPIC = f"{KAFKA_PREFIX}document_embedding_results{SUFFIX}"
 
 KAFKA_CDP_INTERNAL_EVENTS = f"{KAFKA_PREFIX}cdp_internal_events{SUFFIX}"
-KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = (
-    f"{KAFKA_PREFIX}clickhouse_precalculated_person_properties{SUFFIX}"
-)
-KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS = f"{KAFKA_PREFIX}clickhouse_prefiltered_events{SUFFIX}"
 KAFKA_CDP_BACKFILL_EVENTS = f"{KAFKA_PREFIX}cdp_backfill_events{SUFFIX}"
 KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFFIX}"
 
@@ -73,6 +69,7 @@ KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = f"{KAFKA_PREFIX}data_warehouse_source_webhooks
 KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ = f"{KAFKA_PREFIX}data_warehouse_source_webhooks_dlq{SUFFIX}"
 
 KAFKA_CLICKHOUSE_TOPHOG = f"{KAFKA_PREFIX}clickhouse_tophog{SUFFIX}"
+KAFKA_BILLING_USAGE_RECORDS = f"{KAFKA_PREFIX}clickhouse_billing_usage_records{SUFFIX}"
 
 # Distinct ID usage - pre-processed by WarpStream pipeline from clickhouse_events_json
 KAFKA_DISTINCT_ID_USAGE_EVENTS_JSON = f"{KAFKA_PREFIX}distinct_id_usage_events_json{SUFFIX}"
@@ -94,3 +91,9 @@ KAFKA_FLAGS_CACHE_INVALIDATION_DLQ = f"{KAFKA_PREFIX}flags_cache_invalidation_dl
 # Consumer: a dedicated throttling consumer that rate-limits $set events into capture-internal.
 KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES = f"{KAFKA_PREFIX}warehouse_person_property_updates{SUFFIX}"
 KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ = f"{KAFKA_PREFIX}warehouse_person_property_updates_dlq{SUFFIX}"
+
+KAFKA_LOGS_INGESTION = f"{KAFKA_PREFIX}logs_ingestion{SUFFIX}"
+KAFKA_LOGS_INGESTION_DLQ = f"{KAFKA_PREFIX}logs_ingestion_dlq{SUFFIX}"
+
+KAFKA_TRACES_INGESTION = f"{KAFKA_PREFIX}ingestion-traces{SUFFIX}"
+KAFKA_TRACES_INGESTION_DLQ = f"{KAFKA_PREFIX}ingestion-traces-dlq{SUFFIX}"

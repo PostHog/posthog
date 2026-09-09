@@ -10,7 +10,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { slugify } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { validateMetricName } from '../common'
+import { validateMetricDescription, validateMetricName } from '../common'
 import { metricsLogic } from '../metricsLogic'
 
 export interface MetricFromInsightModalProps {
@@ -34,13 +34,16 @@ export function MetricFromInsightModal({ insightShortId, insightName }: MetricFr
         ? allMetrics.filter((metric) => metric.source_insight_short_id === insightShortId)
         : []
 
+    const descriptionError = validateMetricDescription(description)
     const submitDisabledReason = !insightShortId
         ? 'Save the insight first'
         : nameError
           ? nameError
           : !description.trim()
             ? 'Add a description'
-            : undefined
+            : descriptionError
+              ? descriptionError
+              : undefined
 
     const handleClose = (): void => {
         setName('')
@@ -109,7 +112,11 @@ export function MetricFromInsightModal({ insightShortId, insightName }: MetricFr
                         <LemonInput value={displayName} onChange={setDisplayName} placeholder="Monthly active users" />
                     </LemonField.Pure>
 
-                    <LemonField.Pure label="Description">
+                    <LemonField.Pure
+                        label="Description"
+                        error={descriptionError}
+                        info="1-3 sentences: what the metric means and what it serves."
+                    >
                         <LemonInput
                             value={description}
                             onChange={setDescription}

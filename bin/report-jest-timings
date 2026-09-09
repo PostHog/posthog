@@ -1,0 +1,333 @@
+#!/usr/bin/env bash
+# Render a Jest test-speed report from a timings JSON file.
+#
+# The heavy lifting (JUnit parsing, in-band window reconstruction, shard metrics)
+# lives in .github/scripts/report_test_timings.py; this script turns that JSON into
+# a readable report: per-shard rollups, slowdown distribution, slowest tests, the
+# serial suite's per-file launch+teardown table, and a scaling model that shows
+# what adding more shards actually buys once the fixed per-shard setup cost is
+# paid again.
+#
+# Inputs (pick one):
+#   --timings PATH   timings JSON emitted by `report_test_timings.py --timings PATH`
+#   --artifacts DIR  downloaded JUnit artifacts dir (junit-results-* subdirs, or flat);
+#                    invokes the python script for you
+#   --stdin          read timings JSON from stdin
+#
+# Options: --runner jest|pytest (default jest), --top N (default all), --suite NAME
+# (filter to one suite), --markdown (GitHub-friendly output, no ANSI),
+# --markdown-overview, --html PATH, --uv PATH.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TIMINGS_PY="$REPO_ROOT/.github/scripts/report_test_timings.py"
+
+MODE=""
+SOURCE=""
+RUNNER="jest"
+TOP=1000000
+SUITE=""
+MARKDOWN=0
+MARKDOWN_OVERVIEW=0
+HTML_OUTPUT=""
+UV="${UV:-uv}"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --timings) MODE="timings"; SOURCE="$2"; shift 2 ;;
+        --artifacts) MODE="artifacts"; SOURCE="$2"; shift 2 ;;
+        --stdin) MODE="stdin"; shift ;;
+        --runner) RUNNER="$2"; shift 2 ;;
+        --top) TOP="$2"; shift 2 ;;
+        --suite) SUITE="$2"; shift 2 ;;
+        --markdown) MARKDOWN=1; shift ;;
+        --markdown-overview) MARKDOWN=1; MARKDOWN_OVERVIEW=1; shift ;;
+        --html) HTML_OUTPUT="$2"; shift 2 ;;
+        --uv) UV="$2"; shift 2 ;;
+        -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+
+if [[ -z "$MODE" ]]; then
+    echo "usage: report-jest-timings --timings PATH | --artifacts DIR | --stdin [--top N] [--suite NAME] [--markdown]" >&2
+    exit 2
+fi
+
+TMP_JSON=""
+cleanup() {
+    if [[ -n "$TMP_JSON" ]]; then
+        rm -f "$TMP_JSON"
+    fi
+}
+trap cleanup EXIT
+
+if [[ "$MODE" == "timings" ]]; then
+    JSON_FILE="$SOURCE"
+    [[ -f "$JSON_FILE" ]] || { echo "timings file not found: $JSON_FILE" >&2; exit 1; }
+elif [[ "$MODE" == "artifacts" ]]; then
+    TMP_JSON="$(mktemp -t jest-timings.XXXXXX.json)"
+    "$UV" run --script "$TIMINGS_PY" --runner="$RUNNER" --timings "$TMP_JSON" "$SOURCE" 1>&2
+    JSON_FILE="$TMP_JSON"
+else
+    TMP_JSON="$(mktemp -t jest-timings.XXXXXX.json)"
+    cat > "$TMP_JSON"
+    JSON_FILE="$TMP_JSON"
+fi
+
+if [[ -n "$HTML_OUTPUT" && "$MARKDOWN" == "1" ]]; then
+    echo "--html cannot be combined with --markdown" >&2
+    exit 2
+fi
+
+export RT_JSON="$JSON_FILE" RT_TOP="$TOP" RT_SUITE="$SUITE" RT_MARKDOWN="$MARKDOWN" RT_MARKDOWN_OVERVIEW="$MARKDOWN_OVERVIEW" RT_HTML_OUTPUT="$HTML_OUTPUT"
+
+python3 - <<'PY'
+import json
+import os
+import sys
+
+TOP = int(os.environ["RT_TOP"])
+SUITE = os.environ["RT_SUITE"]
+MARKDOWN = os.environ["RT_MARKDOWN"] == "1"
+MARKDOWN_OVERVIEW = os.environ["RT_MARKDOWN_OVERVIEW"] == "1"
+BOLD = "" if MARKDOWN else "\033[1m"
+DIM = "" if MARKDOWN else "\033[2m"
+RST = "" if MARKDOWN else "\033[0m"
+
+with open(os.environ["RT_JSON"]) as fh:
+    report = json.load(fh)
+
+shards = [s for s in report.get("shards", []) if not SUITE or s.get("suite") == SUITE]
+if not shards:
+    print("No shard data in report.", file=sys.stderr)
+    sys.exit(0)
+
+
+def fmt(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    if seconds < 60:
+        return f"{seconds:.2f}s".rstrip("0").rstrip(".")
+    if seconds < 3600:
+        minutes, remainder = divmod(round(seconds), 60)
+        return f"{minutes}m{remainder:02d}s"
+    hours, remainder = divmod(round(seconds), 3600)
+    return f"{hours}h{remainder // 60:02d}m"
+
+
+def name_width(entries, key, cap=68):
+    return min(cap, max((len(str(e[key])) for e in entries), default=8))
+
+
+total_wall = sum(s["wall_seconds"] for s in shards)
+total_test = sum(s["testcase_seconds"] for s in shards)
+total_launch = sum(s.get("launch_seconds", 0.0) for s in shards)
+all_counts = sum(s["test_count"] for s in shards)
+sum_median = sorted(s["median_test_seconds"] for s in shards)
+sum_p90 = sorted(s["p90_test_seconds"] for s in shards)
+sum_max = sorted(s["max_test_seconds"] for s in shards)
+rows = []
+for s in shards:
+    for t in s.get("slowest_tests", []):
+        rows.append({"shard": s["junit_filename"], "name": t["name"], "file": t["file"],
+                     "d": t["duration_seconds"], "offset": t.get("start_offset_seconds")})
+rows.sort(key=lambda r: r["d"], reverse=True)
+launch_rows = []
+for s in shards:
+    for file, launch in (s.get("per_file_launch_overhead_seconds") or {}).items():
+        launch_rows.append({"file": file, "launch": launch, "shard": s["junit_filename"]})
+walls = [s["wall_seconds"] for s in shards]
+mean_wall = total_wall / len(walls)
+fixed = 240  # CI-observed per-shard fixed cost: services boot + schema restore + addon build.
+
+def markdown_cell(value: object) -> str:
+    return str(value).replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+
+
+def markdown_table(headers: list[str], values: list[list[str]]) -> None:
+    print("| " + " | ".join(headers) + " |")
+    print("| " + " | ".join("---:" if index == 0 else "---" for index in range(len(headers))) + " |")
+    for value in values:
+        print("| " + " | ".join(value) + " |")
+
+
+def render_html() -> None:
+    tests = [
+        [row["d"], row["name"], row["file"], row["shard"], row["offset"]]
+        for row in rows
+    ]
+    tests_json = json.dumps(tests, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    longest_shard = max(shards, key=lambda shard: shard["wall_seconds"])
+    summary = json.dumps(
+        {
+            "tests": all_counts,
+            "shards": len(shards),
+            "testSeconds": total_test,
+            "runnerSeconds": total_wall,
+            "longestShard": longest_shard["junit_filename"],
+            "longestShardSeconds": longest_shard["wall_seconds"],
+        },
+        separators=(",", ":"),
+    )
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jest test-speed report</title>
+<style>
+body{{background:#0d1117;color:#e6edf3;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0}}
+main{{max-width:1440px;margin:auto;padding:32px}}
+h1{{margin:0 0 6px;font-size:28px}} p{{color:#8b949e;margin:0 0 24px}}
+.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:24px 0}}
+.metric,.controls,table{{background:#161b22;border:1px solid #30363d;border-radius:6px}}
+.metric{{padding:14px}} .metric span{{display:block;color:#8b949e;font-size:12px;margin-bottom:5px}} .metric strong{{font-size:18px}}
+.controls{{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px;margin-bottom:12px}}
+input,button{{font:inherit;color:inherit;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 10px}}
+input{{width:min(440px,55vw)}} button{{cursor:pointer}} button:disabled{{cursor:default;opacity:.5}}
+table{{border-collapse:separate;border-spacing:0;width:100%;overflow:hidden}} th,td{{border-bottom:1px solid #21262d;padding:9px 12px;text-align:left;vertical-align:top}}
+th{{background:#1f2937;cursor:pointer;white-space:nowrap}} tr:last-child td{{border-bottom:0}} td:first-child{{font-variant-numeric:tabular-nums;white-space:nowrap}}
+code{{color:#a5d6ff;font-size:12px;word-break:break-word}} .pager{{display:flex;align-items:center;gap:10px;margin-top:12px;color:#8b949e}}
+@media(max-width:700px){{main{{padding:16px}}th:nth-child(4),td:nth-child(4),th:nth-child(5),td:nth-child(5){{display:none}}}}
+</style>
+</head>
+<body><main>
+<h1>Jest test-speed report</h1>
+<p>Every test from this run, sortable and filterable. Durations come directly from JUnit.</p>
+<section class="metrics" id="metrics"></section>
+<section class="controls"><input id="search" type="search" placeholder="Filter by test name, file, or shard" autofocus><span id="count"></span></section>
+<table><thead><tr><th data-key="0">Duration</th><th data-key="1">Test</th><th data-key="2">File</th><th data-key="3">Shard</th><th data-key="4">Started</th></tr></thead><tbody id="tests"></tbody></table>
+<nav class="pager"><button id="previous">Previous</button><span id="page"></span><button id="next">Next</button></nav>
+</main><script>
+const tests={tests_json}, summary={summary}, pageSize=100;
+let filtered=tests, page=0, key=0, direction=-1;
+const duration=(seconds)=>seconds<60?`${{seconds.toFixed(2).replace(/\\.00$/,'')}}s`:`${{Math.floor(seconds/60)}}m${{String(Math.round(seconds%60)).padStart(2,'0')}}s`;
+const offset=(seconds)=>seconds==null?'—':`+${{duration(seconds)}}`;
+const text=(tag,value)=>{{const node=document.createElement(tag);node.textContent=value;return node}};
+function sort(){{filtered.sort((a,b)=>{{const left=a[key]??'',right=b[key]??'';return (typeof left==='number'?left-right:String(left).localeCompare(String(right)))*direction}})}}
+function render(){{
+  const start=page*pageSize, visible=filtered.slice(start,start+pageSize), body=document.querySelector('#tests'); body.replaceChildren();
+  for(const row of visible){{const tr=document.createElement('tr');tr.append(text('td',duration(row[0])),text('td',row[1]),text('td',row[2]),text('td',row[3]),text('td',offset(row[4])));body.append(tr)}}
+  document.querySelector('#count').textContent=`${{filtered.length.toLocaleString()}} of ${{tests.length.toLocaleString()}} tests`;
+  document.querySelector('#page').textContent=`Page ${{page+1}} of ${{Math.max(1,Math.ceil(filtered.length/pageSize))}}`;
+  document.querySelector('#previous').disabled=page===0; document.querySelector('#next').disabled=start+pageSize>=filtered.length;
+}}
+for(const [label,value] of [['Tests',summary.tests.toLocaleString()],['Shards',summary.shards],['Test-body time',duration(summary.testSeconds)],['Jest runner time',duration(summary.runnerSeconds)],['Longest shard',`${{summary.longestShard}} (${{duration(summary.longestShardSeconds)}})`]]){{const card=document.createElement('div');card.className='metric';card.append(text('span',label),text('strong',value));document.querySelector('#metrics').append(card)}}
+document.querySelector('#search').addEventListener('input',(event)=>{{const query=event.target.value.toLowerCase();filtered=tests.filter(row=>row.slice(1,4).some(value=>value.toLowerCase().includes(query)));sort();page=0;render()}});
+for(const header of document.querySelectorAll('th')){{header.addEventListener('click',()=>{{const next=Number(header.dataset.key);direction=key===next?-direction:1;key=next;sort();page=0;render()}})}}
+document.querySelector('#previous').addEventListener('click',()=>{{page--;render()}}); document.querySelector('#next').addEventListener('click',()=>{{page++;render()}}); render();
+</script></body></html>"""
+    with open(os.environ["RT_HTML_OUTPUT"], "w", encoding="utf-8") as output:
+        output.write(html)
+
+
+if os.environ["RT_HTML_OUTPUT"]:
+    render_html()
+    sys.exit(0)
+
+
+if MARKDOWN:
+    slowest_shard = max(shards, key=lambda shard: shard["wall_seconds"])
+    print("# Jest test-speed report")
+    print(f"`{report.get('runner')}` · {len(shards)} shards · {all_counts} tests · suites: {', '.join(report.get('suites', []))}")
+    print()
+    print("## At a glance")
+    markdown_table(
+        ["Metric", "Time"],
+        [
+            ["Jest runner time (sum of shards)", fmt(total_wall)],
+            ["Test-body time (sum)", fmt(total_test)],
+            ["Startup + teardown (sum)", fmt(total_launch)],
+            ["Slowest individual test", fmt(sum_max[-1])],
+            ["Longest shard", f"{markdown_cell(slowest_shard['junit_filename'])} ({fmt(slowest_shard['wall_seconds'])})"],
+        ],
+    )
+    print()
+    if not MARKDOWN_OVERVIEW:
+        print("## All individual tests — slowest first")
+        print("Every Jest testcase from this run, ordered by duration.")
+        markdown_table(
+            ["Duration", "Test", "File", "Shard", "Started"],
+            [
+                [
+                    fmt(row["d"]),
+                    markdown_cell(row["name"]),
+                    f"`{markdown_cell(row['file'])}`",
+                    f"`{markdown_cell(row['shard'])}`",
+                    f"+{fmt(row['offset'])}" if row["offset"] is not None else "—",
+                ]
+                for row in rows[:TOP]
+            ],
+        )
+        print()
+    print("## Shard balance")
+    markdown_table(
+        ["Shard", "Tests", "Jest runner", "Test bodies", "Startup + teardown"],
+        [
+            [
+                f"`{markdown_cell(shard['junit_filename'])}`",
+                str(shard["test_count"]),
+                fmt(shard["wall_seconds"]),
+                fmt(shard["testcase_seconds"]),
+                fmt(shard.get("launch_seconds", 0.0)),
+            ]
+            for shard in sorted(shards, key=lambda shard: shard["wall_seconds"], reverse=True)
+        ],
+    )
+    print()
+    print("## Test-time distribution")
+    markdown_table(
+        ["Tests", "Shard median range", "Shard p90 range", "Slowest test"],
+        [[str(all_counts), f"{fmt(sum_median[0])} – {fmt(sum_median[-1])}", f"{fmt(sum_p90[0])} – {fmt(sum_p90[-1])}", fmt(sum_max[-1])]],
+    )
+    print()
+    if launch_rows:
+        print("<details>")
+        print("<summary><strong>Per-file startup + teardown</strong></summary>")
+        print()
+        print("Time not billed to an individual test: module imports, setup files, worker boot, and teardown.")
+        print()
+        markdown_table(
+            ["Overhead", "File", "Shard"],
+            [
+                [fmt(row["launch"]), f"`{markdown_cell(row['file'])}`", f"`{markdown_cell(row['shard'])}`"]
+                for row in sorted(launch_rows, key=lambda row: row["launch"], reverse=True)[:TOP]
+            ],
+        )
+        print()
+        print("</details>")
+        print()
+    print("<details>")
+    print("<summary><strong>Shard scaling estimate</strong></summary>")
+    print()
+    print(f"Current shard spread: {fmt(min(walls))} – {fmt(max(walls))} (mean {fmt(mean_wall)}).")
+    print()
+    markdown_table(
+        ["Shards", "Estimated CI time"],
+        [[str(count), fmt(fixed + total_wall / count)] for count in range(len(shards), 11)],
+    )
+    print()
+    print("Estimate includes the ~4 minute per-shard services, schema, and build cost.")
+    print()
+    print("</details>")
+    print()
+    if MARKDOWN_OVERVIEW:
+        print("> Every individual test appears in the following summary pages, ordered slowest first.")
+    else:
+        print("> Full per-test history is also emitted to OTLP traces (`ci-nodejs` / `ci-frontend`) and the weekly slow-tests report.")
+else:
+    print(f"{BOLD}Jest test-speed report{RST}  runner={report.get('runner')}  suites={','.join(report.get('suites', []))}")
+    print()
+    print(f"{BOLD}Shards{RST}")
+    print(f"  {len(shards)} shard(s) | runner {fmt(total_wall)} | test bodies {fmt(total_test)} | startup + teardown {fmt(total_launch)}")
+    width = name_width(shards, "junit_filename")
+    for shard in sorted(shards, key=lambda shard: shard["wall_seconds"], reverse=True):
+        print(f"  {DIM}{shard['junit_filename']:<{width}}{RST}  runner {fmt(shard['wall_seconds']):>8}  tests {shard['test_count']:>4}  bodies {fmt(shard['testcase_seconds']):>8}")
+    print()
+    print(f"{BOLD}Individual tests, slowest first{RST}")
+    width = name_width(rows, "name", cap=56)
+    for row in rows[:TOP]:
+        print(f"  {fmt(row['d']):>8}  {DIM}{row['name'][:width]:<{width}}{RST}  {DIM}{row['file']}{RST}")
+PY

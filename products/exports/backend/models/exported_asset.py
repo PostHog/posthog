@@ -1,11 +1,14 @@
+import re
 import secrets
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.db.models.fields.json import KeyTransform
 from django.http import HttpResponse, HttpResponseRedirect
 from django.utils.text import slugify
 from django.utils.timezone import now
@@ -27,10 +30,23 @@ PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
 MAX_AGE_CONTENT = 86400  # 1 day
 EXPORTED_ASSET_PURPOSE_RENDER = "render"
 EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY = "subscription_delivery"
+DATASET_EXPORT_KIND = "dataset"
 
 SEVEN_DAYS = timedelta(days=7)
 SIX_MONTHS = timedelta(days=180)
 TWELVE_MONTHS = timedelta(days=365)
+
+
+# The rasterizer interpolates this id into an internal recording API path, so anything that could
+# change the shape of that path has to be rejected: separators, percent escapes, and a dot-only id,
+# which is a relative segment that URL normalization collapses. Kept in step with SESSION_ID_RE in
+# nodejs/src/session-replay/recording-rasterizer/capture/config.ts.
+SESSION_RECORDING_ID_RE = re.compile(r"(?!\.+\Z)[A-Za-z0-9_.:-]{1,200}")
+
+
+def is_valid_session_recording_id(session_recording_id: object) -> bool:
+    # fullmatch, not match: `$` would also accept a trailing newline.
+    return isinstance(session_recording_id, str) and bool(SESSION_RECORDING_ID_RE.fullmatch(session_recording_id))
 
 
 def get_default_access_token() -> str:
@@ -44,6 +60,11 @@ class ExportedAssetManager(models.Manager):
 
 
 class ExportedAsset(models.Model):
+    class SourceAuthentication(models.TextChoices):
+        SESSION = "session"
+        PERSONAL_API_KEY = "personal_api_key", "Personal API key"
+        OAUTH_ACCESS_TOKEN = "oauth_access_token", "OAuth access token"
+
     class ExportFormat(models.TextChoices):
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
@@ -56,6 +77,7 @@ class ExportedAsset(models.Model):
         MP4 = "video/mp4", "video/mp4"
         GIF = "image/gif", "image/gif"
         JSON = "application/json", "application/json"
+        JSONL = "application/x-ndjson", "application/x-ndjson"
 
     SUPPORTED_FORMATS = [
         ExportFormat.PNG,
@@ -66,7 +88,16 @@ class ExportedAsset(models.Model):
         ExportFormat.MP4,
         ExportFormat.GIF,
         ExportFormat.JSON,
+        ExportFormat.JSONL,
     ]
+
+    # Formats rendered by the Temporal rasterizer (headless Chromium replaying the recording) rather
+    # than the browserless image/CSV path. Values are the ffmpeg output format each one renders to.
+    RASTERIZED_FORMATS: dict[str, str] = {
+        ExportFormat.MP4: "mp4",
+        ExportFormat.WEBM: "webm",
+        ExportFormat.GIF: "gif",
+    }
 
     # Relations
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -83,6 +114,8 @@ class ExportedAsset(models.Model):
     # to allow for lazy deletes
     expires_after = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    source_authentication = models.CharField(max_length=32, choices=SourceAuthentication.choices, null=True, blank=True)
+    source_credential_id = models.CharField(max_length=50, null=True, blank=True)
     # for example holds filters for CSV exports
     export_context = models.JSONField(null=True, blank=True)
     # path in object storage or some other location identifier for the asset
@@ -107,6 +140,16 @@ class ExportedAsset(models.Model):
 
     class Meta:
         db_table = "posthog_exportedasset"
+        indexes = [
+            # The replay session-export get-or-create probes by (team, session recording id) at
+            # high volume; without this expression index it walks the team's whole asset history.
+            models.Index(
+                models.F("team_id"),
+                KeyTransform("session_recording_id", "export_context"),
+                name="exportedasset_system_session",
+                condition=Q(is_system=True),
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.expires_after:
@@ -120,7 +163,7 @@ class ExportedAsset(models.Model):
 
     @classmethod
     def get_expiry_delta(cls, export_format: str) -> timedelta:
-        if export_format in (cls.ExportFormat.CSV, cls.ExportFormat.XLSX):
+        if export_format in (cls.ExportFormat.CSV, cls.ExportFormat.XLSX, cls.ExportFormat.JSONL):
             return SEVEN_DAYS
         elif export_format in (cls.ExportFormat.MP4, cls.ExportFormat.WEBM, cls.ExportFormat.GIF):
             return TWELVE_MONTHS
@@ -171,7 +214,22 @@ class ExportedAsset(models.Model):
             return "recording"
         if ctx.get("heatmap_url"):
             return "heatmap"
+        if self.is_dataset_export:
+            return DATASET_EXPORT_KIND
         return "unknown"
+
+    @property
+    def is_dataset_export(self) -> bool:
+        return (
+            self.export_format == self.ExportFormat.JSONL
+            and (self.export_context or {}).get("kind") == DATASET_EXPORT_KIND
+        )
+
+    @property
+    def is_rasterized_export(self) -> bool:
+        """Rendered by the rasterize-recording Temporal workflow, so it lives under that workflow's
+        timing envelope rather than the query/screenshot timeouts the other formats inherit."""
+        return self.export_format in self.RASTERIZED_FORMATS
 
     @property
     def is_session_recording_export(self) -> bool:
@@ -184,6 +242,9 @@ class ExportedAsset(models.Model):
             "export_format": self.export_format,
             "dashboard_id": self.dashboard_id,
             "insight_id": self.insight_id,
+            # Scanner-driven renders (replay_vision) report through the same pipeline; without this
+            # flag their volume is indistinguishable from user exports in failure-rate comparisons.
+            "is_system": bool(self.is_system),
         }
 
     def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
@@ -264,9 +325,9 @@ def get_content_response(asset: ExportedAsset, download: bool = False, direct: b
             return HttpResponseRedirect(presigned_url)
 
     content = asset.content
-    if not content and asset.content_location:
+    if content is None and asset.content_location:
         content = object_storage.read_bytes(asset.content_location)
-    if not content:
+    if content is None:
         raise NotFound()
 
     res = HttpResponse(content, content_type=asset.export_format)
@@ -302,14 +363,7 @@ def save_content_to_exported_asset(exported_asset: ExportedAsset, content: bytes
 
 
 def save_content_to_object_storage(exported_asset: ExportedAsset, content: bytes) -> None:
-    path_parts: list[str] = [
-        settings.OBJECT_STORAGE_EXPORTS_FOLDER,
-        exported_asset.export_format.split("/")[1],
-        f"team-{exported_asset.team.id}",
-        f"task-{exported_asset.id}",
-        str(UUIDT()),
-    ]
-    object_path = "/".join(path_parts)
+    object_path = _get_object_path(exported_asset)
     object_storage.write(object_path, content)
     exported_asset.content_location = object_path
     exported_asset.save(update_fields=["content_location"])
@@ -326,8 +380,13 @@ def _get_object_path(exported_asset: ExportedAsset) -> str:
     return "/".join(path_parts)
 
 
-def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> None:
-    """Save content from a file to object storage, with fallback to storing in the database."""
+def save_content_from_file(
+    exported_asset: ExportedAsset,
+    file_path: str,
+    *,
+    max_database_bytes: int | None = None,
+) -> None:
+    storage_error: ObjectStorageError | None = None
     try:
         if settings.OBJECT_STORAGE_ENABLED:
             object_path = _get_object_path(exported_asset)
@@ -335,13 +394,18 @@ def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> Non
             exported_asset.content_location = object_path
             exported_asset.save(update_fields=["content_location"])
             return
-    except ObjectStorageError as ose:
-        capture_exception(ose)
+    except ObjectStorageError as error:
+        storage_error = error
+        capture_exception(error)
         logger.error(
             "exported_asset.object-storage-error",
             exported_asset_id=exported_asset.id,
-            exception=ose,
+            exception=error,
             exc_info=True,
         )
+    if max_database_bytes is not None and Path(file_path).stat().st_size > max_database_bytes:
+        if storage_error is not None:
+            raise storage_error
+        raise ValueError("The export is too large to store without object storage.")
     with open(file_path, "rb") as f:
         save_content_to_exported_asset(exported_asset, f.read())

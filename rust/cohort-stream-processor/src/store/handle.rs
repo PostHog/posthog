@@ -292,6 +292,19 @@ impl StoreHandle {
         .await
     }
 
+    /// Batch-read `cf_person_records` values, preserving input order. The person-seed run's read
+    /// pass, on the maintenance lane.
+    pub async fn multi_get_person_records(
+        &self,
+        keys: Vec<PersonRecordKey>,
+        lane: ReadLane,
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        self.read("multi_get_person_records", lane, move |store| {
+            store.multi_get_person_records(&keys)
+        })
+        .await
+    }
+
     /// Point-read one person's `cf_person_records` value as raw bytes; decoding lives with the
     /// caller.
     pub async fn get_person_record(
@@ -373,6 +386,19 @@ impl StoreHandle {
     /// registration and disables it on drop.
     pub fn track_stage2_dirty(&self, prefix: Stage2CohortPrefix) -> Stage2DirtyTrackingGuard {
         self.store.track_stage2_dirty(prefix)
+    }
+
+    /// Batch-read redirect tombstones, preserving input order. One seed run resolves every
+    /// distinct person's first hop here, then walks only the chains that stay on this partition.
+    pub async fn multi_get_tombstones(
+        &self,
+        keys: Vec<TombstoneKey>,
+        lane: ReadLane,
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        self.read("multi_get_tombstones", lane, move |store| {
+            store.multi_get_tombstones(&keys)
+        })
+        .await
     }
 
     /// Point-read one redirect tombstone.

@@ -1,6 +1,6 @@
 import re
 from datetime import date, datetime
-from typing import ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar, Optional, cast
 from uuid import UUID
 
 from django.conf import settings as django_settings
@@ -35,7 +35,7 @@ from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
-from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
+from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, restricted_property_keys_for_table_type
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
@@ -43,6 +43,9 @@ from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PE
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.postgres_table import PostgresTable
 
 
 def _table_filter_type(table_type: ast.TableOrSelectType) -> ast.TableOrSelectType:
@@ -243,6 +246,15 @@ class ClickHousePrinter(BasePrinter):
                         relevant_clickhouse_name = overload_clickhouse_name
                         break  # Found an overload matching the first function org
 
+                # A Float duration is Decimal(18, 6) at runtime once the timestamps are DateTime64, and
+                # both constructors reject a Decimal with code 44. toFloat64 is a no-op for a real float.
+                if (
+                    args
+                    and relevant_clickhouse_name in ("toDate", "toDateTime")
+                    and isinstance(first_arg_constant_type, ast.FloatType)
+                ):
+                    args[0] = f"toFloat64({args[0]})"
+
         if func_meta.tz_aware:
             has_tz_override = len(node.args) == func_meta.max_args
 
@@ -354,9 +366,14 @@ class ClickHousePrinter(BasePrinter):
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             merged = self._merge_table_top_level_settings(self.settings)
-            printed = self._print_settings(merged)
-            if printed is not None:
-                response += " " + printed
+            if self.context.emit_top_level_settings:
+                printed = self._print_settings(merged)
+                if printed is not None:
+                    response += " " + printed
+            else:
+                self.context.top_level_settings = {
+                    key: value for key, value in self._normalize_settings(merged).items() if key != "readonly"
+                }
 
         return response
 
@@ -583,10 +600,17 @@ class ClickHousePrinter(BasePrinter):
         # would incorrectly skip JSONDropKeys wrapping for the aliased ``properties`` column.
         # ``person_properties`` is the underlying DB column for ``EventsPersonSubTable.properties``
         # (PoE mode); it is also a JSON blob that must be stripped of restricted person-property keys.
-        if resolved_field.name not in ("properties", "person_properties"):
+        if resolved_field.name not in RESTRICTABLE_JSON_BLOB_COLUMNS:
             return field_sql
 
-        keys_to_drop = restricted_property_keys_for_table_type(type.table_type, self.context)
+        group_type_index = None
+        group_column_match = re.fullmatch(r"group(\d+)_properties", resolved_field.name)
+        if group_column_match:
+            group_type_index = int(group_column_match.group(1))
+
+        keys_to_drop = restricted_property_keys_for_table_type(
+            type.table_type, self.context, group_type_index=group_type_index
+        )
         if not keys_to_drop:
             return field_sql
 
@@ -749,9 +773,13 @@ class ClickHousePrinter(BasePrinter):
                 return f"ifNull({op}, 1)"
             return op
         elif node.op == ast.CompareOperationOp.GlobalIn:
-            pass
+            return op
         elif node.op == ast.CompareOperationOp.GlobalNotIn:
-            pass
+            # Mirror NotIn above: GLOBAL only changes where the set is built, never the
+            # null semantics, so a nullable left keeps rows on NULL exactly like NOT IN.
+            if nullable_left and not not_nullable and not in_join_constraint and not in_index_hint:
+                return f"ifNull({op}, 1)"
+            return op
         elif node.op == ast.CompareOperationOp.Regex:
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotRegex:
@@ -1002,7 +1030,92 @@ class ClickHousePrinter(BasePrinter):
         ):
             sql = f"(SELECT * FROM {sql})"
 
+        # ClickHouse doesn't push the outer team_id guard through joins into a postgresql()
+        # read, so a joined federated table gets COPY'd out of Postgres in full. Repeat the
+        # filter adjacent to the table function, where it does get pushed down; the outer
+        # guard stays and column pruning still applies through the SELECT *. Skip tables
+        # that declare predicates: those print in the enclosing select, and the wrap would
+        # block them from being pushed into the federated read alongside the team guard.
+        from posthog.hogql.database.postgres_table import (
+            PostgresTable,  # noqa: PLC0415 (keeps persons-DB deps off the printer import path)
+        )
+
+        if (
+            isinstance(table, PostgresTable)
+            # mypy proves this intersection impossible from signatures, but subclasses of
+            # both exist at runtime (customer_analytics _AccountScopedPostgresTable).
+            and not isinstance(table, DANGEROUS_NoTeamIdCheckTable)  # type: ignore[unreachable]
+            and "team_id" in table.fields
+            # A table declaring a retention floor still gets the wrap, because the floor is the
+            # filter that has to reach Postgres: it is indexed there, and the rows it prunes are
+            # the ones the organization is not entitled to read at all. Its other predicates stay
+            # in the enclosing select and run in ClickHouse over the already-bounded row set.
+            and (table.retention_field is not None or not table.get_predicates(self.context))
+            and self.context.team_id is not None
+        ):
+            # The HogQL `team_id` field may map to a differently named DB column (e.g.
+            # system.teams exposes it as an alias of `id`), so filter the real column, not
+            # the HogQL name. Skip the wrap when the field isn't a plain column.
+            team_id_column = getattr(table.fields["team_id"], "name", None)
+            if team_id_column:
+                conditions = [f"{team_id_column} = {int(self.context.team_id)}"]
+                retention_start = self._postgres_retention_start(table)
+                if retention_start is not None:
+                    conditions.append(f"{table.retention_field} >= {self.context.add_value(retention_start)}")
+                sql = f"(SELECT * FROM {sql} WHERE {' AND '.join(conditions)})"
+
         return sql
+
+    def _postgres_retention_start(self, table: "PostgresTable") -> Optional[datetime]:
+        """Oldest row timestamp the organization may read from a retention-bearing federated table.
+
+        Resolved once per table per query, and only when that table is actually printed, so ordinary
+        queries never pay the organization load. Each table computes its own window, so the memo is
+        keyed by Postgres table name rather than shared.
+        """
+        if table.retention_field is None:
+            return None
+
+        memo = self.context.postgres_retention_starts
+        if table.postgres_table_name not in memo:
+            memo[table.postgres_table_name] = table.retention_start(self.context.team, self.context.team_id)
+
+        return memo[table.postgres_table_name]
+
+    def _postgres_retention_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        """Floor a retention-bearing federated scan, as a predicate in the enclosing select.
+
+        The wrap in `_print_table_ref` repeats this so Postgres prunes on its own index, but that
+        wrap is an optimization with its own preconditions. Enforcement cannot ride on it, so the
+        floor is emitted here too and survives when the wrap does not apply. Prints as a literal
+        rather than `now() - interval`, which would not survive the trip into Postgres.
+        """
+        from posthog.hogql.database.postgres_table import PostgresTable  # noqa: PLC0415
+
+        if node_type is None or not isinstance(table_type, ast.TableType):
+            return None
+        table = table_type.table
+        if not isinstance(table, PostgresTable) or table.retention_field is None:
+            return None
+
+        retention_start = self._postgres_retention_start(table)
+        if retention_start is None:
+            return None
+
+        field_table_type = _table_filter_type(node_type)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(
+                chain=[table.retention_field],
+                type=ast.FieldType(name=table.retention_field, table_type=field_table_type),
+            ),
+            right=ast.Constant(value=retention_start),
+            type=ast.BooleanType(),
+        )
 
     def _print_select_columns(self, columns):
         def _alias_from_column_type(column: ast.Expr) -> str | None:
@@ -1078,7 +1191,9 @@ class ClickHousePrinter(BasePrinter):
 
         # When self.settings exists, table-level settings are merged in visit() instead
         merged = (
-            self._merge_table_top_level_settings(node.settings)
+            None
+            if is_top_level_query and not self.context.emit_top_level_settings
+            else self._merge_table_top_level_settings(node.settings)
             if is_top_level_query and not self.settings
             else node.settings
         )

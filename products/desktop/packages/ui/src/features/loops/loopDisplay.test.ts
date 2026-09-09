@@ -120,6 +120,13 @@ describe("describeTrigger", () => {
     ).toContain(`Schedule · ${expected} · Next run `);
   });
 
+  // A workflow can carry a schedule trigger with no schedule row yet.
+  it("names a schedule trigger with no cron as unset", () => {
+    expect(describeTrigger({ type: "schedule", config: {} })).toBe(
+      "Schedule · No schedule set",
+    );
+  });
+
   it("keeps custom cron expressions visible", () => {
     expect(
       describeTrigger({
@@ -127,6 +134,34 @@ describe("describeTrigger", () => {
         config: { cron_expression: "*/15 * * * *", timezone: "UTC" },
       }),
     ).toBe("Schedule · */15 * * * * (UTC)");
+  });
+
+  it.each([
+    [undefined, "GitHub · posthog/posthog · pull_request"],
+    [
+      [{ path: "requested_team.slug", equals: "team-security" }],
+      "GitHub · posthog/posthog · pull_request · 1 payload condition",
+    ],
+    [
+      [
+        { path: "requested_team.slug", equals: "team-security" },
+        { path: "pull_request.draft", equals: "false" },
+      ],
+      "GitHub · posthog/posthog · pull_request · 2 payload conditions",
+    ],
+    // A gated trigger must not read the same as an ungated one in the detail view.
+  ])("surfaces payload conditions on a github trigger", (payload, expected) => {
+    expect(
+      describeTrigger({
+        type: "github",
+        config: {
+          github_integration_id: 7,
+          repository: "posthog/posthog",
+          events: ["pull_request"],
+          ...(payload ? { filters: { payload } } : {}),
+        },
+      }),
+    ).toBe(expected);
   });
 });
 

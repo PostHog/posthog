@@ -15,6 +15,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
+import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
+import { SendTestEmailModal } from './SendTestEmailModal'
 
 export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
     component: MessageTemplate,
@@ -49,6 +51,10 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
 
+    const testSendLogic = messageTemplateTestSendLogic(props)
+    const { isModalOpen: isSendTestEmailModalOpen } = useValues(testSendLogic)
+    const { setModalOpen: setSendTestEmailModalOpen } = useActions(testSendLogic)
+
     // Attach template logic to scene logic so it persists across tab switches
     useAttachedLogic(logic, sceneLogic)
 
@@ -72,6 +78,15 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     actions={
                         <>
                             <LemonDivider vertical />
+                            <LemonButton
+                                data-attr="send-test-message-template"
+                                type="secondary"
+                                onClick={() => setSendTestEmailModalOpen(true)}
+                                disabledReason={!template.content.email?.subject ? 'Add a subject first' : undefined}
+                                size="small"
+                            >
+                                Send test
+                            </LemonButton>
                             {templateChanged && (
                                 <LemonButton
                                     data-attr="cancel-message-template"
@@ -143,6 +158,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 />
 
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
+                <SendTestEmailModal {...props} isOpen={isSendTestEmailModalOpen} />
 
                 <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
                     {messageLoading || templateLoading ? (

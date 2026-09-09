@@ -1,8 +1,12 @@
 Mine recurring log templates ("patterns") from the logs matching a filter set, ordered by frequency. Each pattern is a message template with the variable parts masked — e.g. `Connected to <ip> in <num>ms` — plus occurrence estimates, severity mix, the services it appears in, and a ready-made predicate for fetching its matching lines.
 
-This is the fastest way to understand what a log stream is _saying_ without reading raw rows: one call summarizes millions of lines into at most 200 templates.
+All parameters go inside `query` — top-level fields are rejected:
 
-All parameters must be nested inside a `query` object.
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
+
+This is the fastest way to understand what a log stream is _saying_ without reading raw rows: one call summarizes millions of lines into at most 200 templates.
 
 # When to use
 
@@ -24,7 +28,7 @@ All parameters must be nested inside a `query` object.
 - `estimated_count` / `estimated_error_count` — occurrences extrapolated to the full window. When `sampled` is false these are exact.
 - `severity_counts` — sampled occurrences per severity. A template split across `info` and `error` often means the same code path logging both outcomes.
 - `services` — up to 4 service names the pattern was seen in.
-- `match_regex` — a regex over raw log bodies that matches this pattern's lines, pre-validated against the pattern's own sampled lines. Null when no trustworthy regex could be compiled.
+- `match_regex` — a regex over raw log bodies that matches this pattern's lines, pre-validated against the raw bodies of the pattern's own sampled rows. Null when no trustworthy regex could be compiled. For JSON logs the pattern is mined from the extracted message field, so the regex may be unanchored, because the message is a substring of the raw line. It still targets the raw stored body.
 - `match_literal` — longest literal run of the template, a plain-text fallback when `match_regex` is null.
 
 Mining samples the window (`sampled: true` when it did): counts are estimates, and rare patterns (below roughly 1 in `scanned_count` of the volume) may be missing entirely. Narrow the `dateRange` or filters to mine a finer-grained sample.

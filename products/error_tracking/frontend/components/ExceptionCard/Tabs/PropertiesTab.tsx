@@ -1,87 +1,89 @@
 import { useActions, useValues } from 'kea'
+import type { ChangeEvent, ComponentProps } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconSearch } from '@posthog/icons'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenu,
-    DropdownMenuCheckboxItem,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItemIndicator,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
-import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { InputGroup, InputGroupAddon, InputGroupInput, Label, Switch, TabsContent } from 'lib/ui/quill'
 import { cn } from 'lib/utils/css-classes'
 
 import { ContextDisplay } from '../../ContextDisplay/ContextDisplay'
 import { exceptionCardLogic } from '../exceptionCardLogic'
 import { SubHeader } from './SubHeader'
 
-export interface PropertiesTabProps extends TabsPrimitiveContentProps {}
+export type PropertiesTabProps = ComponentProps<typeof TabsContent>
 
 export function PropertiesTab({ className, ...props }: PropertiesTabProps): JSX.Element {
-    const { properties, exceptionAttributes, additionalProperties } = useValues(errorPropertiesLogic)
-    const { loading, showJSONProperties, showAdditionalProperties } = useValues(exceptionCardLogic)
+    const { properties, additionalProperties } = useValues(errorPropertiesLogic)
+    const { loading, propertyNameFilter, showJSONProperties } = useValues(exceptionCardLogic)
+    const { setPropertyNameFilter, setShowJSONProperties } = useActions(exceptionCardLogic)
+    const filteredProperties = filterPropertiesByName(properties, propertyNameFilter)
 
     return (
-        <TabsPrimitiveContent {...props} className={cn('flex flex-col', className)}>
-            <SubHeader className="justify-end shrink-0">
-                <ShowDropDownMenu />
+        <TabsContent {...props} className={cn('flex flex-col', className)}>
+            <SubHeader className="shrink-0 justify-between gap-2">
+                <div className="w-64 max-w-full min-w-0">
+                    <InputGroup className="h-6 border-muted-foreground/20 focus-within:border-ring/50">
+                        <InputGroupAddon>
+                            <IconSearch />
+                        </InputGroupAddon>
+                        <InputGroupInput
+                            type="search"
+                            value={propertyNameFilter}
+                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                setPropertyNameFilter(event.target.value)
+                            }
+                            placeholder="Filter properties"
+                            aria-label="Filter properties"
+                        />
+                    </InputGroup>
+                </div>
+                <Label htmlFor="exception-properties-json-switch" className="cursor-pointer">
+                    JSON
+                    <Switch
+                        id="exception-properties-json-switch"
+                        checked={showJSONProperties}
+                        onCheckedChange={setShowJSONProperties}
+                        size="sm"
+                        data-attr="exception-properties-json-switch"
+                    />
+                </Label>
             </SubHeader>
             <div className="flex-1 min-h-0 overflow-y-auto">
                 {showJSONProperties ? (
-                    <JSONViewer src={properties} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
+                    <JSONViewer
+                        src={filteredProperties}
+                        name="event"
+                        collapsed={1}
+                        collapseStringsAfterLength={80}
+                        sortKeys
+                    />
                 ) : (
                     <ContextDisplay
                         loading={loading}
-                        exceptionAttributes={exceptionAttributes}
-                        additionalProperties={showAdditionalProperties ? additionalProperties : {}}
+                        properties={properties}
+                        additionalProperties={additionalProperties}
+                        propertyNameFilter={propertyNameFilter}
                     />
                 )}
             </div>
-        </TabsPrimitiveContent>
+        </TabsContent>
     )
 }
 
-function ShowDropDownMenu(): JSX.Element {
-    const { showJSONProperties, showAdditionalProperties } = useValues(exceptionCardLogic)
-    const { setShowJSONProperties, setShowAdditionalProperties } = useActions(exceptionCardLogic)
+function filterPropertiesByName(
+    properties: Record<string, unknown> | undefined,
+    propertyNameFilter: string
+): Record<string, unknown> {
+    const normalizedPropertyNameFilter = propertyNameFilter.trim().toLocaleLowerCase()
+    if (!normalizedPropertyNameFilter) {
+        return properties ?? {}
+    }
 
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <ButtonPrimitive size="sm" className="h-[1.4rem] px-2">
-                    Show
-                    <IconChevronDown />
-                </ButtonPrimitive>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-                <DropdownMenuGroup>
-                    <DropdownMenuCheckboxItem
-                        checked={showAdditionalProperties}
-                        onCheckedChange={setShowAdditionalProperties}
-                        asChild
-                    >
-                        <ButtonPrimitive menuItem size="sm">
-                            <DropdownMenuItemIndicator intent="checkbox" />
-                            Additional properties
-                        </ButtonPrimitive>
-                    </DropdownMenuCheckboxItem>
-                    <DropdownMenuCheckboxItem
-                        checked={showJSONProperties}
-                        onCheckedChange={setShowJSONProperties}
-                        asChild
-                    >
-                        <ButtonPrimitive menuItem size="sm">
-                            <DropdownMenuItemIndicator intent="checkbox" />
-                            As JSON
-                        </ButtonPrimitive>
-                    </DropdownMenuCheckboxItem>
-                </DropdownMenuGroup>
-            </DropdownMenuContent>
-        </DropdownMenu>
+    return Object.fromEntries(
+        Object.entries(properties ?? {}).filter(([key]) =>
+            key.toLocaleLowerCase().includes(normalizedPropertyNameFilter)
+        )
     )
 }

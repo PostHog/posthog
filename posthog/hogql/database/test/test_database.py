@@ -1,7 +1,12 @@
 import io
 import json
+import time
 import pickle
+import threading
 import dataclasses
+from collections.abc import Collection
+from contextlib import suppress
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -10,7 +15,9 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -57,7 +64,15 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
+from posthog.hogql.database.sources_cache import (
+    SOURCES_CACHE_MAX_ENTRY_WEIGHT,
+    SOURCES_CACHE_TTL_SECONDS,
+    SourcesCacheKey,
+    clear_sources_cache,
+    get_or_fetch_sources,
+)
+from posthog.hogql.errors import ExposedHogQLError, QueryError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -67,11 +82,19 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.constants import AvailableFeature
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.schema_enums import SessionTableVersion
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -199,6 +222,129 @@ class TestBuildDatabaseRootNode(TestCase):
                 unpickler.find_class(module, name)
 
 
+def _catalog_node(names: list[str]) -> TableNode:
+    root = TableNode(name="root", children={})
+    for name in names:
+        node = root
+        for part in name.split("."):
+            node = node.children.setdefault(part, TableNode(name=part, children={}))
+        node.table = Table(fields={"id": StringDatabaseField(name="id")})
+    return root
+
+
+class TestTableNodeCaseInsensitiveLookup(TestCase):
+    def _node(self, name: str = "leaf", *, case_insensitive: bool) -> TableNode:
+        return TableNode(
+            name=name,
+            table=Table(fields={"id": StringDatabaseField(name="id")}),
+            case_insensitive=case_insensitive,
+        )
+
+    def test_exact_match_wins_over_case_insensitive(self):
+        ci = self._node(case_insensitive=True)
+        exact = self._node(case_insensitive=False)
+        root = TableNode(name="root", children={"NATION": ci, "nation": exact})
+
+        assert root.get_child(["nation"]) is exact
+        assert root.get_child(["NATION"]) is ci
+        assert root.get_child(["NaTiOn"]) is ci
+
+    def test_only_opted_in_children_match_case_insensitively(self):
+        root = TableNode(name="root", children={"events": self._node(case_insensitive=False)})
+
+        assert root.has_child(["events"])
+        assert not root.has_child(["EVENTS"])
+
+    def test_collision_keeps_first_child_in_iteration_order(self):
+        first = self._node(case_insensitive=True)
+        second = self._node(case_insensitive=True)
+        root = TableNode(name="root", children={"Nation": first, "NATION": second})
+
+        assert root.get_child(["nation"]) is first
+
+    def test_lookup_sees_child_replaced_through_add_child(self):
+        root = TableNode(name="root", children={"Nation": self._node("Nation", case_insensitive=True)})
+        assert root.has_child(["nation"])  # warms the case-insensitive index
+
+        root.add_child(self._node("Nation", case_insensitive=False), children_conflict_mode="override")
+
+        assert root.has_child(["Nation"])
+        assert not root.has_child(["nation"])
+
+    def test_lookup_sees_externally_removed_child(self):
+        root = TableNode(name="root", children={"Nation": self._node("Nation", case_insensitive=True)})
+        assert root.has_child(["nation"])  # warms the case-insensitive index
+
+        del root.children["Nation"]
+
+        assert not root.has_child(["nation"])
+
+
+class TestUnknownTableSuggestions(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "cross_namespace_candidate_is_not_suggested",
+                [],
+                ["stg_customer_orders"],
+                "warehouse.customer_orders",
+                "Unknown table `warehouse.customer_orders`.",
+            ),
+            (
+                "same_namespace_typo_is_suggested",
+                ["warehouse.customer_order"],
+                [],
+                "warehouse.customer_orders",
+                "Unknown table `warehouse.customer_orders`. Did you mean: warehouse.customer_order?",
+            ),
+            (
+                "unqualified_name_still_reaches_qualified_candidate",
+                ["warehouse.customer_orders"],
+                [],
+                "customer_orders",
+                "Unknown table `customer_orders`. Did you mean: warehouse.customer_orders?",
+            ),
+            (
+                "misspelled_schema_is_resolved_to_the_closest_one",
+                ["warehouse.customer_orders"],
+                [],
+                "warehous.customer_orders",
+                "Unknown table `warehous.customer_orders`. Did you mean: warehouse.customer_orders?",
+            ),
+            (
+                "unrelated_schema_is_not_resolved_to_any_other",
+                ["warehouse.customer_orders"],
+                ["stg_customer_orders"],
+                "public.customer_orders",
+                "Unknown table `public.customer_orders`.",
+            ),
+            (
+                "sibling_schema_on_one_connection_is_not_resolved_to_the_other",
+                ["postgres.pg.customer_orders"],
+                [],
+                "postgres.ph3.customer_orders",
+                "Unknown table `postgres.ph3.customer_orders`.",
+            ),
+        ]
+    )
+    def test_suggestions_stay_within_the_namespace_the_author_named(
+        self,
+        _name: str,
+        warehouse_tables: list[str],
+        views: list[str],
+        missing_table: str,
+        expected_message: str,
+    ):
+        database = Database()
+        database._add_warehouse_tables(_catalog_node(warehouse_tables))
+        database._add_views(_catalog_node(views))
+
+        with self.assertRaises(QueryError) as error:
+            database.get_table(missing_table)
+
+        assert str(error.exception) == expected_message
+
+
 class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any
     allow_dual_schema_snapshots = True
@@ -276,6 +422,62 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         posthog_table_names = database.get_posthog_table_names()
         for table_name in posthog_table_names:
             assert serialized_database.get(table_name) is not None
+
+    def test_serialize_database_without_fields_matches_full_metadata(self):
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        warehouse_table = DataWarehouseTable.objects.create(
+            name="warehouse_table",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+            row_count=42,
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="warehouse_view",
+            query={"query": "SELECT id FROM warehouse_table"},
+            columns={"id": "String"},
+            table=warehouse_table,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        full = database.serialize(context, include_hidden_posthog_tables=True)
+        shallow = database.serialize(context, include_hidden_posthog_tables=True, include_fields=False)
+
+        assert set(shallow.keys()) == set(full.keys())
+        assert "warehouse_table" in shallow
+        assert "warehouse_view" in shallow
+        for table_name, shallow_table in shallow.items():
+            assert shallow_table.fields == {}, table_name
+            assert shallow_table.model_dump(exclude={"fields"}) == full[table_name].model_dump(exclude={"fields"}), (
+                table_name
+            )
+
+    def test_serialize_database_include_only_returns_same_fields_as_full_serialization(self):
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="warehouse_table",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        full = database.serialize(context, include_hidden_posthog_tables=True)
+        subset = database.serialize(
+            context, include_only={"events", "warehouse_table"}, include_hidden_posthog_tables=True
+        )
+
+        assert set(subset.keys()) == {"events", "warehouse_table"}
+        for table_name, subset_table in subset.items():
+            assert subset_table == full[table_name], table_name
 
     def test_apply_schema_scope_removes_lazy_joins_to_hidden_direct_tables(self):
         database = Database()
@@ -707,7 +909,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_database_with_warehouse_tables_and_saved_queries_n_plus_1(self, patch_execute):
         # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
         # credential joins (decrypt once per credential, not per table/view).
-        max_queries = FuzzyInt(7, 9)
+        max_queries = FuzzyInt(6, 8)
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
@@ -763,7 +965,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         # initialization team query doesn't run; the extra query is the single bulk credential fetch
-        # (credentials are decrypted once each here instead of re-decrypted per table/view row)
+        # (credentials are decrypted once each here instead of re-decrypted per table/view row),
+        # plus the saved-expressions fetch
         with self.assertNumQueries(6):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
@@ -925,6 +1128,116 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
 
+    @staticmethod
+    def _ran_source_fetch_queries(ctx: CaptureQueriesContext) -> bool:
+        return any("datawarehouse" in query["sql"].lower() for query in ctx.captured_queries)
+
+    def test_cached_sources_warm_build_runs_no_queries(self):
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="cached_table", team=self.team, columns={"id": "String"}, credential=credential, url_pattern=""
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="cached_view",
+            query={"query": "SELECT id FROM cached_table"},
+            columns={"id": "String"},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        cold = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        with CaptureQueriesContext(connection) as ctx:
+            warm = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        # The warm build only recomputes the per-request access-control decision; it never
+        # refetches the catalog.
+        assert not self._ran_source_fetch_queries(ctx)
+        cold_serialized = cold.serialize(HogQLContext(team_id=self.team.pk, database=cold))
+        warm_serialized = warm.serialize(HogQLContext(team_id=self.team.pk, database=warm))
+        assert warm_serialized.keys() == cold_serialized.keys()
+        assert warm.has_table("cached_table")
+        assert warm.has_table("cached_view")
+
+    def test_cached_sources_shared_across_users_with_fresh_access_control(self):
+        other_user = self._create_user("other-user@posthog.com")
+        Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        with CaptureQueriesContext(connection) as ctx:
+            Database.create_for(team=self.team, user=other_user, use_cached_sources=True)
+
+        assert not self._ran_source_fetch_queries(ctx)
+        # The catalog is shared, but the second user's access-control decision is computed
+        # fresh rather than reused from the user who warmed the cache.
+        assert any("organizationmembership" in query["sql"].lower() for query in ctx.captured_queries)
+
+    def test_sources_not_cached_by_default(self):
+        Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        with CaptureQueriesContext(connection) as ctx:
+            Database.create_for(team=self.team, user=self.user)
+
+        assert self._ran_source_fetch_queries(ctx)
+
+    def test_cached_sources_bypassed_for_synthetic_users(self):
+        Database.create_for(team=self.team, user=SyntheticUser(self.team, "synthetic-1"), use_cached_sources=True)
+
+        with CaptureQueriesContext(connection) as ctx:
+            Database.create_for(team=self.team, user=SyntheticUser(self.team, "synthetic-2"), use_cached_sources=True)
+
+        assert self._ran_source_fetch_queries(ctx)
+
+    def test_cached_revenue_views_do_not_leak_expression_fields_between_users(self):
+        other_user = self._create_user("no-expression-access@posthog.com")
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team, table_name="stub_revenue_view", field_name="secret_expr", expression="1 + 1"
+            )
+        stub_view = RevenueAnalyticsChargeView(
+            id="stub-view",
+            name="stub_revenue_view",
+            query="SELECT 'x' AS id",
+            fields={"id": StringDatabaseField(name="id")},
+            prefix="stub",
+        )
+
+        with (
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key == "hogql-warehouse-access-control",
+            ),
+            patch(
+                "products.revenue_analytics.backend.views.orchestrator.build_all_revenue_analytics_views",
+                return_value=[stub_view],
+            ),
+            patch.object(Database, "_is_warehouse_expression_denied", side_effect=[False, True]),
+        ):
+            allowed = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+            denied = Database.create_for(team=self.team, user=other_user, use_cached_sources=True)
+
+        assert allowed.get_table("stub_revenue_view") is not denied.get_table("stub_revenue_view")
+        assert "secret_expr" in allowed.get_table("stub_revenue_view").fields
+        assert "secret_expr" not in denied.get_table("stub_revenue_view").fields
+
+    def test_cached_sources_expire_and_pick_up_new_views(self):
+        Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="view_created_after_warm",
+            query={"query": "SELECT event FROM events"},
+            columns={"event": "String"},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        within_ttl = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        assert not within_ttl.has_table("view_created_after_warm")
+
+        with patch(
+            "posthog.hogql.database.sources_cache._time_source",
+            new=lambda: time.monotonic() + SOURCES_CACHE_TTL_SECONDS + 1,
+        ):
+            after_ttl = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        assert after_ttl.has_table("view_created_after_warm")
+
     def test_materialized_backing_filter_keeps_source_tables_but_hides_backing_tables(self):
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
@@ -1049,6 +1362,71 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         resolved_field = canonical.get_field("N_Name")
         assert isinstance(resolved_field, DatabaseField)
         assert resolved_field.name == "N_NAME"
+
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_deferred_foreign_keys_wire_for_snowflake_table_named_in_another_case(self, patch_execute):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="snowflake_fk_source",
+            source_type=ExternalDataSourceType.SNOWFLAKE,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"database": "DB", "schema": ""},
+        )
+        customer_table = DataWarehouseTable.objects.create(
+            name="TPCH_SF1.CUSTOMER",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="s3://test/*",
+            options={
+                "direct_snowflake_catalog": "DB",
+                "direct_snowflake_schema": "TPCH_SF1",
+                "direct_snowflake_table": "CUSTOMER",
+            },
+            columns={"C_CUSTKEY": {"clickhouse": "Int64", "hogql": "integer"}},
+        )
+        orders_table = DataWarehouseTable.objects.create(
+            name="TPCH_SF1.ORDERS",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="s3://test/*",
+            options={
+                "direct_snowflake_catalog": "DB",
+                "direct_snowflake_schema": "TPCH_SF1",
+                "direct_snowflake_table": "ORDERS",
+            },
+            columns={
+                "O_ORDERKEY": {"clickhouse": "Int64", "hogql": "integer"},
+                # Quoted lowercase column, so the join field it produces ("customer") doesn't collide
+                # with the column name and the foreign key actually wires.
+                "customer_id": {"clickhouse": "Int64", "hogql": "integer"},
+            },
+        )
+        ExternalDataSchema.objects.create(name="TPCH_SF1.CUSTOMER", team=self.team, source=source, table=customer_table)
+        ExternalDataSchema.objects.create(
+            name="TPCH_SF1.ORDERS",
+            team=self.team,
+            source=source,
+            table=orders_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        {"column": "customer_id", "target_table": "CUSTOMER", "target_column": "C_CUSTKEY"}
+                    ]
+                }
+            },
+        )
+
+        sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
+        database = Database._build_from_sources(sources)
+
+        # Snowflake folds unquoted names, so a lowercase reference resolves to the canonical table —
+        # and must still arm the deferred foreign-key build for the whole graph.
+        orders = database.get_table("tpch_sf1.orders")
+        assert isinstance(orders.fields.get("customer"), LazyJoin)
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_keeps_non_snowflake_tables_case_sensitive(self, patch_execute):
@@ -1653,15 +2031,17 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         ), query
 
     def test_selecting_persons_from_events_ignores_future_persons(self):
-        db = Database.create_for(team=self.team)
+        # disable PoE for the database too: the field layout comes from the
+        # database, so a context-only pin prints the team default's SQL
+        modifiers = create_default_modifiers_for_team(
+            self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
+        )
+        db = Database.create_for(team=self.team, modifiers=modifiers)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             database=db,
-            # disable PoE
-            modifiers=create_default_modifiers_for_team(
-                self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
-            ),
+            modifiers=modifiers,
         )
         sql = "select person.id from events"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
@@ -1733,6 +2113,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             with self.assertNumQueries(num_queries):
                 Database.create_for(team=self.team)
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_database_warehouse_joins_persons_poe_old_properties(self):
         DataWarehouseJoin.objects.create(
             team=self.team,
@@ -2695,6 +3076,224 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(activitylog.fields.get("team"), LazyJoin)
         assert isinstance(team.fields.get("posthog_activitylogs"), LazyJoin)
 
+    def test_postgres_foreign_keys_are_deferred_until_a_warehouse_table_is_accessed(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="ph3",
+        )
+        team_table = DataWarehouseTable.objects.create(
+            name="posthog_team",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "team_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+        ExternalDataSchema.objects.create(name="posthog_team", team=self.team, source=source, table=team_table)
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [{"column": "team_id", "target_table": "posthog_team", "target_column": "id"}]
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team)
+
+        # Reading through the tree directly does not resolve via get_table, so it never arms the build.
+        activitylog_before = database.get_table_node("postgres.ph3.posthog_activitylog").get()
+        assert isinstance(activitylog_before, Table)
+        assert activitylog_before.fields.get("team") is None
+
+        # Accessing a core (non-warehouse) table must not pay for warehouse foreign keys.
+        database.get_table("events")
+        activitylog_after_events = database.get_table_node("postgres.ph3.posthog_activitylog").get()
+        assert isinstance(activitylog_after_events, Table)
+        assert activitylog_after_events.fields.get("team") is None
+
+        # The first warehouse-table access wires the whole graph — forward and reverse joins.
+        activitylog = database.get_table("postgres.ph3.posthog_activitylog")
+        assert isinstance(activitylog.fields.get("team"), LazyJoin)
+        assert isinstance(database.get_table("postgres.ph3.posthog_team").fields.get("posthog_activitylogs"), LazyJoin)
+
+    def test_deferred_foreign_keys_do_not_replace_event_modifier_field_mappings(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="ph3",
+        )
+        team_table = DataWarehouseTable.objects.create(
+            name="posthog_team",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "row_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "team_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "timestamp": {"hogql": "datetime", "clickhouse": "DateTime64(6, 'UTC')", "schema_valid": True},
+            },
+        )
+        ExternalDataSchema.objects.create(name="posthog_team", team=self.team, source=source, table=team_table)
+        # A foreign key on `id` collides with the event-modifier `id` mapping; the `team_id` one does not.
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        {"column": "id", "target_table": "posthog_team", "target_column": "id"},
+                        {"column": "team_id", "target_table": "posthog_team", "target_column": "id"},
+                    ]
+                }
+            },
+        )
+
+        modifiers = create_default_modifiers_for_team(
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                dataWarehouseEventsModifiers=[
+                    DataWarehouseEventsModifier(
+                        table_name="postgres.ph3.posthog_activitylog",
+                        id_field="row_id",
+                        timestamp_field="timestamp",
+                        distinct_id_field="distinct_id",
+                    )
+                ],
+            ),
+        )
+
+        database = Database.create_for(team=self.team, modifiers=modifiers)
+        activitylog = database.get_table("postgres.ph3.posthog_activitylog")
+
+        # The modifier's `id` mapping wins over the colliding foreign key, as it did in the eager path.
+        assert isinstance(activitylog.fields.get("id"), ExpressionField)
+        # The non-colliding foreign key still wired, proving the deferred build actually ran.
+        assert isinstance(activitylog.fields.get("team"), LazyJoin)
+
+    def _postgres_warehouse_source_with_foreign_key(self, *, foreign_keys: list[dict[str, str]]) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="ph3",
+        )
+        team_table = DataWarehouseTable.objects.create(
+            name="posthog_team",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "team_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+        ExternalDataSchema.objects.create(name="posthog_team", team=self.team, source=source, table=team_table)
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+            sync_type_config={"schema_metadata": {"foreign_keys": foreign_keys}},
+        )
+
+    def test_deferred_foreign_keys_wire_for_a_table_reached_through_a_data_warehouse_join(self):
+        self._postgres_warehouse_source_with_foreign_key(
+            foreign_keys=[{"column": "team_id", "target_table": "posthog_team", "target_column": "id"}]
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="event",
+            joining_table_name="postgres.ph3.posthog_activitylog",
+            joining_table_key="id",
+            field_name="activitylog",
+        )
+
+        database = Database.create_for(team=self.team)
+
+        # The join holds the warehouse table as an object, so resolving through it never calls
+        # get_table on the warehouse name. Accessing the join's source table has to arm the build.
+        join_field = database.get_table("events").fields["activitylog"]
+        assert isinstance(join_field, LazyJoin)
+        joined = join_field.resolve_table(HogQLContext(team_id=self.team.pk, database=database))
+        assert isinstance(joined.fields.get("team"), LazyJoin)
+
+    def test_deferred_foreign_keys_replace_a_colliding_saved_expression(self):
+        self._postgres_warehouse_source_with_foreign_key(
+            foreign_keys=[{"column": "team_id", "target_table": "posthog_team", "target_column": "id"}]
+        )
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team,
+                table_name="postgres.ph3.posthog_activitylog",
+                field_name="team",
+                expression="team_id",
+            )
+
+        database = Database.create_for(team=self.team)
+
+        # The eager path wired foreign keys first, so the expression was skipped as a shadowing name.
+        # Deferring flips the order, so the join still has to reclaim the field.
+        activitylog = database.get_table("postgres.ph3.posthog_activitylog")
+        assert isinstance(activitylog.fields.get("team"), LazyJoin)
+
     def test_serialize_direct_postgres_skips_foreign_key_join_when_target_table_is_missing(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
@@ -3646,8 +4245,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         captured: dict = {}
 
-        def spy(team, user, user_access_control=None):
-            result = _compute_system_table_access_decision(team, user, user_access_control)
+        def spy(
+            team: Team,
+            user: User | SyntheticUser | SharedLinkUser | None,
+            user_access_control: UserAccessControl | None = None,
+            allowed_system_tables: Collection[str] | None = None,
+        ) -> tuple[UserAccessControl | None, set[str]]:
+            result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
             captured["result"] = result
             return result
 
@@ -3668,8 +4272,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_create_for_with_real_user_uses_user_rbac(self):
         captured: dict = {}
 
-        def spy(team, user, user_access_control=None):
-            result = _compute_system_table_access_decision(team, user, user_access_control)
+        def spy(
+            team: Team,
+            user: User | SyntheticUser | SharedLinkUser | None,
+            user_access_control: UserAccessControl | None = None,
+            allowed_system_tables: Collection[str] | None = None,
+        ) -> tuple[UserAccessControl | None, set[str]]:
+            result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
             captured["result"] = result
             return result
 
@@ -3682,6 +4291,65 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         user_access_control, _denied = captured["result"]
         # A real user gets per-user access control computed rather than the anonymous all-deny path.
         assert user_access_control is not None
+
+    def test_existing_saved_query_cannot_fill_denied_system_table_name(self) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="system.accounts",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+        )
+
+        database = Database.create_for(team=self.team)
+
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.accounts")
+
+    def test_userless_system_table_allowlist_is_exact(self) -> None:
+        database = Database.create_for(
+            team=self.team,
+            allowed_system_tables=frozenset({"accounts"}),
+        )
+
+        assert "system.accounts" in database.get_system_table_names()
+        assert "system.feature_flags" not in database.get_system_table_names()
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.feature_flags")
+
+    @parameterized.expand(
+        [
+            ("qualified", "system.accounts"),
+            ("unscoped", "_account_tagged_items"),
+            ("unknown", "not_a_system_table"),
+        ]
+    )
+    def test_system_table_allowlist_rejects_invalid_names(self, _name: str, table_name: str) -> None:
+        with pytest.raises(ValueError, match="exact bare names of scoped system tables"):
+            Database.create_for(
+                team=self.team,
+                allowed_system_tables=frozenset({table_name}),
+            )
+
+    def test_system_table_allowlist_rejects_real_users(self) -> None:
+        with pytest.raises(ValueError, match="restricted to userless database creation"):
+            Database.create_for(
+                team=self.team,
+                user=self.user,
+                allowed_system_tables=frozenset({"accounts"}),
+            )
+
+    def test_system_table_allowlist_does_not_override_cloud_entitlements(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(True):
+            database = Database.create_for(
+                team=self.team,
+                allowed_system_tables=frozenset({"activity_logs"}),
+            )
+
+        assert "system.activity_logs" not in database.get_system_table_names()
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.activity_logs")
 
     @parameterized.expand(
         [
@@ -3713,3 +4381,124 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database = Database.create_for(team=self.team, user=self.user)
 
         assert ("system.activity_logs" in database.get_system_table_names()) is expected_visible
+
+
+class TestSourcesCacheConcurrency(TestCase):
+    def setUp(self):
+        clear_sources_cache()
+
+    def tearDown(self):
+        clear_sources_cache()
+
+    @staticmethod
+    def _stub_sources(row_count: int = 0) -> Any:
+        return SimpleNamespace(
+            group_types=[],
+            saved_queries=[],
+            endpoint_saved_queries=[],
+            revenue_views=[],
+            warehouse_tables=[object()] * row_count,
+            data_warehouse_joins=[],
+            data_warehouse_expressions=[],
+            event_modifier_saved_queries={},
+            virtual_schemas=[],
+        )
+
+    def test_concurrent_misses_for_one_key_fetch_once(self):
+        key = SourcesCacheKey(
+            team_id=1, connection_id=None, modifiers_fingerprint="fp", bypass_warehouse_access_control=False
+        )
+        stub = self._stub_sources()
+        fetch_count = 0
+        fetch_entered = threading.Event()
+        fetch_release = threading.Event()
+
+        def fetch() -> Any:
+            nonlocal fetch_count
+            fetch_count += 1
+            fetch_entered.set()
+            assert fetch_release.wait(timeout=5)
+            return stub
+
+        results: list[Any] = []
+        threads = [threading.Thread(target=lambda: results.append(get_or_fetch_sources(key, fetch))) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        assert fetch_entered.wait(timeout=5)
+        fetch_release.set()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        assert fetch_count == 1
+        assert results == [stub, stub]
+
+    def test_waiters_wake_and_retry_when_the_owner_fetch_raises(self):
+        key = SourcesCacheKey(
+            team_id=1, connection_id=None, modifiers_fingerprint="fp", bypass_warehouse_access_control=False
+        )
+        stub = self._stub_sources()
+        owner_entered = threading.Event()
+        owner_release = threading.Event()
+
+        def failing_fetch() -> Any:
+            owner_entered.set()
+            assert owner_release.wait(timeout=5)
+            raise RuntimeError("fetch failed")
+
+        def owner() -> None:
+            with suppress(RuntimeError):
+                get_or_fetch_sources(key, failing_fetch)
+
+        results: list[Any] = []
+        owner_thread = threading.Thread(target=owner)
+        waiter_thread = threading.Thread(target=lambda: results.append(get_or_fetch_sources(key, lambda: stub)))
+        owner_thread.start()
+        assert owner_entered.wait(timeout=5)
+        waiter_thread.start()
+        owner_release.set()
+        owner_thread.join(timeout=5)
+        waiter_thread.join(timeout=5)
+
+        assert not waiter_thread.is_alive()
+        assert results == [stub]
+
+    def test_oversized_sources_are_returned_but_not_cached(self):
+        key = SourcesCacheKey(
+            team_id=1, connection_id=None, modifiers_fingerprint="fp", bypass_warehouse_access_control=False
+        )
+        fetch_count = 0
+
+        def fetch() -> Any:
+            nonlocal fetch_count
+            fetch_count += 1
+            return self._stub_sources(row_count=SOURCES_CACHE_MAX_ENTRY_WEIGHT + 1)
+
+        first = get_or_fetch_sources(key, fetch)
+        second = get_or_fetch_sources(key, fetch)
+
+        assert fetch_count == 2
+        assert first is not None and second is not None
+
+
+class TestCreateForPosthogTables(BaseTest):
+    def test_builds_without_postgres_and_applies_modifiers(self):
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        with (
+            patch.object(Database, "_fetch_sources", side_effect=AssertionError("full database build")),
+            # One cached instance-setting read is fine; the full build issues a dozen queries.
+            self.assertNumQueries(FuzzyInt(0, 1)),
+        ):
+            database = Database.create_for_posthog_tables(self.team, modifiers=modifiers)
+
+        assert isinstance(database.get_table("raw_sessions"), RawSessionsTableV2)
+        assert "events" in database.get_posthog_table_names()
+        assert database.get_warehouse_table_names() == []
+
+    def test_removes_gated_system_tables(self):
+        database = Database.create_for_posthog_tables(self.team)
+
+        system_table_names = database.get_system_table_names()
+        assert "system.feature_flags" not in system_table_names
+        assert "system.activity_logs" not in system_table_names
+        with pytest.raises(TableAccessDeniedError):
+            database.get_table("system.activity_logs")

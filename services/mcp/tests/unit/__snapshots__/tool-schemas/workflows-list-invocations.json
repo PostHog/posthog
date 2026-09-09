@@ -17,6 +17,12 @@
             "minLength": 1,
             "type": "string"
         },
+        "error_message_contains": {
+            "description": "Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+        },
         "id": {
             "description": "A UUID string identifying this hog flow.",
             "type": "string"

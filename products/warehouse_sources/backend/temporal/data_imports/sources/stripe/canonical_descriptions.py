@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME,
@@ -295,6 +296,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             type="Type of the payment method (e.g. card, sepa_debit, us_bank_account).",
             card="Details of the card if the payment method is a card (brand, last4, expiry).",
             billing_details="Billing information (name, email, address) associated with the payment method.",
+        ),
+    },
+    CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME: {
+        "description": "One row per observed state of a customer's payment method — seeded from the attached-payment-methods sweep, then appended from payment_method.* webhook events, so detached payment methods stay queryable as they existed historically.",
+        "docs_url": "https://stripe.com/docs/api/payment_methods",
+        "columns": _columns(
+            customer="ID of the customer the payment method was attached to when observed; null on a detachment event (history_previous_attributes carries the previous customer).",
+            type="Type of the payment method (e.g. card, sepa_debit, us_bank_account).",
+            card="Details of the card if the payment method is a card (brand, last4, expiry).",
+            billing_details="Billing information (name, email, address) associated with the payment method.",
+            history_event_id="Unique id of this observation: the Stripe event id, or a synthetic snapshot key for rows seeded by the initial sweep. Primary key.",
+            history_event_type="Stripe event type that produced the row (payment_method.attached, .updated, .detached, .automatically_updated), or 'snapshot' for rows seeded by the initial sweep.",
+            history_captured_at="When the state was observed (event creation time, or sweep time for snapshot rows), as a Unix timestamp. The latest row per payment method id is its most recently observed state.",
+            history_previous_attributes="JSON object of the fields the event changed, holding their previous values — for detachments this includes the customer the payment method was detached from. Null on snapshot rows.",
         ),
     },
     COUPON_RESOURCE_NAME: {

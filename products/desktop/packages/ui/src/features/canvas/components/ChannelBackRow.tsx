@@ -1,6 +1,7 @@
-import { CaretLeftIcon, StarIcon } from "@phosphor-icons/react";
+import { ArrowUUpLeftIcon, GearIcon, StarIcon } from "@phosphor-icons/react";
 import {
   Button,
+  Kbd,
   Skeleton,
   Tooltip,
   TooltipContent,
@@ -15,54 +16,59 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import {
+  formatHotkey,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
 import { track } from "@posthog/ui/shell/analytics";
+import { useNavigate } from "@tanstack/react-router";
 
-// An overlay rather than a sibling: the back button fills the row, and nesting
-// the star inside it would be a button within a button.
 function RowStar({ channel }: { channel: Channel }) {
   const { isStarred, toggleStar } = useChannelStarToggle(channel);
+  const label = isStarred ? "Unstar space" : "Star space";
   return (
-    <Button
-      variant="default"
-      size="icon-sm"
-      aria-label={isStarred ? "Unstar space" : "Star space"}
-      onClick={() => {
-        track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-          action_type: isStarred ? "unstar" : "star",
-          surface: "sidebar",
-          channel_id: channel.id,
-        });
-        toggleStar();
-      }}
-      // Parks in the row's reserved well: 8px padding + 6px gap = 14px from the
-      // right edge.
-      className="-translate-y-1/2 absolute top-1/2 right-[6px] text-muted-foreground"
-    >
-      <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="default"
+            size="icon-sm"
+            aria-label={label}
+            onClick={() => {
+              track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+                action_type: isStarred ? "unstar" : "star",
+                surface: "sidebar",
+                channel_id: channel.id,
+              });
+              toggleStar();
+            }}
+            className="text-muted-foreground"
+          >
+            <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
+          </Button>
+        }
+      />
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }
 
-/**
- * The channel pane's header: the channel you're in, and the way back out of it.
- *
- * Clicking anywhere on the row slides the sidebar back to the channel list —
- * the list is where switching happens, so this row only has to be the door to
- * it. Leaving the channel scoped means the route (and the main pane) stay put.
- */
 export function ChannelBackRow({ channelId }: { channelId: string }) {
+  const navigate = useNavigate();
   const spacesLayout = useChannelsLayout();
   const { channels, isLoading } = useChannels();
   const current = channels.find((c) => c.id === channelId);
   const showStar = current != null && current.channelType !== "personal";
   const glyph = channelGlyph(current?.name, {
+    personal: current?.channelType === "personal",
+    private: current?.channelType === "private",
     size: 14,
     space: spacesLayout,
     className: "text-muted-foreground",
   });
 
   return (
-    <div className="relative mx-2 mt-1">
+    <div className="group/back flex h-10 items-center gap-0.5 border-border border-b px-1.5 pt-1.5 pb-2">
       <Tooltip>
         <TooltipTrigger
           render={
@@ -76,25 +82,17 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                   surface: "sidebar",
                   channel_id: channelId,
                 });
-                showChannelList();
+                showChannelList({ animate: true });
               }}
-              // Quill's own height and radius, so this reads as one of the rows
-              // under it rather than a control sitting on top. The star well is
-              // unconditional (see the reserved span below): sized off its
-              // contents, a starrable channel ran taller than #me and everything
-              // below shifted on switch.
-              className="w-full gap-1.5 text-left"
+              className="min-w-0 flex-1 gap-1.5 text-left"
             >
-              <CaretLeftIcon
+              <ArrowUUpLeftIcon
                 size={12}
-                className="shrink-0 text-muted-foreground"
+                weight="bold"
+                className="shrink-0 text-primary"
               />
-              {/* Only #me still has a glyph under the layout, and its well is
-                  drawn only when there's something in it — an empty 16px column
-                  in front of every other space's name is worse than the name
-                  starting where the caret leaves off. */}
               {glyph && (
-                <span className="flex w-4 shrink-0 items-center justify-center text-foreground">
+                <span className="flex w-4 shrink-0 items-center justify-center">
                   {glyph}
                 </span>
               )}
@@ -102,24 +100,43 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                 {current ? (
                   current.name
                 ) : isLoading ? (
-                  // A placeholder word here would read as a real channel named
-                  // "channel"; a skeleton says "still loading" honestly.
                   <Skeleton className="h-3.5 w-24" />
                 ) : (
                   "Unavailable"
                 )}
               </span>
-              <span aria-hidden className="size-6 shrink-0" />
+              <Kbd className="mr-0! shrink-0 opacity-0 transition-opacity group-focus-within/back:opacity-60 group-hover/back:opacity-60">
+                {formatHotkey(SHORTCUTS.FOCUS_SIDEBAR_SEARCH)}
+              </Kbd>
             </Button>
           }
         />
         <TooltipContent side="bottom">Back to spaces</TooltipContent>
       </Tooltip>
-      {/* #me can't be starred, so its well stays empty — a greyed-out star read
-          as a control you were being denied. The well itself is unconditional
-          (see the button's reserved span), which is what keeps the row the same
-          height on every space. */}
       {showStar && current && <RowStar channel={current} />}
+      {current && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="default"
+                size="icon-sm"
+                aria-label="Space settings"
+                className="text-muted-foreground"
+                onClick={() =>
+                  void navigate({
+                    to: "/spaces/$channelId/settings",
+                    params: { channelId },
+                  })
+                }
+              >
+                <GearIcon size={14} />
+              </Button>
+            }
+          />
+          <TooltipContent>Space settings</TooltipContent>
+        </Tooltip>
+      )}
     </div>
   );
 }

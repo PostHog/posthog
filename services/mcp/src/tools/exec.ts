@@ -3,14 +3,21 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { ExecCommandError, findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
+import {
+    ExecCommandError,
+    type ExecCommandErrorReason,
+    findRecoverableApiError,
+    PostHogApiError,
+    ToolInputValidationError,
+} from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { formatResponse } from '@/lib/response'
 
-import type { ExecHelpCatalog } from './exec-help'
+import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
-import type { ScopeGatedTool } from './toolDefinitions'
+import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_INFORMATIONAL_RESPONSE_KEY,
@@ -24,9 +31,43 @@ import {
  *  forcing catastrophic backtracking against tool metadata. */
 const MAX_SEARCH_PATTERN_LENGTH = 400
 
+/** One line telling the agent third-party tools exist and how to find them, for the
+ *  `tools` listing. Returns undefined when nothing is connected. */
+async function resolveConnectedSummary(
+    resolveTools: () => Promise<Tool<ZodObjectAny>[]>,
+    posthogToolCount: number
+): Promise<string | undefined> {
+    const combined = await resolveTools()
+    const extra = combined.length - posthogToolCount
+    if (extra <= 0) {
+        return undefined
+    }
+    const servers = new Set(
+        combined.slice(posthogToolCount).map((tool) => tool.name.split(GATEWAY_TOOL_SEPARATOR)[0] ?? '')
+    )
+    return `${extra} tool${extra === 1 ? '' : 's'} from ${servers.size} connected MCP server${servers.size === 1 ? '' : 's'} (${[...servers].sort().join(', ')}) are also callable — find them with "search <what you need>".`
+}
+
 /** Ranked (plain-word) search can match loosely on a common token like
  *  "create"; cap the returned names so a vague query can't dump the catalog. */
 const MAX_RANKED_SEARCH_RESULTS = 25
+
+const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-', 'query-', 'marketing-']
+
+function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {
+    const availableToolNames = new Set(allTools.map((tool) => tool.name))
+    const hasMetricCatalog =
+        availableToolNames.has('metric-list') &&
+        availableToolNames.has('metric-describe') &&
+        availableToolNames.has('data-catalog-metric-run')
+    const hasDataDomainMatch = matches.some((name) =>
+        DATA_DOMAIN_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix))
+    )
+    if (!hasMetricCatalog || !hasDataDomainMatch) {
+        return undefined
+    }
+    return 'For a named business or telemetry measure, list the complete governed catalog with metric-list, inspect a candidate with metric-describe, then run an approved match with data-catalog-metric-run.'
+}
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
@@ -59,9 +100,47 @@ export interface ExecInnerCallProperties {
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
+/**
+ * What the agent asked `exec` to do, for the `$mcp_tool_call` event.
+ *
+ * `call` is already attributed to the inner tool it dispatched, so the value here is in
+ * the other verbs — above all `search`, whose query is the only record of what an agent
+ * looked for. A search that matches nothing is otherwise invisible, which leaves the
+ * question "which capability do people reach for that we don't have" unanswerable.
+ */
+export interface ExecCommandMeta {
+    /** The verb the agent used: `search`, `info`, `schema`, `tools`, `learn`, `call`. */
+    exec_verb: string
+    /** The raw search query. Already bounded to MAX_SEARCH_PATTERN_LENGTH by the handler. */
+    exec_search_query?: string
+    /** How many tools matched, before the response is truncated — 0 is the interesting case. */
+    exec_search_match_count?: number
+    /** How many of those matches came from a connected third-party server. */
+    exec_search_gateway_match_count?: number
+}
+
+export type ExecCommandTracker = (meta: ExecCommandMeta) => void
+
+/**
+ * Session-scoped skill-usage markers backing the skills-first gate. Product
+ * `call`s in a session that ran no `learn` load are rejected with a retryable
+ * instruction — interaction-time enforcement of the SKILLS FIRST prompt section,
+ * which agents demonstrably rationalize their way past when it is advisory only.
+ * `call --no-skills` acknowledges that no skill applies and opens the gate for
+ * the rest of the session.
+ */
+export interface SkillsSessionState {
+    hasLearned(): Promise<boolean>
+    markLearned(): Promise<void>
+    hasAcknowledgedNoSkills(): Promise<boolean>
+    markAcknowledgedNoSkills(): Promise<void>
+}
+
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
-    helpCatalog?: ExecHelpCatalog
+    learnCatalog?: ExecLearnCatalog
+    /** Present only when skill distribution is enabled and the client has a session. */
+    skillsSession?: SkillsSessionState
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
      * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
@@ -69,6 +148,91 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    /**
+     * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
+     * lazily by the commands that need a tool roster, so a session that never reaches for
+     * a connected server pays nothing for having one. Must not throw: a failing gateway
+     * degrades to "no third-party tools", never to a broken `exec`.
+     */
+    gatewayToolsProvider?: () => Promise<Tool<ZodObjectAny>[]>
+    /** Reports what the agent asked for, so non-`call` verbs stop being invisible. */
+    trackCommand?: ExecCommandTracker
+    /**
+     * Tools a feature flag removed from this connection's catalog. Lets a call to
+     * a retired name name its successor instead of reading as an unknown tool.
+     */
+    flagGatedTools?: FlagGatedTool[]
+}
+
+const CALL_USAGE = 'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
+
+const SKILLS_GATE_MESSAGE =
+    'No skills loaded this session. Run `learn -s "<task keywords>"` and load the matching skills first — they carry the thresholds, schemas, and query patterns this task needs. If no skill applies, re-run this exact command as `call --no-skills ...`.'
+
+/**
+ * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
+ * line ranges, empty queries — so type them to keep them out of the `internal`
+ * bucket ops alerts on. Anything that already carries its own class (an API
+ * failure, a source outage, an exec error) propagates untouched.
+ */
+function classifyLearnError(error: unknown): unknown {
+    if (!(error instanceof Error) || error.constructor !== Error) {
+        return error
+    }
+    const reason: ExecCommandErrorReason = error.message.startsWith('Unknown ') ? 'unknown_learn_topic' : 'usage'
+    return new ExecCommandError(error.message, reason)
+}
+
+/**
+ * True when a `learn` input loads skill content (a qualified `source:skill` read,
+ * including file reads within a skill). Generic guide reads, listings, searches,
+ * and describes don't count — a guide is not a skill, and opening the gate on
+ * `learn analytics` would restore exactly the bypass the gate exists to catch.
+ *
+ * Uses the dispatcher's quote-aware tokenizer so a quoted flag (`learn '-s' ...`)
+ * or quoted identifier (`learn 'posthog:x'`) resolves the same way it dispatches —
+ * a naive whitespace split disagrees on both. An unterminated quote can't be a
+ * skill load (and `execute` would have thrown first), so it returns false.
+ */
+function isSkillLoad(rest: string): boolean {
+    let tokens: string[]
+    try {
+        tokens = tokenizeLearnInput(rest)
+    } catch {
+        return false
+    }
+    if (tokens[0] === 'skills' || tokens[0] === '-s' || tokens[0] === '-d') {
+        return false
+    }
+    return tokens.some((token) => QUALIFIED_IDENTIFIER.test(token))
+}
+
+/**
+ * Returns the gate rejection message, or undefined when the call may proceed.
+ * A session-store hiccup opens the gate — enforcement must never break tools.
+ */
+async function resolveSkillsGate(
+    session: SkillsSessionState | undefined,
+    noSkillsFlag: boolean
+): Promise<string | undefined> {
+    if (!session) {
+        return undefined
+    }
+    try {
+        if (noSkillsFlag) {
+            await session.markAcknowledgedNoSkills()
+            return undefined
+        }
+        if (await session.hasLearned()) {
+            return undefined
+        }
+        if (await session.hasAcknowledgedNoSkills()) {
+            return undefined
+        }
+        return SKILLS_GATE_MESSAGE
+    } catch {
+        return undefined
+    }
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -86,10 +250,11 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
-function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
+function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; noSkills: boolean; rest: string } {
     let rest = input.trim()
     let forceJson = false
     let confirmed = false
+    let noSkills = false
 
     while (rest) {
         const parsed = parseCommand(rest)
@@ -103,10 +268,15 @@ function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean
             rest = parsed.rest
             continue
         }
+        if (parsed.verb === '--no-skills') {
+            noSkills = true
+            rest = parsed.rest
+            continue
+        }
         break
     }
 
-    return { forceJson, confirmed, rest }
+    return { forceJson, confirmed, noSkills, rest }
 }
 
 // Extracts the inner tool name from an exec `call` command, e.g.
@@ -124,6 +294,115 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     }
     const innerName = parseCommand(callArgs).verb
     return innerName || undefined
+}
+
+// Extracts the inner tool's JSON arguments from an exec `call` command, e.g.
+// `call skill-get {"skill_name":"x"}` → `{ skill_name: 'x' }`. Sibling of
+// parseExecCallInnerToolName, and deliberately mirrors how the `call` handler
+// below reads the same command — a body-less call is `{}` there, so it is `{}`
+// here. Returns undefined when no inner arguments exist to read: another verb,
+// or a body that is not a JSON object. Analytics uses this because in
+// single-exec mode the arguments never arrive as tool arguments, so a property
+// derived only from those would miss nearly every skill read.
+export function parseExecCallInnerArgs(command: string): Record<string, unknown> | undefined {
+    const { verb, rest } = parseCommand(command)
+    if (verb !== 'call' || !rest) {
+        return
+    }
+    const callArgs = parseCallFlags(rest).rest
+    if (!callArgs) {
+        return
+    }
+    const { rest: jsonBody } = parseCommand(callArgs)
+    if (!jsonBody) {
+        return {}
+    }
+    try {
+        const parsed: unknown = JSON.parse(jsonBody)
+        // Arrays and `null` are typeof 'object'; only a plain object holds arguments.
+        return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : undefined
+    } catch {
+        return
+    }
+}
+
+/** Verbs the dispatcher grammar accepts. A verb outside this set is what the
+ *  `unknown_command` rejection fires on, and is recorded as unrecognized. */
+const KNOWN_EXEC_VERBS = new Set(['learn', 'tools', 'search', 'info', 'schema', 'call'])
+
+/** Verbs whose first positional argument names a tool. */
+const TOOL_TARGETING_VERBS = new Set(['info', 'schema', 'call'])
+
+/**
+ * Recorded in place of a verb or tool name the server doesn't recognize. A token
+ * the grammar rejected is caller text, and bounding its charset does not make it
+ * value-free — an identifier-shaped secret survives sanitization intact. This file
+ * already withholds `ExecCommandError`'s message from analytics for exactly this
+ * reason (it echoes the caller's tool name); the rejection reason on the event says
+ * which of the two failed, so the sentinel loses only the misspelling itself.
+ */
+const UNRECOGNIZED_EXEC_TOKEN = 'unrecognized'
+
+export interface ExecCommandShape {
+    /** The dispatcher verb, or `unrecognized` when it isn't one we accept. */
+    verb?: string
+    /** The tool `info`/`schema`/`call` targeted, or `unrecognized` when the name
+     *  resolves to nothing in our catalog. */
+    targetTool?: string
+}
+
+/**
+ * Describes an exec command for analytics: which verb ran, and which tool it
+ * targeted. Both are value-free by construction — a verb from the closed grammar
+ * and a tool name from our own catalog, never the caller's token (see
+ * `describeValidationError` for the same constraint applied to schema rejections).
+ *
+ * Without this, every non-`call` verb lands in one undifferentiated `exec`
+ * bucket: schema discovery is indistinguishable from tool search, and an
+ * `unknown_command` rejection records no verb to diagnose. `targetTool` is what
+ * links an `info <tool>` to the `call <tool>` that follows it.
+ *
+ * `isKnownToolName` decides whether a target resolves against the catalog this
+ * connection can see; anything it rejects is recorded as
+ * `UNRECOGNIZED_EXEC_TOKEN`.
+ */
+export function describeExecCommand(command: string, isKnownToolName: (name: string) => boolean): ExecCommandShape {
+    const { verb: rawVerb, rest } = parseCommand(command)
+    if (!rawVerb) {
+        return {}
+    }
+    const verb = KNOWN_EXEC_VERBS.has(rawVerb) ? rawVerb : UNRECOGNIZED_EXEC_TOKEN
+    if (!TOOL_TARGETING_VERBS.has(rawVerb) || !rest) {
+        return { verb }
+    }
+    // The target must be parsed exactly as the dispatcher looks it up, or a
+    // rejected command gets attributed to a valid tool. `call` strips its flags
+    // then takes the first token; `schema` takes the first token. `info` is the
+    // exception: it hands the entire remaining argument to `findTool` as an exact
+    // name (after an optional `--json`), so `info execute-sql extra` looks up
+    // "execute-sql extra", resolves to nothing, and records `unrecognized` — not
+    // the `execute-sql` its first token would suggest.
+    let target: string
+    if (rawVerb === 'call') {
+        target = parseCommand(parseCallFlags(rest).rest).verb
+    } else if (rawVerb === 'info') {
+        target = rest.replace(/^--json(\s+|$)/, '').trim()
+    } else {
+        target = parseCommand(rest).verb
+    }
+    if (!target) {
+        return { verb }
+    }
+    return { verb, targetTool: isRecordableToolName(target, isKnownToolName) ? target : UNRECOGNIZED_EXEC_TOKEN }
+}
+
+/** Tool names we own, and can therefore record: the ones this connection can see,
+ *  plus the removed ones kept only to redirect a call. A name outside both is the
+ *  caller's own text. */
+function isRecordableToolName(name: string, isKnownToolName: (name: string) => boolean): boolean {
+    return isKnownToolName(name) || Object.prototype.hasOwnProperty.call(DEPRECATED_TOOL_REDIRECTS, name)
 }
 
 // Resolves the inner tool an `exec` call targets: given a request, return the
@@ -147,19 +426,20 @@ export function createExecInnerToolCallResolver(
     }
 }
 
-// Tools that were removed from the MCP server — or flag-gated out of the active
-// catalog. When the model attempts to call one that isn't present, surface a
-// targeted redirect to the replacement instead of dumping the full tool catalog.
-// Keep the redirect text editorial — schemas don't carry "use X instead"
-// guidance. A redirect only fires when the tool is absent, so an entry for a
-// conditionally-gated tool is inert whenever that tool is registered.
+// Tools deleted from the MCP server. When the model attempts to call one,
+// surface a targeted redirect to the replacement instead of dumping the full
+// tool catalog. Keep the redirect text editorial — schemas don't carry
+// "use X instead" guidance.
+// A tool a feature flag removed still has a definition, so it declares its own
+// successor through `superseded_by` and is answered by `flagGatedToolMessage`
+// instead of by an entry here.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
     // Removed in favor of SQL-based schema discovery via `system.information_schema.*`.
     'read-data-warehouse-schema': () =>
-        'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill for patterns.',
+        'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for patterns.',
     'entity-search': (allTools) => {
         const base =
-            'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).'
+            'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).'
         const hasCatalog = allTools.some((t) => t.name === 'data-catalog-metric-run')
         return hasCatalog
             ? `${base} For governed business metrics, search \`system.information_schema.metrics\` instead of \`system.insights\`.`
@@ -172,7 +452,7 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     'property-definitions': () =>
         'Tool "property-definitions" was removed. Use "read-data-schema" with the appropriate kind: "event_properties", "entity_properties", or "action_properties" — see its info schema for required fields.',
     'query-generate-hogql-from-question': () =>
-        'Tool "query-generate-hogql-from-question" was removed. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill for HogQL patterns.',
+        'Tool "query-generate-hogql-from-question" was removed. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for HogQL patterns.',
     'query-run': (allTools) => {
         const queryTools = allTools
             .filter((t) => t.name.startsWith('query-'))
@@ -180,6 +460,249 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
             .join('\n')
         return `Tool "query-run" was removed. Pick the typed query tool that matches your intent, or use "execute-sql" for arbitrary HogQL. Available query-* tools:\n${queryTools}`
     },
+    // Folded into "inbox-reports-list", which already served the same endpoint.
+    // Spell out the filter renames: the replacement declares no required
+    // parameters, so an old array filter sent to it is silently dropped and the
+    // caller gets an unfiltered list instead of an error.
+    'self-driving-inbox-get': () =>
+        'Tool "self-driving-inbox-get" was removed. Use "inbox-reports-list", which lists the same reports. For the old default, pass { "view": "actionable", "use_priority_preference": true, "sort": "priority", "limit": 10 }. The array filters became comma-separated strings: `priorities` is now `priority`, `source_products` is now `source_product`, and `scouts` is now `scout`. `view`, `scope`, `teammate_uuid`, `search`, and `offset` keep their names.',
+}
+
+/**
+ * Detects the caller sending a required object parameter's *contents* in place of
+ * the parameter itself — `{dateRange, limit}` where `{query: {dateRange, limit}}`
+ * was wanted. Zod strips the misplaced keys, so an unwrapped payload and an empty
+ * one both surface as the same bare `missing required parameter`, and the caller
+ * has no way to tell which mistake it made.
+ *
+ * Decided by re-parsing rather than by reading the schema, so it holds for any
+ * wrapper shape: nest the input under the missing key and see whether the schema
+ * accepts it. Confident when the wrapped value either parses to something
+ * non-empty, or fails only on paths *inside* the wrapper — both mean the nested
+ * schema recognized the content. A payload of undeclared keys parses to `{}` and
+ * is correctly rejected, as is a caller that sent nothing at all.
+ */
+function looksLikeUnwrappedPayload(
+    issuePath: ReadonlyArray<PropertyKey>,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): boolean {
+    if (!schema || issuePath.length !== 1) {
+        return false
+    }
+    const key = String(issuePath[0])
+    if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+        return false
+    }
+    const keys = Object.keys(input)
+    if (keys.length === 0 || keys.includes(key)) {
+        return false
+    }
+
+    const wrapped = schema.safeParse({ [key]: input })
+    if (wrapped.success) {
+        const nested = (wrapped.data as Record<string, unknown>)[key]
+        return typeof nested === 'object' && nested !== null && Object.keys(nested).length > 0
+    }
+    // Every remaining complaint sits under the wrapper: the nested schema read the
+    // content and rejected specific fields, so the nesting itself was the mistake.
+    return wrapped.error.issues.every((issue) => issue.path.length > 1 && String(issue.path[0]) === key)
+}
+
+/**
+ * Rebuilds a flattened payload under the wrapper the schema wanted, so the call the caller meant runs.
+ *
+ * Naming the mistake in the rejection still costs a round trip, and the flattened shape is the most
+ * common rejection on the tools built this way.
+ *
+ * Keys the outer schema declares beside the wrapper stay at the top level. Folding a sibling such as
+ * `baselineDateRange` into `query` would have the nested schema strip it, and the caller would get a
+ * different query than it asked for without being told.
+ *
+ * Every key that moves inside must be one the wrapper declares. A wrapper that defaults its own
+ * fields parses `{"dateRagne": ...}` into a full set of defaults, so accepting that rebuild would run
+ * an unfiltered query and return plausible but wrong rows instead of reporting the typo.
+ *
+ * Returns undefined unless the rebuilt payload parses, so a payload malformed for some other reason
+ * keeps its own rejection.
+ */
+export function rewrapFlattenedArguments(
+    error: z.ZodError,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): Record<string, unknown> | undefined {
+    if (!schema || !isRecord(input) || error.issues.length !== 1) {
+        return undefined
+    }
+    const issue = error.issues[0]!
+    if (issue.code !== 'invalid_type' || !('input' in issue) || issue.input !== undefined) {
+        return undefined
+    }
+    if (!looksLikeUnwrappedPayload(issue.path, input, schema)) {
+        return undefined
+    }
+
+    const key = String(issue.path[0])
+    const siblings = topLevelFieldNames(schema)
+    const rebuilt: Record<string, unknown> = {}
+    const nested: Record<string, unknown> = {}
+    for (const [name, value] of Object.entries(input)) {
+        if (name !== key && siblings.has(name)) {
+            rebuilt[name] = value
+        } else {
+            nested[name] = value
+        }
+    }
+    const declared = wrapperFieldNames(schema, key)
+    const nestedNames = Object.keys(nested)
+    if (nestedNames.length === 0 || !nestedNames.every((name) => declared.has(name))) {
+        return undefined
+    }
+    rebuilt[key] = nested
+
+    return schema.safeParse(rebuilt).success ? rebuilt : undefined
+}
+
+function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {
+    const root = inputJsonSchema(schema)
+    const properties = isRecord(root) ? root['properties'] : undefined
+    return new Set(isRecord(properties) ? Object.keys(properties) : [])
+}
+
+/**
+ * The field names a wrapper parameter declares directly, including the fields of
+ * each variant when the wrapper is a union (`read-data-schema` keys its shape off
+ * a `kind` discriminator). Composition keywords are walked one level; nothing
+ * deeper is collected, because only the caller's own top-level keys are matched
+ * against this set.
+ */
+function wrapperFieldNames(schema: ZodObjectAny, key: string): ReadonlySet<string> {
+    const root = inputJsonSchema(schema)
+    const properties = isRecord(root) ? root['properties'] : undefined
+    const wrapper = isRecord(properties) ? properties[key] : undefined
+    const names = new Set<string>()
+    if (!isRecord(wrapper)) {
+        return names
+    }
+    for (const node of [wrapper, ...variantsOf(wrapper)]) {
+        const fields = node['properties']
+        if (isRecord(fields)) {
+            for (const name of Object.keys(fields)) {
+                names.add(name)
+            }
+        }
+    }
+    return names
+}
+
+function variantsOf(node: Record<string, unknown>): Record<string, unknown>[] {
+    return ['anyOf', 'oneOf', 'allOf']
+        .flatMap((keyword) => (Array.isArray(node[keyword]) ? (node[keyword] as unknown[]) : []))
+        .filter(isRecord)
+}
+
+/**
+ * Renders the shape the tool would have accepted, by nesting the caller's own
+ * keys under the wrapper they omitted: `{"query": {"dateRange": ..., "limit": ...}}`.
+ *
+ * A caller told only to "resend them as {"query": {...}}" has to work out which
+ * of its fields belong inside, and the reports behind this said so — they asked
+ * for one valid input shape at the point of rejection. Echoing the keys back in
+ * place answers that without a second `info` call.
+ *
+ * Only keys the wrapper itself declares are named, so the rendered shape is the
+ * tool's own vocabulary rather than the caller's, and values are always elided.
+ * The message is returned to the caller and recorded as the analytics error
+ * message, so it must carry no input. Falls back to `{...}` when no key matches.
+ */
+function acceptedWrapperShape(key: string, input: unknown, schema: ZodObjectAny | undefined): string {
+    if (!schema || !isRecord(input)) {
+        return `{"${key}": {...}}`
+    }
+    const declared = wrapperFieldNames(schema, key)
+    const named = Object.keys(input).filter((name) => declared.has(name))
+    if (named.length === 0) {
+        return `{"${key}": {...}}`
+    }
+    const shown = named.slice(0, MAX_WRAPPER_KEYS_NAMED).map((name) => `"${name}": ...`)
+    if (named.length > MAX_WRAPPER_KEYS_NAMED) {
+        shown.push('...')
+    }
+    return `{"${key}": {${shown.join(', ')}}}`
+}
+
+/**
+ * Names the top-level keys a non-strict schema dropped, so a caller told `id` is
+ * missing can see that the key it did send — `scanner_id` — was discarded rather
+ * than read. Without this the caller is told only that a parameter it never used
+ * is missing, has nothing to correct, and retries the same call.
+ *
+ * Reports only that the keys were not accepted. It deliberately does not claim
+ * one of them was meant as the missing parameter: matching `scanner_id` to a
+ * missing `id` by name holds on `vision-scanners-get`, where the value is right
+ * and only the name is wrong, but on a tool keyed by an observation id the same
+ * key carries the wrong value entirely, and advising a rename would send the
+ * caller further off course. Which key to use instead belongs in the tool's
+ * description, where it can say so per tool.
+ *
+ * Returns key names only, never values — the message is returned to the caller
+ * and recorded as the analytics error message.
+ */
+function undeclaredKeys(input: unknown, schema: ZodObjectAny | undefined): string[] {
+    if (!schema || typeof input !== 'object' || input === null || Array.isArray(input)) {
+        return []
+    }
+    const declared = declaredPropertyNames(schema)
+    return Object.keys(input).filter((key) => !declared.has(key))
+}
+
+/** Bound on how many dropped keys the message names, so a caller sending a large
+ *  undeclared payload cannot inflate the analytics error message. */
+const MAX_DROPPED_KEYS_NAMED = 5
+
+/** Same bound for the rendered wrapper shape: enough keys to recognize the
+ *  payload, not enough for a large one to inflate the message. */
+const MAX_WRAPPER_KEYS_NAMED = 5
+
+/** Bound on the parameter description echoed back with a missing-parameter
+ *  rejection, so a tool with a long field description cannot inflate the
+ *  analytics error message. */
+const MAX_MISSING_PARAM_HINT = 200
+
+/**
+ * The missing parameter's own description, appended to the rejection.
+ *
+ * A bare `missing required parameter: short_id` names the field to fill but not
+ * what to fill it with, so a caller that never held the identifier retries the
+ * same empty call. The field's description already answers that — where the
+ * value comes from and what shape it takes — and this puts it in front of the
+ * caller at the moment it needs it, instead of requiring a separate `info` call.
+ *
+ * Top-level fields only: a nested path describes a field the caller has not
+ * reached yet. The text comes from the tool's own schema, never from caller
+ * input, so it is safe in the message returned to the caller and recorded as the
+ * analytics error message.
+ */
+function missingParameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjectAny | undefined): string {
+    if (!schema || path.length !== 1) {
+        return ''
+    }
+    const root = inputJsonSchema(schema)
+    const properties = isRecord(root) ? root['properties'] : undefined
+    const field = isRecord(properties) ? properties[String(path[0])] : undefined
+    const description = isRecord(field) && typeof field['description'] === 'string' ? field['description'].trim() : ''
+    if (!description) {
+        return ''
+    }
+    const capped =
+        description.length > MAX_MISSING_PARAM_HINT
+            ? `${description.slice(0, MAX_MISSING_PARAM_HINT).trimEnd()}...`
+            : description
+    return ` (${capped})`
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /** Turns a Zod validation failure into a short, field-named message the model
@@ -193,12 +716,33 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
  *  key is absent without the option, and the check degrades to the wrong-type
  *  message). `reportInput` embeds raw input values in the ZodError, including
  *  its `.message` — keep the error local; never log or capture it. */
-export function formatInputValidationError(toolName: string, error: z.ZodError): string {
+export function formatInputValidationError(
+    toolName: string,
+    error: z.ZodError,
+    input?: unknown,
+    schema?: ZodObjectAny
+): string {
+    // A strict schema rejects unknown keys instead of dropping them, and the
+    // `unrecognized_keys` branch below already names them.
+    const keysWereRejected = error.issues.some((issue) => issue.code === 'unrecognized_keys')
     const parts = error.issues.map((issue) => {
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
             if ('input' in issue && issue.input === undefined) {
-                return `missing required parameter: ${path}`
+                const hint = missingParameterHint(issue.path, schema)
+                if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
+                    const shape = acceptedWrapperShape(path, input, schema)
+                    return `missing required parameter: ${path}${hint}; the fields you sent belong inside it, so resend them as ${shape}`
+                }
+                const dropped = keysWereRejected ? [] : undeclaredKeys(input, schema)
+                if (dropped.length) {
+                    const named = dropped
+                        .slice(0, MAX_DROPPED_KEYS_NAMED)
+                        .map((key) => `"${key}"`)
+                        .join(', ')
+                    return `missing required parameter: ${path}${hint}; this tool ignored these keys it does not accept: ${named}`
+                }
+                return `missing required parameter: ${path}${hint}`
             }
             return `parameter "${path}" must be of type ${issue.expected}`
         }
@@ -224,30 +768,186 @@ const MAX_VALIDATION_DESCRIPTORS = 20
 const MAX_KEY_LENGTH = 64
 
 /**
+ * Issue codes where the type of the rejected value is the diagnostic signal: a
+ * parameter that is absent and one that is present under the right name but the
+ * wrong shape are different bugs with different fixes, and both otherwise read as
+ * a bare `invalid_type`.
+ */
+const TYPE_REVEALING_CODES = new Set(['invalid_type', 'invalid_union'])
+
+/**
+ * Recorded in place of a path segment the schema never declared. An open record
+ * (`generate-app-url`'s `params: z.record(z.string(), z.string())`) puts the
+ * caller's own key in the issue path, so recording the path verbatim would carry
+ * caller text into analytics. Which field held the bad value is preserved; only
+ * the key inside it is masked.
+ */
+const UNDECLARED_PATH_SEGMENT = '*'
+
+/** Defensive bound on the JSON Schema walk behind `declaredPropertyNames`. */
+const MAX_SCHEMA_WALK_DEPTH = 20
+
+/**
+ * Joins an issue path into a descriptor, collapsing array indices to `N` and
+ * masking any segment `declaredNames` doesn't cover.
+ *
+ * `series.0.event` and `series.1.event` describe one defect. Without the collapse
+ * a malformed 50-element array yields 50 distinct descriptors that fill
+ * `MAX_VALIDATION_DESCRIPTORS` with restatements of itself — and because the cap
+ * truncates in schema-traversal order, it evicts genuinely different fields that
+ * failed later. The dedupe is what keeps the cap meaningful.
+ *
+ * `declaredNames` is omitted only where every segment is ours by construction
+ * (`describeApiValidationError`, whose `attr` is a serializer field name).
+ */
+function normalizeDescriptorPath(segments: readonly PropertyKey[], declaredNames?: ReadonlySet<string>): string {
+    if (!segments.length) {
+        return '(root)'
+    }
+    return segments
+        .map((segment) => {
+            if (typeof segment === 'number' || /^\d+$/.test(String(segment))) {
+                return 'N'
+            }
+            const name = String(segment)
+            if (declaredNames && !declaredNames.has(name)) {
+                return UNDECLARED_PATH_SEGMENT
+            }
+            return name
+        })
+        .join('.')
+        .slice(0, MAX_KEY_LENGTH)
+}
+
+const declaredPropertyNamesCache = new WeakMap<object, ReadonlySet<string>>()
+const inputJsonSchemaCache = new WeakMap<object, unknown>()
+
+/**
+ * The agent-facing JSON Schema for a tool, converted once per schema object.
+ *
+ * A schema that can't be converted caches `null`, so a failure costs detail once
+ * rather than being retried on every rejection.
+ */
+function inputJsonSchema(schema: z.ZodType): unknown {
+    if (inputJsonSchemaCache.has(schema)) {
+        return inputJsonSchemaCache.get(schema)
+    }
+    let converted: unknown = null
+    try {
+        converted = z.toJSONSchema(schema, { io: 'input' })
+    } catch {
+        // Neither telemetry nor an error message may break a tool call.
+    }
+    inputJsonSchemaCache.set(schema, converted)
+    return converted
+}
+
+/**
+ * Every property name a tool's schema declares, at any depth. A path segment
+ * outside this set came from an open record or a catchall, which means the caller
+ * chose it.
+ *
+ * Read off the JSON Schema exec already generates for `info`, so this depends on
+ * no Zod internals. A schema that can't be converted yields an empty set: more
+ * masking than strictly needed, never less.
+ */
+function declaredPropertyNames(schema: z.ZodType): ReadonlySet<string> {
+    const cached = declaredPropertyNamesCache.get(schema)
+    if (cached) {
+        return cached
+    }
+    const names = new Set<string>()
+    collectDeclaredPropertyNames(inputJsonSchema(schema), names)
+    declaredPropertyNamesCache.set(schema, names)
+    return names
+}
+
+function collectDeclaredPropertyNames(node: unknown, into: Set<string>, depth = 0): void {
+    if (depth > MAX_SCHEMA_WALK_DEPTH || typeof node !== 'object' || node === null) {
+        return
+    }
+    if (Array.isArray(node)) {
+        for (const child of node) {
+            collectDeclaredPropertyNames(child, into, depth + 1)
+        }
+        return
+    }
+    for (const [key, value] of Object.entries(node)) {
+        // Only a `properties` map is keyed by field names. `patternProperties`,
+        // `additionalProperties` and `$defs` are keyed by pattern or definition name,
+        // so descend into their values without recording the keys.
+        if (key === 'properties' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            for (const [name, child] of Object.entries(value)) {
+                into.add(name)
+                collectDeclaredPropertyNames(child, into, depth + 1)
+            }
+            continue
+        }
+        collectDeclaredPropertyNames(value, into, depth + 1)
+    }
+}
+
+/** The JSON-shaped type of a rejected value — never the value, never its length. */
+function describeReceivedType(value: unknown): string {
+    if (value === null) {
+        return 'null'
+    }
+    if (Array.isArray(value)) {
+        return 'array'
+    }
+    return typeof value
+}
+
+/**
+ * Builds a descriptor in the same `path:code[:received]` shape
+ * `describeValidationError` emits, for a rejection that came from the PostHog API
+ * rather than the local schema — so both kinds of validation failure answer one
+ * query instead of requiring `$mcp_error_message` to be string-parsed.
+ *
+ * `attr` is one of our own serializer field names and `code` a DRF code; neither
+ * carries caller input, unlike the API's free-text `detail`.
+ */
+export function describeApiValidationError(attr: string | undefined, code: string | undefined): string[] {
+    const path = normalizeDescriptorPath((attr ?? '').split('.').filter(Boolean))
+    return [`${path}:${code ?? 'unknown'}`]
+}
+
+/**
  * Derives a value-free descriptor of a validation failure for telemetry, so a
  * contract regression (agents sending a field name the schema doesn't accept) is
  * diagnosable from the `$mcp_tool_call` event alone — without ever recording the
  * request payload.
  *
- * `fields` are the offending top-level field + issue code (e.g. `orgId:invalid_type`);
- * for a union rejection the path is empty and it reads `(root):invalid_union`, which
- * is why `inputKeys` — the top-level keys the caller actually sent — carries the real
- * signal there (it surfaces the unaccepted alias, e.g. `organizationId`).
+ * `fields` are the offending field path + issue code, plus the received type where
+ * that distinguishes the bug (e.g. `id:invalid_type:undefined` for an omitted
+ * parameter vs `query:invalid_union:string` for an envelope the agent flattened).
+ * `inputKeys` — the top-level keys the caller actually sent — is what surfaces an
+ * unaccepted alias (e.g. `organizationId` where the schema wants `orgId`).
  *
- * Records only structural information (field names, issue codes). It never touches
- * input VALUES: the ZodError embeds raw values in `issue.input` and `.message` (see
- * `formatInputValidationError`), so we read `issue.path[0]`/`issue.code` and the
- * input's own key names only.
+ * Records only structural information: field names, issue codes, and the TYPE of a
+ * rejected value. It never records input VALUES — the ZodError embeds those in
+ * `issue.input` and in `.message` (see `formatInputValidationError`), so this reads
+ * `typeof issue.input` and never the value behind it. `schema` is what keeps that
+ * true of the field paths as well: a key the schema never declared belongs to the
+ * caller, so it is masked rather than recorded (see `normalizeDescriptorPath`).
  */
 export function describeValidationError(
     error: z.ZodError,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
+    schema: z.ZodType
 ): { fields: string[]; inputKeys: string[] } {
+    const declaredNames = declaredPropertyNames(schema)
     const fields = [
         ...new Set(
             error.issues.map((issue) => {
-                const top = issue.path.length ? String(issue.path[0]) : '(root)'
-                return `${top.slice(0, MAX_KEY_LENGTH)}:${issue.code}`
+                const descriptor = `${normalizeDescriptorPath(issue.path, declaredNames)}:${issue.code}`
+                // `input` is only present under `safeParse(..., { reportInput: true })`;
+                // without it there is no type to report, and an absent value and an
+                // unreported one must not both read as `undefined`.
+                if (!TYPE_REVEALING_CODES.has(issue.code) || !('input' in issue)) {
+                    return descriptor
+                }
+                return `${descriptor}:${describeReceivedType(issue.input)}`
             })
         ),
     ].slice(0, MAX_VALIDATION_DESCRIPTORS)
@@ -286,12 +986,56 @@ function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<
     return { ...jsonSchema, properties: rest }
 }
 
-function findTool(tools: Tool<ZodObjectAny>[], scopeGatedTools: ScopeGatedTool[], name: string): Tool<ZodObjectAny> {
+/** A lowercase hyphenated token, the shape every name in the tool catalog takes. */
+const HINT_TOOL_NAME_PATTERN = /[a-z][a-z0-9]*(?:-[a-z0-9]+)+/g
+
+/**
+ * Whether every tool the hint names is one this connection can call. A hint is
+ * free text, so it can name a tool that is behind its own gate here — the second
+ * dead end the successor filter exists to prevent. A hyphenated word the catalog
+ * has no tool for is prose, so it never suppresses the hint.
+ */
+function hintNamesOnlyAvailableTools(hint: string, available: Set<string>): boolean {
+    const definitions = getToolDefinitions()
+    return (hint.match(HINT_TOOL_NAME_PATTERN) ?? []).every(
+        (token) => definitions[token] === undefined || available.has(token)
+    )
+}
+
+/**
+ * Message for a tool a feature flag removed from this connection's catalog.
+ * Names only the successors the catalog can actually serve, because a successor
+ * behind its own gate is no more callable than the tool it replaced. The hint is
+ * held to the same rule. Never names the flag — the agent cannot act on a flag
+ * key, and the key is internal.
+ */
+function flagGatedToolMessage(gated: FlagGatedTool, tools: Tool<ZodObjectAny>[]): string {
+    const available = new Set(tools.map((t) => t.name))
+    const reachable = gated.supersededBy.filter((successor) => available.has(successor))
+    const hint =
+        gated.redirectHint && hintNamesOnlyAvailableTools(gated.redirectHint, available) ? ` ${gated.redirectHint}` : ''
+    if (reachable.length === 0) {
+        return `Tool "${gated.name}" exists, but it is not enabled on this PostHog connection. The capability was not removed. Run "search ${gated.name}" to find an enabled tool for the same job.${hint}`
+    }
+    const successors = reachable.map((successor) => `"${successor}"`).join(' or ')
+    return `Tool "${gated.name}" is retired on this PostHog connection. Use ${successors} instead.${hint}`
+}
+
+function findTool(
+    tools: Tool<ZodObjectAny>[],
+    scopeGatedTools: ScopeGatedTool[],
+    flagGatedTools: FlagGatedTool[],
+    name: string
+): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
         const redirect = DEPRECATED_TOOL_REDIRECTS[name]
         if (redirect) {
             throw new ExecCommandError(redirect(tools), 'deprecated_tool')
+        }
+        const flagGatedTool = flagGatedTools.find((candidate) => candidate.name === name)
+        if (flagGatedTool) {
+            throw new ExecCommandError(flagGatedToolMessage(flagGatedTool, tools), 'gated_tool')
         }
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
@@ -319,6 +1063,7 @@ export function createExecTool(
     options: ExecToolOptions = {}
 ): Tool<ExecSchema> {
     const ExecSchema = makeExecSchema(commandReference)
+    const flagGatedTools = options.flagGatedTools ?? []
 
     return {
         name: 'exec',
@@ -334,44 +1079,59 @@ export function createExecTool(
         },
         handler: async (_context: Context, params: z.infer<ExecSchema>) => {
             const { verb, rest } = parseCommand(params.command)
+            // Reported up front so a command that throws (unknown tool, bad regex) still
+            // records what was attempted — those are the failures worth counting.
+            options.trackCommand?.({ exec_verb: verb })
+
+            let gatewayTools: Tool<ZodObjectAny>[] | undefined
+            /** PostHog's tools plus any third-party tools the caller has connected.
+             *  Resolved at most once per command, and only for commands that need a
+             *  roster — `learn` never touches the gateway. */
+            const resolveTools = async (): Promise<Tool<ZodObjectAny>[]> => {
+                if (!options.gatewayToolsProvider) {
+                    return allTools
+                }
+                if (gatewayTools === undefined) {
+                    gatewayTools = await options.gatewayToolsProvider()
+                }
+                return gatewayTools.length > 0 ? [...allTools, ...gatewayTools] : allTools
+            }
 
             switch (verb) {
                 case 'learn': {
-                    const helpCatalog = options.helpCatalog
-                    if (!helpCatalog) {
+                    const learnCatalog = options.learnCatalog
+                    if (!learnCatalog) {
                         // `learn` is only advertised when a catalog exists, so without one
                         // it's an unsupported verb rather than a misuse of a real command.
                         throw new ExecCommandError(
-                            'The learning catalog is not available for this client.',
+                            'The learn command is not available for this client.',
                             'unknown_command'
                         )
                     }
-                    if (!rest) {
-                        return JSON.stringify(helpCatalog.list())
+                    let learnResult: string
+                    try {
+                        learnResult = await learnCatalog.execute(rest)
+                    } catch (error) {
+                        throw classifyLearnError(error)
                     }
-                    const topicIds = [...new Set(rest.split(/\s+/))]
-                    const entries = topicIds.map((topicId) => helpCatalog.get(topicId))
-                    const unknownTopicIds = topicIds.filter((_, index) => entries[index] === undefined)
-                    if (unknownTopicIds.length > 0) {
-                        const available = helpCatalog
-                            .list()
-                            .map((item) => item.id)
-                            .join(', ')
-                        const unknownTopics = unknownTopicIds.map((topicId) => `"${topicId}"`).join(', ')
-                        throw new ExecCommandError(
-                            `Unknown learning topic${unknownTopicIds.length === 1 ? '' : 's'}: ${unknownTopics}. Available: ${available}`,
-                            'unknown_learn_topic'
-                        )
+                    // Only skill loads count as "learned" — a search whose results are
+                    // then ignored is exactly the bypass the gate exists to catch.
+                    if (options.skillsSession && isSkillLoad(rest)) {
+                        await options.skillsSession.markLearned().catch(() => undefined)
                     }
-                    const resolvedEntries = entries.filter((entry) => entry !== undefined)
-                    if (resolvedEntries.length === 1) {
-                        return resolvedEntries[0]!.content
-                    }
-                    return resolvedEntries.map((entry) => `## ${entry.title}\n\n${entry.content}`).join('\n\n')
+                    return learnResult
                 }
 
                 case 'tools': {
-                    return JSON.stringify(allTools.map((t) => t.name))
+                    const names = allTools.map((t) => t.name)
+                    const connected = await resolveConnectedSummary(resolveTools, allTools.length)
+                    if (!connected) {
+                        return JSON.stringify(names)
+                    }
+                    // Summarize rather than list: a user with several connected servers can
+                    // have hundreds of third-party tools, and dumping them all here would
+                    // cost more context than `search` ever does.
+                    return JSON.stringify({ tools: names, connected_servers: connected })
                 }
 
                 case 'search': {
@@ -391,20 +1151,27 @@ export function createExecTool(
                     // (e.g. `query-`, `feature-flag`) keeps the original regex
                     // predicate; plain words — including multi-word, natural-
                     // language queries — use forgiving token ranking.
+                    const searchableTools = await resolveTools()
+                    // `matches` is the page the agent sees; `matchedNames` is every match,
+                    // which is what the counts report — a truncated page would make a broad
+                    // query look as narrow as a precise one.
+                    let matchedNames: string[]
                     let matches: string[]
                     let gatedMatches: ScopeGatedTool[]
                     let truncatedFrom = 0
                     if (isRegexPattern(rest)) {
                         try {
-                            matches = searchToolsRegex(allTools, rest).map((t) => t.name)
+                            matchedNames = searchToolsRegex(searchableTools, rest).map((t) => t.name)
+                            matches = matchedNames
                             gatedMatches = searchToolsRegex(scopeGatedTools, rest)
                         } catch {
                             throw new ExecCommandError(`Invalid regex pattern: "${rest}"`, 'invalid_regex')
                         }
                     } else {
-                        const ranked = searchToolsRanked(allTools, rest)
+                        const ranked = searchToolsRanked(searchableTools, rest)
                         truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
-                        matches = ranked.slice(0, MAX_RANKED_SEARCH_RESULTS).map((r) => r.name)
+                        matchedNames = ranked.map((r) => r.name)
+                        matches = matchedNames.slice(0, MAX_RANKED_SEARCH_RESULTS)
                         // Preserve ranked order for gated matches too, then map
                         // each name back to its ScopeGatedTool (for missingScopes).
                         const gatedByName = new Map(scopeGatedTools.map((t) => [t.name, t]))
@@ -412,6 +1179,13 @@ export function createExecTool(
                             .map((r) => gatedByName.get(r.name))
                             .filter((t): t is ScopeGatedTool => t !== undefined)
                     }
+
+                    options.trackCommand?.({
+                        exec_verb: verb,
+                        exec_search_query: rest,
+                        exec_search_match_count: matchedNames.length,
+                        exec_search_gateway_match_count: matchedNames.filter(isGatewayToolName).length,
+                    })
 
                     if (gatedMatches.length > 0) {
                         const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
@@ -433,11 +1207,21 @@ export function createExecTool(
                         })
                     }
                     if (truncatedFrom > 0) {
+                        const catalogHint = catalogDiscoveryHint(allTools, matches)
                         return JSON.stringify({
                             matches,
                             truncated: true,
-                            hint: `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
+                            hint: [
+                                catalogHint,
+                                `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
+                            ]
+                                .filter(Boolean)
+                                .join(' '),
                         })
+                    }
+                    const catalogHint = catalogDiscoveryHint(allTools, matches)
+                    if (catalogHint) {
+                        return JSON.stringify({ matches, hint: catalogHint })
                     }
                     return JSON.stringify(matches)
                 }
@@ -451,14 +1235,16 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
-                    const tool = findTool(allTools, scopeGatedTools, infoArgs)
+                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs)
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
                     // are optional and auto-filled. The default `io: 'output'` would list them as
                     // required, misrepresenting them as mandatory input the caller must supply.
-                    const fullSchema = stripOutputFormatProperty(
-                        z.toJSONSchema(tool.schema, { io: 'input' }) as Record<string, unknown>
-                    )
+                    const fullSchema =
+                        tool.rawInputSchema ??
+                        stripOutputFormatProperty(
+                            z.toJSONSchema(tool.schema, { io: 'input' }) as Record<string, unknown>
+                        )
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
                     // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
@@ -494,12 +1280,14 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: schema <tool_name> [field_path]', 'usage')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
-                    const schemaTool = findTool(allTools, scopeGatedTools, schemaToolName)
+                    const schemaTool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, schemaToolName)
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
-                    const fullJsonSchema = stripOutputFormatProperty(
-                        z.toJSONSchema(schemaTool.schema, { io: 'input' }) as Record<string, unknown>
-                    )
+                    const fullJsonSchema =
+                        schemaTool.rawInputSchema ??
+                        stripOutputFormatProperty(
+                            z.toJSONSchema(schemaTool.schema, { io: 'input' }) as Record<string, unknown>
+                        )
 
                     if (!fieldPath) {
                         // The bare `schema <tool>` view is always a summary. Any
@@ -537,19 +1325,23 @@ export function createExecTool(
 
                 case 'call': {
                     if (!rest) {
-                        throw new ExecCommandError('Usage: call [--json] [--confirm] <tool_name> <json_input>', 'usage')
+                        throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     if (!context) {
                         // Deliberately untyped: a wiring fault, not an agent mistake, so it
                         // belongs in the `internal` bucket its siblings are kept out of.
                         throw new Error('Cannot call PostHog tools without an API context')
                     }
-                    const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
+                    const { forceJson, confirmed, noSkills, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {
-                        throw new ExecCommandError('Usage: call [--json] [--confirm] <tool_name> <json_input>', 'usage')
+                        throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    const tool = findTool(allTools, scopeGatedTools, toolName)
+                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
+                    const gateMessage = await resolveSkillsGate(options.skillsSession, noSkills)
+                    if (gateMessage) {
+                        throw new ExecCommandError(gateMessage, 'skills_gate')
+                    }
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
@@ -584,7 +1376,8 @@ export function createExecTool(
                     // one: formatter-toggle tools then skip the server-side formatter (clean raw
                     // JSON, no `__formatted_results_override` duplication), and tools where the
                     // field is a real backend param (dashboard-insights-run) keep full function.
-                    if (useJson && schemaHasOutputFormat(tool.schema)) {
+                    const toolSchema = tool.schema
+                    if (useJson && schemaHasOutputFormat(toolSchema)) {
                         input.output_format = 'json'
                     }
 
@@ -592,9 +1385,16 @@ export function createExecTool(
                     // otherwise bad input reaches the HTTP layer and builds URLs like
                     // `.../actions/undefined/`, a misleading 404 that hides the offending
                     // field. Dispatch the parsed output so coerced values and defaults apply.
-                    const validation = tool.schema.safeParse(input, { reportInput: true })
+                    let validation = toolSchema.safeParse(input, { reportInput: true })
                     if (!validation.success) {
-                        const message = formatInputValidationError(tool.name, validation.error)
+                        const rewrapped = rewrapFlattenedArguments(validation.error, input, toolSchema)
+                        if (rewrapped) {
+                            input = rewrapped
+                            validation = toolSchema.safeParse(input, { reportInput: true })
+                        }
+                    }
+                    if (!validation.success) {
+                        const message = formatInputValidationError(tool.name, validation.error, input, tool.schema)
                         trackInnerCall?.(tool.name, {
                             duration_ms: 0,
                             success: false,
@@ -606,7 +1406,10 @@ export function createExecTool(
                         // classifies it as `validation`, not `internal`. The value-free
                         // descriptor rides along so the errored `$mcp_tool_call` records
                         // which field/alias was rejected — without the payload.
-                        throw new ToolInputValidationError(message, describeValidationError(validation.error, input))
+                        throw new ToolInputValidationError(
+                            message,
+                            describeValidationError(validation.error, input, toolSchema)
+                        )
                     }
                     input = validation.data as Record<string, unknown>
 
@@ -723,7 +1526,7 @@ export function createExecTool(
 
                 default:
                     throw new ExecCommandError(
-                        `Unknown command: "${verb}". Supported commands: ${options.helpCatalog ? 'learn, ' : ''}tools, search, info, schema, call`,
+                        `Unknown command: "${verb}". Supported commands: ${options.learnCatalog ? 'learn, ' : ''}tools, search, info, schema, call`,
                         'unknown_command'
                     )
             }

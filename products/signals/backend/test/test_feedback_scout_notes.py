@@ -15,10 +15,16 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 
-from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutNote, SignalScoutRun
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportAction,
+    SignalScoutConfig,
+    SignalScoutNote,
+    SignalScoutRun,
+)
 from products.skills.backend.models.skills import LLMSkill
 
 SCOUT_SKILL = "signals-scout-error-tracking"
@@ -144,21 +150,61 @@ class TestFeedbackScoutNotes(APIBaseTest):
         assert self._notes() == []
 
     @parameterized.expand([("blank", "   "), ("missing", None)])
-    def test_a_note_is_required(self, _name: str, note: str | None) -> None:
-        # The bare thumb never calls this endpoint — only a rating carrying a note does — so a blank
-        # or absent note is a bad request rather than a silent no-op.
+    def test_a_bare_rating_records_the_action_without_forwarding(self, _name: str, note: str | None) -> None:
+        # The bare thumb carries no note to forward, but the rating itself is consumption
+        # evidence the inactivity sweep reads — it must persist as a report action, not 400.
+        self._create_scout_skill()
         report = self._create_report()
-        body = {"sentiment": "positive"}
+        self._create_run(emitted_report_ids=[str(report.id)])
+
         if note is not None:
-            body["note"] = note
+            body = self._feedback(report, sentiment="positive", note=note)
+        else:
+            body = self._feedback(report, sentiment="positive")
+        assert body["forwarded"] is False
 
-        response = self.client.post(
-            self._feedback_url(str(report.id)),
-            data=json.dumps(body),
-            content_type="application/json",
-        )
+        assert self._notes() == []
+        action = SignalReportAction.objects.get(report=report, user=self.user)
+        assert action.type == SignalReportAction.ActionType.FEEDBACK
+        assert action.metadata == {"sentiment": "positive"}
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+    def test_repeat_ratings_collapse_to_one_action_with_the_latest_sentiment(self) -> None:
+        # One row per person per report: a changed mind bumps the row and rewrites the sentiment
+        # rather than accumulating contradictory evidence rows.
+        report = self._create_report()
+
+        self._feedback(report, sentiment="positive")
+        self._feedback(report, sentiment="negative")
+
+        action = SignalReportAction.objects.get(report=report, user=self.user)
+        assert action.count == 2
+        assert action.metadata == {"sentiment": "negative"}
+
+    def test_a_note_following_a_rating_counts_as_one_interaction(self) -> None:
+        # The inbox posts the bare rating on click and the optional note afterwards — one thumb
+        # choice. The note request must amend the action row, not count a second interaction.
+        self._create_scout_skill()
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+
+        self._feedback(report, sentiment="positive")
+        self._feedback(report, sentiment="positive", note="the staging spike is a known issue")
+
+        action = SignalReportAction.objects.get(report=report, user=self.user)
+        assert action.count == 1
+        assert action.metadata == {"sentiment": "positive"}
+        assert len(self._notes()) == 1
+
+    def test_a_note_carrying_rating_with_no_prior_row_still_records_the_action(self) -> None:
+        # A client may send rating and note in one request; skipping the count bump must not
+        # skip creating the consumption record itself.
+        report = self._create_report()
+
+        self._feedback(report, sentiment="negative", note="not useful")
+
+        action = SignalReportAction.objects.get(report=report, user=self.user)
+        assert action.count == 1
+        assert action.metadata == {"sentiment": "negative"}
 
     def test_feedback_still_succeeds_when_the_note_cannot_be_written(self) -> None:
         self._create_scout_skill()

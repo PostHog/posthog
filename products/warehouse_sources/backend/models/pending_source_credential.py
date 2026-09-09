@@ -7,7 +7,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel, sane_repr
 
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import external_data_source_type_choices
 
 PENDING_CREDENTIAL_TTL = timedelta(hours=24)
 
@@ -25,7 +25,7 @@ class PendingSourceCredential(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    source_type = models.CharField(max_length=128, choices=ExternalDataSourceType)
+    source_type = models.CharField(max_length=128, choices=external_data_source_type_choices)
     payload = EncryptedJSONField(default=dict)
     expires_at = models.DateTimeField(default=pending_credential_default_expiry)
 

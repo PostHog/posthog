@@ -13,9 +13,10 @@
 # - Funnel: uses `steps` array for step indicators
 # - Mean: uses `numeric_value` for the computed metric value
 # - Ratio: two separate jobs (numerator + denominator), both use `numeric_value`
-#
-# Retention is not supported — it uses a different query structure
-# (separate start/completion CTEs) and will need its own approach.
+# - Retention: uses `steps` with exactly two flags — steps[1] = matched the
+#   start_event predicate, steps[2] = matched the completion_event predicate
+#   (an event can match both). Start anchoring, the per-user retention window,
+#   and the maturity gate are all computed at read time from `timestamp`.
 
 from django.conf import settings
 

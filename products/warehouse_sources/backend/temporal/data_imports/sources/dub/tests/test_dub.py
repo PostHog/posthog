@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub import (
     DubCursorPaginator,
+    DubLinksScopePaginator,
     DubResumeConfig,
     _make_session,
     _scrub_link_password,
@@ -97,6 +98,77 @@ class TestDubCursorPaginator:
         paginator.update_state(MagicMock(), data=_rows(1))
 
         assert paginator.get_resume_state() is None
+
+
+class TestDubLinksScopePaginator:
+    def test_first_scope_sends_no_folder_id(self) -> None:
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        paginator.init_request(request)
+
+        assert "folderId" not in request.params
+        assert "startingAfter" not in request.params
+
+    def test_full_page_advances_cursor_inside_the_scope(self) -> None:
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        paginator.update_state(MagicMock(), data=_rows(3))
+
+        assert paginator.has_next_page is True
+
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        paginator.update_request(request)
+        assert request.params["startingAfter"] == "row-2"
+        assert "folderId" not in request.params
+
+    def test_exhausted_scope_moves_to_the_next_folder(self) -> None:
+        # /links hides folder contents unless folderId is sent, so a walk that stops after the
+        # unfiled scope imports none of a workspace's filed links.
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        paginator.update_state(MagicMock(), data=_rows(1))
+
+        assert paginator.has_next_page is True
+
+        request = Request(method="GET", url="https://api.dub.co/links", params={"startingAfter": "row-0"})
+        paginator.update_request(request)
+        assert request.params["folderId"] == "fold_a"
+        # The previous scope's cursor must not leak into the new one.
+        assert "startingAfter" not in request.params
+
+    def test_walk_ends_once_the_last_folder_is_exhausted(self) -> None:
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        paginator.update_state(MagicMock(), data=_rows(1))
+        paginator.update_state(MagicMock(), data=_rows(1))
+
+        assert paginator.has_next_page is False
+        assert paginator.get_resume_state() is None
+
+    def test_resume_state_round_trip_keeps_the_scope(self) -> None:
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a", "fold_b"])
+        paginator.update_state(MagicMock(), data=_rows(1))
+        paginator.update_state(MagicMock(), data=_rows(3))
+
+        state = paginator.get_resume_state()
+        assert state == {"scope_index": 1, "starting_after": "row-2"}
+
+        resumed = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a", "fold_b"])
+        resumed.set_resume_state(state or {})
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        resumed.init_request(request)
+
+        assert request.params["folderId"] == "fold_a"
+        assert request.params["startingAfter"] == "row-2"
+
+    def test_resume_state_saved_before_folder_scoping_still_seeds_the_cursor(self) -> None:
+        # A sync interrupted across the deploy that added folder scoping resumes from a state
+        # with no scope_index; dropping it would silently restart the walk from the first page.
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        paginator.set_resume_state({"starting_after": "row-7"})
+
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        paginator.init_request(request)
+
+        assert request.params["startingAfter"] == "row-7"
+        assert "folderId" not in request.params
 
 
 class TestGetResource:
@@ -209,7 +281,7 @@ class TestDubSourceResumeBehavior:
             _make_http_response(_rows(100, "b")),
             _make_http_response(_rows(1, "c")),
         ]
-        sent_params = self._drive("links", manager, responses)
+        sent_params = self._drive("customers", manager, responses)
 
         assert [p.get("startingAfter") for p in sent_params] == [None, "a-99", "b-99"]
         saved = [call.args[0] for call in manager.save_state.call_args_list]
@@ -218,12 +290,30 @@ class TestDubSourceResumeBehavior:
             DubResumeConfig(starting_after="b-99"),
         ]
 
+    def test_links_walk_covers_unfiled_links_then_every_folder(self) -> None:
+        # Without the per-folder passes only the first request is made, and every link filed
+        # into a folder is missing from the table while the sync still reports success.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub._fetch_folder_ids",
+            return_value=["fold_a", "fold_b"],
+        ):
+            sent_params = self._drive(
+                "links",
+                manager,
+                [_make_http_response(_rows(1, p)) for p in ("unfiled", "a", "b")],
+            )
+
+        assert [p.get("folderId") for p in sent_params] == [None, "fold_a", "fold_b"]
+
     def test_cursor_endpoint_resumes_from_saved_cursor(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
         manager.load_state.return_value = DubResumeConfig(starting_after="a-42")
 
-        sent_params = self._drive("links", manager, [_make_http_response(_rows(1))])
+        sent_params = self._drive("customers", manager, [_make_http_response(_rows(1))])
 
         assert [p.get("startingAfter") for p in sent_params] == ["a-42"]
 
@@ -308,6 +398,29 @@ class TestCredentialValidation:
 
         assert valid is expected_valid
         assert (message is None) is expected_valid
+
+    def test_personal_key_gets_workspace_guidance_not_raw_dub_error(self) -> None:
+        # A personal (non-workspace) key fails with Dub's raw "workspaceId" copy about a missing
+        # query param — replace it with guidance to use a workspace key.
+        response = _make_http_response(
+            {
+                "error": {
+                    "code": "bad_request",
+                    "message": "Workspace ID not found. Did you forget to include a `workspaceId` query parameter?",
+                }
+            },
+            400,
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session",
+            return_value=self._mock_session(response),
+        ):
+            valid, message = validate_credentials("dub_test")
+
+        assert valid is False
+        assert message is not None
+        assert "workspaceId" not in message
+        assert "workspace API key" in message
 
     def test_check_endpoint_access_surfaces_api_denial_message(self) -> None:
         response = _make_http_response(

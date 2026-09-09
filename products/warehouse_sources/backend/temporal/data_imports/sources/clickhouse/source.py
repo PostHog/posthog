@@ -62,6 +62,14 @@ GENERIC_CONNECTION_ERROR = (
     "your server, and that PostHog's IP addresses are allowed through any firewall."
 )
 
+# A pasted URL or connection string in the host field otherwise fails DNS resolution with a
+# misleading "check the spelling" message that echoes the raw value back (which can embed
+# credentials). Catch it early with an actionable message that never reflects the input.
+_HOST_IS_URL_ERROR = (
+    "Enter just the hostname in the host field (for example, play.clickhouse.com), not a full URL or "
+    "connection string. Remove any scheme (like https://) and any username, password, port, or path."
+)
+
 # A transient gateway/rate-limit response that survived the in-process connect
 # retries. The connection details are fine — the server is momentarily busy or
 # waking (idle ClickHouse Cloud services routinely 5xx the first request), so
@@ -82,14 +90,14 @@ _REDIRECTED = (
 ClickHouseErrors: dict[str, str] = {
     "authentication failed": "Invalid user or password",
     "code: 516": "Invalid user or password",  # AUTHENTICATION_FAILED
-    "code: 81": "Database does not exist",  # UNKNOWN_DATABASE
+    "code: 81": "Database does not exist. Check the database name is correct.",  # UNKNOWN_DATABASE
     "code: 60": "Table does not exist",  # UNKNOWN_TABLE
     "code: 192": "Permission denied on the requested database or table",  # UNKNOWN_USER
     "code: 497": "Permission denied on the requested database or table",  # ACCESS_DENIED
     "nodename nor servname provided": "Could not resolve the ClickHouse host",
     "name or service not known": "Could not resolve the ClickHouse host",
     "connection refused": "Could not connect to ClickHouse on the given host/port",
-    "connection timed out": "Connection to ClickHouse timed out. Does your database have our IP addresses allow-listed?",
+    "connection timed out": "Connection to ClickHouse timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     # Must stay above the generic "ssl" entry, which would otherwise match first and send the
     # user to the wrong toggle. Verification runs against the configured ClickHouse host even
     # over an SSH tunnel (server_hostname), so a mismatch is real: the certificate doesn't
@@ -175,6 +183,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="play.clickhouse.com",
+                        caption=(
+                            "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
+                            "firewall allowlist (see the docs above) and use a public host. `localhost` and private "
+                            "IPs (10.x, 172.16-31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "exposed publicly, enable the SSH tunnel below."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -339,6 +353,23 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # `_get_client`'s in-process retry never sees it; Temporal's activity retry
             # reopens a fresh tunnel + client and resumes from the last committed cursor.
             "Connection broken: IncompleteRead",
+            # requests/urllib3 raises this when the server accepts the connection but never
+            # answers within our timeout — typically ClickHouse Cloud still cold-resuming an
+            # idle service past our `METADATA_QUERY_TIMEOUT_SECONDS` allowance. Not in
+            # `_TRANSIENT_CONNECT_DROP_SUBSTRINGS`, so `_get_client` doesn't retry it in-process
+            # (a slow-to-wake service needs real wall-clock time, not an immediate re-dial);
+            # Temporal's activity retry provides that backoff and reopens a fresh connection.
+            "Read timed out",
+            # The source server rejected the client-construction probe because it was already
+            # at its concurrent-query limit (Code: 202, TOO_MANY_SIMULTANEOUS_QUERIES).
+            # `_get_client` already backs off and retries this in-process like a 429; this
+            # entry covers the case where the server stays saturated past all in-process
+            # attempts, so Temporal's own retry — with a fresh backoff budget — isn't noise.
+            "TOO_MANY_SIMULTANEOUS_QUERIES",
+            # `_get_client` already retries this in-process (see `_TRANSIENT_CONNECT_DROP_SUBSTRINGS`
+            # in clickhouse.py); this entry covers the case where our own egress proxy stays
+            # unreachable past all in-process attempts, so Temporal's retry isn't noise.
+            "Cannot connect to proxy.', TimeoutError('timed out')",
         }
 
     @contextmanager
@@ -475,6 +506,9 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
+
+        if "://" in config.host:
+            return False, _HOST_IS_URL_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
             config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False

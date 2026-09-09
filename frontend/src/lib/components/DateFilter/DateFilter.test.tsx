@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -12,14 +12,15 @@ import { DateFilter } from './DateFilter'
 
 describe('DateFilter', () => {
     let onChange = jest.fn()
+    let rerender: ReturnType<typeof render>['rerender']
     beforeEach(() => {
         initKeaTests()
         onChange = jest.fn()
-        render(
+        rerender = render(
             <Provider>
                 <DateFilter onChange={onChange} dateOptions={dateMapping} />
             </Provider>
-        )
+        ).rerender
     })
 
     afterEach(() => {
@@ -34,6 +35,28 @@ describe('DateFilter', () => {
         await userEvent.click(yesterdayButton)
 
         expect(onChange).toHaveBeenCalledWith('-1dStart', '-1dEnd', false)
+    })
+
+    it('can set a future relative date', async () => {
+        rerender(
+            <Provider>
+                <DateFilter
+                    onChange={onChange}
+                    dateOptions={dateMapping}
+                    isFixedDateMode
+                    allowFutureRelativeDateOptions
+                />
+            </Provider>
+        )
+        await userEvent.click(screen.getByTestId('date-filter'))
+
+        const futureFilter = screen.getByTestId('future-rolling-date-range-filter')
+        const futureInput = within(futureFilter).getByTestId('rolling-date-range-input')
+        await userEvent.clear(futureInput)
+        await userEvent.type(futureInput, '10')
+        await userEvent.click(futureFilter)
+
+        await waitFor(() => expect(onChange).toHaveBeenCalledWith('+10d', null, false))
     })
 
     it('can set a custom rolling date range', async () => {
@@ -101,5 +124,33 @@ describe('DateFilter with allowFixedRangeWithTime', () => {
         await waitFor(() => {
             expect(screen.getByText(/select a date and time range/i)).toBeInTheDocument()
         })
+    })
+})
+
+describe('DateFilter without custom ranges', () => {
+    beforeEach(() => {
+        initKeaTests()
+        render(
+            <Provider>
+                <DateFilter
+                    onChange={jest.fn()}
+                    dateOptions={dateMapping.filter(({ values }) => values[0] === '-1h')}
+                    showRollingRangePicker={false}
+                    showCustomRangeOptions={false}
+                />
+            </Provider>
+        )
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('only shows the supplied presets', async () => {
+        await userEvent.click(screen.getByTestId('date-filter'))
+
+        expect(screen.getByText('Last hour')).toBeInTheDocument()
+        expect(screen.queryByTestId('rolling-date-range-input')).not.toBeInTheDocument()
+        expect(screen.queryByText(/custom/i)).not.toBeInTheDocument()
     })
 })

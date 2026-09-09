@@ -1,5 +1,6 @@
 import json
 import errno
+from datetime import UTC, datetime
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import (
+    S3BatchWriter,
     _write_parquet_to_s3,
     build_schema_dict,
 )
@@ -75,3 +77,58 @@ class TestBuildSchemaDict:
         schema = pa.schema([pa.field("id", pa.int64())])
 
         assert build_schema_dict(schema)["fields"][0]["metadata"] is None
+
+
+class TestSchemaAccumulation:
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer._write_parquet_to_s3"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.ensure_bucket")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.get_s3_client")
+    def test_accumulated_schema_promotes_int_to_double_across_batches(
+        self, mock_get_s3_client, _mock_ensure_bucket, _mock_write
+    ) -> None:
+        # Two batches of the same column can infer different numeric types within one run (whole
+        # values -> int64, later fractional values -> double). Unifying them must widen to double
+        # rather than raising ArrowTypeError, which would crash the whole extraction.
+        mock_get_s3_client.return_value.info.return_value = {"Size": 1}
+
+        job = MagicMock()
+        job.team_id = 1
+        job.created_at = datetime(2026, 8, 5, tzinfo=UTC)
+        job.workflow_run_id = "run-1"
+
+        writer = S3BatchWriter(MagicMock(), job, schema_id="schema-1", run_uuid="run-1")
+
+        writer.write_batch(pa.table({"consumed_quantity": pa.array([1, 2], type=pa.int64())}), 0)
+        writer.write_batch(pa.table({"consumed_quantity": pa.array([1.5, 2.5], type=pa.float64())}), 1)
+
+        schema = writer.get_schema()
+        assert schema is not None
+        assert schema.field("consumed_quantity").type == pa.float64()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer._write_parquet_to_s3"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.ensure_bucket")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.get_s3_client")
+    def test_conflicting_column_types_across_batches_fall_back_to_text(
+        self, mock_get_s3_client, _mock_ensure_bucket, _mock_write
+    ) -> None:
+        # A vendor sending the same id as int in one page and string in the next used to abort
+        # the whole table's sync with ArrowTypeError when the batch schemas were folded together.
+        mock_get_s3_client.return_value.info.return_value = {"Size": 1}
+
+        job = MagicMock()
+        job.team_id = 1
+        job.created_at = datetime(2026, 8, 5, tzinfo=UTC)
+        job.workflow_run_id = "run-1"
+
+        writer = S3BatchWriter(MagicMock(), job, schema_id="schema-1", run_uuid="run-1")
+
+        writer.write_batch(pa.table({"owner_id": pa.array([1], type=pa.int64())}), 0)
+        writer.write_batch(pa.table({"owner_id": pa.array(["2"], type=pa.string())}), 1)
+
+        schema = writer.get_schema()
+        assert schema is not None
+        assert schema.field("owner_id").type == pa.string()

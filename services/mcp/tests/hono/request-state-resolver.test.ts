@@ -79,9 +79,11 @@ vi.mock('@/hono/request-context', () => {
 })
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
-import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
+import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
+import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import type { Env } from '@/tools/types'
 
 function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
@@ -100,10 +102,21 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
 }
 
 function makeResolver(): RequestStateResolver {
+    return makeResolverWithCatalog().resolver
+}
+
+function makeResolverWithCatalog(): {
+    resolver: RequestStateResolver
+    getFilteredTools: ReturnType<typeof vi.fn>
+} {
+    const getFilteredTools = vi.fn(() => [])
     const catalog = {
-        getFilteredTools: vi.fn(() => []),
+        getFilteredTools,
     }
-    return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
+    return {
+        resolver: new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env),
+        getFilteredTools,
+    }
 }
 
 describe('RequestStateResolver MCP client contexts', () => {
@@ -305,6 +318,19 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
+    it('evaluates the exec skills flag even though no generated tool declares it', async () => {
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ [MCP_EXEC_SKILLS_FEATURE_FLAG]: true })
+
+        const result = await makeResolver().resolve(makeProps())
+
+        expect(evaluateFeatureFlags).toHaveBeenCalledWith(
+            expect.arrayContaining([MCP_EXEC_SKILLS_FEATURE_FLAG]),
+            'distinct-id',
+            undefined
+        )
+        expect(result.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG]).toBe(true)
+    })
+
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {
         // Evaluation stays empty (analytics client disabled, as in local dev/evals);
         // the override seam is what flips a tool flag on so it reaches the tool layer.
@@ -335,5 +361,38 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.requestContext.mcpConsumer).toBe('posthog-code')
         expect(result.sessionContext?.mcpConsumer).toBe('posthog-code')
         expect(mockSessionStore.get('mcpConsumer')).toBe('posthog-code')
+    })
+
+    it.each([
+        ['a Desktop task', { taskOriginProduct: undefined }, true],
+        ['a support reply task', { taskOriginProduct: 'support_reply' }, true],
+        // Scout sandboxes mount gateway servers directly as `mcp__<server>__<tool>`; a second
+        // `<slug>__<tool>` spelling inside exec resolves for a member but not for the service
+        // account, so skills learned interactively fail on the schedule.
+        ['a scout run', { taskOriginProduct: 'signals_scout' }, false],
+    ] as const)('surfaces gateway tools through exec for %s', async (_label, overrides, enabled) => {
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'mcp-gateway': true })
+
+        const result = await makeResolver().resolve(makeProps({ mcpConsumer: 'posthog-code', ...overrides }))
+
+        expect(result.useSingleExec).toBe(true)
+        expect(result.gatewayToolsEnabled).toBe(enabled)
+    })
+
+    it.each([
+        ['PostHog Code task', { mcpConsumer: 'posthog-code', taskId: 'task-1' }, false],
+        ['PostHog Code without a task', { mcpConsumer: 'posthog-code', taskId: undefined }, true],
+        ['non-PostHog Code task', { mcpConsumer: 'other', taskId: 'task-1' }, true],
+    ] as const)('advertises task artifacts and comments for %s', async (_label, overrides, excluded) => {
+        const { resolver, getFilteredTools } = makeResolverWithCatalog()
+
+        await resolver.resolve(makeProps(overrides))
+
+        const options = getFilteredTools.mock.calls[0]?.[0]
+        expect(options?.excludeTools).toEqual(
+            excluded
+                ? expect.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
+                : expect.not.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
+        )
     })
 })

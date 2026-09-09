@@ -127,7 +127,7 @@ Also learned while measuring: ClickHouse 26.x's **query condition cache** makes 
 
 ## 2026-05-28: Dropping `FROM person FINAL` via `argMax` is worse than the original; materialization is the actual win
 
-**Context.** `posthog/temporal/messaging/backfill_precalculated_person_properties_workflow.py` builds a raw ClickHouse query that does `SELECT id, JSONExtract(properties, '<key>', 'String'), ... FROM person FINAL WHERE team_id = ... AND id BETWEEN ... AND is_deleted = 0 ORDER BY id FORMAT JSONEachRow`. We flagged the `FINAL` as a smell.
+**Context.** A now-deleted precalculated-person-properties backfill workflow built a raw ClickHouse query that did `SELECT id, JSONExtract(properties, '<key>', 'String'), ... FROM person FINAL WHERE team_id = ... AND id BETWEEN ... AND is_deleted = 0 ORDER BY id FORMAT JSONEachRow`. We flagged the `FINAL` as a smell.
 
 **Question.** Does dropping `FINAL` via the textbook `argMax(properties, version) GROUP BY id` rewrite actually make the query faster?
 
@@ -183,3 +183,29 @@ At 180k docs CURRENT peak*mem was 96 MiB; at 360k it was 174 MiB — memory grow
 | Candidate-bounded                  | 88     | 210k      | **30 MiB** | **11 MiB** |
 
 ~18x fewer bytes, ~84x less memory, ~6.6x faster — far larger than the pruned-content case above, and on every axis (the extra DISTINCT scan reads only `document_id` + `metadata`, so total bytes still collapses because `content` is now read for one report's docs, not the team's). Lesson: the candidate-bound win scales with how much per-document data the post-filter throws away — biggest when the dedup buffers a wide column (`content`/`embedding`) that downstream actually needs.
+
+## 2026-09-08: counting persons on big teams: stream it, or better, sample it
+
+Context: the workflows blast radius (count persons matching filters). The person table stores multiple rows per person (one per update), so every "how many persons" query first collapses them to one row per person (`GROUP BY id`). By default ClickHouse does that with an in-memory hash table holding one entry per person. At 87M persons that is 18.6 GiB and the query gets killed.
+
+Three ways to run the same count, measured on team 2 (~87M persons):
+
+| approach                          | memory           | time   |
+| --------------------------------- | ---------------- | ------ |
+| hash table (default)              | 18.6 GiB, killed | 0.8 s  |
+| `optimize_aggregation_in_order=1` | 604 MiB          | 9.1 s  |
+| sample 1 in 64, multiply by 64    | 245 MiB          | 0.09 s |
+
+- `optimize_aggregation_in_order=1`: the table is sorted by `(team_id, id)`, so ClickHouse can walk it in order and drop each person's state once all their rows went by. Bounded memory, but ~11x slower: the parallel streams funnel through one thread to keep the order. Use it when the result must be exact.
+- Sampling: add `WHERE modulo(cityHash64(id), 64) = 0`, count, multiply by 64. The hash puts every person in one of 64 buckets and you count only bucket 0. Because the bucket comes from `id` (the thing you GROUP BY), all rows of a person land in the same bucket, so the dedup stays exact inside the sample. Only the multiply is an estimate.
+- How wrong the estimate gets: about `sqrt(63 / matched)`. ~1% at 640k matches, 17-32% worst case below ~20k. So fall back to the exact query when the sample has few matches (we cut at 10,000 sampled matches), which is exactly where exact is cheap anyway.
+
+Traps we hit:
+
+- Write the sample condition as `modulo(cityHash64(id), 64) = 0`, not `cityHash64(id) % 64 = 0`. Same meaning, but the persons lazy table only pushes function calls into the inner scan; with the `%` operator the pushdown is dropped and the query silently scans the whole team again. Pin the pushdown with a test on the generated SQL.
+- Counting distinct groups instead of persons (we count unique emails for send dedup): hash the group key, not the person. Sampling persons makes a 2-person email twice as likely to land in the sample, so the estimate drifts back toward a person count. `cityHash64(lower(trim(email)))` gives every email exactly a 1/64 chance. Worst draw at 87M email groups: 0.2% off.
+- Don't put `optimize_aggregation_in_order` on the sampled query. The sample already made the hash table small, so the setting only made it 40% slower with 2.4x the memory (measured).
+- `count(DISTINCT id)` on the persons table is a waste when nothing joins: the dedup already returns one row per person, plain `count()` is the same result without holding every id. But a filter that adds a join needs the DISTINCT back, e.g. a `distinct_id` filter joins one row per alias and plain `count()` counts that person once per alias.
+- The `id IN (prefilter)` set the persons table builds stays in memory no matter what (it is a set, not a GROUP BY, so the spill setting can't touch it). ~1 GiB per ~6M matched ids. Sampling shrinks it; exact queries on huge broad audiences keep paying it, which is where precalculated audiences eventually win.
+
+Applied in `products/workflows/backend/services/audience_v2.py` behind the `workflows-audience-query-v2` flag.

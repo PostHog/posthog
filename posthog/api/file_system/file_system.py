@@ -1,4 +1,5 @@
 import re
+import json
 import shlex
 import logging
 import builtins
@@ -57,9 +58,31 @@ DELETE_PREVIEW_ENTRY_LIMIT = 200
 # endpoint can't be used to learn which refs exist.
 UNDO_DELETE_REFUSED = "Couldn't restore this. It may already be restored, or you may not have access to it."
 
+# Paths the product itself builds are at most three segments deep ("Unfiled/Insights/<name>"), so
+# these leave ample headroom for hand-made trees while keeping the per-segment folder creation in
+# `_assure_parent_folders` (one existence check plus one insert each) bounded.
+MAX_PATH_LENGTH = 4000
+MAX_PATH_SEGMENTS = 50
+
+# `meta` is a free-form client blob, so it only needs a ceiling that keeps a single row from
+# dominating a page of list results.
+MAX_META_BYTES = 1_000_000
+
 # Search-within-Recents scans this many of the user's most-recent views, then the text filter trims
 # them to a page. Bounds the hydration key set so the query stays cheap on heavy view-log histories.
 RECENTS_SEARCH_SCAN_LIMIT = 200
+
+
+def validate_file_system_path(path: Any) -> str:
+    """Bound a caller-supplied path before it reaches the per-segment folder creation loop, which
+    costs one existence check plus one insert per segment and autocommits each one."""
+    if not isinstance(path, str):
+        raise serializers.ValidationError("Path must be a string.")
+    if len(path) > MAX_PATH_LENGTH:
+        raise serializers.ValidationError(f"Path must be {MAX_PATH_LENGTH} characters or fewer.")
+    if len(split_path(path)) > MAX_PATH_SEGMENTS:
+        raise serializers.ValidationError(f"Path can be at most {MAX_PATH_SEGMENTS} levels deep.")
+    return path
 
 
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
@@ -90,6 +113,18 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
             "last_viewed_at",
             "user_access_level",
         ]
+
+    def validate_path(self, path: str) -> str:
+        return validate_file_system_path(path)
+
+    def validate_meta(self, meta: Any) -> dict[str, Any]:
+        # Readers treat `meta` as an object, so anything else stored here breaks every listing that
+        # includes the row, not just the writer's own request.
+        if not isinstance(meta, dict):
+            raise serializers.ValidationError("Meta must be an object.")
+        if len(json.dumps(meta, default=str).encode()) > MAX_META_BYTES:
+            raise serializers.ValidationError(f"Meta must be smaller than {MAX_META_BYTES / 1_000_000:g} MB.")
+        return meta
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
         if "path" in validated_data:
@@ -156,6 +191,10 @@ class UndoDeleteItemSerializer(serializers.Serializer):
     type = serializers.CharField()
     ref = serializers.CharField()
     path = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_path(self, value: str) -> str:
+        # Restoring re-creates parent folders through the same per-segment loop as create/move/link.
+        return validate_file_system_path(value)
 
 
 class UndoDeleteRequestSerializer(serializers.Serializer):
@@ -495,12 +534,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _created_by_users(self, results: builtins.list[dict[str, Any]]) -> builtins.list[dict[str, Any]]:
         # Collect user IDs from the "created_by" meta field so the client can render avatars
-        # without a second round-trip.
-        user_ids = {
-            created_by
-            for item in results
-            if isinstance((created_by := item.get("meta", {}).get("created_by")), int) and created_by
-        }
+        # without a second round-trip. Rows written before `meta` was validated can hold a
+        # non-object value, and one of those must not take down the whole listing.
+        user_ids = set()
+        for item in results:
+            meta = item.get("meta")
+            if not isinstance(meta, dict):
+                continue
+            created_by = meta.get("created_by")
+            if isinstance(created_by, int) and created_by:
+                user_ids.add(created_by)
         if not user_ids:
             return []
         users_qs = User.objects.filter(organization=self.organization, id__in=user_ids).distinct()
@@ -815,6 +858,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         new_path = request.data.get("new_path")
         if not new_path:
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
+        new_path = validate_file_system_path(new_path)
 
         self._assure_parent_folders(new_path, cast(User, request.user))
 
@@ -864,6 +908,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         new_path = request.data.get("new_path")
         if not new_path:
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
+        new_path = validate_file_system_path(new_path)
 
         self._assure_parent_folders(new_path, cast(User, request.user))
 

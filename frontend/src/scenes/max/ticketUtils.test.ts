@@ -1,23 +1,37 @@
+import type { BillingType } from '~/types'
+
 import { ThreadMessage } from './maxLogic'
 import {
     appendTicketMetadata,
+    canCreateSupportTicket,
     composeTicketBody,
     formatTicketConfirmationMessage,
+    getTicketPromptData,
     getTicketSummaryData,
+    isTicketCommand,
     isTicketConfirmationMessage,
-    parseTicketTargetArea,
 } from './ticketUtils'
 
 const human = (content: string): ThreadMessage => ({ type: 'human', content }) as unknown as ThreadMessage
 const ai = (content: string): ThreadMessage => ({ type: 'ai', content }) as unknown as ThreadMessage
 
 const SUMMARY = 'PostHog AI Support Ticket Summary:\n\nIssue: Session recordings are not appearing in the dashboard.'
-const SUMMARY_WITH_TOPIC = `${SUMMARY}\n\n**Topic:** session_replay`
 const DENIAL =
     'The `/ticket` command is available for customers on paid plans or active trials. You can upgrade your plan in the billing settings, or ask the community at https://posthog.com/questions for help. If your issue is about billing, you can always contact our support team through the in-app help panel.'
 
 describe('ticketUtils', () => {
     describe('getTicketSummaryData', () => {
+        it('does not treat a near-miss like /tickets as a ticket command', () => {
+            const thread = [
+                human('How do I create an insight?'),
+                ai('You can create an insight by...'),
+                human('/tickets'),
+                ai("/tickets isn't a recognized slash command. You might be looking for /ticket (singular)."),
+            ]
+
+            expect(getTicketSummaryData(thread, false)).toBeNull()
+        })
+
         it('does not treat an eligibility denial as a ticket summary', () => {
             const thread = [
                 human('How do I create an insight?'),
@@ -37,22 +51,20 @@ describe('ticketUtils', () => {
                 ai(SUMMARY),
             ]
 
-            expect(getTicketSummaryData(thread, false)).toEqual({ summary: SUMMARY, messageIndex: 3, targetArea: null })
+            expect(getTicketSummaryData(thread, false)).toEqual({ summary: SUMMARY, messageIndex: 3 })
         })
+    })
 
-        it('extracts the target area from the summary topic line', () => {
-            const thread = [
-                human('My recordings are missing'),
-                ai('Let me check that...'),
-                human('/ticket'),
-                ai(SUMMARY_WITH_TOPIC),
-            ]
+    describe('getTicketPromptData', () => {
+        const prompt = "I'll help you create a support ticket"
 
-            expect(getTicketSummaryData(thread, false)).toEqual({
-                summary: SUMMARY_WITH_TOPIC,
-                messageIndex: 3,
-                targetArea: 'session_replay',
-            })
+        it.each([
+            ['plain command with text', '/ticket sync failed', 'sync failed'],
+            ['leading whitespace still prefills the text', '  /ticket sync failed', 'sync failed'],
+            ['bare command has no prefill', '/ticket', undefined],
+        ])('%s', (_name, content, expectedInitialText) => {
+            const thread = [human(content), ai(prompt)]
+            expect(getTicketPromptData(thread, false)).toEqual({ needed: true, initialText: expectedInitialText })
         })
     })
 
@@ -79,13 +91,77 @@ describe('ticketUtils', () => {
         })
     })
 
+    describe('canCreateSupportTicket', () => {
+        const billing = (partial: Partial<BillingType>): BillingType => partial as BillingType
+
+        it.each([
+            ['paid subscription', billing({ subscription_level: 'paid' }), false, true],
+            ['custom subscription', billing({ subscription_level: 'custom' }), false, true],
+            [
+                'free with active boost trial',
+                billing({
+                    subscription_level: 'free',
+                    trial: { status: 'active', target: 'boost' } as BillingType['trial'],
+                }),
+                false,
+                true,
+            ],
+            [
+                'free with active scale trial',
+                billing({
+                    subscription_level: 'free',
+                    trial: { status: 'active', target: 'scale' } as BillingType['trial'],
+                }),
+                false,
+                true,
+            ],
+            [
+                'free with active enterprise trial',
+                billing({
+                    subscription_level: 'free',
+                    trial: { status: 'active', target: 'enterprise' } as BillingType['trial'],
+                }),
+                false,
+                true,
+            ],
+            [
+                'free with expired trial',
+                billing({
+                    subscription_level: 'free',
+                    trial: { status: 'expired', target: 'boost' } as BillingType['trial'],
+                }),
+                false,
+                false,
+            ],
+            ['free without trial', billing({ subscription_level: 'free' }), false, false],
+            ['free but organization is new', billing({ subscription_level: 'free' }), true, true],
+            ['billing not loaded, organization not new', null, false, false],
+            ['billing not loaded, organization new', null, true, true],
+        ])('%s', (_name, billingValue, isOrgNew, expected) => {
+            expect(canCreateSupportTicket(billingValue, isOrgNew)).toBe(expected)
+        })
+    })
+
+    describe('isTicketCommand', () => {
+        it.each([
+            ['/ticket', true],
+            ['/ticket my recordings are broken', true],
+            ['  /ticket  ', true],
+            ['/tickets', false],
+            ['/feedback', false],
+            ['tell me about /ticket', false],
+        ])('%s', (content, expected) => {
+            expect(isTicketCommand(content)).toBe(expected)
+        })
+    })
+
     describe('composeTicketBody', () => {
         it.each([
             [
                 'note leads with summary attached',
                 'It still repros in prod',
                 SUMMARY,
-                `It still repros in prod\n\n----\nPostHog AI's analysis:\n${SUMMARY}`,
+                `It still repros in prod\n\n----\n${SUMMARY}`,
             ],
             ['summary alone when note is empty', '', SUMMARY, SUMMARY],
             ['summary alone when note is whitespace', '   ', SUMMARY, SUMMARY],
@@ -114,31 +190,6 @@ describe('ticketUtils', () => {
             expect(appendTicketMetadata('My issue', { conversationId: 'conv-1', traceId: null })).toBe(
                 'My issue\n\n----\nConversation ID: conv-1'
             )
-        })
-    })
-
-    describe('parseTicketTargetArea', () => {
-        it.each([
-            ['bold topic line with valid area', 'Issue: foo\n\n**Topic:** data_warehouse', 'data_warehouse'],
-            ['plain topic line with valid area', 'Issue: foo\n\nTopic: session_replay', 'session_replay'],
-            ['case and whitespace variations', 'Issue: foo\n\ntopic:   Data_Warehouse  ', 'data_warehouse'],
-            ['trailing period is stripped', 'Issue: foo\n\nTopic: session_replay.', 'session_replay'],
-            [
-                'trailing parenthetical is ignored',
-                'Issue: foo\n\n**Topic:** data_warehouse (Stripe integration)',
-                'data_warehouse',
-            ],
-            [
-                'trailing comma and prose are ignored',
-                'Issue: foo\n\nTopic: feature_flags, most likely',
-                'feature_flags',
-            ],
-            ['unknown area is rejected', 'Issue: foo\n\nTopic: quantum_computing', null],
-            ['unknown area with trailing prose is rejected', 'Issue: foo\n\nTopic: quantum_computing (maybe)', null],
-            ['no topic line', 'Issue: foo\n\nStatus: bar', null],
-            ['topic mentioned mid-sentence is ignored', 'Issue: the topic: billing came up in chat', null],
-        ])('%s', (_name, content, expected) => {
-            expect(parseTicketTargetArea(content)).toBe(expected)
         })
     })
 })

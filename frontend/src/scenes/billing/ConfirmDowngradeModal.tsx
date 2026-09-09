@@ -116,7 +116,7 @@ export function ConfirmDowngradeModal({ product }: { product: BillingProductV2Ad
                         <Link
                             onClick={() => {
                                 hideConfirmDowngradeModal()
-                                openSupportForm({ target_area: 'billing' })
+                                openSupportForm({ billing_issue: true })
                             }}
                         >
                             Request a refund instead.

@@ -8,6 +8,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { defineNotebookWidgetViews, getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
@@ -44,7 +45,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     }
 
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter, setMessageListeners, setExpanded } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners, setExpanded, setTitlePlaceholder } =
+        useActions(notebookNodeLogic)
 
     const { sessionPlayerMetaData, sessionPlayerMetaDataLoading, sessionPlayerData } = useValues(
         sessionRecordingDataCoordinatorLogic(recordingLogicProps)
@@ -59,6 +61,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
 
     useEffect(() => {
         const person = sessionPlayerMetaData?.person
+        setTitlePlaceholder(person ? asDisplay(person) : 'Session recording')
         setActions([
             person
                 ? {
@@ -143,13 +146,47 @@ export const Settings = ({
 
 type NotebookNodeRecordingAttributes = {
     id: string
+    view?: string
     noInspector: boolean
     timestampMs?: number
 }
 
+function RecordingSummary({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttributes>): JSX.Element {
+    const recordingLogicProps = sessionRecordingPlayerProps(attributes.id)
+    const { sessionPlayerMetaData, sessionPlayerMetaDataLoading } = useValues(
+        sessionRecordingDataCoordinatorLogic(recordingLogicProps)
+    )
+    const { loadRecordingMeta } = useActions(sessionRecordingDataCoordinatorLogic(recordingLogicProps))
+    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
+
+    useOnMountEffect(loadRecordingMeta)
+
+    useEffect(() => {
+        setTitlePlaceholder(
+            sessionPlayerMetaData?.person ? asDisplay(sessionPlayerMetaData.person) : 'Session recording'
+        )
+    }, [sessionPlayerMetaData?.person, setTitlePlaceholder])
+
+    if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
+        return <NotFound object="replay" />
+    }
+
+    return sessionPlayerMetaData ? (
+        <SessionRecordingPreview recording={sessionPlayerMetaData} />
+    ) : (
+        <SessionRecordingPreviewSkeleton />
+    )
+}
+
+const RECORDING_NOTEBOOK_WIDGET_VIEWS = defineNotebookWidgetViews<NotebookNodeRecordingAttributes, 'Recording'>(
+    'Recording',
+    { summary: RecordingSummary }
+)
+
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
     titlePlaceholder: 'Session recording',
+    editableTitle: false,
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,
@@ -162,6 +199,7 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         id: {
             default: null,
         },
+        view: {},
         noInspector: {
             default: false,
         },
@@ -170,9 +208,9 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         },
     },
     Settings,
-    serializedText: (attrs) => {
-        return attrs.id
-    },
+    defaultView: getNotebookWidgetDefaultView('Recording'),
+    views: RECORDING_NOTEBOOK_WIDGET_VIEWS,
+    serializedText: () => 'Session recording',
 })
 
 export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionRecordingPlayerProps {

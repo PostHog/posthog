@@ -11,7 +11,7 @@ from .activity_logging.notification_viewed import NotificationViewed
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .column_configuration import ColumnConfiguration
-from .comment import Comment
+from .comment import Comment, CommentSlackThread
 from .core_event import CoreEvent
 from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
@@ -25,7 +25,6 @@ from .event_buffer import EventBuffer
 from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
-from .role_external_reference import RoleExternalReference
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
 from .file_system.persisted_folder import PersistedFolder
@@ -46,6 +45,7 @@ from .messaging import MessagingRecord
 from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
+from .organization_notification_lock import OrganizationMemberNotificationLock
 from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
@@ -70,12 +70,13 @@ from .global_rate_limit_threshold_config import GlobalRateLimitThresholdConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
-from .user_integration import UserIntegration
+from .user_integration import GitHubInstallRequest, UserIntegration
 from .user_push_token import UserPushToken
 from .repo_routing_rule import RepoRoutingRule
 from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
+from .user_facet_settings import UserFacetSettings
 from .oauth import (
     CIMDVerificationToken,
     OAuthAccessToken,
@@ -106,7 +107,6 @@ __all__ = [
     "EventBuffer",
     "EventDefinition",
     "EventProperty",
-    "RoleExternalReference",
     "FileSystem",
     "FileSystemViewLog",
     "PersistedFolder",
@@ -131,6 +131,7 @@ __all__ = [
     "ObjectMediaPreview",
     "Organization",
     "OrganizationDomain",
+    "OrganizationMemberNotificationLock",
     "OrganizationIntegration",
     "OrganizationInvite",
     "OrganizationMembership",
@@ -176,15 +177,18 @@ __all__ = [
     "UserRepoPreference",
     "UserScenePersonalisation",
     "UserHomeSettings",
+    "UserFacetSettings",
     "UserManager",
     "UserGroup",
     "UserGroupMembership",
+    "GitHubInstallRequest",
     "UserIntegration",
     "UserPushToken",
     "DataWarehouseTable",
     "WebAnalyticsFilterPreset",
     "ScheduledChange",
     "Comment",
+    "CommentSlackThread",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",

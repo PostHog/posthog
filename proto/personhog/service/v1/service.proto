@@ -64,6 +64,13 @@ service PersonHogService {
   // Person property updates (routed to leader)
   rpc UpdatePersonProperties(personhog.types.v1.UpdatePersonPropertiesRequest) returns (personhog.types.v1.UpdatePersonPropertiesResponse);
 
+  // Lifecycle fence RPCs (routed to leader). Internal: called only by the
+  // lifecycle saga runner in personhog-identity — see leader.proto for
+  // semantics.
+  rpc FencePerson(personhog.types.v1.FencePersonRequest) returns (personhog.types.v1.FencePersonResponse);
+  rpc ReleaseFence(personhog.types.v1.ReleaseFenceRequest) returns (personhog.types.v1.ReleaseFenceResponse);
+  rpc FoldPersonDocument(personhog.types.v1.FoldPersonDocumentRequest) returns (personhog.types.v1.FoldPersonDocumentResponse);
+
   // Person deletes
   // WARNING: This is a write operation on person data. It should route to the leader
   // once personhog-leader supports deletes. Currently routed through the replica
@@ -72,8 +79,6 @@ service PersonHogService {
   rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);
   // WARNING: Same routing caveat as DeletePersons above.
   rpc DeletePersonsBatchForTeam(personhog.types.v1.DeletePersonsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonsBatchForTeamResponse);
-  // WARNING: Same routing caveat as DeletePersons above.
-  rpc DeletePersonlessDistinctIdsBatchForTeam(personhog.types.v1.DeletePersonlessDistinctIdsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonlessDistinctIdsBatchForTeamResponse);
 
   // Person split
   // WARNING: Same routing caveat as DeletePersons above — write operation on person data

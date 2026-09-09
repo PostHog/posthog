@@ -6,9 +6,12 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { evaluationMetricsLogic, EvaluationStats } from './evaluationMetricsLogic'
+import { EVALUATION_NOT_SKIPPED_HOGQL, EVALUATION_RESULT_TRUE_HOGQL } from './constants'
+import { evaluationMetricsLogic, EvaluationStatsRow } from './evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { LLMJudgeEvaluation } from './types'
+
+const queryMock = jest.fn().mockResolvedValue({ results: [] })
 
 jest.mock('lib/api', () => {
     const actual = jest.requireActual('lib/api')
@@ -18,14 +21,14 @@ jest.mock('lib/api', () => {
         ...actual,
         default: {
             ...actual.default,
-            query: jest.fn().mockResolvedValue({ results: [] }),
+            query: (...args: unknown[]) => queryMock(...args),
         },
     }
 })
 
-const evaluation = (id: string, directoryId: string | null): LLMJudgeEvaluation => ({
+const evaluation = (id: string, directoryId: string | null, name = `Evaluation ${id}`): LLMJudgeEvaluation => ({
     id,
-    name: `Evaluation ${id}`,
+    name,
     description: '',
     directory_id: directoryId,
     enabled: true,
@@ -45,12 +48,11 @@ const evaluation = (id: string, directoryId: string | null): LLMJudgeEvaluation 
     updated_at: '2024-01-01T00:00:00Z',
 })
 
-const stats = (evaluationId: string, runsCount: number): EvaluationStats => ({
+const stats = (evaluationId: string, runsCount: number, trueCount = runsCount): EvaluationStatsRow => ({
     evaluation_id: evaluationId,
     runs_count: runsCount,
     applicable_count: runsCount,
-    pass_count: runsCount,
-    pass_rate: 100,
+    true_count: trueCount,
     applicability_rate: 100,
 })
 
@@ -85,17 +87,36 @@ describe('evaluationMetricsLogic', () => {
         evaluationsLogic.unmount()
     })
 
-    it('scopes the graph and summary metrics when a directory is selected', () => {
-        const rootEvaluation = evaluation('root', null)
+    it('uses one filtered breakdown query and scopes metrics to the selected directory', () => {
+        const firstRootEvaluation = evaluation('root-one', null, "Root's evaluation")
+        const secondRootEvaluation = evaluation('root-two', null, "Root's evaluation")
         const directoryEvaluation = evaluation('inside', 'directory-a')
 
-        evaluationsLogic.actions.loadEvaluationsSuccess([rootEvaluation, directoryEvaluation])
-        metricsLogic.actions.loadStatsSuccess([stats(rootEvaluation.id, 4), stats(directoryEvaluation.id, 2)])
+        evaluationsLogic.actions.loadEvaluationsSuccess([
+            firstRootEvaluation,
+            secondRootEvaluation,
+            directoryEvaluation,
+        ])
+        metricsLogic.actions.loadStatsSuccess([
+            stats(firstRootEvaluation.id, 4),
+            stats(secondRootEvaluation.id, 3),
+            stats(directoryEvaluation.id, 2),
+        ])
 
         expect(metricsLogic.values.chartQuery?.series).toEqual([
-            expect.objectContaining({ custom_name: rootEvaluation.name }),
+            expect.objectContaining({
+                properties: [expect.objectContaining({ value: [firstRootEvaluation.id, secondRootEvaluation.id] })],
+            }),
         ])
-        expect(metricsLogic.values.summaryMetrics.total_runs).toBe(4)
+        expect(metricsLogic.values.chartQuery?.breakdownFilter).toEqual(
+            expect.objectContaining({
+                breakdown_type: 'hogql',
+                breakdown_hide_other_aggregation: true,
+            })
+        )
+        expect(metricsLogic.values.chartQuery?.breakdownFilter?.breakdown).toContain("'Root\\'s evaluation (1)'")
+        expect(metricsLogic.values.chartQuery?.breakdownFilter?.breakdown).toContain("'Root\\'s evaluation (2)'")
+        expect(metricsLogic.values.summaryMetrics.total_runs).toBe(7)
 
         router.actions.push(
             combineUrl(urls.aiObservabilityEvaluations(), {
@@ -104,8 +125,51 @@ describe('evaluationMetricsLogic', () => {
         )
 
         expect(metricsLogic.values.chartQuery?.series).toEqual([
-            expect.objectContaining({ custom_name: directoryEvaluation.name }),
+            expect.objectContaining({
+                properties: [expect.objectContaining({ value: [directoryEvaluation.id] })],
+            }),
         ])
+        expect(metricsLogic.values.chartQuery?.breakdownFilter?.breakdown).toContain(directoryEvaluation.name)
+        expect(metricsLogic.values.chartQuery?.breakdownFilter?.breakdown).not.toContain(firstRootEvaluation.id)
         expect(metricsLogic.values.summaryMetrics.total_runs).toBe(2)
+    })
+
+    it('reads a detector pass rate from its false results', () => {
+        const detector = { ...evaluation('detector', null), output_config: { true_is_failure: true } }
+        const quality = evaluation('quality', null)
+
+        evaluationsLogic.actions.loadEvaluationsSuccess([detector, quality])
+        metricsLogic.actions.loadStatsSuccess([stats('detector', 100, 80), stats('quality', 100, 80)])
+
+        expect(metricsLogic.values.evaluationsWithMetrics).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ id: 'detector', stats: expect.objectContaining({ pass_rate: 20 }) }),
+                expect.objectContaining({ id: 'quality', stats: expect.objectContaining({ pass_rate: 80 }) }),
+            ])
+        )
+    })
+
+    it('scopes the chart pass expression to a detector among the enabled evaluations', () => {
+        const detector = { ...evaluation('detector', null), output_config: { true_is_failure: true } }
+        const quality = evaluation('quality', null)
+
+        evaluationsLogic.actions.loadEvaluationsSuccess([detector, quality])
+        metricsLogic.actions.loadStatsSuccess([stats('detector', 10, 2), stats('quality', 10, 8)])
+
+        const mathHogql = metricsLogic.values.chartQuery?.series?.[0].math_hogql ?? ''
+        expect(mathHogql).toContain("properties.$ai_evaluation_id IN ('detector')")
+        expect(mathHogql).toContain("properties.$ai_evaluation_result = 'false'")
+        // Both sides of the ratio drop skipped runs — otherwise the false a skip stores reads as
+        // a detector pass, and the chart disagrees with the list, which already excludes them.
+        expect(mathHogql).toContain(`AND ${EVALUATION_NOT_SKIPPED_HOGQL}) /`)
+        expect(mathHogql).toContain(`IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`)
+    })
+
+    it('excludes skipped runs from both counts, so a detector cannot count them as a pass', async () => {
+        await expectLogic(metricsLogic, () => metricsLogic.actions.loadStats()).toFinishAllListeners()
+
+        const query = queryMock.mock.calls.at(-1)?.[0]
+        expect(query.query).toContain(`IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`)
+        expect(query.query).toContain(`${EVALUATION_RESULT_TRUE_HOGQL} AND ${EVALUATION_NOT_SKIPPED_HOGQL}`)
     })
 })

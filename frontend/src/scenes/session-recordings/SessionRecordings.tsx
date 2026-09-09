@@ -1,13 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconDocument, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
+import { IconDocument, IconGear, IconHeadset } from '@posthog/icons'
 import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
+import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { WarningHog } from 'lib/components/hedgehogs'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -15,6 +16,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -28,6 +30,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
+
+import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
 import { SessionRecordingsPlaylistRedesign } from './playlist-redesign/SessionRecordingsPlaylistRedesign'
@@ -52,6 +56,16 @@ function Header(): JSX.Element {
         try {
             await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
             reportRecordingPlaylistCreated('new')
+        } catch (error: any) {
+            if (isAccessDeniedError(error)) {
+                lemonToast.error('You do not have access to create collections.')
+            } else {
+                lemonToast.error('Could not create the collection. Please try again.')
+            }
+            // Not a kea loader, so initKea's report gate does not run. Apply the same gate here.
+            if (shouldReportApiFailure(error)) {
+                posthog.captureException(error)
+            }
         } finally {
             setLoading(false)
         }
@@ -128,11 +142,9 @@ const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-launch-promo'
 
 function ReplayVisionPromoBanner(): JSX.Element | null {
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
-    const hasReplayVision = useFeatureFlag('REPLAY_VISION')
 
-    // Without the flag the CTA would land on a 404, so don't advertise the feature at all.
     // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
-    if (!hasReplayVision || isDismissed) {
+    if (isDismissed) {
         return null
     }
 
@@ -151,72 +163,6 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
                 Replay vision is here. Scanners watch your recordings for you and surface what matters.
             </LemonBanner>
         </PostHogCaptureOnViewed>
-    )
-}
-
-function Warnings(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-
-    return (
-        <>
-            {recordingsDisabled ? (
-                <LemonBanner type="info" hideIcon={true}>
-                    <div className="flex gap-8 p-8 md:flex-row justify-center flex-wrap">
-                        <div className="flex justify-center items-center w-full md:w-50">
-                            <WarningHog className="w-full h-auto md:h-[200px] md:w-[200px] max-w-50" />
-                        </div>
-                        <div className="flex flex-col gap-2 flex-shrink max-w-180">
-                            <h2 className="text-lg font-semibold">
-                                Session recordings are not yet enabled for this project
-                            </h2>
-                            <p className="font-normal">Enabling session recordings will help you:</p>
-                            <ul className="list-disc list-inside font-normal">
-                                <li>
-                                    <strong>Understand user behavior:</strong> Get a clear view of how people navigate
-                                    and interact with your product.
-                                </li>
-                                <li>
-                                    <strong>Identify UI/UX issues:</strong> Spot friction points and refine your design
-                                    to increase usability.
-                                </li>
-                                <li>
-                                    <strong>Improve customer support:</strong> Quickly diagnose problems and provide
-                                    more accurate solutions.
-                                </li>
-                                <li>
-                                    <strong>Refine product decisions:</strong> Use real insights to prioritize features
-                                    and improvements.
-                                </li>
-                            </ul>
-                            <p className="font-normal">
-                                Enable session recordings to unlock these benefits and create better experiences for
-                                your users.
-                            </p>
-                            <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
-                                <LemonButton
-                                    className="hidden @md:flex"
-                                    type="primary"
-                                    icon={<IconGear />}
-                                    to={urls.replaySettings()}
-                                >
-                                    Configure
-                                </LemonButton>
-                                <LemonButton
-                                    type="tertiary"
-                                    sideIcon={<IconOpenSidebar className="w-4 h-4" />}
-                                    to="https://posthog.com/docs/session-replay?utm_medium=in-product&utm_campaign=empty-state-docs-link"
-                                    data-attr="product-introduction-docs-link"
-                                    targetBlank
-                                >
-                                    Learn more
-                                </LemonButton>
-                            </div>
-                        </div>
-                    </div>
-                </LemonBanner>
-            ) : null}
-        </>
     )
 }
 
@@ -244,7 +190,6 @@ function MainPanel(): JSX.Element {
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
             <ReplayVisionPromoBanner />
-            <Warnings />
 
             {!tab ? (
                 <Spinner />
@@ -338,4 +283,5 @@ export const scene: SceneExport = {
     component: SessionsRecordings,
     logic: sessionReplaySceneLogic,
     productKey: ProductKey.SESSION_REPLAY,
+    emptyState: sessionReplayEmptyState,
 }

@@ -1,0 +1,57 @@
+---
+title: Logs configuration
+sidebar: Docs
+showTitle: true
+---
+
+Each project has a logs configuration that tells PostHog how to read your log records. It holds the attribute keys that link logs to people and sessions, and the JSON keys that log patterns are derived from.
+
+Read or change it through the `logs_config` endpoint. You need to be a project admin to change it.
+
+```text
+GET   /api/projects/:project_id/logs_config/
+PATCH /api/projects/:project_id/logs_config/
+```
+
+A `PATCH` is partial. Send only the fields you want to change and the rest keep their values.
+
+## Fields
+
+All three list fields share the same rules:
+
+- Keys are matched literally at the top level. A dot is part of the key name, not a path into nested objects. `log.message` names one key called `log.message`.
+- Order matters. PostHog checks keys in list order, and the first key that holds a value wins.
+- Whitespace around a key is trimmed. Blank keys and duplicate keys are rejected.
+- A list holds at most 10 keys, each up to 200 characters.
+
+### `logs_distinct_id_attribute_keys`
+
+Log attribute keys whose values hold a PostHog distinct ID. Default: `["posthogDistinctId"]`.
+
+Used to link a log to a person, so the log appears on that person's Logs tab and the `query-logs` MCP tool can filter logs to one user. Add keys only if your pipeline emits the person identifier under a different attribute. See [linking logs to session replay](/docs/logs/link-session-replay).
+
+The list can't be empty.
+
+### `logs_session_id_attribute_keys`
+
+Log attribute keys whose values hold a PostHog session ID. Default: `["sessionId"]`.
+
+Used to link a log to a session replay or an error tracking session. Add keys only if your pipeline emits the session ID under a different attribute.
+
+The list can't be empty.
+
+### `logs_pattern_message_keys`
+
+JSON keys whose value is the message text that log patterns are derived from. Default: `["message", "msg", "event"]`.
+
+When a log body is a JSON object, PostHog looks up these keys in order and uses the first one whose value is a non-empty string as the text to build the pattern from. A key whose value is a number, an object, or an empty string is skipped, and the search continues down the list.
+
+If no key matches, the pattern is built from the object's set of top-level key names instead, so records with the same shape group together.
+
+An empty list turns message extraction off. Every JSON body then groups by its key set.
+
+This setting changes only how patterns are derived. The stored log body is never changed.
+
+## Propagation
+
+A change reaches log ingestion within a few minutes. Records ingested in that window keep the patterns derived from the previous configuration.

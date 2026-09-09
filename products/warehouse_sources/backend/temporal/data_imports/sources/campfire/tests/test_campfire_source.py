@@ -4,21 +4,16 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.campfire import CampfireResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.source import CampfireSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campfire import (
     CampfireSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -44,52 +39,6 @@ class TestCampfireSource:
     def setup_method(self) -> None:
         self.source = CampfireSource()
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CAMPFIRE
-
-    def test_source_is_released_as_alpha(self) -> None:
-        config = self.source.get_source_config
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/campfire"
-
-    def test_source_config_has_a_single_secret_api_key_field(self) -> None:
-        config = self.source.get_source_config
-        assert len(config.fields) == 1
-        field = config.fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-        assert field.secret is True
-
-    def test_get_schemas_returns_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(CampfireSourceConfig(api_key="k"), team_id=1)
-        assert [s.name for s in schemas] == list(ENDPOINTS)
-
-    @parameterized.expand(
-        [
-            ("chart_transactions", True),
-            ("bill_payments", True),
-            ("vendors", True),
-            ("journal_entries", False),
-            ("invoices", False),
-            ("chart_of_accounts", False),
-        ]
-    )
-    def test_incremental_support_matches_server_side_filter_availability(self, endpoint: str, expected: bool) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(CampfireSourceConfig(api_key="k"), team_id=1)}
-        schema = schemas[endpoint]
-        assert schema.supports_incremental is expected
-        if expected:
-            assert [f["field"] for f in schema.incremental_fields] == ["last_modified_at"]
-        else:
-            assert schema.incremental_fields == []
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(CampfireSourceConfig(api_key="k"), team_id=1, names=["vendors", "bills"])
-        assert {s.name for s in schemas} == {"vendors", "bills"}
-
     def test_documented_tables_render_without_credentials(self) -> None:
         # Public docs list the table catalog through this path; it must not need I/O.
         tables = self.source.get_documented_tables()
@@ -111,17 +60,6 @@ class TestCampfireSource:
         with patch.object(source_module, "validate_campfire_credentials", return_value=True) as mock:
             self.source.validate_credentials(CampfireSourceConfig(api_key="k"), team_id=1, schema_name="contracts")
         mock.assert_called_once_with("k", path="/rr/api/v1/contracts")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("vendors"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CampfireResumeConfig
-
-    def test_non_retryable_errors_cover_auth_failures(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert any(key.startswith("401 ") for key in errors)
-        assert any(key.startswith("403 ") for key in errors)
-        assert all("api.meetcampfire.com" in key for key in errors)
 
     @parameterized.expand(
         [

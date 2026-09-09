@@ -12,7 +12,10 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun import (
+    FORBIDDEN_ERROR,
+    INVALID_KEY_ERROR,
     MAX_RETRY_AFTER_SECONDS,
+    UNREACHABLE_ERROR,
     MailgunResumeConfig,
     MailgunRetryableError,
     _epoch_to_datetime,
@@ -245,6 +248,11 @@ class TestPagination:
         data = _paging_page([{"id": "a"}], None)
         assert _next_page_url(config, "current", data, 1) is None
 
+    def test_paging_stops_when_next_points_at_current_page(self):
+        config = MAILGUN_ENDPOINTS["tags"]
+        data = _paging_page([{"tag": "a"}], "current")
+        assert _next_page_url(config, "current", data, 1) is None
+
 
 class TestNormalizeRow:
     def test_injects_domain_for_domain_scoped_endpoints(self):
@@ -270,22 +278,23 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
+            (200, (True, None)),
+            (401, (False, INVALID_KEY_ERROR)),
+            (404, (False, INVALID_KEY_ERROR)),
+            (403, (False, FORBIDDEN_ERROR)),
+            (500, (False, UNREACHABLE_ERROR)),
         ],
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
     def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
         mock_session.return_value.get.return_value = _response({}, status_code)
 
-        assert validate_credentials("key", "us") is expected
+        assert validate_credentials("key", "us") == expected
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
     def test_validate_credentials_swallows_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key", "us") is False
+        assert validate_credentials("key", "us") == (False, UNREACHABLE_ERROR)
 
     @pytest.mark.parametrize(
         "region, expected_host",
@@ -389,6 +398,67 @@ class TestGetRows:
 
         first_events_url = mock_session.return_value.get.call_args_list[1].args[0]
         assert first_events_url.startswith(f"{US_BASE}/v3/a.com/events?")
+
+    @pytest.mark.parametrize(
+        "self_referencing, expected_requests, expected_rows",
+        [(True, 2, 2), (False, 3, 4)],
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
+    def test_repeating_paging_cursor_terminates(self, mock_session, self_referencing, expected_requests, expected_rows):
+        # Mailgun's tags endpoint re-serves its terminal page behind a stable `page=next&tag=<last>`
+        # cursor instead of returning an empty page. Unguarded, the chain re-yields the same rows
+        # until the activity is killed, and every repeat is billed as a synced row. Two shapes: the
+        # cursor pointing at the page it came from, and a two-URL cycle between pages.
+        items = [{"tag": "t1"}, {"tag": "t2"}]
+        page_a = f"{US_BASE}/v3/a.com/tags?limit=1000"
+        page_b = f"{page_a}&page=next&tag=t2"
+        next_of_a = page_a if self_referencing else page_b
+
+        requests_made: list[str] = []
+
+        def fake_get(url, **kwargs):
+            requests_made.append(url)
+            if len(requests_made) > 6:
+                raise AssertionError("pagination did not terminate")
+            if "/v4/domains" in url:
+                return _response({"items": [{"name": "a.com"}]})
+            return _response(_paging_page(items, next_of_a if url == page_a else page_a))
+
+        mock_session.return_value.get.side_effect = fake_get
+
+        batches = list(get_rows("key", "us", "tags", mock.MagicMock(), _make_manager()))
+
+        assert len(requests_made) == expected_requests
+        assert sum(len(batch) for batch in batches) == expected_rows
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.MAX_PAGES_PER_CHAIN", 3
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
+    def test_paging_stops_at_the_page_cap(self, mock_session):
+        # A cursor that mints a fresh URL for every page never repeats, so the seen-URL guard can't
+        # see it and only the page cap ends the chain.
+        pages_fetched = 0
+
+        def fake_get(url, **kwargs):
+            nonlocal pages_fetched
+            if "/v4/domains" in url:
+                return _response({"items": [{"name": "a.com"}]})
+            pages_fetched += 1
+            if pages_fetched > 10:
+                raise AssertionError("pagination did not terminate")
+            return _response(
+                _paging_page([{"tag": f"t{pages_fetched}"}], f"{US_BASE}/v3/a.com/tags?page=next&tag=t{pages_fetched}")
+            )
+
+        mock_session.return_value.get.side_effect = fake_get
+        logger = mock.MagicMock()
+
+        batches = list(get_rows("key", "us", "tags", logger, _make_manager()))
+
+        assert pages_fetched == 3
+        assert sum(len(batch) for batch in batches) == 3
+        assert "exceeded 3 pages" in logger.warning.call_args.args[0]
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
     def test_incremental_run_passes_begin_from_watermark(self, mock_session):

@@ -1,11 +1,14 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
+from threading import Barrier, Event
 
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
     ClickhouseTestMixin,
+    NonAtomicBaseTest,
     _create_person,
     get_index_from_explain,
     get_inner_person_subquery_clickhouse_sql,
@@ -14,7 +17,9 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.db import transaction
+from django.db import close_old_connections, connection, transaction
+from django.db.utils import IntegrityError
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -28,17 +33,50 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.redis import get_client
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
-from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
-from products.conversations.backend.models import Ticket, TicketAssignment, TicketView
+from products.conversations.backend.api.tickets import ComposeTicketSerializer, TicketReplyRequestSerializer
+from products.conversations.backend.models import (
+    EmailChannel,
+    EmailChannelKind,
+    EmailMessageMapping,
+    EmailOutboxMessage,
+    Ticket,
+    TicketAssignment,
+    TicketView,
+)
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
+from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role
+
+
+class TestComposeTicketSerializer(SimpleTestCase):
+    def _payload(self, **overrides):
+        data = {
+            "recipient_email": "someone@example.com",
+            "email_config_id": "00000000-0000-0000-0000-000000000000",
+            "message": "Hello!",
+        }
+        data.update(overrides)
+        return data
+
+    def test_rejects_more_than_100_tags(self):
+        # The compose write applies each tag inside the ticket-creation transaction, which
+        # holds the ticket-number allocation lock. An unbounded list would fan out that work
+        # under the lock, so the field is capped at 100 before any DB work starts.
+        serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(101)]))
+        assert not serializer.is_valid()
+        assert set(serializer.errors) == {"tags"}
+
+    def test_accepts_up_to_100_tags(self):
+        serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(100)]))
+        assert serializer.is_valid(), serializer.errors
 
 
 # Patch on_commit to execute immediately in tests
@@ -227,28 +265,46 @@ class TestTicketAPI(APIBaseTest):
         self.ticket.refresh_from_db()
         self.assertIsNotNone(self.ticket.sla_due_at)
 
-    def test_update_sla_due_at_logs_activity(self, mock_on_commit):
-        sla_time = timezone.now() + timedelta(hours=5)
+    @parameterized.expand(
+        [
+            (
+                "sla_due_at",
+                {"sla_due_at": "2030-01-01T00:00:00+00:00"},
+                {"sla_due_at": (None, "2030-01-01T00:00:00+00:00")},
+            ),
+            (
+                "status_and_priority",
+                {"status": Status.RESOLVED, "priority": Priority.HIGH},
+                {"status": (Status.NEW, Status.RESOLVED), "priority": (None, Priority.HIGH)},
+            ),
+        ]
+    )
+    def test_update_logs_every_changed_field_in_one_activity_entry(
+        self, mock_on_commit, _name, payload, expected_changes
+    ):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            {"sla_due_at": sla_time.isoformat()},
+            payload,
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        activity = ActivityLog.objects.filter(
-            team_id=self.team.id,
-            scope="Ticket",
-            item_id=str(self.ticket.id),
-            activity="updated",
-        ).first()
+        entries = list(
+            ActivityLog.objects.filter(
+                team_id=self.team.id,
+                scope="Ticket",
+                item_id=str(self.ticket.id),
+                activity="updated",
+            )
+        )
+        self.assertEqual(len(entries), 1)
 
-        assert activity is not None
-        assert activity.detail is not None
-        changes = activity.detail.get("changes", [])
-        sla_change = next((c for c in changes if c["field"] == "sla_due_at"), None)
-        assert sla_change is not None
-        self.assertIsNone(sla_change["before"])
-        self.assertIsNotNone(sla_change["after"])
+        detail = entries[0].detail
+        assert detail is not None
+        changes = detail.get("changes", [])
+        self.assertEqual(
+            {change["field"]: (change["before"], change["after"]) for change in changes},
+            expected_changes,
+        )
 
     @parameterized.expand(
         [
@@ -787,8 +843,8 @@ class TestTicketAPI(APIBaseTest):
         denormalized on the Ticket model, so no subqueries needed.
         Person data is batch-fetched in a single query.
         """
-        # Create 10 tickets with messages, assignments, and persons
-        for i in range(10):
+        # Two tickets are enough to detect a query that scales with the result count.
+        for i in range(2):
             ticket = Ticket.objects.create_with_number(
                 team=self.team,
                 channel_source=Channel.WIDGET,
@@ -819,23 +875,25 @@ class TestTicketAPI(APIBaseTest):
                 created_by=self.user,
             )
 
-        # Query count should be constant regardless of number of tickets
-        # Includes: session, user, org, team, permissions, feature flag permission org lookup,
-        # count query, tickets query, tagged_items prefetch, and the session-activity metadata
-        # write (deferred to on_commit, which this test class patches to run synchronously)
-        # Note: person reads go through personhog (no DB queries)
-        with self.assertNumQueries(12):
-            response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            # Should have original ticket + 10 new tickets = 11 total
-            self.assertEqual(response.json()["count"], 11)
-            # Verify all denormalized fields are present
-            for ticket_data in response.json()["results"]:
-                self.assertIn("message_count", ticket_data)
-                self.assertIn("last_message_at", ticket_data)
-                self.assertIn("last_message_text", ticket_data)
-                self.assertIn("assignee", ticket_data)
-                self.assertIn("person", ticket_data)
+        list_url = f"/api/projects/{self.team.id}/conversations/tickets/"
+        # Warm auth, settings, and session metadata so the measured requests differ only by page size.
+        warmup_response = self.client.get(f"{list_url}?limit=1")
+        self.assertEqual(warmup_response.status_code, status.HTTP_200_OK)
+
+        # Person reads go through personhog, so both page sizes should use the same database queries.
+        for limit in (2, 3):
+            with self.subTest(limit=limit), self.assertNumQueries(10):
+                response = self.client.get(f"{list_url}?limit={limit}")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.json()["count"], 3)
+                self.assertEqual(len(response.json()["results"]), limit)
+                # Verify all denormalized fields are present
+                for ticket_data in response.json()["results"]:
+                    self.assertIn("message_count", ticket_data)
+                    self.assertIn("last_message_at", ticket_data)
+                    self.assertIn("last_message_text", ticket_data)
+                    self.assertIn("assignee", ticket_data)
+                    self.assertIn("person", ticket_data)
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
@@ -982,6 +1040,106 @@ class TestBulkUpdateStatus(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestBulkUpdateTicketTags(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.tickets = [
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"sess-{i}",
+                distinct_id=f"user-{i}",
+                status=Status.NEW,
+            )
+            for i in range(3)
+        ]
+
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/conversations/tickets/bulk_update_tags/"
+
+    def _ticket_tags(self, ticket: Ticket) -> set[str]:
+        return set(ticket.tagged_items.values_list("tag__name", flat=True))
+
+    def test_bulk_add_tags_with_uuid_ids(self):
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "action": "add", "tags": ["billing", "urgent"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual({row["id"] for row in data["updated"]}, set(ids))
+        self.assertEqual(data["skipped"], [])
+        for ticket in self.tickets:
+            self.assertEqual(self._ticket_tags(ticket), {"billing", "urgent"})
+
+    def test_other_team_ids_reported_not_found(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = self.create_team_with_organization(organization=other_org)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-sess",
+            distinct_id="other-user",
+            status=Status.NEW,
+        )
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": [str(self.tickets[0].id), str(other_ticket.id)], "action": "add", "tags": ["urgent"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual([row["id"] for row in data["updated"]], [str(self.tickets[0].id)])
+        self.assertEqual(data["skipped"], [{"id": str(other_ticket.id), "reason": "Not found"}])
+        self.assertEqual(self._ticket_tags(other_ticket), set())
+
+    def test_denied_ticket_skipped_with_permission_denied(self):
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(self.tickets[0].id),
+            organization_member=self.user.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="none",
+        )
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "action": "add", "tags": ["urgent"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["skipped"], [{"id": str(self.tickets[0].id), "reason": "Permission denied"}])
+        self.assertEqual({row["id"] for row in data["updated"]}, {str(t.id) for t in self.tickets[1:]})
+        self.assertEqual(self._ticket_tags(self.tickets[0]), set())
+
+    def test_bulk_tags_mirror_activity_onto_ticket_timeline(self):
+        # Ticket-scope entries come from the TaggedItem mirror (RELATED_OBJECT_ACTIVITY_LOGGERS),
+        # so the bulk path must keep flowing through signal-firing TaggedItem writes — and exactly
+        # one entry per ticket per tag guards against the bulk endpoint double-logging.
+        ids = [str(t.id) for t in self.tickets[:2]]
+        self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "action": "add", "tags": ["urgent"]},
+            format="json",
+        )
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket", activity="updated")
+        self.assertEqual(logs.count(), 2)
+        self.assertEqual({log.item_id for log in logs}, set(ids))
+        for log in logs:
+            ticket = next(t for t in self.tickets if str(t.id) == log.item_id)
+            assert log.detail is not None
+            self.assertEqual(log.detail["name"], f"Ticket #{ticket.ticket_number}")
+            [change] = log.detail["changes"]
+            self.assertEqual(change["field"], "tag")
+            self.assertEqual(change["action"], "created")
+            self.assertEqual(change["after"], "urgent")
 
 
 class TestTicketAssignment(APIBaseTest):
@@ -1244,30 +1402,29 @@ class TestTicketAssignment(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(expected_error, str(response.json()))
 
-    def test_assign_to_user_not_in_organization(self):
-        other_user = User.objects.create(email="other@example.com")
+    @parameterized.expand(
+        [
+            ("user", "not a member of this organization"),
+            ("role", "does not belong to this organization"),
+        ]
+    )
+    def test_invalid_assignee_membership_does_not_update_ticket(self, assignee_type: str, expected_error: str) -> None:
+        if assignee_type == "user":
+            assignee_id: int | str = User.objects.create(email="other@example.com").id
+        else:
+            other_org = Organization.objects.create(name="Other Org")
+            assignee_id = str(Role.objects.create(name="Other Role", organization=other_org).id)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            {"assignee": {"id": other_user.id, "type": "user"}},
+            {"assignee": {"id": assignee_id, "type": assignee_type}, "status": Status.PENDING},
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not a member of this organization", str(response.json()))
+        self.assertIn(expected_error, str(response.json()))
         self.assertEqual(TicketAssignment.objects.count(), 0)
-
-    def test_assign_to_role_not_in_organization(self):
-        other_org = Organization.objects.create(name="Other Org")
-        other_role = Role.objects.create(name="Other Role", organization=other_org)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            {"assignee": {"id": str(other_role.id), "type": "role"}},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("does not belong to this organization", str(response.json()))
-        self.assertEqual(TicketAssignment.objects.count(), 0)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Status.NEW)
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
@@ -1503,6 +1660,111 @@ class TestTicketManager(BaseTest):
 
         self.assertEqual(ticket1.ticket_number, 1)
         self.assertEqual(ticket2.ticket_number, 2)
+
+    def test_unrelated_integrity_error_propagates(self):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.GITHUB,
+            widget_session_id="",
+            distinct_id="github:octocat",
+            github_repo="org/repo",
+            github_issue_number=42,
+        )
+        with self.assertRaises(IntegrityError):
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.GITHUB,
+                widget_session_id="",
+                distinct_id="github:octocat",
+                github_repo="org/repo",
+                github_issue_number=42,
+            )
+        remaining = Ticket.objects.get(team=self.team)
+        self.assertEqual(remaining.ticket_number, 1)
+        self.assertEqual(remaining.github_issue_number, 42)
+
+
+class TestTicketNumberAllocationConcurrency(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_concurrent_creates_get_unique_sequential_numbers(self, _mock_capture):
+        worker_count = 4
+        team_id = self.team.id
+        start_barrier = Barrier(worker_count)
+
+        def create_one(index: int) -> int:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '10s'")
+                    cursor.execute("SET statement_timeout = '15s'")
+                team = Team.objects.get(id=team_id)
+                start_barrier.wait(timeout=5)
+                ticket = Ticket.objects.create_with_number(
+                    team=team,
+                    channel_source=Channel.WIDGET,
+                    widget_session_id=f"session-{index}",
+                    distinct_id=f"user-{index}",
+                )
+                return ticket.ticket_number
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [executor.submit(create_one, i) for i in range(worker_count)]
+            numbers = [future.result(timeout=20) for future in futures]
+
+        self.assertEqual(sorted(numbers), list(range(1, worker_count + 1)))
+        self.assertEqual(Ticket.objects.filter(team_id=team_id).count(), worker_count)
+
+    @patch("products.conversations.backend.signals.capture_ticket_created")
+    def test_create_does_not_lock_the_team_row(self, _mock_capture):
+        # Concurrent uniqueness still passes if allocation takes Team FOR UPDATE again.
+        # Pause before the insert so the advisory lock is held and the Team row is not.
+        paused = Event()
+        resume = Event()
+        real_create = type(Ticket.objects).create
+
+        def pausing_create(manager, *args, **kwargs):
+            paused.set()
+            if not resume.wait(timeout=5):
+                raise TimeoutError("test did not resume allocation")
+            return real_create(manager, *args, **kwargs)
+
+        def allocate() -> None:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '10s'")
+                    cursor.execute("SET statement_timeout = '15s'")
+                Ticket.objects.create_with_number(
+                    team=self.team,
+                    channel_source=Channel.WIDGET,
+                    widget_session_id="session-team-lock",
+                    distinct_id="user-team-lock",
+                )
+            finally:
+                close_old_connections()
+
+        with patch.object(type(Ticket.objects), "create", pausing_create):
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(allocate)
+                if not paused.wait(timeout=5):
+                    resume.set()
+                    future.result(timeout=1)
+                    self.fail("allocator did not pause before insert")
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET lock_timeout = '250ms'")
+                    with transaction.atomic():
+                        Team.objects.select_for_update().get(id=self.team.id)
+                finally:
+                    with connection.cursor() as cursor:
+                        cursor.execute("RESET lock_timeout")
+                    resume.set()
+                future.result(timeout=5)
+        self.assertTrue(Ticket.objects.filter(team=self.team, widget_session_id="session-team-lock").exists())
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
@@ -1807,8 +2069,6 @@ class TestComposeTicketAPI(APIBaseTest):
         self.team.conversations_enabled = True
         self.team.conversations_settings = {"email_enabled": True}
         self.team.save()
-        from products.conversations.backend.models import EmailChannel
-
         self.email_config = EmailChannel.objects.create(
             team=self.team,
             from_email="support@example.com",
@@ -1916,6 +2176,29 @@ class TestComposeTicketAPI(APIBaseTest):
         if expected_detail:
             assert expected_detail in response.json()["detail"]
 
+    def test_compose_rejects_customer_communication_channel(self, mock_on_commit) -> None:
+        customer_channel = EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=self.user,
+            from_email="csm@example.com",
+            from_name="Customer success",
+            domain="example.com",
+            domain_verified=True,
+            inbound_token="customer-channel-compose",
+        )
+
+        response = self._compose(
+            {
+                "recipient_email": "someone@test.com",
+                "email_config_id": str(customer_channel.id),
+                "message": "Hello!",
+            }
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Ticket.objects.filter(team=self.team).exists()
+
     def test_composed_ticket_is_not_born_verified(self, mock_on_commit):
         # The team typed the recipient address; the recipient never proved they control it,
         # so an outbound ticket must start with unknown identity (None) — never verified.
@@ -1929,6 +2212,41 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.identity_verified is None
+
+    def test_composed_ticket_stores_recipient_email_in_traits(self, mock_on_commit):
+        response = self._compose(
+            {
+                "recipient_email": "someone@test.com",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.anonymous_traits == {"email": "someone@test.com"}
+
+        search = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search=someone@test.com",
+        )
+        assert search.status_code == status.HTTP_200_OK
+        assert [t["id"] for t in search.json()["results"]] == [str(ticket.id)]
+
+    def test_compose_applies_tags_to_the_new_ticket(self, mock_on_commit):
+        # Tags let support filter composed tickets by source (e.g. roadmap pitches). If compose
+        # drops the field, the ticket lands untagged and that filtering breaks.
+        response = self._compose(
+            {
+                "recipient_email": "pitch@test.com",
+                "email_config_id": str(self.email_config.id),
+                "message": "Great idea, we logged it.",
+                "tags": ["roadmap_pitch"],
+            }
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{response.json()['id']}/")
+        assert detail.status_code == status.HTTP_200_OK
+        assert detail.json()["tags"] == ["roadmap_pitch"]
 
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):
@@ -1994,6 +2312,20 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             ("messages_with_read", "messages", "get", ["ticket:read"], status.HTTP_200_OK),
             ("messages_with_write", "messages", "get", ["ticket:write"], status.HTTP_200_OK),
             ("messages_wrong_scope", "messages", "get", ["insight:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "full_email_with_read",
+                "messages/00000000-0000-0000-0000-000000000000/full_email",
+                "get",
+                ["ticket:read"],
+                status.HTTP_404_NOT_FOUND,
+            ),
+            (
+                "full_email_wrong_scope",
+                "messages/00000000-0000-0000-0000-000000000000/full_email",
+                "get",
+                ["insight:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
             ("reply_with_write", "reply", "post", ["ticket:write"], status.HTTP_201_CREATED),
             ("reply_with_read_only", "reply", "post", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("reply_wrong_scope", "reply", "post", ["insight:write"], status.HTTP_403_FORBIDDEN),
@@ -2143,7 +2475,9 @@ class TestTicketMessagesAPI(APIBaseTest):
             "rich_content",
             "author_type",
             "author_name",
+            "author_email",
             "is_private",
+            "has_full_email_content",
             "created_at",
             "version",
         }
@@ -2161,6 +2495,49 @@ class TestTicketMessagesAPI(APIBaseTest):
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
+
+    def test_messages_support_author_uses_full_name(self, mock_on_commit):
+        self.user.first_name = "Jane"
+        self.user.last_name = "Doe"
+        self.user.save()
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="On it",
+            item_context={"author_type": "support", "is_private": False},
+        )
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["author_name"] == "Jane Doe"
+
+    def test_messages_author_email_only_for_posthog_users(self, mock_on_commit):
+        base = timezone.now()
+        for offset, (content, author_type, author) in enumerate(
+            [
+                ("Hello from customer", "customer", None),
+                ("Hi there!", "support", self.user),
+                ("Summary", "AI", None),
+            ]
+        ):
+            comment = Comment.objects.create(
+                team=self.team,
+                created_by=author,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content=content,
+                item_context={"author_type": author_type, "is_private": False},
+            )
+            Comment.objects.filter(id=comment.id).update(created_at=base + timedelta(seconds=offset))
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()["results"]
+        assert body[0]["author_email"] is None
+        assert body[1]["author_email"] == self.user.email
+        assert body[2]["author_email"] is None
 
     @parameterized.expand(
         [
@@ -2267,6 +2644,46 @@ class TestTicketMessagesAPI(APIBaseTest):
         assert body["results"] == []
         assert body["count"] == 0
 
+    @parameterized.expand(
+        [
+            ("different_ticket", True, False),
+            ("deleted_message", False, True),
+        ]
+    )
+    def test_full_email_only_returns_visible_ticket_messages(
+        self, mock_on_commit, _name: str, use_different_ticket: bool, deleted: bool
+    ) -> None:
+        ticket = self.ticket
+        if use_different_ticket:
+            ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.EMAIL,
+                widget_session_id="other-session",
+                distinct_id="user-2",
+                status=Status.OPEN,
+            )
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Visible reply",
+            item_context={"author_type": "customer", "has_full_email_content": True},
+            deleted=deleted,
+        )
+        EmailMessageMapping.objects.create(
+            message_id="<other-ticket@example.com>",
+            team=self.team,
+            ticket=ticket,
+            comment=comment,
+            full_body_plain="Full body",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/messages/{comment.id}/full_email/"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_messages_pagination(self, mock_on_commit):
         base = timezone.now()
         for i in range(5):
@@ -2307,6 +2724,8 @@ class TestTicketReplyAPI(APIBaseTest):
             status=Status.OPEN,
         )
         self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/reply/"
+        # Reply dedupe reservations live in fakeredis, which is a single process-wide store.
+        get_client().flushall()
 
     @parameterized.expand(
         [
@@ -2321,7 +2740,7 @@ class TestTicketReplyAPI(APIBaseTest):
         assert body["content"] == "A reply"
         assert body["author_type"] == "support"
         assert body["is_private"] is is_private
-        assert body["author_name"] == (self.user.first_name or self.user.email)
+        assert body["author_name"] == (f"{self.user.first_name} {self.user.last_name}".strip() or self.user.email)
 
         comment = Comment.objects.get(id=body["id"])
         assert comment.created_by == self.user
@@ -2416,6 +2835,97 @@ class TestTicketReplyAPI(APIBaseTest):
         serializer = TicketReplyRequestSerializer(data={"message": "hi", "rich_content": {"amount": Decimal("1.2")}})
         assert not serializer.is_valid()
         assert "rich_content" in serializer.errors
+
+    @patch("products.conversations.backend.signals.send_email_reply")
+    def test_retried_reply_returns_the_original_and_delivers_once(self, mock_send_email_reply, mock_on_commit):
+        # API clients and gateways replay this POST within a second or two, and each delivery that
+        # gets through is a message the customer actually receives twice.
+        self.ticket.email_from = "customer@example.com"
+        self.ticket.save(update_fields=["email_from"])
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save(update_fields=["conversations_settings"])
+
+        first = self.client.post(self.url, {"message": "On it now"}, format="json")
+        second = self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json() == first.json()
+        assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
+        mock_send_email_reply.delay.assert_called_once()
+
+    @patch("products.conversations.backend.signals.send_email_reply")
+    def test_outbox_failure_rolls_back_comment_and_allows_retry(self, mock_send_email_reply, mock_on_commit):
+        with patch(
+            "products.conversations.backend.signals.EmailOutboxMessage.objects.get_or_create",
+            side_effect=RuntimeError("outbox write failed"),
+        ):
+            response = self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert not Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).exists()
+        assert not EmailOutboxMessage.objects.filter(ticket=self.ticket).exists()
+        mock_send_email_reply.delay.assert_not_called()
+
+        retry = self.client.post(self.url, {"message": "On it now"}, format="json")
+        assert retry.status_code == status.HTTP_201_CREATED
+        assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 1
+        mock_send_email_reply.delay.assert_called_once()
+
+    def test_reply_still_being_created_returns_a_conflict(self, mock_on_commit):
+        fingerprint = ReplyFingerprint.build(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="On it now",
+            rich_content=None,
+            item_context={"author_type": "support", "is_private": False},
+        )
+        assert fingerprint is not None
+        reserve(fingerprint)
+
+        response = self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["error_type"] == REPLY_IN_PROGRESS_ERROR_TYPE
+        assert not Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).exists()
+
+    @parameterized.expand(
+        [
+            ("different_privacy", {"is_private": True}),
+            ("different_body", {"message": "Something else"}),
+        ]
+    )
+    def test_a_genuinely_different_reply_is_still_posted(self, mock_on_commit, _name, overrides):
+        self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        response = self.client.post(self.url, {"message": "On it now", **overrides}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 2
+
+    def test_reply_replays_a_message_first_sent_through_the_comments_endpoint(self, mock_on_commit):
+        # The composer writes through /comments/ while API clients use /reply/. Both hash into one
+        # keyspace, so a retry that arrives on the other path must not post a second message.
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "On it now",
+                "scope": "conversations_ticket",
+                "item_id": str(self.ticket.id),
+                "item_context": {"author_type": "support", "is_private": False},
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED
+
+        replayed = self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        assert replayed.status_code == status.HTTP_200_OK
+        assert replayed.json()["id"] == created.json()["id"]
+        assert replayed.json()["author_type"] == "support"
+        assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)

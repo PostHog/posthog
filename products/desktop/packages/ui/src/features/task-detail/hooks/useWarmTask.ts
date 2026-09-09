@@ -4,9 +4,13 @@ import {
 } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { logger } from "../../../shell/logger";
-import { buildWarmTaskLeaseKey, rememberWarmTaskLease } from "./warmTaskLease";
+import {
+  buildWarmTaskLeaseKey,
+  forgetWarmTaskLease,
+  rememberWarmTaskLease,
+} from "./warmTaskLease";
 
 const log = logger.scope("warm-task");
 
@@ -14,8 +18,11 @@ const WARM_DEBOUNCE_MS = 600;
 
 interface UseWarmTaskOptions {
   workspaceMode: WorkspaceMode;
+  claudeModelAccess?: string;
   selectedRepository?: string | null;
+  repositories?: string[];
   githubIntegrationId?: number;
+  allowNoRepo?: boolean;
   branch?: string | null;
   editorIsEmpty: boolean;
   runtimeAdapter?: string | null;
@@ -27,8 +34,11 @@ interface UseWarmTaskOptions {
 
 export function useWarmTask({
   workspaceMode,
+  claudeModelAccess,
   selectedRepository,
+  repositories,
   githubIntegrationId,
+  allowNoRepo = false,
   branch,
   editorIsEmpty,
   runtimeAdapter,
@@ -43,6 +53,7 @@ export function useWarmTask({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastWarmedKeyRef = useRef<string | null>(null);
   const latestKeyRef = useRef<string | null>(null);
+  const leaseRef = useRef<{ taskId: string; runId: string } | null>(null);
 
   const isCloud = workspaceMode === "cloud";
   const normalizedBranch = branch ?? null;
@@ -51,17 +62,34 @@ export function useWarmTask({
   const normalizedReasoningEffort = reasoningEffort ?? null;
   const normalizedSandboxEnvironmentId = sandboxEnvironmentId ?? null;
   const normalizedCustomImageId = customImageId ?? null;
+  // Repo-less channel tasks deliberately discard any persisted/stale picker
+  // selection on submit, so warming and lease matching must do the same.
+  const warmRepositories = useMemo(
+    () =>
+      allowNoRepo
+        ? (repositories ?? [])
+        : selectedRepository
+          ? [selectedRepository]
+          : [],
+    [allowNoRepo, repositories, selectedRepository],
+  );
+  const warmRepository = warmRepositories[0] ?? null;
+  const warmGithubIntegrationId = warmRepositories.length
+    ? (githubIntegrationId ?? null)
+    : null;
   const eligible =
     enabled &&
+    claudeModelAccess !== "own-subscription" &&
     isCloud &&
     !!client &&
-    !!selectedRepository &&
-    githubIntegrationId !== undefined &&
+    (allowNoRepo || (!!warmRepository && warmGithubIntegrationId !== null)) &&
+    (!warmRepositories.length || warmGithubIntegrationId !== null) &&
     !editorIsEmpty;
   const key =
-    selectedRepository && githubIntegrationId !== undefined
-      ? `${githubIntegrationId}:${buildWarmTaskLeaseKey({
-          repository: selectedRepository,
+    allowNoRepo || (warmRepository && warmGithubIntegrationId !== null)
+      ? `${warmGithubIntegrationId ?? ""}:${buildWarmTaskLeaseKey({
+          repository: warmRepository,
+          repositories: warmRepositories,
           branch: normalizedBranch,
           runtimeAdapter: normalizedRuntimeAdapter,
           model: normalizedModel,
@@ -70,9 +98,9 @@ export function useWarmTask({
           customImageId: normalizedCustomImageId,
         })}`
       : null;
-  latestKeyRef.current = key;
-
   useEffect(() => {
+    latestKeyRef.current = eligible ? key : null;
+
     const clearDebounce = (): void => {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
@@ -80,16 +108,29 @@ export function useWarmTask({
       }
     };
 
-    if (!eligible || !key || !selectedRepository || !client) {
+    if (!eligible || !key || !client) {
       clearDebounce();
+      if (
+        client &&
+        leaseRef.current &&
+        claudeModelAccess === "own-subscription"
+      ) {
+        const lease = leaseRef.current;
+        forgetWarmTaskLease(lease);
+        leaseRef.current = null;
+        lastWarmedKeyRef.current = null;
+        void client
+          .cancelTaskRun(lease.taskId, lease.runId, undefined, true)
+          .catch((error) => log.warn("Could not release warm task", { error }));
+      }
       return;
     }
     if (lastWarmedKeyRef.current === key || debounceRef.current) {
       return;
     }
 
-    const repository = selectedRepository;
-    const githubIntegration = githubIntegrationId as number;
+    const repository = warmRepository;
+    const githubIntegration = warmGithubIntegrationId;
     const warmBranch = normalizedBranch;
     const warmRuntimeAdapter = normalizedRuntimeAdapter;
     const warmModel = normalizedModel;
@@ -102,6 +143,10 @@ export function useWarmTask({
       void client
         .warmTask({
           repository,
+          // Older backends ignore this additive field and fall back to cold creation for multi-repo tasks.
+          ...(repositories !== undefined
+            ? { repositories: warmRepositories }
+            : {}),
           github_integration: githubIntegration,
           branch: warmBranch,
           runtime_adapter: warmRuntimeAdapter,
@@ -112,11 +157,25 @@ export function useWarmTask({
             : {}),
           ...(warmCustomImageId ? { custom_image_id: warmCustomImageId } : {}),
         })
-        .then((warm) => {
+        .then(async (warm) => {
+          if (warm && latestKeyRef.current !== key) {
+            if (lastWarmedKeyRef.current === key) {
+              lastWarmedKeyRef.current = null;
+            }
+            await client.cancelTaskRun(
+              warm.task_id,
+              warm.run_id,
+              undefined,
+              true,
+            );
+            return;
+          }
           if (warm && latestKeyRef.current === key) {
+            leaseRef.current = { taskId: warm.task_id, runId: warm.run_id };
             rememberWarmTaskLease(
               buildWarmTaskLeaseKey({
                 repository,
+                repositories: warmRepositories,
                 branch: warmBranch,
                 runtimeAdapter: warmRuntimeAdapter,
                 model: warmModel,
@@ -139,10 +198,13 @@ export function useWarmTask({
     return clearDebounce;
   }, [
     eligible,
+    claudeModelAccess,
     key,
     client,
-    selectedRepository,
-    githubIntegrationId,
+    warmRepository,
+    warmRepositories,
+    repositories,
+    warmGithubIntegrationId,
     normalizedBranch,
     normalizedRuntimeAdapter,
     normalizedModel,

@@ -41,7 +41,9 @@ from posthog.exceptions_capture import capture_exception  # noqa: F401
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
+    BinaryColumnReporter,
     build_pyarrow_decimal_type,
+    restrict_schema_to_columns,
     table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
@@ -55,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     compute_projected_columns,
     project_arrow_columns,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SourceMetadata,
     SQLSourceImplementation,
@@ -103,6 +106,30 @@ _LOST_CONNECTION_DURING_QUERY_CODE = 2013
 # index order and skip the filesort entirely, so the same FORCE INDEX fallback
 # resolves it.
 _OUT_OF_SORT_MEMORY_CODE = 1038
+
+# pymysql error code for "Query execution was interrupted, maximum statement
+# execution time exceeded" — the same bad plan (full scan + filesort over the
+# incremental field) seen from a third side: the server's own `max_execution_time`
+# cap kills the query outright before the filesort can finish. Forcing the
+# incremental-field index lets MySQL read rows in index order and skip the
+# filesort entirely, so the same FORCE INDEX fallback resolves it.
+_QUERY_EXECUTION_TIME_EXCEEDED_CODE = 3024
+
+# Raised in place of the raw pymysql 2013 when a lost-connection bad plan can't be dodged by the
+# FORCE INDEX fallback because the incremental field has no usable index. The un-indexed full-table
+# sort re-times-out on every run, so it's deterministic — distinct from a genuine transient mid-query
+# drop, which the raw 2013 stays retryable for. `MySQLSource.get_non_retryable_errors` matches this
+# marker to pause the schema with an actionable message.
+UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR = "MySQL lost the connection during an unavoidable full-table sort"
+
+
+class MySQLUnavoidableFilesortError(Exception):
+    """A lost-connection bad plan (error 2013) the FORCE INDEX fallback can't avoid — the incremental
+    field has no usable index, so every run repeats the same doomed full-table sort."""
+
+    def __init__(self, message: str = UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR) -> None:
+        super().__init__(message)
+
 
 # pymysql error code for "Can't connect to MySQL server on '...'" — raised at
 # connect time when the socket connect can't be established. The parenthesised
@@ -281,20 +308,22 @@ def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
     """Return True if the error is a symptom of MySQL filesorting the incremental
     `ORDER BY` instead of using an index — recoverable via the FORCE INDEX fallback.
 
-    Matches two codes, both signalling the optimizer picked a full scan + filesort
+    Matches three codes, all signalling the optimizer picked a full scan + filesort
     over the incremental field:
 
     - `2013` (lost connection during query): the filesort preparation outran a
       middlebox / server-side query timeout before any rows streamed back.
     - `1038` (out of sort memory): the filesort itself overran the server's
       `sort_buffer_size`.
+    - `3024` (query execution was interrupted): the server's own `max_execution_time`
+      cap killed the query before the filesort could finish.
 
     Forcing the incremental-field index makes MySQL read rows in index order and
-    skip the filesort, resolving both. Other `OperationalError`s (access denied,
+    skip the filesort, resolving all three. Other `OperationalError`s (access denied,
     table missing, etc.) should propagate untouched.
     """
     code = e.args[0] if e.args else None
-    return code in (_LOST_CONNECTION_DURING_QUERY_CODE, _OUT_OF_SORT_MEMORY_CODE)
+    return code in (_LOST_CONNECTION_DURING_QUERY_CODE, _OUT_OF_SORT_MEMORY_CODE, _QUERY_EXECUTION_TIME_EXCEEDED_CODE)
 
 
 # Number of times `connect` will open a fresh pymysql connection before giving up. Matches the
@@ -499,15 +528,17 @@ def _is_transient_packet_sequence_error(e: BaseException) -> bool:
     return any(_PACKET_SEQUENCE_ERROR_PHRASE in str(arg) for arg in e.args)
 
 
-# Vitess/PlanetScale vtgate surfaces a backend tablet it can't reach at connect time as pymysql
+# Vitess/PlanetScale vtgate surfaces a backend tablet it can't reach as pymysql
 # OperationalError(1815, 'internal connection error: dial tcp <addr>: connect: connection timed
 # out, after N attempts, reqid=...'): the vtgate handshake succeeds but dialing the tablet behind
 # it times out — a failover, a restart, or a momentary network blip that a fresh attempt recovers
 # from. 1815 is MySQL's generic ER_INTERNAL_ERROR, so key on the Go-network `dial tcp` +
 # `connection timed out` signature (no plain MySQL error carries the `dial tcp` token) rather than
-# the bare code; the volatile tablet address, attempt count, and reqid stay untouched. This is the
-# connect-time sibling of the `code = Unavailable` tablet-unavailable case, which instead lands on
-# the first query after connect (see `_is_transient_tablet_unavailable`).
+# the bare code; the volatile tablet address, attempt count, and reqid stay untouched. Like the
+# `code = Unavailable` tablet-unavailable case (see `_is_transient_tablet_unavailable`), this can
+# land either at connect time or on the first query against a freshly opened connection (e.g.
+# `get_table_metadata`'s information_schema lookup), so both `_connect_with_transient_retry` and
+# `_retry_on_transient_tablet_unavailable` check it.
 _VITESS_DIAL_TOKEN = "dial tcp"
 _VITESS_DIAL_TIMEOUT_TOKEN = "connection timed out"
 
@@ -537,6 +568,24 @@ def _is_transient_too_many_connections(e: BaseException) -> bool:
     return code == _TOO_MANY_CONNECTIONS_CODE
 
 
+# MySQL/MariaDB error 1135 (ER_CANT_CREATE_THREAD): the server accepted the TCP connection but the
+# OS refused to spawn the thread that would service it (`errno 11`, EAGAIN — "Resource temporarily
+# unavailable"). Like `_TOO_MANY_CONNECTIONS_CODE` above, this is a transient capacity condition on
+# the customer's database host (it's hit its process/thread ulimit, not out of memory), not a
+# misconfiguration — it clears as other connections close and free up OS threads — so a fresh
+# attempt after a short backoff usually succeeds. Kept out of `get_non_retryable_errors` (see
+# `MySQLSource.get_retryable_errors`).
+_CANT_CREATE_THREAD_CODE = 1135
+
+
+def _is_transient_cant_create_thread(e: BaseException) -> bool:
+    """Return True if the server couldn't spawn an OS thread to service the new connection."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    return code == _CANT_CREATE_THREAD_CODE
+
+
 def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
     """Open a pymysql connection, retrying a transient drop or timeout on connect.
 
@@ -560,7 +609,9 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
                 or _is_transient_connect_broken_pipe(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_too_many_connections(e)
+                or _is_transient_cant_create_thread(e)
             ):
                 raise
             structlog.get_logger().warning(
@@ -612,6 +663,22 @@ def _is_transient_vitess_reparent(e: BaseException) -> bool:
     return _VITESS_REPARENT_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
+# TiProxy (TiDB's connection proxy) surfaces this 1105 error when it cannot reach a TiDB
+# node due to a failover, a restart, or a momentary network blip. It arrives during the
+# MySQL auth handshake: TiProxy accepts the TCP connection but then cannot route to a
+# backend TiDB node and sends back ER_UNKNOWN_ERROR (1105) with this fixed message. Like
+# the Vitess `code = Unavailable` case above (same error code, same proxy-layer pattern),
+# a fresh attempt recovers once a healthy TiDB node is available.
+_TIPROXY_UNAVAILABLE_TOKEN = "TiProxy fails to connect to TiDB"
+
+
+def _is_transient_tiproxy_unavailable(e: BaseException) -> bool:
+    """Return True if TiProxy could not reach a TiDB backend due to a transient failure."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _TIPROXY_UNAVAILABLE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 def _is_transient_metadata_query_reset(e: BaseException) -> bool:
     """Return True if a metadata query's connection was reset mid-query — a transient blip.
 
@@ -647,8 +714,8 @@ def _retry_on_transient_tablet_unavailable(
     whole operation (which reopens the connection) with a bounded backoff instead of
     failing sync setup on the first blip and surfacing it as captured error-tracking
     noise. Non-transient errors re-raise immediately — the predicates only match the gRPC
-    `Unavailable` status, a mid-reparent primary, or a plain peer-reset connection drop,
-    all self-healing.
+    `Unavailable` status, a mid-reparent primary, a dial-timeout reaching a backend tablet,
+    a TiProxy failover, or a plain peer-reset connection drop, all self-healing.
     """
     attempt = 0
     while True:
@@ -659,6 +726,8 @@ def _retry_on_transient_tablet_unavailable(
             if attempt >= max_attempts or not (
                 _is_transient_tablet_unavailable(e)
                 or _is_transient_vitess_reparent(e)
+                or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_metadata_query_reset(e)
             ):
                 raise
@@ -1400,6 +1469,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         primary_keys, arrow_schema, chunk_size, partition_settings, rows_to_sync = (
             _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
         )
+        binary_reporter = BinaryColumnReporter(logger)
 
         def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
             """Open a fresh connection and stream rows.
@@ -1467,13 +1537,21 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
 
                     column_names = [column[0] for column in ss_cursor.description or []]
 
-                    while True:
-                        # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
-                        batch = ss_cursor.fetchmany(chunk_size)
-                        if not batch:
-                            break
+                    # The streaming read can return a strict subset of the columns discovered
+                    # during setup (a column dropped at the source, or the table recreated
+                    # narrower, between discovery and the read), so restrict the schema to what
+                    # the query actually returned instead of failing the batch build.
+                    read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in batch), arrow_schema)
+                    for batch in fetch_row_batches(
+                        ss_cursor.fetchmany, max_rows=chunk_size, byte_bounded=inputs.byte_bounded_extraction
+                    ):
+                        yield table_from_iterator(
+                            (dict(zip(column_names, row)) for row in batch),
+                            read_schema,
+                            primary_keys=primary_keys,
+                            binary_reporter=binary_reporter,
+                        )
                 finally:
                     # Tear the streaming cursor down without draining the rest of
                     # the unbuffered result set — see `_release_streaming_cursor`.
@@ -1529,6 +1607,13 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         f"{schema}.{table_name}.{incremental_field} — cannot apply FORCE INDEX fallback. "
                         f"Customer should add an index on the incremental field."
                     )
+                    # A lost connection here recurs every run: with no usable index the incremental
+                    # sort is unavoidable and re-times-out. Re-raise it as a deterministic error so
+                    # the schema is paused with guidance instead of looping. Out-of-sort-memory (1038)
+                    # and query-execution-time-exceeded (3024) already carry their own stable, locale-
+                    # independent codes, so leave those raw.
+                    if e.args and e.args[0] == _LOST_CONNECTION_DURING_QUERY_CODE:
+                        raise MySQLUnavoidableFilesortError() from e
                     raise
 
                 logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad query plan")

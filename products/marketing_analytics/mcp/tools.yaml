@@ -9,6 +9,9 @@ feature: marketing_analytics
 url_prefix: /marketing
 ui_apps: {}
 tools:
+    marketing-analytics-apply-setup-ops-create:
+        operation: marketing_analytics_apply_setup_ops_create
+        enabled: false
     marketing-analytics-conversion-goals:
         operation: marketing_analytics_conversion_goals_retrieve
         enabled: true
@@ -20,11 +23,34 @@ tools:
             idempotent: true
         title: List conversion goals
         description: >
-            List the configured marketing conversion goals for the current project. Each goal returns its kind
-            (EventsNode / ActionsNode / DataWarehouseNode), target, last-30d count, and the integrated vs non-integrated
-            split. Non-integrated breaks into two buckets with OPPOSITE fixes: events_without_utm_source (tag UTMs) vs
+            List the configured marketing conversion goals for the current project. Each goal returns its
+            conversion_goal_id — the value the explain, update and delete tools take — plus its kind (EventsNode /
+            ActionsNode / DataWarehouseNode), target, last-30d count, and the integrated vs non-integrated split.
+            Non-integrated breaks into two buckets with OPPOSITE fixes: events_without_utm_source (tag UTMs) vs
             events_with_unmatched_utm_source (add a custom source mapping). is_approximate is true when the 30d count
             may differ from the dashboard's attribution-windowed number.
+        feature_flag: marketing-analytics-mcp
+    marketing-analytics-create-conversion-goal:
+        operation: marketing_analytics_conversion_goals_create_create
+        enabled: true
+        scopes:
+            - marketing_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create conversion goal
+        description: >
+            Add one conversion goal to the project. Everything goes inside a single `goal` object — fields sent at the
+            top level are rejected. Required inside it: conversion_goal_name, schema_map naming the fields that hold
+            utm_campaign, utm_source, the timestamp and the distinct id, and conversion_goal_id (assigned by the server,
+            so send an empty string). Also send kind (EventsNode for a PostHog event, ActionsNode for an action,
+            DataWarehouseNode for an external table) and its target: `event` for EventsNode, `id` for ActionsNode, and
+            `id` + table_name + id_field + timestamp_field + distinct_id_field for DataWarehouseNode. Omitting math
+            counts conversions; set it to sum with math_property to total a value. Unknown fields are rejected. Existing
+            goals are left untouched. Set counts_as_customer when converting means the person became a customer, and
+            counts_as_revenue when the conversion value is money. Call marketing-analytics-conversion-goals first to see
+            what already exists — goal names must be unique.
         feature_flag: marketing-analytics-mcp
     marketing-analytics-data-sources:
         operation: marketing_analytics_data_sources_retrieve
@@ -40,6 +66,21 @@ tools:
             List the platform-side health of every native marketing integration: connected/not, last sync time and
             status, last error, rows synced, and schema-mapping coverage. This is the platform → data-warehouse side
             only. For PostHog-events-side health (UTM matching), call marketing-analytics-diagnose.
+        feature_flag: marketing-analytics-mcp
+    marketing-analytics-delete-conversion-goal:
+        operation: marketing_analytics_conversion_goals_delete_destroy
+        enabled: true
+        scopes:
+            - marketing_analytics:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete conversion goal
+        description: >
+            Remove one conversion goal from the project, identified by its conversion_goal_id — call
+            marketing-analytics-conversion-goals first to get it. The other goals stay in place. Dashboards and reports
+            built on this goal will stop showing it, so confirm with the user first.
         feature_flag: marketing-analytics-mcp
     marketing-analytics-diagnose:
         operation: marketing_analytics_diagnose_retrieve
@@ -76,8 +117,12 @@ tools:
             attribution calculation (first-touch / last-touch / multi-touch weighting is applied by the dashboard, not
             here). Use when the user asks "what utm_sources are behind my N conversions?" or "where do these conversions
             come from?". Only EventsNode and ActionsNode goals are explained at the event level; DataWarehouseNode goals
-            short-circuit with a note.
+            short-circuit with a note. Requires conversion_goal_id — call marketing-analytics-conversion-goals first and
+            pass the conversion_goal_id of the goal you want.
         feature_flag: marketing-analytics-mcp
+    marketing-analytics-setup-plan-retrieve:
+        operation: marketing_analytics_setup_plan_retrieve
+        enabled: false
     marketing-analytics-suggest-conversion-goals:
         operation: marketing_analytics_suggest_conversion_goals_retrieve
         enabled: true
@@ -104,18 +149,38 @@ tools:
             idempotent: true
         title: Suggest utm_source → integration mappings
         description: >
-            USE THIS TOOL — DO NOT FALL BACK TO SQL — whenever the user asks about utm_source mappings,
-            custom_source_mappings, unmatched / non-integrated UTM values, or the question "what utm_sources do I have
-            and which ad platform do they belong to?". Returns full_utm_source_catalogue (every utm_source value seen on
-            events in the window, matched + unmatched, with event count and the integration it resolves to),
-            source_suggestions (mapping recommendations where a value's token matches a known alias, e.g. raw
-            facebook_paid → MetaAds), raw_unmatched_samples (every unmatched value, including likely-not-an-ad values
-            like organic/newsletter/partner), and current_mappings (every alias already in effect — canonical +
-            team_custom — so duplicates aren't suggested). Read-only — applying mappings is a separate write tool.
+            USE THIS TOOL — DO NOT FALL BACK TO SQL — whenever the user asks about utm_source OR utm_campaign mappings,
+            custom_source_mappings, campaign_name_mappings, unmatched / non-integrated UTM values, typo'd campaign
+            names, or the question "what utm_sources do I have and which ad platform do they belong to?". Returns
+            full_utm_source_catalogue (every utm_source value seen on events in the window, matched + unmatched, with
+            event count and the integration it resolves to), source_suggestions (mapping recommendations where a value's
+            token matches a known alias, e.g. raw facebook_paid → MetaAds), campaign_suggestions (campaign_name_mappings
+            entries for orphaned utm_campaign values that fuzzy-match a real campaign, e.g. sprng_sale_2024 →
+            spring_sale_2024, each folding every raw value that should point at one clean name), raw_unmatched_samples
+            (every unmatched value, including likely-not-an-ad values like organic/newsletter/partner), and
+            current_mappings (every alias already in effect — canonical + team_custom — so duplicates aren't suggested).
+            campaign_suggestions deliberately omits near-ties, so an orphan missing from it may still be mappable — it
+            just needs a human to choose. Read-only — applying mappings is a separate write tool.
         feature_flag: marketing-analytics-mcp
     marketing-analytics-test-mapping-create:
         operation: marketing_analytics_test_mapping_create
         enabled: false
+    marketing-analytics-update-conversion-goal:
+        operation: marketing_analytics_conversion_goals_update_partial_update
+        enabled: true
+        scopes:
+            - marketing_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update conversion goal
+        description: >
+            Change one conversion goal in place, identified by its conversion_goal_id — call
+            marketing-analytics-conversion-goals first to get it. The patch goes inside a single `goal` object; only the
+            fields you send are changed and the goal keeps its position in the list. Use this to retarget a goal, rename
+            it, or set counts_as_customer / counts_as_revenue on a goal that already exists.
+        feature_flag: marketing-analytics-mcp
     marketing-analytics-utm-audit:
         operation: marketing_analytics_utm_audit_retrieve
         enabled: true

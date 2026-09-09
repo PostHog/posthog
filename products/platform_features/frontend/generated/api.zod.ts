@@ -36,6 +36,12 @@ export const CreateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -56,7 +62,7 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
@@ -88,6 +94,12 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -108,7 +120,7 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
@@ -140,6 +152,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -160,7 +178,7 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
@@ -177,6 +195,34 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
+})
+
+/**
+ * Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.
+ */
+export const ProxyRecordsCreateBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .describe("The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control."),
+})
+
+/**
+ * Set or clear the HTTPS redirect for requests to the managed proxy domain root.
+ */
+export const proxyRecordsPartialUpdateBodyRootRedirectUrlOneMax = 1024
+
+export const proxyRecordsPartialUpdateBodyRootRedirectUrlTwoMax = 0
+
+export const ProxyRecordsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    root_redirect_url: zod
+        .union([
+            zod.url().max(proxyRecordsPartialUpdateBodyRootRedirectUrlOneMax).nullable(),
+            zod.string().max(proxyRecordsPartialUpdateBodyRootRedirectUrlTwoMax),
+        ])
+        .optional()
+        .describe(
+            'HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.'
+        ),
 })
 
 /**
@@ -349,12 +395,24 @@ export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Create a comment.
+ *
+ * Support messages are deduplicated: an identical message from the same author on the same
+ * ticket within a short window returns the original comment with a 200 instead of creating a
+ * second one, and a 409 while a concurrent request is still creating it.
+ */
+export const commentsCreateBodyScopeMax = 79
+
 export const commentsCreateBodyIsTaskDefault = false
 export const commentsCreateBodyItemIdMax = 72
 
-export const commentsCreateBodyScopeMax = 79
-
 export const CommentsCreateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsCreateBodyScopeMax).optional(),
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
@@ -367,17 +425,20 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsCreateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().optional(),
-    scope: zod.string().max(commentsCreateBodyScopeMax),
     source_comment: zod.uuid().nullish(),
 })
+
+export const commentsUpdateBodyScopeMax = 79
 
 export const commentsUpdateBodyIsTaskDefault = false
 export const commentsUpdateBodyItemIdMax = 72
 
-export const commentsUpdateBodyScopeMax = 79
-
 export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsUpdateBodyScopeMax).optional(),
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
@@ -390,17 +451,20 @@ export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsUpdateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().optional(),
-    scope: zod.string().max(commentsUpdateBodyScopeMax),
     source_comment: zod.uuid().nullish(),
 })
+
+export const commentsPartialUpdateBodyScopeMax = 79
 
 export const commentsPartialUpdateBodyIsTaskDefault = false
 export const commentsPartialUpdateBodyItemIdMax = 72
 
-export const commentsPartialUpdateBodyScopeMax = 79
-
 export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsPartialUpdateBodyScopeMax).optional(),
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
@@ -413,9 +477,48 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
     content: zod.string().nullish(),
     rich_content: zod.unknown().optional(),
     item_id: zod.string().max(commentsPartialUpdateBodyItemIdMax).nullish(),
-    item_context: zod.unknown().optional(),
-    scope: zod.string().max(commentsPartialUpdateBodyScopeMax).optional(),
     source_comment: zod.uuid().nullish(),
+})
+
+/**
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team.
+ */
+export const commentsSendToSlackCreateBodyChannelIdMax = 255
+
+export const CommentsSendToSlackCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe("ID of the Slack integration (kind='slack') whose bot posts the thread."),
+    channel_id: zod
+        .string()
+        .max(commentsSendToSlackCreateBodyChannelIdMax)
+        .describe(
+            "Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side."
+        ),
+})
+
+/**
+ * Replace the authenticated user's custom facets for a product, within the current team. Pass `@me` as the UUID.
+ */
+export const UserFacetSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    custom_facets: zod
+        .array(
+            zod.object({
+                key: zod
+                    .string()
+                    .describe(
+                        'The log or span attribute key this facet is based on — for example `http.status_code` or `k8s.pod.name`.'
+                    ),
+                source_type: zod
+                    .enum(['attribute', 'resourceAttribute'])
+                    .describe('\* `attribute` - attribute\n\* `resourceAttribute` - resourceAttribute')
+                    .describe(
+                        'Where the key lives: `attribute` for a plain log\/span attribute, `resourceAttribute` for an OpenTelemetry resource attribute.\n\n\* `attribute` - attribute\n\* `resourceAttribute` - resourceAttribute'
+                    ),
+            })
+        )
+        .optional()
+        .describe(
+            'Ordered list of custom facets the user has pinned for this product, within the current team. Send the full list to replace the existing set.'
+        ),
 })
 
 /**

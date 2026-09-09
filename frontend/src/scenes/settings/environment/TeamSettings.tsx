@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
@@ -9,15 +9,15 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { debounce } from 'lib/utils/async'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { isProjectNameTaken } from 'scenes/project/isProjectNameTaken'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -26,36 +26,47 @@ import { BusinessModelConfig } from './BusinessModelConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
 
-export function TeamDisplayName({ updateInline = false }: { updateInline?: boolean }): JSX.Element {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+const NAME_TAKEN_REASON = 'There is already a project with this name in this organization. Choose a different name.'
+
+export function TeamDisplayName(): JSX.Element {
+    const { currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const [name, setName] = useState(currentTeam?.name || '')
+    const { currentProject } = useValues(projectLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const [name, setName] = useState(currentProject?.name || '')
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const debouncedUpdateCurrentTeam = useMemo(() => debounce(updateCurrentTeam, 500), [updateCurrentTeam])
-    const handleChange = (value: string): void => {
-        setName(value)
-        if (updateInline && !restrictedReason) {
-            debouncedUpdateCurrentTeam({ name: value })
-        }
-    }
+    // A rename patches the project, so the uniqueness rule applies to the project's name. That can
+    // differ from the environment's name, which is what `teamLogic` holds.
+    const trimmedName = name.trim()
+    const nameTaken = isProjectNameTaken(trimmedName, currentOrganization?.projects, {
+        excludeProjectId: currentProject?.id,
+        currentName: currentProject?.name,
+    })
+    const renameDisabledReason =
+        restrictedReason ||
+        (!trimmedName && 'Enter a name') ||
+        (!currentProject && 'Loading the project') ||
+        (trimmedName === currentProject?.name && "This is already the project's name") ||
+        (nameTaken && NAME_TAKEN_REASON) ||
+        null
 
     return (
         <div className="deprecated-space-y-4 max-w-160">
-            <LemonInput value={name} onChange={handleChange} disabledReason={restrictedReason} />
-            {!updateInline && (
-                <LemonButton
-                    type="primary"
-                    onClick={() => updateCurrentTeam({ name })}
-                    disabled={!name || !currentTeam || name === currentTeam.name || !!restrictedReason}
-                    loading={currentTeamLoading}
-                >
-                    Rename project
-                </LemonButton>
-            )}
+            <LemonField.Pure error={nameTaken ? NAME_TAKEN_REASON : undefined}>
+                <LemonInput value={name} onChange={setName} disabledReason={restrictedReason} />
+            </LemonField.Pure>
+            <LemonButton
+                type="primary"
+                onClick={() => updateCurrentTeam({ name: trimmedName })}
+                disabledReason={renameDisabledReason}
+                loading={currentTeamLoading}
+            >
+                Rename project
+            </LemonButton>
         </div>
     )
 }
@@ -70,46 +81,6 @@ export function WebSnippet(): JSX.Element {
         </div>
     ) : (
         <JSSnippet />
-    )
-}
-
-function DebugInfoPanel(): JSX.Element | null {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
-    const { preflight, preflightLoading } = useValues(preflightLogic)
-
-    const region = preflight?.region
-    const anyLoading = preflightLoading || currentOrganizationLoading || currentTeamLoading
-    const hasRequiredInfo = region && currentOrganization && currentTeam
-
-    if (!hasRequiredInfo && !anyLoading) {
-        return null
-    }
-
-    if (inStorybookTestRunner() || inStorybook()) {
-        // this data changes e.g. when session id changes, so it flaps in visual regression tests
-        // so...
-        return null
-    }
-
-    return (
-        <div className="flex-1 max-w-full">
-            <h3 id="debug-info" className="min-w-[25rem]">
-                Debug information
-            </h3>
-            <p>
-                Include this snippet when creating an issue (feature request or bug report) on GitHub. The session and
-                admin links inside it are internal references the PostHog team uses to look into your report — they only
-                resolve for PostHog staff.
-            </p>
-            {anyLoading ? (
-                <LemonSkeleton repeat={2} active={true} />
-            ) : (
-                <CodeSnippet compact thing="debug info">
-                    {getPublicSupportSnippet(region, currentOrganization, currentTeam, false)}
-                </CodeSnippet>
-            )}
-        </div>
     )
 }
 
@@ -205,8 +176,6 @@ export function TeamVariables(): JSX.Element {
                     </div>
                 ) : null}
             </div>
-
-            <DebugInfoPanel />
         </div>
     )
 }

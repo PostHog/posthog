@@ -270,6 +270,13 @@ export const InsightsBulkRestoreCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Turn 'filter out internal and test users' on or off for every existing insight in the project. Requires project admin, matching the settings UI that fronts it. The setting of the same name only decides the default for new insights; this applies it to the insights that already exist. Only insights that store a query are changed; insights still holding legacy `filters` are counted in `legacy` and left as they are. Insights with nowhere to put the toggle, such as SQL insights, are left alone, as are insights the requester cannot edit. Dashboards follow their insights unless the dashboard sets its own override. Insights are updated in batches, so a failure part way through leaves the finished batches applied. Retrying is safe and picks up the rest.
+ */
+export const InsightsBulkSetTestAccountFilterCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe('Whether every existing insight should filter out internal and test users.'),
+})
+
+/**
  * Bulk update tags on multiple objects.
  *
  * PAT access: this action has no ``required_scopes=`` on the decorator —
@@ -290,6 +297,10 @@ export const InsightsBulkRestoreCreateBody = /* @__PURE__ */ zod.object({
  */
 export const insightsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const insightsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const insightsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -301,7 +312,10 @@ export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(insightsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(insightsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set.'),
 })
 
 /**
@@ -324,7 +338,7 @@ export const InsightsGenerateMetadataCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped. Returns 201 on success regardless of how many ids were retained.
+ * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped, as are views from impersonated staff-support sessions. Returns 201 on success regardless of how many ids were retained.
  */
 export const insightsViewedCreateBodyInsightIdsMax = 2500
 
@@ -333,4 +347,31 @@ export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.number())
         .max(insightsViewedCreateBodyInsightIdsMax)
         .describe('Insight IDs that were just viewed by the current user. At most 2500 ids per request.'),
+})
+
+/**
+ * Converts a displayed journeys segment into the funnel query that reproduces its unique-actor count exactly. In open mode only a single edge converts (a two-step funnel with the inactivity gap as conversion window); in anchored mode any anchor-rooted chain converts (window W). The funnel is returned as JSON and is not executed or persisted here.
+ * @summary Convert a journey segment to a funnel
+ */
+export const PathsV2SegmentToFunnelCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .unknown()
+        .describe(
+            'The PathsV2Query the segment is displayed under (JSON object with kind `PathsV2Query`). Step sources, path cleaning, excluded items, date range, and the gap or conversion window are read from it, so the emitted funnel counts exactly what the chart shows.'
+        ),
+    items: zod
+        .array(
+            zod.object({
+                event: zod.string().describe('Event of the step source this path item belongs to.'),
+                label: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        "Label value from the source's naming property, after path cleaning. Null or omitted for sources without a naming property; an empty string means the property was missing on the event."
+                    ),
+            })
+        )
+        .describe(
+            "The segment's path items in displayed order. In open mode exactly two items - a single edge, source then target. In anchored mode the concrete chain as shown, starting at the anchor."
+        ),
 })

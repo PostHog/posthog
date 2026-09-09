@@ -6,6 +6,18 @@
         border-radius: var(--radius);
     }
 
+    // Overrides PropertyFilters.scss, which anchors the operator left for the feature-flag
+    // and workflow-trigger usages
+    .property-group--framed .logical-row-divider {
+        align-items: center;
+        margin: 0.625rem 0;
+        color: var(--color-text-tertiary);
+
+        &::before {
+            width: 50%;
+        }
+    }
+
     .property-group-and-or-separator {
         position: relative;
         padding: 0.5rem 0;

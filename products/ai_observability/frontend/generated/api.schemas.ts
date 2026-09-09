@@ -96,6 +96,10 @@ export interface _DayBreakdownRowApi {
     event_count: number
     /** Total cost in USD on this day for the scoped product. */
     cost_usd: number
+    /** Sum of `$ai_input_tokens` on this day for the scoped product. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` on this day for the scoped product. */
+    output_tokens: number
 }
 
 export interface _DayBreakdownApi {
@@ -103,6 +107,24 @@ export interface _DayBreakdownApi {
     items: _DayBreakdownRowApi[]
     /** Effectively always false: `by_day` ignores `limit` because truncating a time series by cost would be meaningless, and the 90-day window cap already bounds the series length. */
     truncated: boolean
+}
+
+export interface _DayModelBreakdownRowApi {
+    /** UTC calendar day the events fall on (`toDate(timestamp)`). */
+    day: string
+    /**
+     * Model name for one of the highest-cost models in the selected window. Null is the aggregate of all remaining models, including events without a model.
+     * @nullable
+     */
+    model: string | null
+    /** Total cost in USD for this model on this day. */
+    cost_usd: number
+    /** Sum of `$ai_input_tokens` for this model on this day. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` for this model on this day. */
+    output_tokens: number
+    /** Number of $ai_generation + $ai_embedding events for this model on this day. */
+    generation_count: number
 }
 
 export interface _BucketBreakdownRowApi {
@@ -177,6 +199,8 @@ export interface PersonalSpendAnalysisResponseApi {
     by_model: _ModelBreakdownApi
     /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
     by_day: _DayBreakdownApi
+    /** Daily model spend for the scoped product, ordered by day and cost. Includes the six highest-cost models in the selected window plus a null-model row for the remaining models. */
+    by_day_model: _DayModelBreakdownRowApi[]
     /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
     by_bucket?: _BucketBreakdownApi
     /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
@@ -189,6 +213,85 @@ export interface PersonalSpendAnalysisResponseApi {
 export interface _ErrorResponseApi {
     /** Human-readable error description from DRF. */
     detail: string
+}
+
+/**
+ * * `sessions` - sessions
+ * * `tool_calls` - tool_calls
+ * * `user_identity` - user_identity
+ * * `trace_structure` - trace_structure
+ */
+export type AIObservabilityInstrumentationCheckEnumApi =
+    (typeof AIObservabilityInstrumentationCheckEnumApi)[keyof typeof AIObservabilityInstrumentationCheckEnumApi]
+
+export const AIObservabilityInstrumentationCheckEnumApi = {
+    Sessions: 'sessions',
+    ToolCalls: 'tool_calls',
+    UserIdentity: 'user_identity',
+    TraceStructure: 'trace_structure',
+} as const
+
+/**
+ * * `ok` - ok
+ * * `warning` - warning
+ * * `pending` - pending
+ * * `dismissed` - dismissed
+ */
+export type InstrumentationCheckStatusEnumApi =
+    (typeof InstrumentationCheckStatusEnumApi)[keyof typeof InstrumentationCheckStatusEnumApi]
+
+export const InstrumentationCheckStatusEnumApi = {
+    Ok: 'ok',
+    Warning: 'warning',
+    Pending: 'pending',
+    Dismissed: 'dismissed',
+} as const
+
+/**
+ * Counts this check was graded from, over the same window. Which counts appear depends on the check.
+ */
+export type InstrumentationCheckApiStats = { [key: string]: number }
+
+export interface InstrumentationCheckApi {
+    /** Identifier of the check. Stable across statuses, so a surface can key its own copy off it.
+     *
+     * * `sessions` - sessions
+     * * `tool_calls` - tool_calls
+     * * `user_identity` - user_identity
+     * * `trace_structure` - trace_structure */
+    key: AIObservabilityInstrumentationCheckEnumApi
+    /** How the check graded: 'ok' when the instrumentation is present, 'warning' when it is absent, 'pending' when the project has too little traffic to judge, and 'dismissed' when someone on the team marked the check as not applicable.
+     *
+     * * `ok` - ok
+     * * `warning` - warning
+     * * `pending` - pending
+     * * `dismissed` - dismissed */
+    status: InstrumentationCheckStatusEnumApi
+    /** Short label for the check, the same for every status. */
+    title: string
+    /** Sentence explaining what the counts mean and, for a warning, what to send. A dismissed check keeps the sentence its counts earned. */
+    detail: string
+    /** Documentation page covering how to send the missing instrumentation. */
+    docs_url: string
+    /** Counts this check was graded from, over the same window. Which counts appear depends on the check. */
+    stats: InstrumentationCheckApiStats
+}
+
+export interface InstrumentationChecklistApi {
+    /** Length in days of the event window the checks were graded over. */
+    window_days: number
+    /** Every check, graded. Checks are always all returned, including the ones that pass. */
+    checks: InstrumentationCheckApi[]
+}
+
+export interface InstrumentationCheckActionApi {
+    /** Key of the check to dismiss or restore.
+     *
+     * * `sessions` - sessions
+     * * `tool_calls` - tool_calls
+     * * `user_identity` - user_identity
+     * * `trace_structure` - trace_structure */
+    check: AIObservabilityInstrumentationCheckEnumApi
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
@@ -261,10 +364,10 @@ export interface DatasetItemReadApi {
     /** Dataset that owns the item. */
     readonly dataset: string
     /**
-     * Optional caller-owned stable key.
+     * Optional caller-owned stable key that cannot be changed.
      * @nullable
      */
-    readonly external_id: string | null
+    readonly client_item_id: string | null
     readonly version: number
     /** ID of this immutable item version. */
     readonly version_id: string
@@ -320,11 +423,11 @@ export interface DatasetItemCreateApi {
     /** Dataset that will own the item. */
     dataset: string
     /**
-     * Optional case-sensitive stable key used for idempotent creates.
+     * Optional case-sensitive stable key used for idempotent creates. It cannot be changed.
      * @maxLength 255
      * @nullable
      */
-    external_id?: string | null
+    client_item_id?: string | null
     /** Input supplied to the system under test. Any non-null JSON value is accepted. */
     input: DatasetJSONValueApi
     /** Optional user-authored expected output. */
@@ -357,7 +460,8 @@ export interface DatasetItemCreateApi {
  * * `dataset_name_conflict` - dataset_name_conflict
  * * `dataset_item_archived` - dataset_item_archived
  * * `dataset_item_active` - dataset_item_active
- * * `external_id_conflict` - external_id_conflict
+ * * `client_item_id_conflict` - client_item_id_conflict
+ * * `limit_reached` - limit_reached
  * * `stale_version` - stale_version
  */
 export type CodeEnumApi = (typeof CodeEnumApi)[keyof typeof CodeEnumApi]
@@ -367,8 +471,22 @@ export const CodeEnumApi = {
     DatasetNameConflict: 'dataset_name_conflict',
     DatasetItemArchived: 'dataset_item_archived',
     DatasetItemActive: 'dataset_item_active',
-    ExternalIdConflict: 'external_id_conflict',
+    ClientItemIdConflict: 'client_item_id_conflict',
+    LimitReached: 'limit_reached',
     StaleVersion: 'stale_version',
+} as const
+
+/**
+ * * `datasets` - datasets
+ * * `dataset_items` - dataset_items
+ * * `dataset_item_versions` - dataset_item_versions
+ */
+export type ResourceEnumApi = (typeof ResourceEnumApi)[keyof typeof ResourceEnumApi]
+
+export const ResourceEnumApi = {
+    Datasets: 'datasets',
+    DatasetItems: 'dataset_items',
+    DatasetItemVersions: 'dataset_item_versions',
 } as const
 
 export interface DatasetConflictResponseApi {
@@ -378,7 +496,8 @@ export interface DatasetConflictResponseApi {
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
      * * `dataset_item_active` - dataset_item_active
-     * * `external_id_conflict` - external_id_conflict
+     * * `client_item_id_conflict` - client_item_id_conflict
+     * * `limit_reached` - limit_reached
      * * `stale_version` - stale_version */
     code: CodeEnumApi
     /** Explanation of how to resolve the conflict. */
@@ -389,10 +508,20 @@ export interface DatasetConflictResponseApi {
      */
     current_version?: number | null
     /**
-     * Existing item ID when the conflict concerns an external ID.
+     * Existing item ID when the conflict concerns a client item ID.
      * @nullable
      */
     current_item_id?: string | null
+    /** Resource whose configured limit was reached.
+     *
+     * * `datasets` - datasets
+     * * `dataset_items` - dataset_items
+     * * `dataset_item_versions` - dataset_item_versions */
+    resource?: ResourceEnumApi
+    /** Number of resources that already exist. */
+    current_count?: number
+    /** Maximum number of resources allowed. */
+    limit?: number
 }
 
 export interface DatasetItemArchiveApi {
@@ -422,6 +551,9 @@ export interface DatasetItemRestoreApi {
  */
 export type DatasetReadApiMetadata = { [key: string]: unknown }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface DatasetReadApi {
     readonly id: string
     readonly name: string
@@ -445,6 +577,11 @@ export interface DatasetReadApi {
     readonly created_by: UserBasicApi | null
     /** Project that owns the dataset. */
     readonly team_id: number
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedDatasetReadListApi {
@@ -494,6 +631,48 @@ export interface PatchedDatasetUpdateApi {
     description?: string
     /** Replacement JSON object for descriptive dataset metadata. */
     metadata?: PatchedDatasetUpdateApiMetadata
+}
+
+export interface DatasetExportCreateApi {
+    /**
+     * Dataset revision to export. Defaults to the latest revision when the export is created.
+     * @minimum 1
+     */
+    revision?: number
+}
+
+export type DatasetExportReadStatusEnumApi =
+    (typeof DatasetExportReadStatusEnumApi)[keyof typeof DatasetExportReadStatusEnumApi]
+
+export const DatasetExportReadStatusEnumApi = {
+    Pending: 'pending',
+    Complete: 'complete',
+    Failed: 'failed',
+} as const
+
+export interface DatasetExportReadApi {
+    /** Export ID used to check status and download the file. */
+    readonly id: number
+    /** Current export state: pending, complete, or failed. */
+    readonly status: DatasetExportReadStatusEnumApi
+    /** Immutable dataset revision included in the export. */
+    readonly dataset_revision: number
+    /** Generated JSONL filename. */
+    readonly filename: string
+    /** When the export was requested. */
+    readonly created_at: string
+    /** When the generated file expires. */
+    readonly expires_after: string
+    /**
+     * Reason the export failed, or null while it is pending or complete.
+     * @nullable
+     */
+    readonly exception: string | null
+}
+
+export interface DatasetExportErrorApi {
+    /** Why the export cannot be created or downloaded yet. */
+    detail: string
 }
 
 export interface DatasetRevisionReadApi {
@@ -588,9 +767,10 @@ export const EvaluationStatusEnumApi = {
  * * `model_not_found` - Model not found
  * * `hog_error` - Hog evaluation code failed
  */
-export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
+export type EvaluationStatusReasonEnumApi =
+    (typeof EvaluationStatusReasonEnumApi)[keyof typeof EvaluationStatusReasonEnumApi]
 
-export const StatusReasonEnumApi = {
+export const EvaluationStatusReasonEnumApi = {
     ProviderKeyRequired: 'provider_key_required',
     ProviderKeyDeleted: 'provider_key_deleted',
     NoDefaultModel: 'no_default_model',
@@ -714,22 +894,24 @@ export type EvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
       }
     | {
-          /** Classify sentiment from user messages in the generation input. */
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
           source?: 'user_messages'
       }
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
  */
 export type EvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
 }
 
 /**
@@ -763,6 +945,9 @@ export type EvaluationApiTargetConfig =
           max_age_seconds?: number
       }
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface EvaluationApi {
     readonly id: string
     /**
@@ -780,13 +965,13 @@ export interface EvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
-    readonly status_reason: StatusReasonEnumApi | null
+    readonly status_reason: EvaluationStatusReasonEnumApi | null
     /**
      * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
      * @nullable
      */
     readonly status_reason_detail: string | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
      *
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
@@ -799,7 +984,7 @@ export interface EvaluationApi {
      * * `boolean` - Boolean (Pass/Fail)
      * * `sentiment` - Sentiment */
     output_type: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -819,6 +1004,11 @@ export interface EvaluationApi {
     readonly created_by: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedEvaluationListApi {
@@ -843,22 +1033,24 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return true (pass), false (fail), or null for N/A.
+           * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
       }
     | {
-          /** Classify sentiment from user messages in the generation input. */
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
           source?: 'user_messages'
       }
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
  */
 export type PatchedEvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
 }
 
 /**
@@ -892,6 +1084,9 @@ export type PatchedEvaluationApiTargetConfig =
           max_age_seconds?: number
       }
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface PatchedEvaluationApi {
     readonly id?: string
     /**
@@ -909,13 +1104,13 @@ export interface PatchedEvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
-    readonly status_reason?: StatusReasonEnumApi | null
+    readonly status_reason?: EvaluationStatusReasonEnumApi | null
     /**
      * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
      * @nullable
      */
     readonly status_reason_detail?: string | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
      *
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
@@ -928,7 +1123,7 @@ export interface PatchedEvaluationApi {
      * * `boolean` - Boolean (Pass/Fail)
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -948,6 +1143,11 @@ export interface PatchedEvaluationApi {
     readonly created_by?: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
@@ -969,7 +1169,7 @@ export interface TestHogTargetConfigApi {
 
 export interface TestHogRequestApi {
     /**
-     * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
+     * Hog source code to test. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
      * @minLength 1
      */
     source: string
@@ -1017,7 +1217,7 @@ export interface TestHogResultItemApi {
     /** First 200 characters of output from the sampled unit. */
     output_preview: string
     /**
-     * True = pass, False = fail, null = N/A or error.
+     * Raw boolean result, or null when the evaluation returns N/A or raises an error.
      * @nullable
      */
     result: boolean | null
@@ -1068,12 +1268,15 @@ export const AnalysisLevelEnumApi = {
     Evaluation: 'evaluation',
 } as const
 
+export type ClusteringJobApiEventFiltersItem = { [key: string]: unknown }
+
 export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
     analysis_level: AnalysisLevelEnumApi
-    event_filters?: unknown
+    /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+    event_filters?: ClusteringJobApiEventFiltersItem[]
     enabled?: boolean
     readonly created_at: string
     readonly updated_at: string
@@ -1088,12 +1291,15 @@ export interface PaginatedClusteringJobListApi {
     results: ClusteringJobApi[]
 }
 
+export type PatchedClusteringJobApiEventFiltersItem = { [key: string]: unknown }
+
 export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
     analysis_level?: AnalysisLevelEnumApi
-    event_filters?: unknown
+    /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+    event_filters?: PatchedClusteringJobApiEventFiltersItem[]
     enabled?: boolean
     readonly created_at?: string
     readonly updated_at?: string
@@ -1342,6 +1548,13 @@ export interface EvaluationReportApi {
     readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1411,6 +1624,13 @@ export interface EvaluationReportUpdateApi {
     readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1471,6 +1691,13 @@ export interface PatchedEvaluationReportUpdateApi {
     readonly deleted?: boolean
     /** @nullable */
     readonly last_delivered_at?: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count?: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at?: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1617,9 +1844,10 @@ export interface EvaluationReportRunContentApi {
  * * `partial_failure` - Partial Failure
  * * `failed` - Failed
  */
-export type DeliveryStatusEnumApi = (typeof DeliveryStatusEnumApi)[keyof typeof DeliveryStatusEnumApi]
+export type EvaluationReportRunDeliveryStatusEnumApi =
+    (typeof EvaluationReportRunDeliveryStatusEnumApi)[keyof typeof EvaluationReportRunDeliveryStatusEnumApi]
 
-export const DeliveryStatusEnumApi = {
+export const EvaluationReportRunDeliveryStatusEnumApi = {
     Pending: 'pending',
     Generated: 'generated',
     Delivered: 'delivered',
@@ -1647,7 +1875,7 @@ export interface EvaluationReportRunApi {
      * * `delivered` - Delivered
      * * `partial_failure` - Partial Failure
      * * `failed` - Failed */
-    readonly delivery_status: DeliveryStatusEnumApi
+    readonly delivery_status: EvaluationReportRunDeliveryStatusEnumApi
     /** Delivery error messages. Empty when all configured deliveries succeeded. */
     readonly delivery_errors: readonly string[]
     /** When this report run was created. */
@@ -1663,88 +1891,27 @@ export interface PaginatedEvaluationReportRunListApi {
     results: EvaluationReportRunApi[]
 }
 
-/**
- * * `all` - all
- * * `pass` - pass
- * * `fail` - fail
- * * `na` - na
- */
-export type FilterEnumApi = (typeof FilterEnumApi)[keyof typeof FilterEnumApi]
-
-export const FilterEnumApi = {
-    All: 'all',
-    Pass: 'pass',
-    Fail: 'fail',
-    Na: 'na',
-} as const
-
-/**
- * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
- */
-export interface EvaluationSummaryRequestApi {
-    /** UUID of the evaluation config to summarize */
-    evaluation_id: string
-    /** Filter type to apply ('all', 'pass', 'fail', or 'na')
-     *
-     * * `all` - all
-     * * `pass` - pass
-     * * `fail` - fail
-     * * `na` - na */
-    filter?: FilterEnumApi
-    /**
-     * Optional: specific generation IDs to include in summary (max 250)
-     * @maxItems 250
-     */
-    generation_ids?: string[]
-    /** If true, bypass cache and generate a fresh summary */
-    force_refresh?: boolean
-}
-
-export interface EvaluationPatternApi {
-    title: string
-    description: string
-    frequency: string
-    example_generation_ids: string[]
-}
-
-export interface EvaluationSummaryStatisticsApi {
-    total_analyzed: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-}
-
-export interface EvaluationSummaryResponseApi {
-    overall_assessment: string
-    pass_patterns: EvaluationPatternApi[]
-    fail_patterns: EvaluationPatternApi[]
-    na_patterns: EvaluationPatternApi[]
-    recommendations: string[]
-    statistics: EvaluationSummaryStatisticsApi
-}
-
-export interface EvaluationSummaryThrottleResponseApi {
-    /** Error category */
-    type: string
-    /** Machine-readable error code */
-    code: string
-    /** Why the request was throttled */
-    detail: string
-    /**
-     * Related request field, when applicable
-     * @nullable
-     */
-    attr: string | null
-}
-
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
+    /** Provider this model belongs to. Pass this value together with `id` when configuring an llm_judge evaluation. */
+    provider: string
+}
+
+export interface LLMProviderModelsSummaryApi {
+    /** Supported provider value, exactly as the `provider` param accepts it. */
+    provider: string
+    /** How many of this provider's models appear in `models`. */
+    model_count: number
+    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys. PostHog funds no models for it, so `model_count` is 0 until a key is supplied. */
+    requires_provider_key: boolean
 }
 
 export interface LLMModelsListResponseApi {
-    /** Models supported for the requested provider. */
+    /** Models supported for the requested provider, or for every supported provider when `provider` is omitted. */
     models: LLMModelInfoApi[]
+    /** One entry per provider covered by this response. Read it to tell an unsupported provider apart from a provider whose models need a team key before they can be listed. */
+    providers: LLMProviderModelsSummaryApi[]
 }
 
 export interface OfflineExperimentItemsRequestApi {
@@ -1941,9 +2108,9 @@ export interface PatchedReviewQueueUpdateApi {
  * * `numeric` - numeric
  * * `boolean` - boolean
  */
-export type ExperimentMetricKindEnumApi = (typeof ExperimentMetricKindEnumApi)[keyof typeof ExperimentMetricKindEnumApi]
+export type ScoreDefinitionKindEnumApi = (typeof ScoreDefinitionKindEnumApi)[keyof typeof ScoreDefinitionKindEnumApi]
 
-export const ExperimentMetricKindEnumApi = {
+export const ScoreDefinitionKindEnumApi = {
     Categorical: 'categorical',
     Numeric: 'numeric',
     Boolean: 'boolean',
@@ -2029,7 +2196,7 @@ export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
     readonly description: string
-    readonly kind: ExperimentMetricKindEnumApi
+    readonly kind: ScoreDefinitionKindEnumApi
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -2073,7 +2240,7 @@ export interface ScoreDefinitionCreateApi {
      * * `categorical` - categorical
      * * `numeric` - numeric
      * * `boolean` - boolean */
-    kind: ExperimentMetricKindEnumApi
+    kind: ScoreDefinitionKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
     /** Initial immutable scorer configuration. */
@@ -2967,6 +3134,13 @@ export const LlmAnalyticsPersonalSpendListBucketMinutes = {
     Number60: 60,
 } as const
 
+export type AiObservabilityInstrumentationChecklistRetrieveParams = {
+    /**
+     * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
+     */
+    refresh?: boolean
+}
+
 export type DatasetItemsListParams = {
     /**
      * Return archived items instead of active items.
@@ -2986,6 +3160,14 @@ export type DatasetItemsListParams = {
     offset?: number
     /**
      * Return the exact dataset snapshot at this revision.
+     * @minimum 1
+     */
+    revision?: number
+}
+
+export type DatasetItemsRetrieveParams = {
+    /**
+     * Return the item as it appeared at this exact dataset revision.
      * @minimum 1
      */
     revision?: number
@@ -3182,23 +3364,15 @@ export type LlmAnalyticsEvaluationReportsRunsListParams = {
     offset?: number
 }
 
-export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
-
 export type LlmAnalyticsModelsRetrieveParams = {
     /**
-     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.
      */
     key_id?: string
     /**
-     * LLM provider to list models for. Must be one of the supported providers.
+     * LLM provider to list models for. Omit it to list every supported provider and its models in one call.
      */
-    provider: LlmAnalyticsModelsRetrieveProvider
+    provider?: LlmAnalyticsModelsRetrieveProvider
 }
 
 export type LlmAnalyticsModelsRetrieveProvider =
@@ -3389,6 +3563,12 @@ export type LlmPromptsListParams = {
      * Filter prompts by the ID of the user who created them.
      */
     created_by_id?: number
+    /**
+     * Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string
     /**
      * Number of results to return per page.
      */

@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 import pytest
 from unittest import mock
 
-from django.test import override_settings
 from django.test.client import Client as HttpClient
 
 from asgiref.sync import async_to_sync
@@ -36,7 +35,7 @@ pytestmark = [
 
 
 def test_create_batch_export_with_interval_schedule(
-    client: HttpClient, temporal, encryption_codec, organization, team, user
+    client: HttpClient, temporal, encryption_codec, organization, team, user, s3_compatible_integration
 ):
     """Test creating a BatchExport.
 
@@ -54,12 +53,9 @@ def test_create_batch_export_with_interval_schedule(
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-            "endpoint_url": "https://localhost:9000",
             "use_virtual_style_addressing": True,
         },
-        "integration": None,
+        "integration": s3_compatible_integration.id,
     }
 
     batch_export_data: dict[str, t.Any] = {
@@ -80,10 +76,6 @@ def test_create_batch_export_with_interval_schedule(
 
     data = response.json()
 
-    # We should not get the aws_access_key_id or aws_secret_access_key back, so
-    # remove that from the data we expect.
-    batch_export_data["destination"]["config"].pop("aws_access_key_id")
-    batch_export_data["destination"]["config"].pop("aws_secret_access_key")
     assert data["destination"] == batch_export_data["destination"]
 
     # We should match on top level fields.
@@ -114,9 +106,11 @@ def test_create_batch_export_with_interval_schedule(
     assert args["bucket_name"] == "my-production-s3-bucket"
     assert args["region"] == "us-east-1"
     assert args["prefix"] == "posthog-events/"
-    assert args["aws_access_key_id"] == "abc123"
-    assert args["aws_secret_access_key"] == "secret"
     assert args["use_virtual_style_addressing"]
+    # Credentials are resolved from the integration at run time, never carried in the schedule.
+    assert args["integration_id"] == s3_compatible_integration.id
+    assert args.get("aws_access_key_id") is None
+    assert args.get("aws_secret_access_key") is None
 
     # Temporal UI metadata should be set on the schedule's action
     assert schedule.schedule.action.static_summary is not None
@@ -185,14 +179,12 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
     offset. We check the upcoming runs to confirm these look correct based on this information.
     """
 
-    destination_data = {
+    destination_data: dict[str, t.Any] = {
         "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -211,6 +203,16 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
     # create a team with a timezone different to the one we are testing to ensure this has no effect on the batch export
     team = create_team(organization, timezone="Asia/Seoul")
     user = create_user("test@user.com", "Test User", organization)
+    # Integrations are team-scoped, so this test's own team needs its own.
+    integration = Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.AWS_S3,
+        integration_id="prod-aws",
+        config={"name": "prod-aws", "aws_account_id": "123456789012"},
+        sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
+        created_by=user,
+    )
+    destination_data["integration"] = integration.id
     client.force_login(user)
 
     # ensure high-frequency-batch-exports feature flag is enabled
@@ -337,8 +339,6 @@ def test_cannot_create_a_batch_export_for_another_organization(client: HttpClien
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -413,24 +413,9 @@ def test_cannot_create_batch_export_with_integration_from_another_team(
 
 
 def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(
-    client: HttpClient, temporal, organization, team, user
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
-    destination_data = {
-        "type": "AwsS3",
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "every 5 minutes",
-    }
+    batch_export_data = {**s3_batch_export_data, "interval": "every 5 minutes"}
 
     client.force_login(user)
     with mock.patch(
@@ -470,7 +455,7 @@ FROM events
 
 
 def test_create_batch_export_with_custom_schema(
-    client: HttpClient, temporal, encryption_codec, organization, team, user
+    client: HttpClient, temporal, encryption_codec, organization, team, user, s3_batch_export_data
 ):
     """Test creating a BatchExport with a custom schema expressed as a HogQL Query.
 
@@ -480,23 +465,7 @@ def test_create_batch_export_with_custom_schema(
     expected inputs.
     """
 
-    destination_data = {
-        "type": "AwsS3",
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "hogql_query": TEST_HOGQL_QUERY,
-        "interval": "hour",
-    }
+    batch_export_data = {**s3_batch_export_data, "hogql_query": TEST_HOGQL_QUERY}
 
     client.force_login(user)
 
@@ -576,30 +545,33 @@ def test_create_batch_export_with_custom_schema(
             "SELECT coalesce((SELECT uuid FROM events LIMIT 1), uuid) AS foo FROM events",
             "Subqueries in SELECT expressions are not supported",
         ),
+        (
+            "SELECT event, $session_id FROM events",
+            "Batch exports cannot read these fields: $session_id. Supported fields are: created_at, "
+            "distinct_id, elements_chain, event, person_id, person_properties, properties, team_id, "
+            "timestamp, uuid.",
+        ),
+        (
+            "SELECT event, person.created_at FROM events",
+            "Batch exports cannot read these fields: person_created_at. Supported fields are: created_at, "
+            "distinct_id, elements_chain, event, person_id, person_properties, properties, team_id, "
+            "timestamp, uuid.",
+        ),
     ],
 )
 def test_create_batch_export_fails_with_invalid_query(
-    client: HttpClient, invalid_query, expected_error_message, temporal, organization, team, user
+    client: HttpClient,
+    invalid_query,
+    expected_error_message,
+    temporal,
+    organization,
+    team,
+    user,
+    s3_batch_export_data,
 ):
     """Test creating a BatchExport should fail with an invalid query."""
 
-    destination_data = {
-        "type": "AwsS3",
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-        "hogql_query": invalid_query,
-    }
+    batch_export_data = {**s3_batch_export_data, "hogql_query": invalid_query}
 
     client.force_login(user)
 
@@ -636,8 +608,6 @@ def test_create_batch_export_fails_with_invalid_query(
                 "bucket_name": "my-s3-bucket",
                 "region": "us-east-1",
                 "prefix": "posthog-events/",
-                "aws_access_key_id": "abc123",
-                "aws_secret_access_key": "secret",
                 "hello": 123,  # Unknown field
                 "hello2": 123,  # Another unknown field
             },
@@ -701,8 +671,6 @@ _S3_FILTER_TEST_CONFIG = {
     "bucket_name": "my-s3-bucket",
     "region": "us-east-1",
     "prefix": "posthog-events/",
-    "aws_access_key_id": "abc123",
-    "aws_secret_access_key": "secret",
 }
 
 
@@ -734,6 +702,7 @@ def test_creating_batch_export_with_filters(
     organization,
     team,
     user,
+    aws_s3_integration,
     filters,
     expected_status,
     expected_error,
@@ -742,6 +711,7 @@ def test_creating_batch_export_with_filters(
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": _S3_FILTER_TEST_CONFIG,
     }
 
@@ -764,54 +734,3 @@ def test_creating_batch_export_with_filters(
 
     if expected_error:
         assert expected_error in response.json()["detail"]
-
-
-@pytest.mark.parametrize(
-    "host",
-    [
-        "192.168.1.1",
-        "127.0.0.1",
-        "[::1]",
-        "10.0.0.1",
-        "169.254.0.0",
-        "localhost",
-    ],
-)
-def test_create_redshift_batch_export_fails_with_invalid_host(
-    client: HttpClient, temporal, organization, team, user, host
-):
-    """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'.
-
-    Postgres host validation is covered separately in test_create_postgres.py, where the host
-    comes from the linked Integration rather than from inline config.
-    """
-
-    destination_data = {
-        "type": "Redshift",
-        "config": {
-            "user": "user",
-            "password": "my-password",
-            "database": "my-db",
-            "host": host,
-            "schema": "public",
-            "table_name": "my_events",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    with override_settings(TEST=0, DEBUG=0):
-        response = create_batch_export(
-            client,
-            team.pk,
-            batch_export_data,
-        )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert f"Invalid host: '{host}'" in response.json()["detail"]

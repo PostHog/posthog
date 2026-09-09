@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
@@ -16,6 +17,7 @@ import dlt.common.libs.pyarrow
 import dlt.extract.incremental
 import dlt.extract.incremental.transform
 from clickhouse_driver.errors import ServerException
+from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
@@ -26,6 +28,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     mark_initial_sync_complete,
+    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -39,7 +42,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     filter_dwh_columns_by_enabled_columns,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceType,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -120,17 +127,54 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
     @retry_on_operational_error
     def _update():
         job = ExternalDataJob.objects.get(pk=job_id)
-        schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
-        schema.last_synced_at = job.created_at
-        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
-        # `_get_before_update` SELECT that also needs a pooler connection (see save()).
-        schema.save(skip_activity_log=True)
+        # `last_full_run_at` rides along in the same locked write: only a run that reached
+        # post-load extracted anything, which is what bounds how long a schema can go on
+        # negative probes alone (see `_fast_return_eligible`). The helper's select_for_update
+        # also stops this save from clobbering a concurrent `sync_type_config` update.
+        update_sync_type_config_keys(
+            schema_id,
+            team_id,
+            updates={"last_full_run_at": dt.datetime.now(dt.UTC).isoformat()},
+            extra_model_fields={"last_synced_at": job.created_at},
+        )
 
     await _update()
 
 
-async def set_initial_sync_complete(schema_id: str, team_id: int) -> None:
-    await database_sync_to_async_pool(mark_initial_sync_complete)(schema_id=schema_id, team_id=team_id)
+def _purge_stale_buffer_then_mark_initial_sync_complete(
+    schema_id: str, team_id: int, logger: FilteringBoundLogger
+) -> None:
+    # cdc.buffer pulls in pipeline_v3, whose package __init__ imports common.load, which imports
+    # this module back — a true cycle only a deferred import breaks.
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import purge_buffer_prefix  # noqa: PLC0415
+
+    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
+    # About to flip a CDC schema snapshot→streaming: anything in the prefix predates the snapshot
+    # that just landed — a leftover from before a TRUNCATE, a re-enable, or this run's own capture
+    # tail — and merging it after the flip would resurrect rows the snapshot wiped. The ingress lane
+    # cannot write here until the flip commits; the shadow lane writes on its flag alone, so a
+    # concurrent capture tick is the one remaining writer, and the consumer's position guard covers
+    # what it leaves. Strict because a survived stale file corrupts the table.
+    if schema.is_cdc and not schema.initial_sync_complete and schema.cdc_mode == "snapshot":
+        purge_buffer_prefix(team_id, str(schema_id), logger, strict=True)
+    mark_initial_sync_complete(schema_id=schema_id, team_id=team_id)
+
+
+async def set_initial_sync_complete(schema_id: str, team_id: int, logger: FilteringBoundLogger) -> None:
+    await database_sync_to_async_pool(_purge_stale_buffer_then_mark_initial_sync_complete)(
+        schema_id=schema_id, team_id=team_id, logger=logger
+    )
+
+
+def _refresh_cumulative_row_count(table: DataWarehouseTable, logger: FilteringBoundLogger, context: str) -> None:
+    # Counting the full S3 dataset can exceed both the chdb and ClickHouse-cluster timeouts on a
+    # large table (get_count() then raises). That's only a display stat, not the synced data itself
+    # (already written successfully by this point) — keep the previous row_count rather than let it
+    # fail the whole table registration.
+    try:
+        table.row_count = table.get_count()
+    except Exception:
+        logger.warning(f"Could not refresh cumulative row count for {context}, keeping previous value", exc_info=True)
 
 
 async def validate_schema_and_update_table(
@@ -138,7 +182,7 @@ async def validate_schema_and_update_table(
     team_id: int,
     schema_id: uuid.UUID,
     row_count: int,
-    table_format: DataWarehouseTable.TableFormat,
+    table_format: DataWarehouseTableFormat,
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     primary_keys: Optional[list[str]] = None,
@@ -158,10 +202,6 @@ async def validate_schema_and_update_table(
         table_schema_dict: The schema of the table
     """
     logger = LOGGER.bind(team_id=team_id)
-
-    if row_count == 0:
-        logger.warning("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
-        return
 
     @database_sync_to_async_pool
     def _validate_and_update():
@@ -203,20 +243,38 @@ async def validate_schema_and_update_table(
             # minutes, surfacing as "idle in transaction" connections that stalled vacuum and
             # exhausted the connection pool.
             table_created: DataWarehouseTable | None = external_data_schema.table
+
+            # A reported row_count of 0 does not always mean the run wrote nothing: the v3 load
+            # consumer reads it from a batch notification that can arrive as 0 on a redelivered final
+            # batch after a real write. Skip only when no table exists yet, so a genuinely empty first
+            # sync does not create an empty table. An existing table still gets repointed below at the
+            # freshly published files — stranding it on the previous queryable_folder would serve stale
+            # data under a green sync.
+            if row_count == 0 and table_created is None:
+                logger.warning("Skipping table creation: row_count is 0 and no table exists yet")
+                return
+
             if table_created:
                 table = table_created
                 table.format = table_params["format"]
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
-                if external_data_schema.table_row_count_is_cumulative:
-                    table.row_count = table.get_count()
+                if external_data_schema.table_row_count_is_cumulative or row_count == 0:
+                    # A reported 0 can under-count a real write (see above), so read the true count
+                    # from the just-published files rather than zero a table we are republishing.
+                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
                 else:
                     table.row_count = row_count
                 # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
                 # enough for the pooled Postgres connection to be recycled underneath us. Retry once
                 # on a fresh connection rather than let this escape as error-tracking noise.
+                # new_url_pattern above is derived from the job's own destination folder, not from
+                # request input, so this sync is a trusted writer of a credential-less table's URL.
                 retry_on_db_connection_drop(
-                    lambda: table.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
+                    lambda: table.save(
+                        update_fields=["format", "url_pattern", "queryable_folder", "row_count"],
+                        internally_computed_url_pattern=True,
+                    )
                 )
 
             if not table_created:
@@ -234,12 +292,16 @@ async def validate_schema_and_update_table(
                 if not table_created:
                     logger.debug(f"Creating table for schema: {str(schema_id)}")
                     table_created = DataWarehouseTable.objects.create(
-                        external_data_source_id=job.pipeline.id, **table_params
+                        external_data_source_id=job.pipeline.id,
+                        created_via=DataWarehouseTableCreatedVia.SOURCE,
+                        **table_params,
                     )
 
             assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
-            raw_db_columns = table_created.get_columns()
+            # safe_expose_ch_error=False keeps failures as ServerException (see except clause below)
+            # instead of the generic, user-facing Exception get_columns() raises by default.
+            raw_db_columns = table_created.get_columns(safe_expose_ch_error=False)
             db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
 
             def _persist_columns() -> None:
@@ -285,7 +347,10 @@ async def validate_schema_and_update_table(
             retry_on_db_connection_drop(_persist_columns)
 
         except ServerException as err:
-            if err.code == 636:
+            # 636 (CANNOT_EXTRACT_TABLE_STRUCTURE) and 742 (DELTA_KERNEL_ERROR, "No files in log
+            # segment") both mean the Delta table has no committed files yet - expected before a
+            # schema's first successful sync, or when a run wrote zero new rows.
+            if err.code in (636, 742):
                 logger.exception(
                     f"Data Warehouse: No data for schema {_schema_name} for external data job {job.pk}",
                     exc_info=err,
@@ -312,7 +377,7 @@ async def register_cdc_companion_table(
     schema_id: uuid.UUID,
     resource_name: str,
     row_count: int,
-    table_format: DataWarehouseTable.TableFormat,
+    table_format: DataWarehouseTableFormat,
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     set_as_schema_table: bool = False,
@@ -366,19 +431,26 @@ async def register_cdc_companion_table(
                 table.format = table_format
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
-                table.row_count = table.get_count()
+                _refresh_cumulative_row_count(table, logger, companion_table_name)
                 # Scope to the fields changed here so this out-of-transaction save doesn't rewrite
                 # `columns` with its pre-merge value before the column save below.
                 # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
                 # enough for the pooled Postgres connection to be recycled underneath us. Retry once
                 # on a fresh connection rather than let this escape as error-tracking noise.
+                # new_url_pattern above is derived from the job's own destination folder, not from
+                # request input, so this sync is a trusted writer of a credential-less table's URL.
                 retry_on_db_connection_drop(
-                    lambda: table.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
+                    lambda: table.save(
+                        update_fields=["format", "url_pattern", "queryable_folder", "row_count"],
+                        internally_computed_url_pattern=True,
+                    )
                 )
             else:
                 logger.debug(f"Creating CDC companion table: {companion_table_name}")
                 companion_table = DataWarehouseTable.objects.create(
-                    external_data_source_id=job.pipeline.id, **table_params
+                    external_data_source_id=job.pipeline.id,
+                    created_via=DataWarehouseTableCreatedVia.SOURCE,
+                    **table_params,
                 )
 
             raw_db_columns = companion_table.get_columns()

@@ -1,15 +1,4 @@
-import {
-    MakeLogicType,
-    actions,
-    afterMount,
-    beforeUnmount,
-    kea,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-} from 'kea'
+import { MakeLogicType, actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -252,6 +241,7 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
                     }
                     const storageKey = getStorageKey(values.searchForm.search)
                     const response = await datasetsApi.listDatasets(params)
+                    breakpoint()
                     return {
                         ...values.datasetStore,
                         [storageKey]: response.results,
@@ -277,6 +267,7 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
                         limit: RECENT_DATASETS_LIMIT,
                         offset: 0,
                     })
+                    breakpoint()
                     const datasetsById = new Map(response.results.map((dataset) => [dataset.id, dataset]))
                     const recentDatasets = values.recentDatasetIds.flatMap((id) => {
                         const dataset = datasetsById.get(id)
@@ -324,7 +315,7 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
                 try {
                     await datasetsApi.createItem({
                         dataset: datasetId,
-                        external_id: props.partialDatasetItem?.external_id,
+                        client_item_id: props.partialDatasetItem?.client_item_id,
                         input: props.partialDatasetItem?.input ?? {},
                         expected_output: props.partialDatasetItem?.expected_output,
                         source_output: props.partialDatasetItem?.source_output,
@@ -410,10 +401,6 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
             actions.loadDatasets(false)
             actions.loadRecentDatasets(false)
         }
-    }),
-
-    beforeUnmount(({ actions }) => {
-        actions.setSearchFormValue('search', '')
     }),
 ])
 

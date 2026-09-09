@@ -24,7 +24,8 @@ function describeSchedule(
   const parsed = parseCronSchedule(cron);
   const timezone = config.timezone ?? "UTC";
   const timezoneLabel = formatTimezoneAbbreviation(timezone);
-  if (!parsed) return `${cron ?? "?"} (${timezoneLabel})`;
+  if (!cron) return "No schedule set";
+  if (!parsed) return `${cron} (${timezoneLabel})`;
   if (parsed.frequency === "hourly") return `Every hour (${timezoneLabel})`;
 
   const time = formatClockTime(parsed.time);
@@ -175,7 +176,12 @@ export function describeTrigger(trigger: TriggerLike): string {
   }
   if (trigger.type === "github") {
     const config = trigger.config as LoopSchemas.LoopGithubTriggerConfig;
-    return `GitHub · ${config.repository || "?"} · ${config.events.join(", ") || "no events"}`;
+    const conditions = config.filters?.payload ?? [];
+    const conditionSuffix =
+      conditions.length > 0
+        ? ` · ${conditions.length} payload condition${conditions.length === 1 ? "" : "s"}`
+        : "";
+    return `GitHub · ${config.repository || "?"} · ${config.events.join(", ") || "no events"}${conditionSuffix}`;
   }
   return "API · authenticated POST";
 }

@@ -28,6 +28,16 @@ import {
 } from '~/types'
 
 describe('queryNodeToFilter', () => {
+    test('maps a paths v2 query to its insight type only, as it has no legacy filter format', () => {
+        const result = queryNodeToFilter({
+            kind: NodeKind.PathsV2Query,
+            dateRange: { date_from: '-7d' },
+            pathsV2Filter: { maxSteps: 4 },
+        })
+
+        expect(result).toEqual({ insight: InsightType.JOURNEYS })
+    })
+
     test('converts a query node to a filter', () => {
         const query: LifecycleQuery = {
             kind: NodeKind.LifecycleQuery,

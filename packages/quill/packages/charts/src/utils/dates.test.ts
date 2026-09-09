@@ -60,6 +60,51 @@ describe('createXAxisTickCallback', () => {
             expected: ['10:00', '10:01', '10:02'],
         },
         {
+            scenario: 'hourly, single day, newest-first → still HH:mm, no date markers',
+            interval: undefined,
+            allDays: hourlyDates('2025-04-01', 6).reverse(),
+            expected: ['05:00', '04:00', '03:00', '02:00', '01:00', '00:00'],
+        },
+        {
+            scenario: 'inferred day interval from newest-first daily results',
+            interval: undefined,
+            allDays: ['2025-04-03 00:00:00', '2025-04-02 00:00:00', '2025-04-01 00:00:00'],
+            expected: ['Apr 3', 'Apr 2', 'April'],
+        },
+        {
+            scenario: 'weekly, long span, newest-first → same month labels as oldest-first',
+            interval: 'week' as const,
+            allDays: weeklyDates('2025-09-01', 18).reverse(),
+            expected: sparseLabels(18, {
+                0: 'December',
+                5: 'November',
+                9: 'October',
+                13: 'September',
+            }),
+        },
+        {
+            scenario: 'hourly, multi-day, newest-first → date at each day start, HH:mm every 6h',
+            interval: 'hour' as const,
+            allDays: hourlyDates('2025-02-15', 72).reverse(),
+            expected: sparseLabels(72, {
+                0: 'Feb 17',
+                5: '18:00',
+                11: '12:00',
+                17: '06:00',
+                23: '00:00',
+                24: 'Feb 16',
+                29: '18:00',
+                35: '12:00',
+                41: '06:00',
+                47: '00:00',
+                48: 'Feb 15',
+                53: '18:00',
+                59: '12:00',
+                65: '06:00',
+                71: '00:00',
+            }),
+        },
+        {
             scenario: 'second interval formats as HH:mm',
             interval: 'second' as const,
             allDays: ['2025-04-01 14:30:00', '2025-04-01 14:30:01', '2025-04-01 14:30:02'],
@@ -310,6 +355,8 @@ describe('createTooltipDateFormatter', () => {
         // Week/month buckets span multiple days, so a weekday would mislead
         { interval: 'week' as const, label: '2026-06-01', expected: 'Jun 1, 2026' },
         { interval: 'month' as const, label: '2026-06-01', expected: 'Jun 2026' },
+        { interval: 'quarter' as const, label: '2026-06-01', expected: 'Q2 2026' },
+        { interval: 'year' as const, label: '2026-01-01', expected: '2026' },
     ])('formats a $interval bucket header', ({ interval, label, expected }) => {
         const format = createTooltipDateFormatter({ interval, timezone: 'UTC' })
         expect(format(label)).toBe(expected)
@@ -319,6 +366,13 @@ describe('createTooltipDateFormatter', () => {
         // 2026-06-07T02:00 UTC is still Saturday June 6 in US/Pacific
         const format = createTooltipDateFormatter({ interval: 'hour', timezone: 'US/Pacific' })
         expect(format('2026-06-07T02:00:00Z')).toBe('Sat, Jun 6, 19:00')
+    })
+
+    it('adds offsets to repeated local times during a DST fallback', () => {
+        const labels = ['2026-11-01T01:00:00-07:00', '2026-11-01T01:00:00-08:00']
+        const format = createTooltipDateFormatter({ interval: 'hour', timezone: 'US/Pacific', allDays: labels })
+
+        expect(labels.map(format)).toEqual(['Sun, Nov 1, 01:00 (-07:00)', 'Sun, Nov 1, 01:00 (-08:00)'])
     })
 
     it('passes non-date labels through unchanged', () => {

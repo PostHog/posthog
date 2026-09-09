@@ -12,6 +12,7 @@ import structlog
 
 from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
+from posthog.psycopg_helpers import prefer_routable_addresses
 from posthog.utils import get_instance_region
 
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
@@ -68,9 +69,9 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
     Only enforced on cloud deployments — self-hosted instances are allowed
     to connect to any host.
 
-    Resolves hostnames via DNS and checks all resolved IPs against
-    _is_safe_public_ip to block private, loopback, link-local, multicast,
-    reserved, and IPv6-mapped internal addresses.
+    Resolves hostnames via DNS and requires every resolved IP to be globally routable per
+    _is_safe_public_ip, which blocks private, loopback, link-local, multicast, reserved,
+    shared address space (CGNAT), and their IPv6-mapped forms.
 
     team whitelist: team_id 2 in US, team_id 1 in EU are allowed
     to use internal IPs.
@@ -160,7 +161,11 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
     # connect would try them in. Pinning the first one gives up that fallback: if it is down,
     # nothing tries the next. Every address in the list passed the check above, so this costs
     # availability on multi-address hosts, not safety.
-    return HostResolution(connect_host=resolved_ips[0], error=None)
+    #
+    # That order is IPv6-first for a dual-stack host (RFC 6724), so on an IPv4-only worker the
+    # pinned address is one nothing can route to and the connection can never succeed. Order by
+    # what this host can actually reach before pinning.
+    return HostResolution(connect_host=prefer_routable_addresses(resolved_ips)[0], error=None)
 
 
 def log_connection_open(
@@ -258,6 +263,39 @@ def _pinned_ssh_host(ssh_config, team_id: int | None) -> str:
     return resolution.connect_host
 
 
+def _check_direct_host(config, team_id: int | None) -> None:
+    """Refuse a direct database connection to a host that resolves somewhere internal.
+
+    The connect-time counterpart to `is_database_host_valid`, which runs at the API layer on
+    create, update, and direct query. The sync path goes from the stored config straight to the
+    connection, so without this a host that resolved to a public address at setup is never
+    re-checked on any later scheduled run. A direct database connection is a raw socket, so the
+    HTTP egress proxy is not in its path either.
+
+    Unlike `_pinned_ssh_host` this checks without pinning, so a host that answers public here and
+    private on the connect is still reachable: this closes the standing exposure, not the
+    resolve-to-connect race. Pinning belongs in the clients, and for Postgres it costs nothing —
+    `_connect_to_postgres` already builds libpq's `host`/`hostaddr` pair, so the name still
+    carries SNI and every validated address stays in the failover list. What stops it living here
+    is that the address alone is not the decision: `resolve_safe_host` also exempts self-hosted
+    instances, the internal-analytics teams, and PostHog-managed hosts. Re-checking with the bare
+    predicate at the connect would refuse all three, so the policy has to travel with the
+    addresses before the pin can move.
+
+    A `team_id` of None fails closed. It changes nothing for a customer team, whose result is the
+    same either way; it only costs the internal-host exemption on entry points that don't carry a
+    team yet (`open_ssh_tunnel(config)` in the Redshift, MySQL and MSSQL clients).
+
+    The resolve inside `resolve_safe_host` is unbounded, and for Postgres it now runs ahead of the
+    bounded `_resolve_hostaddr_with_timeout`. A stalled resolver therefore hangs the activity until
+    Temporal's `start_to_close_timeout` rather than failing fast and retryably — the failure that
+    bounded lookup exists to prevent. Bounding this one is the follow-up.
+    """
+    resolution = resolve_safe_host(config.host, team_id)
+    if resolution.connect_host is None:
+        raise Exception(f"Database host not allowed: {resolution.error}")
+
+
 @contextmanager
 def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, int]]:
     """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
@@ -274,6 +312,7 @@ def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, 
 
                 yield _require_loopback(tunnel.local_bind_host), tunnel.local_bind_port
         else:
+            _check_direct_host(config, team_id)
             yield config.host, config.port
 
 
@@ -306,6 +345,9 @@ def make_ssh_tunnel_factory(
     @contextmanager
     def without_ssh_func():
         with _logged_connection(config, team_id):
+            # Checked per reopen, not once when the factory is built, so a long-running
+            # sync that reconnects re-checks the host each time.
+            _check_direct_host(config, team_id)
             yield config.host, config.port
 
     return without_ssh_func

@@ -71,6 +71,11 @@ describe('pickLastOutputMessage', () => {
         expect(pickLastOutputMessage(state)).toMatchObject({ role: 'assistant', content: 'final answer' })
     })
 
+    it('wraps a single bare assistant message from the Vercel AI OTel path', () => {
+        const message = { role: 'assistant', content: 'It is 72F.' }
+        expect(pickLastOutputMessage(message, { strict: true })).toMatchObject(message)
+    })
+
     it('rejects unknown state-wrapper shapes in strict mode', () => {
         expect(pickLastOutputMessage({ current_step: 3 }, { strict: true })).toBeNull()
     })

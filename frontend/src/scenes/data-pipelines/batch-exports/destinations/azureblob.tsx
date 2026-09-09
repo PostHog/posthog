@@ -3,7 +3,13 @@ import { LemonInput } from '@posthog/lemon-ui'
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { CompressionField, FileFormatField, MaxFileSizeField, validateAzureContainerName } from './common'
+import {
+    CompressionField,
+    FileFormatField,
+    MaxFileSizeField,
+    PERSON_PROPERTIES_EVENT_FIELD,
+    validateAzureContainerName,
+} from './common'
 import type { DestinationDefinition } from './types'
 
 export const azureBlobDefinition: DestinationDefinition = {
@@ -19,6 +25,7 @@ export const azureBlobDefinition: DestinationDefinition = {
         container_name: validateAzureContainerName(formValues.container_name),
     }),
     eventTableOverrides: { teamIdHogql: 'team_id' },
+    eventTableExtraFields: { ...PERSON_PROPERTIES_EVENT_FIELD },
     Fields: function AzureBlobFields({ formValues }) {
         return (
             <>
