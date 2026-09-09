@@ -43,6 +43,7 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
 from posthog.models.utils import UUIDT
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -729,7 +730,8 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert set(group.keys()) == {"id", "group_type_index"}
 
     def test_group_actors_query_with_key_reused_by_another_group_type(self):
-        for group_type_index, group_type in ((0, "organization"), (1, "company")):
+        group_types: list[tuple[GroupTypeIndex, str]] = [(0, "organization"), (1, "company")]
+        for group_type_index, group_type in group_types:
             create_group_type_mapping_without_created_at(
                 team=self.team,
                 project_id=self.team.project_id,
