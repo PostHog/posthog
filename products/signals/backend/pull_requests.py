@@ -167,14 +167,14 @@ def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool 
             migrated=True,
             notify_reviewers=notify_reviewers,
         )
-        if assignment is not None and not assignment.actor_kind and url == assignment.pr_url:
-            # A released legacy assignment no longer identifies who attached the PR.
+        if assignment is not None and url == assignment.pr_url and actor.kind != assignment.actor_kind:
+            # A missing legacy principal must not turn an external attachment into trusted system work.
             SignalReportArtefact.objects.filter(
                 team_id=report.team_id,
                 report_id=report.id,
                 pull_request_id=pr.id,
                 claim_id=claim_id,
-            ).update(actor_kind=None)
+            ).update(actor_kind=assignment.actor_kind, actor_agent=assignment.actor_agent)
 
 
 def update_pull_request_state(*, team_id: int, repository: str, number: int, state: str) -> int:

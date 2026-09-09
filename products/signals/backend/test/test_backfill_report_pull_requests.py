@@ -20,9 +20,9 @@ class TestBackfillReportPullRequests(BaseTest):
     def test_backfill_is_resumable_and_preserves_verified_state_and_ownership(self) -> None:
         reports = [
             SignalReport.objects.create(team=self.team, status="ready", title="Report", summary="Summary")
-            for _ in range(3)
+            for _ in range(4)
         ]
-        active, released, task_report = reports
+        active, released, task_report, deleted_principal = reports
         primary = "https://github.com/example/app/pull/1"
         assignment = SignalReportAssignment.all_teams.create(
             team=self.team,
@@ -37,6 +37,16 @@ class TestBackfillReportPullRequests(BaseTest):
         SignalReportAssignment.all_teams.create(
             team=self.team,
             report=released,
+            pr_url=primary,
+            repository="example/app",
+            pr_number=1,
+            pr_state="open",
+        )
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=deleted_principal,
+            actor_kind="agent",
+            actor_agent="example-agent",
             pr_url=primary,
             repository="example/app",
             pr_number=1,
@@ -66,6 +76,9 @@ class TestBackfillReportPullRequests(BaseTest):
             SignalReportArtefact.objects.filter(report=task_report, type="pull_request", actor_kind="task").count() == 2
         )
         assert SignalReportArtefact.objects.get(report=released, type="pull_request").actor_kind is None
+        imported = SignalReportArtefact.objects.get(report=deleted_principal, type="pull_request")
+        assert imported.actor_kind == "agent"
+        assert imported.actor_agent == "example-agent"
         assert not SignalPullRequest.objects.for_team(self.team.id).filter(checked_at__isnull=False).exists()
         update_assignments_for_pull_request(
             team_ids=[self.team.id], repository="example/app", pr_number=1, pr_state="merged"
