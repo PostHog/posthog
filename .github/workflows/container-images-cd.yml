@@ -20,6 +20,8 @@ on:
     # (AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE) is OIDC-trusted only for
     # refs/heads/master, so a dispatch from any other branch is denied at
     # AssumeRoleWithWebIdentity — deliberate, so prod images only ship from master.
+    # When GitHub Actions itself is down, build through Depot CI instead:
+    # .depot/workflows/actions-outage-image-build.yml
     workflow_dispatch:
 
 # Serialize runs for the same commit so a push racing a manual re-run/dispatch can't both
