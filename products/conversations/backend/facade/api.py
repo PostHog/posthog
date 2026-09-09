@@ -20,6 +20,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
+from posthog.dataclasses import frozen
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.team import Team
@@ -79,6 +80,12 @@ class GoogleAccountEmailSyncError(Exception):
     pass
 
 
+@frozen
+class GoogleAccountEmailBackfillBatch:
+    next_page_token: str | None
+    fetched: int
+
+
 class SupportMessageSendError(Exception):
     """Slack rejected a SupportHog bot message.
 
@@ -102,6 +109,40 @@ def sync_google_account_email(integration_id: int, team_id: int) -> None:
         sync_gmail_integration(integration_id, team_id)
     except GmailSyncError as error:
         raise GoogleAccountEmailSyncError(str(error)) from error
+
+
+def can_sync_google_account_email(integration_id: int, team_id: int) -> bool:
+    from products.conversations.backend.services.gmail_sync import (  # noqa: PLC0415 -- avoids the Conversations and Customer Analytics facade cycle
+        can_sync_gmail_integration,
+    )
+
+    return can_sync_gmail_integration(integration_id, team_id)
+
+
+def sync_google_account_email_backfill_batch(
+    integration_id: int,
+    team_id: int,
+    *,
+    start_at: datetime,
+    end_at: datetime,
+    page_token: str | None,
+) -> GoogleAccountEmailBackfillBatch:
+    from products.conversations.backend.services.gmail_sync import (  # noqa: PLC0415 -- avoids the Conversations and Customer Analytics facade cycle
+        GmailSyncError,
+        sync_gmail_backfill_batch,
+    )
+
+    try:
+        next_page_token, fetched = sync_gmail_backfill_batch(
+            integration_id,
+            team_id,
+            start_at=start_at,
+            end_at=end_at,
+            page_token=page_token,
+        )
+    except GmailSyncError as error:
+        raise GoogleAccountEmailSyncError(str(error)) from error
+    return GoogleAccountEmailBackfillBatch(next_page_token=next_page_token, fetched=fetched)
 
 
 def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> list[SupportChannel]:
