@@ -125,6 +125,10 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
                         params.delete_recordings = true
                     }
 
+                    // The surface that holds the modal can go away while the request is in flight,
+                    // which unmounts this logic and removes its values from the store.
+                    const deleteCallback = values.personDeleteCallback
+
                     await api.delete(`api/person/${person.id}?${toParams(params)}`)
                     posthog.capture('delete person', params)
 
@@ -136,7 +140,7 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
                                 : ' Their ID(s) will be usable again in an hour or so.'}
                         </>
                     )
-                    values.personDeleteCallback?.(person, deleteEvents)
+                    deleteCallback?.(person, deleteEvents)
                     actions.showPersonDeleteModal(null)
                     return person
                 },

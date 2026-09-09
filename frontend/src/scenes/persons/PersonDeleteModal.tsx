@@ -6,14 +6,12 @@ import { LemonBanner, LemonButton, LemonCheckbox, LemonDivider, LemonInput, Lemo
 import { matchesConfirmationText } from 'lib/utils/confirmationText'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 
-import { PersonType } from '~/types'
-
 import { asDisplay } from './person-utils'
 
 const DELETE_CONFIRMATION_TEXT = 'delete'
 
 export function PersonDeleteModal(): JSX.Element | null {
-    const { personDeleteModal, deleteConfirmationText } = useValues(personDeleteModalLogic)
+    const { personDeleteModal, deleteConfirmationText, deletedPersonLoading } = useValues(personDeleteModalLogic)
     const [alsoDeleteEvents, setAlsoDeleteEvents] = useState(false)
     const [alsoDeleteRecordings, setAlsoDeleteRecordings] = useState(false)
     const { deletePerson, showPersonDeleteModal, setDeleteConfirmationText } = useActions(personDeleteModalLogic)
@@ -83,14 +81,17 @@ export function PersonDeleteModal(): JSX.Element | null {
                 <LemonButton
                     type="primary"
                     status="danger"
+                    loading={deletedPersonLoading}
                     disabledReason={
-                        !matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
+                        !personDeleteModal || !matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
                             ? 'Please type the correct confirmation text'
                             : undefined
                     }
-                    onClick={() =>
-                        deletePerson(personDeleteModal as PersonType, alsoDeleteEvents, alsoDeleteRecordings)
-                    }
+                    onClick={() => {
+                        if (personDeleteModal) {
+                            deletePerson(personDeleteModal, alsoDeleteEvents, alsoDeleteRecordings)
+                        }
+                    }}
                     data-attr="delete-person"
                 >
                     Delete person
