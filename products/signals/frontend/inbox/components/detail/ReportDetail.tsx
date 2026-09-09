@@ -267,8 +267,9 @@ export function InboxDetailFrame({
         </span>
     )
 
-    // Hiding the rail gives the report column the full width, which is what reading a diff needs. The
-    // Both controls live on the rail: hide in the Evidence header, show in the strip the rail folds to.
+    // Hiding the rail gives the report column the full width, which is what reading a diff needs.
+    // Both controls live on the rail: hide in the header of its first section, show in the strip
+    // the rail folds to.
     const onToggleRail = (): void => {
         toggleEvidenceRail()
         captureSectionToggle('evidence_rail')(!evidenceRailCollapsed)
@@ -399,6 +400,7 @@ export function InboxDetailFrame({
                                 title="Observation"
                                 collapsible
                                 onToggleCollapsed={captureSectionToggle('observation')}
+                                rightSlot={hideRailButton}
                             >
                                 <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
                             </DetailSection>
@@ -409,7 +411,7 @@ export function InboxDetailFrame({
                                 title="Evidence"
                                 collapsible
                                 onToggleCollapsed={captureSectionToggle('evidence')}
-                                rightSlot={hideRailButton}
+                                rightSlot={primaryMetric ? undefined : hideRailButton}
                             >
                                 {reportSignalsLoading && reportSignals === null ? (
                                     <EvidenceSkeleton count={evidenceCount} />
