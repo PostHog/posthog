@@ -165,19 +165,54 @@ def _scope(job_ids: list[str], read: ReadWindow) -> list[ast.Expr]:
     ]
 
 
-def _exclusions(runner: "AttributionQueryRunnerBase") -> list[ast.Expr]:
-    """Mirror of the exclusion half of `_touchpoint_condition`, against the precompute columns."""
+_EXCLUDED_CHANNEL = "excl_channel_type"
+_EXCLUDED_BREAKDOWN = "excl_breakdown"
+
+
+def _exclusion_columns(runner: "AttributionQueryRunnerBase") -> list[ast.Expr]:
+    """The columns the exclusions read, collapsed per session by `computed_at`.
+
+    A session can hold rows under two job_ids, and a re-materialized row can carry different
+    dimensions. Filtering the raw rows would drop the current version and leave the superseded one
+    standing, so the exclusions have to judge what the collapse decided, not what any row says.
+    """
+    columns: list[ast.Expr] = []
+    if runner.query.excludeDirectTraffic:
+        columns.append(
+            ast.Alias(
+                alias=_EXCLUDED_CHANNEL,
+                expr=ast.Call(name="argMax", args=[_field("channel_type"), _field("computed_at")]),
+            )
+        )
+    if runner.query.excludeUnattributed:
+        columns.append(
+            ast.Alias(
+                alias=_EXCLUDED_BREAKDOWN,
+                expr=ast.Call(name="argMax", args=[_field(BREAKDOWN_COLUMNS[runner.breakdown]), _field("computed_at")]),
+            )
+        )
+    return columns
+
+
+def _exclusions(runner: "AttributionQueryRunnerBase", table_alias: Optional[str] = None) -> list[ast.Expr]:
+    """Mirror of the exclusion half of `_touchpoint_condition`, against the collapsed columns."""
+
+    def resolved(alias: str) -> ast.Field:
+        return ast.Field(chain=[table_alias, alias] if table_alias else [alias])
+
     conditions: list[ast.Expr] = []
     if runner.query.excludeDirectTraffic:
         conditions.append(
             ast.CompareOperation(
-                left=_field("channel_type"), op=ast.CompareOperationOp.NotEq, right=ast.Constant(value="Direct")
+                left=resolved(_EXCLUDED_CHANNEL),
+                op=ast.CompareOperationOp.NotEq,
+                right=ast.Constant(value="Direct"),
             )
         )
     if runner.query.excludeUnattributed:
         # Judged on the raw column rather than the display expression, so a friendly fallback label
         # cannot smuggle an empty value back in.
-        field = _field(BREAKDOWN_COLUMNS[runner.breakdown])
+        field = resolved(_EXCLUDED_BREAKDOWN)
         conditions.append(
             ast.Call(name="notEmpty", args=[ast.Call(name="ifNull", args=[field, ast.Constant(value="")])])
         )
@@ -214,17 +249,20 @@ def build_reach(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange
                 alias="breakdown_value",
                 expr=ast.Call(name="argMax", args=[_breakdown_expr(runner), _field("computed_at")]),
             ),
+            *_exclusion_columns(runner),
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", TABLE])),
-        where=ast.And(exprs=[*_scope(job_ids, read), *_exclusions(runner)]),
+        where=ast.And(exprs=_scope(job_ids, read)),
         group_by=[_field("session_id"), _field("person_id")],
     )
+    exclusions = _exclusions(runner, table_alias="s")
     return ast.SelectQuery(
         select=[
             ast.Field(chain=["s", "breakdown_value"]),
             ast.Alias(alias="visitors", expr=ast.Call(name="uniq", args=[ast.Field(chain=["s", "person_id"])])),
         ],
         select_from=ast.JoinExpr(table=per_session, alias="s"),
+        where=ast.And(exprs=exclusions) if exclusions else None,
         group_by=[ast.Field(chain=["s", "breakdown_value"])],
     )
 
@@ -323,6 +361,7 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
                 expr=ast.Call(name="any", args=[ast.Field(chain=["conv", "first_conversion"])]),
             ),
             ast.Alias(alias="upper_bound", expr=ast.Call(name="any", args=[ast.Field(chain=["conv", upper])])),
+            *_exclusion_columns(runner),
         ],
         select_from=ast.JoinExpr(
             table=ast.Field(chain=["posthog", TABLE]),
@@ -340,7 +379,7 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
                 ),
             ),
         ),
-        where=ast.And(exprs=[*_scope(job_ids, read), *_exclusions(runner)]),
+        where=ast.And(exprs=_scope(job_ids, read)),
         group_by=[ast.Field(chain=["conv", "conv_person_id"]), _field("session_id")],
     )
 
@@ -391,6 +430,7 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
                     op=ast.CompareOperationOp.LtEq,
                     right=ast.Field(chain=["d", "upper_bound"]),
                 ),
+                *_exclusions(runner, table_alias="d"),
             ]
         ),
         group_by=[ast.Field(chain=["d", "person_id"])],

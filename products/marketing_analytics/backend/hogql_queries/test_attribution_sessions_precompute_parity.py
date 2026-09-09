@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Optional
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -65,7 +66,15 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         ]
         config.save()
 
-    def _session(self, distinct_id: str, opened_at: datetime, *, campaign: str, event_offsets_minutes: list[int]):
+    def _session(
+        self,
+        distinct_id: str,
+        opened_at: datetime,
+        *,
+        campaign: str,
+        event_offsets_minutes: list[int],
+        source: Optional[str] = None,
+    ):
         """A session opening at `opened_at` with a pageview at each offset after it."""
         session_id = str(uuid7(opened_at.strftime("%Y-%m-%dT%H:%M:%SZ")))
         for offset in event_offsets_minutes:
@@ -78,8 +87,9 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
                     "$session_id": session_id,
                     "$current_url": "https://example.com/",
                     "$pathname": "/",
-                    "$referring_domain": "$direct",
+                    "$referring_domain": "$direct" if source is None else "www.google.com",
                     "utm_campaign": campaign,
+                    **({"utm_source": source, "utm_medium": "cpc"} if source else {}),
                 },
             )
 
@@ -92,12 +102,15 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             properties={"revenue": 100.0},
         )
 
-    def _run(self, breakdown: MarketingAnalyticsAttributionBreakdown, *, precomputed: bool):
+    def _run(
+        self, breakdown: MarketingAnalyticsAttributionBreakdown, *, precomputed: bool, exclude_direct: bool = False
+    ):
         query = MarketingAnalyticsAttributionQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             breakdownBy=breakdown,
             conversionGoalId=GOAL_ID,
             properties=[],
+            excludeDirectTraffic=exclude_direct,
         )
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
         runner.config.sessions_precomputation_enabled = precomputed
@@ -241,3 +254,53 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         assert not live_used
         assert pre_used, "the precomputed path was not used, so this proves nothing"
         assert pre == live, f"precomputed={pre} live={live}"
+
+    def test_an_exclusion_judges_the_current_version_of_a_session(self) -> None:
+        # A session's rows can disagree: the stored start moves when a backdated event arrives, and the
+        # re-materialized row can carry different dimensions. Filtering the raw rows drops the current
+        # version and leaves the superseded one standing, so a session that is Direct today would keep
+        # earning credit under the campaign it used to carry.
+        create_person(team=self.team, distinct_ids=["flipped"])
+        self._session(
+            "flipped",
+            datetime(2023, 1, 11, 9, 0, tzinfo=UTC),
+            campaign="was_a_campaign",
+            event_offsets_minutes=[0],
+            source="google",
+        )
+        self._conversion("flipped", datetime(2023, 1, 12, 12, 0, tzinfo=UTC))
+        flush_persons_and_events()
+        self._materialize()
+
+        original = sync_execute(
+            "SELECT session_id, person_id, start_timestamp, job_id, computed_at, period_bucket, "
+            "min_event_timestamp, max_event_timestamp, expires_at "
+            "FROM marketing_sessions_dimensional_preaggregated WHERE team_id = %(team)s AND utm_campaign = 'was_a_campaign'",
+            {"team": self.team.pk},
+        )[0]
+        sync_execute(
+            """
+            INSERT INTO marketing_sessions_dimensional_preaggregated
+            (team_id, job_id, period_bucket, session_id, person_id, start_timestamp, min_event_timestamp,
+             max_event_timestamp, channel_type, utm_source, utm_medium, utm_campaign, utm_term, utm_content,
+             referring_domain, entry_pathname, computed_at, expires_at)
+            VALUES (%(team)s, %(job)s, %(bucket)s, %(sid)s, %(pid)s, %(start)s, %(min_ev)s, %(max_ev)s,
+                    'Direct', '', '', '', '', '', '', '/', %(computed)s, %(expires)s)
+            """,
+            {
+                "team": self.team.pk,
+                "job": str(original[3]),
+                "bucket": original[5],
+                "sid": original[0],
+                "pid": original[1],
+                "start": original[2],
+                "min_ev": original[6],
+                "max_ev": original[7],
+                "computed": original[4] + timedelta(minutes=1),
+                "expires": original[8],
+            },
+        )
+
+        rows, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True, exclude_direct=True)
+        assert used, "the precomputed path was not used, so this proves nothing"
+        assert "was_a_campaign" not in rows, f"the superseded campaign survived the exclusion: {rows}"
