@@ -148,8 +148,8 @@ export interface verifiedDomainsLogicValues {
     identityProviderConfigsLoading: boolean
     isIdJagConfigSubmitting: boolean
     isIdJagConfigValid: boolean
-    isSAMLAvailable: boolean
     isOIDCAvailable: boolean
+    isSAMLAvailable: boolean
     isSCIMAvailable: boolean
     isSSOEnforcementAvailable: boolean
     isSamlConfigSubmitting: boolean

@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
@@ -10,7 +10,7 @@ from social_core.backends.open_id_connect import OpenIdConnectAuth
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthTokenError
 
 from posthog.constants import AvailableFeature
-from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
 
@@ -21,9 +21,16 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
     @cached_property
     def identity_provider_config(self) -> IdentityProviderConfig:
         config_id = self.strategy.session_get("oidc_config_id")
+        email = self.strategy.session_get("oidc_email")
+        organization_id = self.strategy.session_get("oidc_organization_id")
+        if not isinstance(email, str) or organization_id is None:
+            raise AuthFailed(self, "OIDC email is not available.")
         try:
-            config = IdentityProviderConfig.objects.select_related("organization").get(
-                id=config_id, config_scope=ConfigScope.OIDC
+            config = (
+                IdentityProviderConfig.objects.get_queryset()
+                .oidc_for_email(email)
+                .select_related("organization")
+                .get(id=config_id, organization_id=organization_id)
             )
         except (IdentityProviderConfig.DoesNotExist, ValidationError, ValueError):
             raise AuthFailed(self, "OIDC configuration is not available.")
@@ -45,6 +52,8 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
         if len(configs) != 1:
             raise AuthFailed(self, "OIDC requires one configured identity provider for this email domain.")
         self.strategy.session_set("oidc_config_id", str(configs[0].id))
+        self.strategy.session_set("oidc_email", email)
+        self.strategy.session_set("oidc_organization_id", configs[0].organization_id)
         return super().auth_url()
 
     def oidc_endpoint(self) -> str:
@@ -64,7 +73,7 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
                 raise AuthFailed(self, "OIDC discovery requires HTTPS endpoints.")
         return document
 
-    def get_key_and_secret(self) -> tuple[str, str]:
+    def get_key_and_secret(self) -> tuple[str, str]:  # nosemgrep: semgrep.rules.devex.tuple-return-prefer-dataclass -- social-auth passes this tuple directly to requests basic auth
         config = self.identity_provider_config
         return config.oidc_client_id, config.oidc_credentials["client_secret"]
 
@@ -109,9 +118,10 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
             raise AuthConnectionError(self) from error
 
     def user_data(self, access_token: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        if self.id_token is None:
+        id_token = cast(dict[str, Any] | None, self.id_token)
+        if id_token is None:
             raise AuthFailed(self, "OIDC did not return a valid ID token.")
-        claims = dict(self.id_token)
+        claims = dict(id_token)
         email = claims.get("email")
         if claims.get("email_verified") is not True or not isinstance(email, str):
             raise AuthFailed(self, "OIDC requires a verified email address in the ID token.")

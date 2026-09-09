@@ -81,6 +81,8 @@ class TestOIDCAuthentication(APILicensedTest):
         request = RequestFactory().get("/login/oidc/", {"email": "member@example.com"})
         request.session = self.client.session
         request.session["oidc_config_id"] = str(self.config.id)
+        request.session["oidc_email"] = "member@example.com"
+        request.session["oidc_organization_id"] = self.organization.id
         self.backend = MultitenantOIDCAuth(load_strategy(request), "https://app.example.com/complete/oidc/")
 
     @parameterized.expand(
@@ -135,6 +137,7 @@ class TestOIDCAuthentication(APILicensedTest):
         def oidc_response(url, method="GET", *args, **kwargs):
             response = Response()
             response.status_code = 200
+            data: dict[str, Any]
             if url.endswith("/.well-known/openid-configuration"):
                 data = {
                     "issuer": self.config.oidc_issuer_url,
@@ -201,17 +204,23 @@ class TestOIDCAuthentication(APILicensedTest):
 
     @parameterized.expand([("missing", None), ("false", False), ("string", "true")])
     def test_oidc_requires_verified_email(self, _name, email_verified):
-        self.backend.id_token = {"sub": "example-user", "email": "member@example.com", "email_verified": email_verified}
+        self.backend.id_token = cast(
+            Any, {"sub": "example-user", "email": "member@example.com", "email_verified": email_verified}
+        )
         with self.assertRaises(AuthFailed):
             self.backend.user_data("example-access-token")
 
     def test_oidc_rejects_another_domain(self):
-        self.backend.id_token = {"sub": "example-user", "email": "member@other.example", "email_verified": True}
+        self.backend.id_token = cast(
+            Any, {"sub": "example-user", "email": "member@other.example", "email_verified": True}
+        )
         with self.assertRaises(AuthFailed):
             self.backend.user_data("example-access-token")
 
     def test_oidc_accepts_verified_email_and_scopes_subject_to_config(self):
-        self.backend.id_token = {"sub": "example-user", "email": "member@example.com", "email_verified": True}
+        self.backend.id_token = cast(
+            Any, {"sub": "example-user", "email": "member@example.com", "email_verified": True}
+        )
         response = self.backend.user_data("example-access-token")
         self.assertEqual(self.backend.get_user_id({}, response), f"{self.config.id}:example-user")
         self.assertEqual(self.backend.extra_data(None, "uid", response, {}), {})
