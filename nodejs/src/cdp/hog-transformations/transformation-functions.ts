@@ -134,6 +134,9 @@ const MAX_SEPARATOR_LENGTH = 100
 // Backstop on the number of flattened keys, so one pathological event cannot generate an unbounded
 // number of properties. Well above any real event; capture already bounds the event size.
 const MAX_FLATTENED_KEYS = 100000
+// Backstop on the total bytes of generated keys. A long property name above many leaves would
+// otherwise copy that prefix into every key, so a small payload could produce megabytes of keys.
+const MAX_FLATTENED_KEY_BYTES = 5_000_000
 
 // Flattening runs as a host function rather than in hog, because the hog VM re-costs a local on
 // every read, which makes an in-language recursive flatten quadratic in the property count and can
@@ -142,11 +145,11 @@ function flattenPropertiesInternal(
     props: Record<string, any>,
     sep: string,
     nestedChain: string[],
-    budget: { remaining: number }
+    budget: { keys: number; bytes: number }
 ): Record<string, any> {
     const newProps: Record<string, any> = {}
     for (const [key, value] of Object.entries(props)) {
-        if (budget.remaining <= 0) {
+        if (budget.keys <= 0 || budget.bytes <= 0) {
             break
         }
         if (FLATTEN_PROPERTY_DENYLIST.includes(key)) {
@@ -161,8 +164,10 @@ function flattenPropertiesInternal(
         ) {
             Object.assign(newProps, flattenPropertiesInternal(props[key], sep, [...nestedChain, key], budget))
         } else if (nestedChain.length > 0) {
-            newProps[nestedChain.join(sep) + sep + key] = value
-            budget.remaining -= 1
+            const flatKey = nestedChain.join(sep) + sep + key
+            newProps[flatKey] = value
+            budget.keys -= 1
+            budget.bytes -= flatKey.length
         }
     }
     return nestedChain.length > 0 ? newProps : { ...props, ...newProps }
@@ -176,7 +181,10 @@ export const flattenProperties = (properties: unknown, separator?: unknown): unk
     if (sep.length > MAX_SEPARATOR_LENGTH) {
         sep = '__'
     }
-    return flattenPropertiesInternal(properties as Record<string, any>, sep, [], { remaining: MAX_FLATTENED_KEYS })
+    return flattenPropertiesInternal(properties as Record<string, any>, sep, [], {
+        keys: MAX_FLATTENED_KEYS,
+        bytes: MAX_FLATTENED_KEY_BYTES,
+    })
 }
 
 export const getTransformationFunctions = (geoipLookup: GeoIp) => {

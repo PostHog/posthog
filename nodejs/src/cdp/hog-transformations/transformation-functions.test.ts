@@ -105,6 +105,18 @@ describe('transformation-functions', () => {
             expect(result.a__b).toBe(1)
         })
 
+        it('bounds total key bytes when a long property name sits above many leaves', () => {
+            // A ~5000-char name over 2000 leaves would produce ~10MB of key strings; the byte
+            // budget truncates before every leaf is flattened.
+            const longName = 'p'.repeat(5000)
+            const leaves = Array.from({ length: 2000 }, (_, i) => ({ x: i }))
+
+            const result = flattenProperties({ [longName]: leaves }, '__') as Record<string, any>
+            const flattenedKeys = Object.keys(result).filter((k) => k.startsWith(`${longName}__`))
+
+            expect(flattenedKeys.length).toBeLessThan(2000)
+        })
+
         it('returns the input unchanged when it is not an object', () => {
             expect(flattenProperties('nope', '__')).toBe('nope')
         })
