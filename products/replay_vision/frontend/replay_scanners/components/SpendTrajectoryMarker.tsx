@@ -39,7 +39,7 @@ export function SpendTrajectoryMarker({ marker, referenceYs }: SpendTrajectoryMa
                 } ${SPEND_TONE_CLASS[marker.tone]}`}
                 style={{
                     left: textLeft ? x - LABEL_GAP : x + LABEL_GAP,
-                    top: resolveLabelTop(y, referenceYs, dimensions.plotTop),
+                    top: resolveLabelTop(y, referenceYs),
                 }}
             >
                 {marker.text}

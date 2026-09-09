@@ -1,8 +1,8 @@
 import type { SpendMarkerTone, SpendReferenceLabel } from './spendTrajectoryTransforms'
 
 export const LABEL_CLEARANCE = 12
+export const LABEL_HEIGHT = 12
 export const LABEL_ABOVE = 6
-export const LABEL_BELOW = 10
 export const LABEL_INSET = 4
 const COLLISION_PADDING = 2
 
@@ -36,14 +36,14 @@ export function overlaps(a: Box, b: Box): boolean {
 
 // Labels sit above their anchor. Below a point is the filled area and the rising curve, so a label
 // blocked by a reference line climbs past it instead of dropping into the fill.
-export function resolveLabelTop(anchorY: number, referenceYs: number[], plotTop: number): number {
+export function resolveLabelTop(anchorY: number, referenceYs: number[]): number {
     let candidate = anchorY - LABEL_ABOVE
     for (const reference of referenceYs) {
         if (Math.abs(candidate - reference) < LABEL_CLEARANCE) {
             candidate = reference - LABEL_CLEARANCE
         }
     }
-    return candidate < plotTop ? anchorY + LABEL_BELOW : candidate
+    return Math.max(candidate, LABEL_HEIGHT / 2)
 }
 
 interface CaptionPlacement {
