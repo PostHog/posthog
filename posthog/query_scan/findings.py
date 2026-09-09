@@ -33,6 +33,9 @@ class ScanMeasurements:
     events_in_range: int | None = None
     person_rows: int | None = None
     days: int | None = None
+    # The events-table share of `rows_read`, which is what the event ratio compares against the
+    # count of events in the range. None when the whole read came from the events table.
+    events_rows_read: int | None = None
 
 
 @frozen
@@ -64,7 +67,11 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
             "ClickHouse could not use it. " + _KILLED_NUMBERS
         ),
         advice="Put the event filter outside the OR: `WHERE event IN ('…') AND (… OR …)`.",
-        fix="Move the event filter out of the OR so it stands on its own. Change nothing else.",
+        fix=(
+            "If every branch of the OR names events, move the event filter out so it stands on its own, and "
+            "change nothing else. If moving it would change which rows match, leave the query as it is and "
+            "explain that ClickHouse cannot use an event filter inside an OR."
+        ),
     ),
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.WRAPPED): _Copy(
         lead=(
@@ -76,7 +83,11 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
             "ClickHouse could not use it. " + _KILLED_NUMBERS
         ),
         advice="Compare `event` directly to the names.",
-        fix="Compare `event` directly to the event names, with no function around it. Change nothing else.",
+        fix=(
+            "If the function around `event` does not change which events match, compare `event` directly to "
+            "the names and change nothing else. If it does, leave the query as it is and explain that "
+            "ClickHouse cannot use an event filter with a function around the column."
+        ),
     ),
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.NEGATED): _Copy(
         lead=(
@@ -88,7 +99,11 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
             "ClickHouse could not use it. " + _KILLED_NUMBERS
         ),
         advice="Name the events you want.",
-        fix="Replace the exclusion with a filter that names the events to keep. Change nothing else.",
+        fix=(
+            "If the events to keep can be named, replace the exclusion with a filter that names them, and "
+            "change nothing else. If they cannot, leave the query as it is and explain that ClickHouse "
+            "cannot use an event filter that excludes events."
+        ),
     ),
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.DYNAMIC): _Copy(
         lead=(
@@ -100,7 +115,11 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
             "so ClickHouse could not use it. " + _KILLED_NUMBERS
         ),
         advice="Compare `event` to fixed names.",
-        fix="Compare `event` to fixed event names instead of a column or a subquery. Change nothing else.",
+        fix=(
+            "If the column or subquery stands for a fixed set of event names, compare `event` to those names "
+            "and change nothing else. If it does not, leave the query as it is and explain that ClickHouse "
+            "cannot use an event filter that compares `event` to data."
+        ),
     ),
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.NOT_PRUNED): _Copy(
         lead=("This query has an event filter but ClickHouse did not use it. It read {rows} rows in {secs} s."),
@@ -175,9 +194,10 @@ def event_ratio(rows_read: int, events_in_range: int | None) -> float | None:
 def passes_event_gate(measurements: ScanMeasurements, thresholds: ScanThresholds) -> bool:
     """Below the ratio, something else already pruned the read, so an event filter would not
     have saved much."""
-    if measurements.events_in_range is None:
+    if measurements.events_in_range is None or measurements.events_in_range <= 0:
         return False
-    return measurements.rows_read >= thresholds.event_ratio * measurements.events_in_range
+    rows_read = measurements.events_rows_read if measurements.events_rows_read is not None else measurements.rows_read
+    return rows_read >= thresholds.event_ratio * measurements.events_in_range
 
 
 def passes_persons_gate(measurements: ScanMeasurements, thresholds: ScanThresholds) -> bool:
@@ -213,18 +233,19 @@ def explain_evidence(plan: QueryPlan | None) -> str | None:
     """What ClickHouse reported about the events read, for the person to check against."""
     if plan is None:
         return None
-    for read in plan.events_reads():
-        primary_key = read.primary_key()
-        if primary_key is None:
-            continue
-        keys = ", ".join(primary_key.keys)
-        if primary_key.initial_granules is None or primary_key.selected_granules is None:
-            return f"ClickHouse used the primary key columns {keys}."
-        return (
-            f"ClickHouse used the primary key columns {keys} and kept "
-            f"{primary_key.selected_granules:,} of {primary_key.initial_granules:,} granules."
-        )
-    return None
+    primary_keys = [key for read in plan.events_reads() if (key := read.primary_key()) is not None]
+    if not primary_keys:
+        return None
+    # The finding is about a read that could not prune on `event`, so name that read when the plan
+    # holds one. With several reads the plan does not say which one the finding came from.
+    primary_key = next((key for key in primary_keys if "event" not in key.keys), primary_keys[0])
+    keys = ", ".join(primary_key.keys)
+    if primary_key.initial_granules is None or primary_key.selected_granules is None:
+        return f"ClickHouse used the primary key columns {keys}."
+    return (
+        f"ClickHouse used the primary key columns {keys} and kept "
+        f"{primary_key.selected_granules:,} of {primary_key.initial_granules:,} granules."
+    )
 
 
 def format_rows(rows: int) -> str:

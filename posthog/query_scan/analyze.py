@@ -29,6 +29,7 @@ from posthog.query_scan.findings import (
     passes_event_gate,
     passes_persons_gate,
 )
+from posthog.query_scan.tree import find_events_reads
 
 __all__ = [
     "QueryScanResult",
@@ -79,6 +80,12 @@ def analyze(
     start_date = check_start_date(prepared_tree, has_filters_placeholder=has_filters_placeholder)
     event_filter = check_event_filter(prepared_tree, plan)
     persons = check_persons_join(context)
+    reads_events = bool(find_events_reads(prepared_tree))
+
+    # `rows_read` covers every table, so the person rows come off it to estimate the events side.
+    events_rows_read = (
+        max(rows_read - person_rows, 0) if persons.reads_persons and person_rows is not None else rows_read
+    )
 
     scan_range = ScanRange(date_from=start_date.date_from, date_to=start_date.date_to)
     measurements = ScanMeasurements(
@@ -88,6 +95,7 @@ def analyze(
         events_in_range=events_in_range,
         person_rows=person_rows,
         days=_span_in_days(scan_range, min_timestamp),
+        events_rows_read=events_rows_read,
     )
 
     findings: list[QueryScanWarning] = []
@@ -117,13 +125,14 @@ def analyze(
             )
         )
 
-    if persons.unfiltered and passes_persons_gate(measurements, thresholds):
+    # The advice is to read person properties from the events table, which needs an events read.
+    if persons.unfiltered and reads_events and passes_persons_gate(measurements, thresholds):
         findings.append(build_warning(kind=FindingKind.PERSONS_JOIN, measurements=measurements))
 
     return QueryScanResult(
         findings=findings,
         explain_ok=plan is not None,
-        event_ratio=event_ratio(rows_read, events_in_range),
+        event_ratio=event_ratio(events_rows_read, events_in_range),
         event_filter_class=event_filter.classification,
         event_filter_reason=event_filter.reason,
         start_date_class=start_date.classification,

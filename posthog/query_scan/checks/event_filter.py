@@ -30,6 +30,8 @@ _EVENT_COLUMN = "event"
 _NEGATED_OPS = frozenset(ast.NEGATED_COMPARE_OPS)
 _EQUALITY_OPS = frozenset({ast.CompareOperationOp.Eq, ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn})
 _PATTERN_OPS = frozenset({ast.CompareOperationOp.Like, ast.CompareOperationOp.ILike})
+# The sort order is case-sensitive, so only a case-sensitive pattern can seek in it.
+_PRUNABLE_PATTERN_OPS = frozenset({ast.CompareOperationOp.Like})
 
 # Worst first, so the aggregate across events reads is the first class any read reports.
 _CLASS_ORDER: tuple[EventFilterClass, ...] = ("none", "not_used", "usable")
@@ -138,10 +140,11 @@ def _classify_event_compare(node: ast.CompareOperation, value_side: ast.Expr) ->
         return EventFilterOutcome(classification="usable", clause=node)
     if node.op in _PATTERN_OPS and _is_constant(value_side):
         pattern = next(_iter_string_constants(value_side), None)
-        if pattern is not None and not pattern.startswith("%"):
+        if node.op in _PRUNABLE_PATTERN_OPS and pattern is not None and not pattern.startswith("%"):
             return EventFilterOutcome(classification="usable", clause=node)
-        # A leading wildcard leaves no prefix for the sort order to seek on, so ClickHouse
-        # reads the whole range even though the query names events.
+        # A leading wildcard leaves no prefix for the sort order to seek on, and an ILIKE pattern
+        # has no case-sensitive prefix at all, so ClickHouse reads the whole range even though the
+        # query names events.
         return EventFilterOutcome(classification="not_used", reason="not_pruned", clause=node)
     return EventFilterOutcome(classification="not_used", reason="dynamic", clause=node)
 

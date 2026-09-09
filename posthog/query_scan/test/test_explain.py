@@ -14,6 +14,38 @@ def load_plan(name: str) -> object:
     return json.loads((FIXTURES / f"{name}.json").read_text())
 
 
+def plan_read(keys: list[str], selected_granules: int) -> dict[str, object]:
+    return {
+        "Node Type": "ReadFromMergeTree",
+        "Description": "posthog.sharded_events",
+        "Indexes": [
+            {
+                "Type": "PrimaryKey",
+                "Keys": keys,
+                "Initial Granules": 60000,
+                "Selected Granules": selected_granules,
+            }
+        ],
+    }
+
+
+# Two events reads where only the first pruned on `event`. Built here rather than as a fixture:
+# what matters is the disagreement between the reads, not the shape of real EXPLAIN output.
+MIXED_PRUNING_PLAN = parse_query_plan(
+    [
+        {
+            "Plan": {
+                "Node Type": "Union",
+                "Plans": [
+                    {"Plan": plan_read(["team_id", "toDate(timestamp)", "event"], 800)},
+                    {"Plan": plan_read(["team_id", "toDate(timestamp)"], 40000)},
+                ],
+            }
+        }
+    ]
+)
+
+
 class TestExplainParsing(SimpleTestCase):
     @parameterized.expand(
         [

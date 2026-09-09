@@ -94,6 +94,10 @@ class StartDateOutcome:
     clause: ast.Expr | None = None
     date_from: date | None = None
     date_to: date | None = None
+    # The evaluated bounds the dates were rounded out from, so the count query can use the exact
+    # instants where they are known instead of whole days.
+    lower: datetime | None = None
+    upper: datetime | None = None
 
 
 @frozen(eq=False)
@@ -130,9 +134,11 @@ def check_start_date(tree: ast.AST, *, has_filters_placeholder: bool = False) ->
     # One read without a bound makes the whole count unbounded on that side, because the query
     # still read everything that read touched.
     lowers = [item.lower for item in bounds if item.lower is not None]
-    date_from = min(lowers).date() if len(lowers) == len(bounds) else None
+    lower = min(lowers) if len(lowers) == len(bounds) else None
     uppers = [item.upper for item in bounds if item.upper is not None]
-    date_to = max(uppers).date() if len(uppers) == len(bounds) else moment.date()
+    upper = max(uppers) if len(uppers) == len(bounds) else None
+    date_from = lower.date() if lower is not None else None
+    date_to = upper.date() if upper is not None else moment.date()
 
     reason: StartDateReason | None = None
     if worst.classification == "column":
@@ -152,6 +158,8 @@ def check_start_date(tree: ast.AST, *, has_filters_placeholder: bool = False) ->
         clause=worst.clause,
         date_from=date_from,
         date_to=date_to,
+        lower=lower,
+        upper=upper,
     )
 
 
@@ -305,7 +313,30 @@ def _end_of_interval(value: datetime | None, truncations: frozenset[str]) -> dat
     if len(truncations) > 1:
         return None
     name = next(iter(truncations))
-    return _truncate(name, value) + _TRUNCATION_PERIODS[name]
+    if name == "toStartOfWeek":
+        return _end_of_week(value)
+    start = _truncate(name, value)
+    return _shift(start, _TRUNCATION_PERIODS[name]) if start is not None else None
+
+
+def _end_of_week(value: datetime) -> datetime | None:
+    """The end of the week ``toStartOfWeek`` puts ``value`` in, under either week mode.
+
+    Which mode applies is the team's setting, and the evaluator cannot see it. The two modes start
+    the week on different days, so take the later of the two ends and let the range be too wide
+    rather than too narrow.
+    """
+    start_of_day = value.replace(hour=0, minute=0, second=0, microsecond=0)
+    days_into_week = min(value.weekday(), (value.weekday() + 1) % 7)
+    return _shift(start_of_day, timedelta(days=7 - days_into_week))
+
+
+def _shift(moment: datetime, amount: timedelta | relativedelta, *, sign: int = 1) -> datetime | None:
+    """``None`` for a shift that leaves the range ``datetime`` covers, which is an unknown bound."""
+    try:
+        return moment + amount * sign
+    except (OverflowError, ValueError):
+        return None
 
 
 def _evaluate(expr: ast.Expr, now: datetime) -> datetime | None:
@@ -347,7 +378,7 @@ def _evaluate(expr: ast.Expr, now: datetime) -> datetime | None:
         interval = _interval(interval_function, expr.args[1])
         if moment is None or interval is None:
             return None
-        return moment + interval * sign
+        return _shift(moment, interval, sign=sign)
     return None
 
 
@@ -368,7 +399,7 @@ def _evaluate_arithmetic(
         interval = _evaluate_interval(interval_side)
         if moment is None or interval is None:
             continue
-        return moment - interval if op == ast.ArithmeticOperationOp.Sub else moment + interval
+        return _shift(moment, interval, sign=-1 if op == ast.ArithmeticOperationOp.Sub else 1)
     return None
 
 
@@ -383,14 +414,18 @@ def _interval(interval_function: str, amount: ast.Expr) -> timedelta | relatived
     amount = strip_aliases(amount)
     if not isinstance(amount, ast.Constant) or not isinstance(amount.value, int):
         return None
-    if interval_function in _INTERVAL_UNITS_AS_DELTA:
-        return timedelta(**{_INTERVAL_UNITS_AS_DELTA[interval_function]: amount.value})
-    if interval_function in _INTERVAL_UNITS_AS_RELATIVE:
-        return relativedelta(months=_INTERVAL_UNITS_AS_RELATIVE[interval_function] * amount.value)
+    try:
+        if interval_function in _INTERVAL_UNITS_AS_DELTA:
+            return timedelta(**{_INTERVAL_UNITS_AS_DELTA[interval_function]: amount.value})
+        if interval_function in _INTERVAL_UNITS_AS_RELATIVE:
+            return relativedelta(months=_INTERVAL_UNITS_AS_RELATIVE[interval_function] * amount.value)
+    except (OverflowError, ValueError):
+        # An amount too large to hold leaves the bound unknown rather than failing the scan.
+        return None
     return None
 
 
-def _truncate(function_name: str, value: datetime) -> datetime:
+def _truncate(function_name: str, value: datetime) -> datetime | None:
     if function_name == "toStartOfMinute":
         return value.replace(second=0, microsecond=0)
     if function_name == "toStartOfHour":
@@ -398,9 +433,10 @@ def _truncate(function_name: str, value: datetime) -> datetime:
     if function_name in ("toDate", "toStartOfDay"):
         return value.replace(hour=0, minute=0, second=0, microsecond=0)
     if function_name == "toStartOfWeek":
-        # ClickHouse's default mode starts the week on Sunday.
+        # ClickHouse's default mode starts the week on Sunday, which is the earlier of the two
+        # starts the team's week mode can produce.
         start_of_day = value.replace(hour=0, minute=0, second=0, microsecond=0)
-        return start_of_day - timedelta(days=(value.weekday() + 1) % 7)
+        return _shift(start_of_day, timedelta(days=(value.weekday() + 1) % 7), sign=-1)
     if function_name == "toStartOfMonth":
         return value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     if function_name == "toStartOfQuarter":

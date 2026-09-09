@@ -25,6 +25,23 @@ from posthog.dataclasses import frozen
 # cycle. Give up instead of looping.
 _MAX_COLUMN_HOPS = 32
 
+# Join types whose ``ON`` condition constrains both sides, so a term in it prunes the read the
+# same way a ``where`` term does. An outer join keeps the rows that fail the condition, and an
+# anti join keeps only those, so neither prunes. The resolver marks a cross-shard join ``GLOBAL``,
+# which does not change this.
+_INNER_JOIN_TYPES = frozenset(
+    {
+        "JOIN",
+        "INNER",
+        "INNER JOIN",
+        "ANY INNER JOIN",
+        "ALL INNER JOIN",
+        "ASOF INNER JOIN",
+        "SEMI JOIN",
+        "ASOF SEMI JOIN",
+    }
+)
+
 
 @frozen(eq=False)
 class EventsRead:
@@ -41,7 +58,8 @@ def find_events_reads(node: ast.AST) -> list[EventsRead]:
 
 
 def collect_conditions(node: ast.AST, read: EventsRead) -> list[ast.Expr]:
-    """Top-level AND terms of every ``where`` and ``prewhere`` that constrains ``read``.
+    """Top-level AND terms of every ``where``, ``prewhere`` and inner-join ``ON`` that constrains
+    ``read``.
 
     A term from an enclosing query counts, because ClickHouse pushes a condition on a
     subquery's or a view's column down into the read. It stops counting where that push
@@ -181,6 +199,23 @@ def _slices_rows(select: ast.SelectQuery) -> bool:
     return select.limit is not None or select.offset is not None or select.limit_by is not None
 
 
+def _inner_join_terms(join: ast.JoinExpr | None) -> Iterator[ast.Expr]:
+    """Top-level AND terms of every inner-join ``ON`` condition in this select's join chain.
+
+    A ``USING`` list only pairs columns of the two tables, so it is left out.
+    """
+    while join is not None:
+        join_type = join.join_type or ""
+        constraint = join.constraint
+        if (
+            join_type.removeprefix("GLOBAL ") in _INNER_JOIN_TYPES
+            and constraint is not None
+            and constraint.constraint_type == "ON"
+        ):
+            yield from iter_and_terms(constraint.expr)
+        join = join.next_join
+
+
 def _events_table_type(join: ast.JoinExpr) -> ast.TableType | None:
     join_type = join.type
     if join_type is None:
@@ -221,6 +256,7 @@ class _ConditionCollector(TraversingVisitor):
             self._enclosing_select[id(node)] = self._stack[-1]
         self.terms.extend((node, term) for term in iter_and_terms(node.where))
         self.terms.extend((node, term) for term in iter_and_terms(node.prewhere))
+        self.terms.extend((node, term) for term in _inner_join_terms(node.select_from))
         self._stack.append(node)
         super().visit_select_query(node)
         self._stack.pop()

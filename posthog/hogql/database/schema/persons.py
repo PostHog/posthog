@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import And, CompareOperation, CompareOperationOp, Field, JoinExpr, SelectQuery
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
-from posthog.hogql.context import HogQLContext, PersonsSubquery
+from posthog.hogql.context import HogQLContext, PersonsSelectRecord
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.lazy_join_tags import PERSONS_PDI, PERSONS_REVENUE_ANALYTICS
 from posthog.hogql.database.models import (
@@ -102,13 +102,14 @@ def select_from_persons_table(
     node: SelectQuery,
     *,
     filter: Optional[Expr] = None,
+    joined: bool = False,
 ):
     # The subquery below is the same whether the query joins the persons table or reads straight
-    # from it, so record which one it is. The `person` lazy join on events asks for it through a
-    # LazyJoinToAdd; an explicit join puts another table next to the persons read.
-    from_join = isinstance(join_or_table, LazyJoinToAdd) or (
-        node.select_from is not None and node.select_from.next_join is not None
-    )
+    # from it, so record which one it is for the query scan checks. A caller that builds a join
+    # says so; an explicit join in the query puts another table next to the persons read.
+    is_joined = joined or (node.select_from is not None and node.select_from.next_join is not None)
+    # A filter reaches the subquery either as the `filter` argument or through a pushdown below.
+    is_filtered = filter is not None
     version = context.modifiers.personsArgMaxVersion
     if version == PersonsArgMaxVersion.AUTO:
         version = PersonsArgMaxVersion.V1
@@ -156,7 +157,7 @@ def select_from_persons_table(
             select.where = ast.CompareOperation(
                 left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
             )
-            context.persons_selects.append(PersonsSubquery(select=select, from_join=from_join))
+            context.persons_selects.append(PersonsSelectRecord(select=select, joined=is_joined, filtered=True))
             return select
 
     if version == PersonsArgMaxVersion.V2:
@@ -263,12 +264,11 @@ def select_from_persons_table(
         extractor = WhereClauseExtractor(context)
         extractor.add_local_tables(join_or_table)
         where = extractor.get_inner_where(node)
-        if where and select.where:
-            select.where = And(exprs=[select.where, where])
-        elif where:
-            select.where = where
+        if where:
+            is_filtered = True
+            select.where = And(exprs=[select.where, where]) if select.where else where
 
-    context.persons_selects.append(PersonsSubquery(select=select, from_join=from_join))
+    context.persons_selects.append(PersonsSelectRecord(select=select, joined=is_joined, filtered=is_filtered))
     return select
 
 
@@ -281,7 +281,7 @@ def join_with_persons_table(
 
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from persons table")
-    join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node))
+    join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node, joined=True))
 
     organization: Organization | None = context.team.organization if context.team else None
     if organization is None:

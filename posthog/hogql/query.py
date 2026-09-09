@@ -626,6 +626,11 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self, *, include_settings: bool = True):
+        # Every pass that resolves lazy tables appends its own persons subqueries here, and
+        # dataclasses.replace below shares the list by reference. The query scan checks read the
+        # ones this pass produced, so drop what an earlier pass or run left behind.
+        self.context.persons_selects.clear()
+
         settings = get_default_hogql_global_settings(self.team.pk, self.settings)
         if self.limit_context in (
             LimitContext.EXPORT,

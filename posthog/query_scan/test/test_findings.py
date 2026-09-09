@@ -5,16 +5,19 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.query_scan.analyze import analyze_settings
+from posthog.query_scan.explain import QueryPlan, parse_query_plan
 from posthog.query_scan.findings import (
     FindingKind,
     FindingReason,
     ScanMeasurements,
     ScanThresholds,
     build_warning,
+    explain_evidence,
     format_rows,
     passes_event_gate,
     passes_persons_gate,
 )
+from posthog.query_scan.test.test_explain import MIXED_PRUNING_PLAN, load_plan
 
 THRESHOLDS = ScanThresholds()
 
@@ -33,16 +36,49 @@ class TestFindings(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("well above the ratio", 3_000_000_000, 3_000_000_000, True),
-            ("exactly at the ratio", 100, 1000, True),
-            ("below the ratio: something else pruned the read", 99, 1000, False),
-            ("no count available", 3_000_000_000, None, False),
+            ("well above the ratio", 3_000_000_000, None, 3_000_000_000, True),
+            ("exactly at the ratio", 100, None, 1000, True),
+            ("below the ratio: something else pruned the read", 99, None, 1000, False),
+            ("no count available", 3_000_000_000, None, None, False),
+            ("no events in the range at all", 3_000_000_000, None, 0, False),
+            ("the events side alone is below the ratio", 3_000_000_000, 99, 1000, False),
         ]
     )
-    def test_event_gate(self, _name: str, rows_read: int, events_in_range: int | None, expected: bool) -> None:
-        measurements = ScanMeasurements(rows_read=rows_read, duration_ms=6000, events_in_range=events_in_range)
+    def test_event_gate(
+        self,
+        _name: str,
+        rows_read: int,
+        events_rows_read: int | None,
+        events_in_range: int | None,
+        expected: bool,
+    ) -> None:
+        measurements = ScanMeasurements(
+            rows_read=rows_read,
+            duration_ms=6000,
+            events_in_range=events_in_range,
+            events_rows_read=events_rows_read,
+        )
 
         self.assertEqual(passes_event_gate(measurements, THRESHOLDS), expected)
+
+    @parameterized.expand(
+        [
+            (
+                "the read that could not prune on event",
+                MIXED_PRUNING_PLAN,
+                "ClickHouse used the primary key columns team_id, toDate(timestamp) and kept "
+                "40,000 of 60,000 granules.",
+            ),
+            (
+                "the only read, when every read pruned",
+                parse_query_plan(load_plan("event_filter_usable")),
+                "ClickHouse used the primary key columns team_id, toDate(timestamp), event and kept "
+                "800 of 60,000 granules.",
+            ),
+        ]
+    )
+    def test_evidence_names_the_read_the_finding_is_about(self, _name: str, plan: QueryPlan, expected: str) -> None:
+        self.assertEqual(explain_evidence(plan), expected)
 
     @parameterized.expand(
         [
