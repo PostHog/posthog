@@ -43,18 +43,19 @@ class _Copy:
     fix: str
 
 
-_START_DATE_ADVICE = "If you only need recent data, add `timestamp >= now() - interval 30 day` or the range you need."
-
 _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
     (FindingKind.NO_EVENT_FILTER, None): _Copy(
-        lead="This query has no event filter, so it reads every event.",
+        lead=(
+            "Queries are fastest when they name a fixed set of events. This query has no event filter, so it "
+            "reads every event you have ever sent, which is slow."
+        ),
         advice="If the question is about specific events, add `WHERE event IN ('…')` naming them.",
         fix="Add an event filter naming the events this question is about. Change nothing else.",
     ),
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.IN_OR): _Copy(
         lead=(
-            "This query has an event filter, but it is inside an OR with another condition, so ClickHouse "
-            "could not use it."
+            "Queries are fastest when they name a fixed set of events. This query names events only inside an OR "
+            "with another condition, so that filter cannot be used and it still reads every event, which is slow."
         ),
         advice="Put the event filter outside the OR: `WHERE event IN ('…') AND (… OR …)`.",
         fix=(
@@ -65,8 +66,8 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
     ),
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.WRAPPED): _Copy(
         lead=(
-            "This query has an event filter, but the event column is wrapped in a function, so ClickHouse "
-            "could not use it."
+            "Queries are fastest when they compare `event` directly to fixed names. This query wraps `event` in a "
+            "function, so that filter cannot be used and it still reads every event, which is slow."
         ),
         advice="Compare `event` directly to the names.",
         fix=(
@@ -77,10 +78,10 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
     ),
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.NEGATED): _Copy(
         lead=(
-            "This query has an event filter, but it excludes events instead of naming them, so ClickHouse "
-            "could not use it."
+            "Queries are fastest when they name the events they want. This query only excludes events, so that "
+            "filter cannot be used and it still reads every event, which is slow."
         ),
-        advice="Name the events you want.",
+        advice="Name the events you want instead.",
         fix=(
             "If the events to keep can be named, replace the exclusion with a filter that names them, and "
             "change nothing else. If they cannot, leave the query as it is and explain that ClickHouse "
@@ -89,8 +90,8 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
     ),
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.DYNAMIC): _Copy(
         lead=(
-            "This query has an event filter, but it compares `event` to another column or a subquery, so "
-            "ClickHouse could not use it."
+            "Queries are fastest when they compare `event` to fixed names. This query compares `event` to another "
+            "column or a subquery, so that filter cannot be used and it still reads every event, which is slow."
         ),
         advice="Compare `event` to fixed names.",
         fix=(
@@ -100,29 +101,45 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
         ),
     ),
     (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.NOT_PRUNED): _Copy(
-        lead="This query has an event filter but ClickHouse did not use it.",
+        lead=(
+            "Queries are fastest when they compare `event` directly to fixed names. This query has an event "
+            "filter, but it could not be used, so it still read every event, which is slow."
+        ),
         advice="Compare `event` directly to fixed names, outside any OR.",
         fix="Compare `event` directly to fixed event names, outside any OR. Change nothing else.",
     ),
     (FindingKind.NO_START_DATE, None): _Copy(
-        lead="This query has no start date, so it reads all your data.",
-        advice=_START_DATE_ADVICE,
+        lead=(
+            "Queries are fastest when they start from a recent date. This query has no start date, so it reads "
+            "all your data back to the beginning, which is slow."
+        ),
+        advice="If you only need recent data, add `timestamp >= now() - interval 30 day` or the range you need.",
         fix=(
             "Add a start date on `timestamp`, for example `timestamp >= now() - interval 30 day`. Change nothing else."
         ),
     ),
     (FindingKind.NO_START_DATE, FindingReason.COLUMN): _Copy(
-        lead="This query's start date compares two columns, so ClickHouse cannot skip data with it.",
-        advice=_START_DATE_ADVICE,
+        lead=(
+            "Queries are fastest when they start from a fixed date. This query's start date comes from another "
+            "column, so older data cannot be skipped and it reads everything back to the beginning, which is "
+            "slow."
+        ),
+        advice="Compare `timestamp` to a fixed date, for example `timestamp >= now() - interval 30 day`.",
         fix="Compare `timestamp` to a fixed start date instead of another column. Change nothing else.",
     ),
     (FindingKind.NO_START_DATE, FindingReason.FILTERS): _Copy(
-        lead="No date range is set for this insight or dashboard, so this query reads all your data.",
+        lead=(
+            "Queries are fastest when they start from a recent date. No date range is set on this insight or "
+            "dashboard, so this query reads all your data back to the beginning, which is slow."
+        ),
         advice="Set a date range on the insight or the dashboard.",
         fix="Set a date range on the insight or the dashboard. The SQL does not need to change.",
     ),
     (FindingKind.PERSONS_JOIN, None): _Copy(
-        lead="This query joins the persons table, which reads every person on every run.",
+        lead=(
+            "Queries are fastest when they take person details from the events table. This query joins the "
+            "persons table, so every run reads every person in your project, which is slow."
+        ),
         advice="Read person properties from the events table instead, for example `person.properties.email`.",
         fix=(
             "Read person properties from the events table, for example `person.properties.email`, instead "
@@ -130,12 +147,18 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
         ),
     ),
     (FindingKind.ALL_EVENTS, None): _Copy(
-        lead="This insight looks at all events.",
+        lead=(
+            "Insights are fastest when they look at a fixed set of events. This insight looks at all events, so "
+            "it reads everything you have ever sent, which is slow."
+        ),
         advice="Pick specific events if the question is about some of them.",
         fix="Pick the events this insight is about instead of All events.",
     ),
     (FindingKind.ALL_TIME, None): _Copy(
-        lead="This insight has no start date, so it reads all your data.",
+        lead=(
+            "Insights are fastest when they start from a recent date. This insight has no start date, so it reads "
+            "all your data back to the beginning, which is slow."
+        ),
         advice="Set a date range if you only need recent data.",
         fix="Set a date range on the insight instead of All time.",
     ),

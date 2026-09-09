@@ -10,7 +10,8 @@ from posthog.schema import QueryScanWarning
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import print_prepared_ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 from posthog.query_scan.checks.event_filter import EventFilterClass, EventFilterReason, check_event_filter
@@ -74,7 +75,10 @@ def analyze(
     person_rows: int | None,
     has_filters_placeholder: bool,
     thresholds: ScanThresholds,
+    source: str | None = None,
 ) -> QueryScanResult:
+    """`source` is the HogQL the person typed, when there is one. Findings quote their clause from it."""
+    typed_spans = _typed_spans(source)
     start_date = check_start_date(prepared_tree, has_filters_placeholder=has_filters_placeholder)
     event_filter = check_event_filter(prepared_tree, plan)
     persons = check_persons_join(context)
@@ -106,7 +110,7 @@ def analyze(
                 kind=kind,
                 reason=reason,
                 measurements=measurements,
-                clause=_print_clause(event_filter.clause, context),
+                clause=_quote_clause(event_filter.clause, source, typed_spans),
                 evidence=explain_evidence(plan),
             )
         )
@@ -117,7 +121,7 @@ def analyze(
                 kind=FindingKind.NO_START_DATE,
                 reason=FindingReason(start_date.reason) if start_date.reason is not None else None,
                 measurements=measurements,
-                clause=_print_clause(start_date.clause, context),
+                clause=_quote_clause(start_date.clause, source, typed_spans),
             )
         )
 
@@ -169,15 +173,39 @@ def analyze_settings(
     )
 
 
-def _print_clause(clause: ast.Expr | None, context: HogQLContext) -> str | None:
-    """The offending condition printed back as HogQL, so the person can search for it.
+class _SpanCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.spans: set[tuple[int, int]] = set()
 
-    The tree is already lowered for ClickHouse, so a clause can hold a node the HogQL printer
-    rejects. The warning is still worth showing without it.
-    """
-    if clause is None:
-        return None
+    def visit(self, node: ast.AST | None) -> None:
+        if node is not None and node.start is not None and node.end is not None:
+            self.spans.add((node.start, node.end))
+        super().visit(node)
+
+
+def _typed_spans(source: str | None) -> frozenset[tuple[int, int]]:
+    """The source offsets of every node in the typed query, so a clause can be cut from it."""
+    if source is None:
+        return frozenset()
+    collector = _SpanCollector()
     try:
-        return print_prepared_ast(node=clause, context=context, dialect="hogql")
+        collector.visit(parse_select(source))
     except Exception:
+        return frozenset()
+    return frozenset(collector.spans)
+
+
+def _quote_clause(clause: ast.Expr | None, source: str | None, typed_spans: frozenset[tuple[int, int]]) -> str | None:
+    """The offending condition in the person's own words.
+
+    The checks run on the tree lowered for ClickHouse, and that tree printed back (`or(equals(…))`,
+    materialized column names) is not what the person typed. Nodes keep the offsets they were parsed
+    at, so the condition is cut from the typed query instead. A condition inlined from a saved view
+    carries the view's offsets, so only a span the typed query also has is quoted.
+    """
+    if clause is None or source is None or clause.start is None or clause.end is None:
         return None
+    if (clause.start, clause.end) not in typed_spans:
+        return None
+    return source[clause.start : clause.end].strip()

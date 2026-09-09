@@ -97,26 +97,38 @@ class TestFindings(SimpleTestCase):
             (
                 FindingKind.NO_EVENT_FILTER,
                 None,
-                "This query has no event filter, so it reads every event. If the question is about specific "
-                "events, add `WHERE event IN ('…')` naming them.",
+                (
+                    "Queries are fastest when they name a fixed set of events. This query has no event filter, so it "
+                    "reads every event you have ever sent, which is slow. If the question is about specific events, "
+                    "add `WHERE event IN ('…')` naming them."
+                ),
             ),
             (
                 FindingKind.EVENT_FILTER_NOT_USED,
                 FindingReason.IN_OR,
-                "This query has an event filter, but it is inside an OR with another condition, so ClickHouse "
-                "could not use it. Put the event filter outside the OR: `WHERE event IN ('…') AND (… OR …)`.",
+                (
+                    "Queries are fastest when they name a fixed set of events. This query names events only inside an "
+                    "OR with another condition, so that filter cannot be used and it still reads every event, which "
+                    "is slow. Put the event filter outside the OR: `WHERE event IN ('…') AND (… OR …)`."
+                ),
             ),
             (
                 FindingKind.NO_START_DATE,
                 None,
-                "This query has no start date, so it reads all your data. If you only need recent data, add "
-                "`timestamp >= now() - interval 30 day` or the range you need.",
+                (
+                    "Queries are fastest when they start from a recent date. This query has no start date, so it "
+                    "reads all your data back to the beginning, which is slow. If you only need recent data, add "
+                    "`timestamp >= now() - interval 30 day` or the range you need."
+                ),
             ),
             (
                 FindingKind.PERSONS_JOIN,
                 None,
-                "This query joins the persons table, which reads every person on every run. Read person "
-                "properties from the events table instead, for example `person.properties.email`.",
+                (
+                    "Queries are fastest when they take person details from the events table. This query joins the "
+                    "persons table, so every run reads every person in your project, which is slow. Read person "
+                    "properties from the events table instead, for example `person.properties.email`."
+                ),
             ),
         ]
     )

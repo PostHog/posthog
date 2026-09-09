@@ -583,7 +583,8 @@ class TestPersonsJoinCheck(QueryScanCheckTest):
 class TestAnalyze(QueryScanCheckTest):
     @freeze_time(NOW)
     def test_an_unfiltered_scan_reports_both_findings_with_the_offending_clause(self) -> None:
-        tree, context = self.prepare("SELECT count() FROM events WHERE properties.plan = 'pro' OR event = 'upgrade'")
+        sql = "SELECT count() FROM events WHERE properties.plan = 'pro' OR event = 'upgrade'"
+        tree, context = self.prepare(sql)
 
         result = analyze(
             tree,
@@ -595,13 +596,35 @@ class TestAnalyze(QueryScanCheckTest):
             person_rows=None,
             has_filters_placeholder=False,
             thresholds=ScanThresholds(),
+            source=sql,
         )
 
         self.assertEqual(result.finding_kinds(), ["event_filter_not_used", "no_start_date"])
         self.assertEqual(result.event_filter_class, "not_used")
         self.assertEqual(result.event_filter_reason, "in_or")
         self.assertEqual(result.start_date_class, "none")
-        self.assertIn("event", result.findings[0].clause or "")
+        self.assertEqual(result.findings[0].clause, "properties.plan = 'pro' OR event = 'upgrade'")
+
+    @freeze_time(NOW)
+    def test_a_clause_is_quoted_only_from_the_query_the_person_typed(self) -> None:
+        tree, context = self.prepare("SELECT count() FROM events WHERE properties.plan = 'pro' OR event = 'upgrade'")
+
+        # The SQL of an inlined saved view carries the view's offsets, not the typed query's.
+        result = analyze(
+            tree,
+            context,
+            plan=None,
+            rows_read=8_400_000_000,
+            duration_ms=19_000,
+            events_in_range=8_400_000_000,
+            person_rows=None,
+            has_filters_placeholder=False,
+            thresholds=ScanThresholds(),
+            source="SELECT count() FROM my_view",
+        )
+
+        self.assertEqual(result.finding_kinds(), ["event_filter_not_used", "no_start_date"])
+        self.assertIsNone(result.findings[0].clause)
 
     @freeze_time(NOW)
     def test_a_filtered_and_bounded_query_stays_quiet(self) -> None:
