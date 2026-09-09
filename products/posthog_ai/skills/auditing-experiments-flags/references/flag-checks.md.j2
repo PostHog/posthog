@@ -1,7 +1,8 @@
 {%- set c = audit_constants() -%}
 # Feature flag checks
 
-Run these checks against each flag fetched via `feature-flag-get-definition` or `feature-flag-get-all`.
+Run these checks against each flag fetched via `feature-flag-get-definition`.
+`feature-flag-get-all` returns a thin summary that omits the fields below, so it resolves IDs only.
 
 ---
 
@@ -29,14 +30,20 @@ Detects active boolean flags that are effectively permanent and can be removed f
 
 Detects flags that were created but never activated.
 
-**Look at**: `active`, `created_at`, activity logs (if available)
+**Look at**: `active`, `created_at`, `experiment_set`, activity logs (if available)
 
 **Findings**:
 
-- **Stale draft flag**: `active` is false, flag is more than {{ c.staleness_days }} days old (based on `created_at`), and activity logs confirm it was never activated.
+- **Stale draft flag**: `active` is false, `experiment_set` is empty, flag is more than {{ c.staleness_days }} days old (based on `created_at`), and activity logs confirm it was never activated.
   - Severity: INFO · Category: Cleanup
   - Report: "This flag has been inactive for N days and was never activated."
   - Action: Delete the flag if it's no longer needed, or activate it.
+
+  **Note**: Skip this finding when `experiment_set` is not empty.
+  An experiment keeps its flag inactive until launch, so an inactive flag linked to a draft experiment is the expected state, not a stale draft.
+  Report the experiment through the experiment lifecycle check instead, and recommend no direct flag change.
+  Deleting the flag leaves the experiment pointing at a deleted flag, which the experiment audit reports as CRITICAL.
+  Activating it buckets users into variants before the experiment starts.
 
   **Note**: The "never activated" check requires activity logs. If activity logs are unavailable, skip this sub-check and only report based on the flag being inactive and old:
   - Report: "This flag has been inactive for N days. Could not verify whether it was ever activated (activity logs unavailable)."
@@ -48,13 +55,17 @@ Detects flags that were created but never activated.
 Detects flags whose linked experiments are all done.
 
 **Look at**: `experiment_set` (list of linked experiment IDs), and for each experiment, check its `end_date` and `archived` status via `experiment-get`.
+Also read `surveys`, `features`, and `is_used_in_replay_settings`, which name the flag's other consumers.
 
 **Findings**:
 
-- **Orphaned experiment flag**: Flag is `active: true`, has entries in `experiment_set`, and ALL linked experiments have `end_date` set (completed) or `archived: true`.
+- **Orphaned experiment flag**: Flag is `active: true`, has entries in `experiment_set`, ALL linked experiments have `end_date` set (completed) or `archived: true`, and the flag has no other consumer: `surveys` and `features` are empty and `is_used_in_replay_settings` is false.
   - Severity: INFO · Category: Cleanup
   - Report: "This flag's linked experiments are all completed or archived. The flag is no longer serving an active experiment."
   - Action: Roll out the winning variant at 100% and remove the flag from code, or disable the flag.
+
+  **Note**: Where another consumer remains, report that consumer and recommend no rollout or disable.
+  Neither action checks these consumers, so both silently stop a linked survey, an early access feature, or session replay gating, and the user gets no error to trace it back to.
 
 ---
 
@@ -81,11 +92,6 @@ Checks multivariate flag rollout percentages for correctness.
   - Report: "A release condition has 0% rollout and is not serving any traffic."
   - Action: Either increase the rollout or remove the condition.
 
-- **Manual rollout on experiment flag**: A flag with entries in `experiment_set` has release conditions where `rollout_percentage` is not the expected even split. This suggests someone manually adjusted the rollout outside the experiment.
-  - Severity: INFO · Category: Process
-  - Report: "This experiment flag has manual rollout overrides that differ from the experiment's expected split."
-  - Action: Remove manual overrides and let the experiment control the variant split.
-
 ---
 
 ## 5. Lifecycle
@@ -94,6 +100,11 @@ Checks for flags with unstable or high-churn configurations.
 **These checks require activity logs. If unavailable, skip and note it.**
 
 **Look at**: Activity log entries for the flag, `created_at`
+
+The activity endpoint returns the 10 newest entries per page, ordered newest first.
+Page it with `limit` and `page` until `next` is null, because both findings below measure the flag's whole history.
+One unpaginated call reads 10 entries, so the churn threshold of 20 is never met and a toggle older than the 10 newest is never counted.
+Report the lifecycle checks as partial if a page fails.
 
 **Findings**:
 

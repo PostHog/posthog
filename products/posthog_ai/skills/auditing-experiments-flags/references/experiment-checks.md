@@ -1,6 +1,7 @@
 # Experiment checks
 
-Run these checks against each experiment fetched via `experiment-get` or `experiment-list`.
+Run these checks against each experiment fetched via `experiment-get`.
+`experiment-list` returns a thin summary that omits the fields below, so it resolves IDs only.
 
 For each check, the "Look at" section tells you which fields to inspect on the experiment object.
 The "Findings" section lists what to report and at what severity.
@@ -11,16 +12,20 @@ The "Findings" section lists what to report and at what severity.
 
 Verifies the experiment has a valid primary metric configuration.
 
-**Look at**: `metrics`, `metrics_secondary`
+**Look at**: `metrics`, `metrics_secondary`, `saved_metrics`
+
+Shared metrics arrive in `saved_metrics`, classified by each entry's `metadata.type`.
+An entry counts as primary when `metadata.type` is `primary` or absent, and as secondary otherwise.
+Count these alongside the inline metrics.
 
 **Findings**:
 
-- **No metrics at all**: Both `metrics` and `metrics_secondary` are empty or missing.
+- **No metrics at all**: `metrics`, `metrics_secondary`, and `saved_metrics` are all empty or missing.
   - Severity: CRITICAL · Category: Correctness
   - Report: "This experiment has no metrics configured. Results cannot be measured."
   - Action: Add at least one primary metric before launching.
 
-- **Secondary metrics only**: `metrics` is empty but `metrics_secondary` has entries.
+- **Secondary metrics only**: The experiment has no primary metric (`metrics` is empty and no `saved_metrics` entry counts as primary) but does have a secondary one, in `metrics_secondary` or in a `saved_metrics` entry that counts as secondary.
   - Severity: WARNING · Category: Process
   - Report: "This experiment has secondary metrics but no primary metric. There is no primary success criterion."
   - Action: Promote one secondary metric to primary or add a new primary metric.
@@ -31,7 +36,8 @@ Verifies the experiment has a valid primary metric configuration.
 
 Verifies the experiment's linked feature flag is valid and correctly configured.
 
-**Look at**: `feature_flag` (the linked flag object or ID), and fetch the flag via `feature-flag-get-definition` if only an ID is available.
+**Look at**: `feature_flag` (the linked flag object or ID), `start_date`, `end_date`, `status`.
+Fetch the flag via `feature-flag-get-definition` if only an ID is available.
 
 **Findings**:
 
@@ -40,50 +46,32 @@ Verifies the experiment's linked feature flag is valid and correctly configured.
   - Report: "This experiment has no linked feature flag. Traffic cannot be split."
   - Action: Create and link a feature flag.
 
-- **Inactive flag**: The linked flag exists but `active` is false.
+- **Paused mid-run**: The experiment is running (`start_date` is set and `end_date` is null) but the linked flag has `active` false.
+  Prefer the experiment's own `status` field when the payload carries it: this is the `paused` value.
   - Severity: WARNING · Category: Correctness
-  - Report: "The linked feature flag is inactive (paused). Traffic is not being split."
-  - Action: Re-enable the flag or end the experiment.
+  - Report: "This experiment is running but its linked feature flag is inactive, so traffic is not being split."
+  - Action: Re-enable the flag to resume, or end the experiment.
 
 - **Deleted flag**: The linked flag has `deleted` set to true.
   - Severity: CRITICAL · Category: Correctness
   - Report: "The linked feature flag has been deleted."
   - Action: Create a new flag and re-link it, or archive the experiment.
 
-- **Uneven variant split**: The linked flag's variant rollout percentages differ from the experiment's expected split by more than 5 percentage points.
-  Compare the flag's `filters.multivariate.variants` rollout percentages to the experiment's `parameters.feature_flag_variants`.
-  - Severity: WARNING · Category: Correctness
-  - Report: "Variant rollout percentages on the flag don't match the experiment's expected split."
-  - Action: Adjust the flag's variant percentages to match the experiment configuration.
+Note: An inactive flag on its own is not a finding, so do not report one without the running check above.
+The product creates the linked flag inactive for every draft and activates it at launch, and archiving an experiment can disable its flag on purpose.
+Both states are correct, and a stale draft is already reported by check 3.
 
-- **Variant mismatch**: The variant keys in the experiment's `parameters.feature_flag_variants` don't match the variant keys in the flag's `filters.multivariate.variants`.
-  - Severity: CRITICAL · Category: Correctness
-  - Report: "Variant keys differ between the experiment and its linked flag."
-  - Action: Align variant keys between the experiment and its flag.
+Note: Do not compare the experiment's `parameters.feature_flag_variants` with the flag's `filters.multivariate.variants`.
+The API builds the first from the second on every read, so the two always agree and the comparison reports nothing.
+Variant and rollout changes are detected from the activity log in check 7.
 
----
-
-## 3. State consistency
-
-Checks for contradictions between an experiment's conclusion and its current flag state.
-
-**Look at**: `end_date` (non-null means concluded), `archived`, `parameters.recommended_variant`, and the linked flag's active state and variant configuration.
-
-**Findings**:
-
-- **Conclusion contradicts shipped variant**: The experiment concluded with a recommended variant (in `parameters.recommended_variant`), but the flag is rolled out to a _different_ variant at 100%.
-  - Severity: WARNING · Category: Correctness
-  - Report: "The experiment concluded recommending variant 'X' but the flag is rolled out to variant 'Y'."
-  - Action: Review and align the flag's rollout with the experiment conclusion.
-
-- **Concluded but still splitting**: The experiment has an `end_date` (it's concluded) but the linked flag still has multiple variants with non-zero rollout (traffic is still being split).
-  - Severity: WARNING · Category: Waste
-  - Report: "This experiment has concluded but its flag is still splitting traffic between variants."
-  - Action: Roll out the winning variant or disable the flag.
+Note: The experiment records `conclusion` as a status only (won, lost, inconclusive, stopped_early, or invalid) and never records which variant it recommends.
+An `end_date` also does not imply a conclusion, because ending an experiment can leave `conclusion` null.
+So there is no intended variant to compare the flag's rollout against.
 
 ---
 
-## 4. Lifecycle
+## 3. Lifecycle
 
 Checks for experiments stuck in unproductive states.
 
@@ -103,7 +91,7 @@ Checks for experiments stuck in unproductive states.
 
 ---
 
-## 5. Stopped with active flag
+## 4. Stopped with active flag
 
 Checks for experiments that have ended but whose flags are still active and splitting.
 
@@ -116,12 +104,9 @@ Checks for experiments that have ended but whose flags are still active and spli
   - Report: "This experiment ended on [date] but its flag is still actively splitting traffic."
   - Action: Roll out the winning variant at 100% or disable the flag.
 
-Note: This is related to but distinct from "concluded but still splitting" in check 3.
-Check 3 focuses on the contradiction with the conclusion; this check focuses on the resource waste of an ended experiment still consuming flag evaluations.
-
 ---
 
-## 6. Minimum duration
+## 5. Minimum duration
 
 Checks whether a running experiment has collected enough data.
 
@@ -141,7 +126,7 @@ Checks whether a running experiment has collected enough data.
 
 ---
 
-## 7. Stats config
+## 6. Stats config
 
 Checks for unusual statistical configuration.
 
@@ -156,12 +141,17 @@ Checks for unusual statistical configuration.
 
 ---
 
-## 8. Activity history
+## 7. Activity history
 
 Checks for flag modifications that may have affected experiment integrity.
 **These checks require activity logs. If activity logs are not available, skip this entire check and note it was skipped.**
 
 **Look at**: Activity log entries for the linked feature flag, filtered by the experiment's run period (`start_date` to `end_date` or today).
+
+The activity endpoint returns the 10 newest entries per page, ordered newest first.
+Page it with `limit` and `page` until `next` is null, or until the oldest entry you read predates the experiment's run period.
+One unpaginated call reads only the 10 newest entries, so it can miss every in-window change on a flag that was modified after the experiment ended.
+Report the activity checks as partial if a page fails.
 
 **Findings**:
 
