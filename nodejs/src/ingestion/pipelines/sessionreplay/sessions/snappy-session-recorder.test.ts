@@ -1215,7 +1215,12 @@ describe('SnappySessionRecorder', () => {
                 windowId: 'w2',
                 events: [
                     { ts: t, flags: 16 },
-                    { ts: t, flags: 0, jsonLd: { rootTypes: ['Product'], fullSnapshotTimestamp: t } },
+                    {
+                        ts: t,
+                        flags: 0,
+                        href: 'https://example.com/[redacted]',
+                        jsonLd: { rootTypes: ['Product'], fullSnapshotTimestamp: t },
+                    },
                 ],
             },
         ]
@@ -1243,6 +1248,7 @@ describe('SnappySessionRecorder', () => {
                 eventIndex: 2,
                 rootTypes: ['Product'],
                 fullSnapshotTimestamp: t,
+                url: 'https://example.com/[redacted]',
             },
         ])
     })

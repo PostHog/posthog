@@ -23,7 +23,7 @@ Timestamps use doubles so fractional milliseconds survive an exact join.
 Window IDs match the IDs in the scrubbed recording lines.
 The index contains no DOM nodes or JSON-LD payload text.
 
-A `json_ld` row contains an optional `full_snapshot_ts_ms` reference and up to 64 distinct root types.
+A `json_ld` row contains an optional `full_snapshot_ts_ms` reference, an optional `url`, and up to 64 distinct root types.
 Types come from root objects, root arrays, and `@graph` members.
 Nested entity properties, such as a product's offers, do not contribute types.
 The types help select candidates; read the payload before deciding which label to use.
@@ -70,14 +70,19 @@ Out-of-order arrivals need no ingestion-side session cache: a later query can jo
 
 ## Domain and page coverage
 
-Use the latest preceding `page` event in the same team, session, and window as provisional URL context.
-Page entries are independent rows because a URL change and a snapshot can arrive in separate payloads.
-Check that context when fetching the recording; missing navigation events or truncated index blocks can leave it incomplete.
+Use the `url` on each `json_ld` row for site and page coverage.
+The SDK captures it in `data.href` at the same time as the label, after applying replay URL masking and hash settings.
+The anonymizer scrubs it again before extracting index metadata.
+This works when navigation events and JSON-LD arrive in separate payloads and needs no session URL cache.
 
-URLs come from the anonymizer's post-scrub metadata.
-Their hostnames permit site grouping, but redacted paths can merge distinct pages.
-Report unique scrubbed URLs as a lower bound on page diversity.
-Exact page counts need a separately reviewed fingerprint of the original page identity.
+Exclude rows without a usable URL from coverage counts and dataset selection.
+Older SDKs do not send this field; URL masking can also omit it.
+The index retains those rows, but coverage queries do not infer their URLs from `page` events.
+JSON-LD events with a URL do not also create a `page` index row.
+
+Count distinct normalized scrubbed URLs as page families.
+Scrubbing can group similar paths, which helps deduplicate similar pages.
+These counts do not measure distinct DOM structures.
 For domain-disjoint datasets, normalize hostnames to registrable domains with a public suffix list before assigning train, dev, and test groups.
 
 ## Delivery and limits
@@ -100,3 +105,9 @@ The consumer can deploy before the producer because index metadata is optional.
 Deploy the consumer first: an older consumer accepts new metadata but does not write the index.
 Confirm that the sink's S3 permissions and bucket lifecycle policy cover the new sibling prefix before rollout.
 This change does not backfill old recordings.
+
+## JSON-LD URL rollout
+
+Deploy the anonymizer and mirror changes that scrub and index `data.href` before releasing the SDK change that sends it.
+The existing index schema already accepts the optional URL column, so this addition needs no metadata-consumer rollout.
+Existing events without `data.href` remain readable and do not contribute to URL-based coverage.

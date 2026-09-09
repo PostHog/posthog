@@ -220,9 +220,13 @@ export class SnappySessionRecorder {
                     this.appendReplayIndexEntry({ ...common, kind: 'full_snapshot' })
                 }
                 if (event.jsonLd) {
-                    this.appendReplayIndexEntry({ ...common, kind: 'json_ld', ...event.jsonLd })
-                }
-                if (event.href) {
+                    this.appendReplayIndexEntry({
+                        ...common,
+                        kind: 'json_ld',
+                        ...event.jsonLd,
+                        url: event.href?.slice(0, MAX_URL_LENGTH),
+                    })
+                } else if (event.href) {
                     this.appendReplayIndexEntry({ ...common, kind: 'page', url: event.href.slice(0, MAX_URL_LENGTH) })
                 }
             }

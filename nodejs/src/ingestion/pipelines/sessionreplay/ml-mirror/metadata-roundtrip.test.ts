@@ -38,6 +38,7 @@ const block = (sessionId: string, teamId: number, distinctId: string): SessionBl
             eventIndex: 1,
             fullSnapshotTimestamp: 1_700_000_000_001.5,
             rootTypes: ['Product'],
+            url: 'https://example.com/[redacted]',
         },
     ],
 })
@@ -102,6 +103,7 @@ describe('ML metadata producer → sink round-trip', () => {
             event_index: 1,
             full_snapshot_ts_ms: 1_700_000_000_001.5,
             root_types: ['Product'],
+            url: 'https://example.com/[redacted]',
         })
         const rows = await readRows(puts.find((put) => put.Key!.startsWith('block-metadata/dt='))!.Body)
         expect(rows).toHaveLength(2)
