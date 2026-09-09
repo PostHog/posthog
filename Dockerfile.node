@@ -41,7 +41,12 @@ WORKDIR /code
 COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY ./bin/turbo ./bin/turbo
 COPY ./patches ./patches
-COPY ./rust ./rust
+# Manifests for the two rust workspace packages nodejs depends on, so the
+# frozen-lockfile install below can resolve them. The full rust source is
+# copied later, after the install, so a rust change no longer busts this
+# expensive install layer.
+COPY ./rust/common/hogvm/node/package.json ./rust/common/hogvm/node/
+COPY ./rust/replay-anonymizer-node/package.json ./rust/replay-anonymizer-node/
 COPY ./common/esbuilder/ ./common/esbuilder/
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
@@ -61,6 +66,17 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
+# Full rust source: turbo compiles the two rust napi addons nodejs depends on.
+# Kept below the pnpm install so rust changes only re-run the builds, not the install,
+# and above the node source copies so a node change no longer re-runs these cargo builds.
+COPY ./rust ./rust
+
+# Build the rust hogvm napi addon (shadow execution of transformations)
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/hogvm-node build
+
+# Build the session-replay anonymizer native addon
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/replay-anonymizer build
+
 # Build the nodejs services
 COPY ./nodejs/src/ ./nodejs/src/
 COPY ./nodejs/tests/ ./nodejs/tests/
@@ -70,12 +86,6 @@ COPY ./common/replay-shared/src/ ./common/replay-shared/src/
 COPY ./common/replay-shared/tsconfig.json ./common/replay-shared/
 COPY ./common/replay-headless/src/ ./common/replay-headless/src/
 COPY ./common/replay-headless/build.mjs ./common/replay-headless/
-
-# Build the rust hogvm napi addon (shadow execution of transformations)
-RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/hogvm-node build
-
-# Build the session-replay anonymizer native addon
-RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/replay-anonymizer build
 
 # Build replay-headless (dependency of nodejs rasterizer code)
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/replay-headless build
