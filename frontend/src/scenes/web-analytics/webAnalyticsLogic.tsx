@@ -3125,6 +3125,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     urlParams.set('date_from', dateFrom ?? '')
                     urlParams.set('date_to', dateTo ?? '')
                     urlParams.set('interval', interval ?? '')
+                } else {
+                    urlParams.delete('date_from')
+                    urlParams.delete('date_to')
+                    urlParams.delete('interval')
                 }
                 return `/web/bots${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             } else if (productTab === ProductTab.PAGE_PERFORMANCE) {
@@ -3219,6 +3223,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('date_from', dateFrom ?? '')
                 urlParams.set('date_to', dateTo ?? '')
                 urlParams.set('interval', interval ?? '')
+            } else {
+                // Delete these params when the state is at its defaults. `urlParams` starts from the
+                // live URL, so a param left behind keeps an earlier value, which `urlToAction` reads
+                // back and applies over the user's current selection.
+                urlParams.delete('date_from')
+                urlParams.delete('date_to')
+                urlParams.delete('interval')
             }
             if (_deviceTab) {
                 urlParams.set('device_tab', _deviceTab)
