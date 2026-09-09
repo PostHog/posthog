@@ -2,11 +2,12 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.core.cache import cache
-from django.db import OperationalError
+from django.db import OperationalError, ProgrammingError
 from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+import psycopg.errors
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
@@ -640,6 +641,14 @@ def prune_expired_scratchpad_entries_task() -> None:
         deleted = prune_expired_scratchpad_entries()
     except SoftTimeLimitExceeded:
         raise
+    except ProgrammingError as exc:
+        # The `expires_at` column arrives with a migration. A database that has not applied it yet
+        # catches up on its own, and tomorrow's sweep does the work, so don't page on it.
+        if isinstance(exc.__cause__, psycopg.errors.UndefinedTable | psycopg.errors.UndefinedColumn):
+            logger.warning("signals_scout.scratchpad_prune_missing_schema", error=str(exc))
+        else:
+            capture_exception(exc)
+            logger.exception("signals_scout.scratchpad_prune_failed")
     except OperationalError as exc:
         # A transient DB blip self-heals — the sweep runs again tomorrow — so don't page on it.
         logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
