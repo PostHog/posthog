@@ -106,6 +106,7 @@ import {
     isFormattingToolbarFocused,
     isNativeEditableElement,
     isSelectionInsideElement,
+    notebookOwnsFocus,
     rangeIntersectsNode,
     restoreSelection,
     restoreTextSelectionRanges,
@@ -1085,11 +1086,12 @@ function MarkdownNotebookEditor({
         if (restoreSelectionRequest) {
             // Map the caret through the incoming change so it stays at the same place in
             // the text, not at the same numeric offset.
-            restoreSelectionRef.current = mapRestoreSelectionThroughDocumentChange(
+            const mappedRequest = mapRestoreSelectionThroughDocumentChange(
                 restoreSelectionRequest,
                 previousDocument,
                 reconciledDocument
             )
+            restoreSelectionRef.current = mappedRequest && { ...mappedRequest, preserveViewport: true }
         }
         setDebugMarkdown(value)
         // The base is intentionally left untouched: an external `value` change is a local-side
@@ -1103,6 +1105,11 @@ function MarkdownNotebookEditor({
         const request = restoreSelectionRef.current
         if (request) {
             restoreSelectionRef.current = null
+            if (request.preserveViewport && !notebookOwnsFocus(notebookRef.current)) {
+                // The person is reading, not editing: a collaborator's merge must not take
+                // focus back or move the caret they never placed.
+                return
+            }
             if ('textRanges' in request) {
                 restoreTextSelectionRanges(request.textRanges, blockRefs.current, listItemRefs.current)
                 return
@@ -1121,9 +1128,11 @@ function MarkdownNotebookEditor({
                             ? undefined
                             : listItemRefs.current[getListItemRefKey(request.nodeId, request.listItemIndex)]))
             if (element) {
-                element.focus()
+                element.focus({ preventScroll: request.preserveViewport })
                 restoreSelection(element, request.start, request.end)
-                scrollNotebookElementIntoView(element)
+                if (!request.preserveViewport) {
+                    scrollNotebookElementIntoView(element)
+                }
             }
             return
         }
@@ -1314,7 +1323,7 @@ function MarkdownNotebookEditor({
                     previousDocument,
                     reconciledDocument
                 )
-                restoreSelectionRef.current = mappedRequest
+                restoreSelectionRef.current = mappedRequest && { ...mappedRequest, preserveViewport: true }
                 // Re-publish the corrected caret right away, so collaborators see this
                 // client's caret at its mapped position instead of the stale offset.
                 if (mappedRequest && 'nodeId' in mappedRequest) {
