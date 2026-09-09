@@ -1074,6 +1074,9 @@ owners:
     owners:who:
         click: posthog_owners.cli:cmd_who
         description: Show who owns a single path (owners, status, slack, source)
+    owners:tables:
+        cmd: python manage.py generate_table_owners
+        description: Regenerate rust/pgcollector/ownership/table_owners.json (Postgres table -> owning team); --report lists unowned tables
     owners:census:
         click: posthog_owners.cli:cmd_census
         description: Count test files per owning team (optional PREFIX; --json for machine output)
