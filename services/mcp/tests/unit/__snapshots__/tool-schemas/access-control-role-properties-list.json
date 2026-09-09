@@ -8,7 +8,7 @@
             "type": "number"
         },
         "role_id": {
-            "description": "The role id, as `role_id` in access-control-roles-list or roles-list.",
+            "description": "The role id, as `role_id` in access-control-roles-list or an entry of `role_ids` in access-control-members-list.",
             "type": "string"
         }
     },

@@ -230,6 +230,8 @@ export interface AccessControlMemberAccessApi {
      * * `8` - administrator
      * * `15` - owner */
     organization_level: OrganizationMembershipLevelEnumApi
+    /** The roles the member is in. Use them as `role_id` on the role rule endpoints. */
+    role_ids: string[]
     /** Access to the project itself. */
     project: SubjectAccessEntryApi
     /** Access per resource type, keyed by resource name (for example `dashboard`, `feature_flag`). */

@@ -96,8 +96,8 @@ tools:
             own rules are returned. An empty list means the member has no object rules of their own. Their tool-level
             access still applies.
         agent_note: >
-            The member's tool-level access is on access-control-members-list. Object rules from the member's roles are
-            on access-control-role-objects-list, one call per role from role-members-list.
+            The member's tool-level access and their `role_ids` are on access-control-members-list. Object rules from
+            the member's roles are on access-control-role-objects-list, one call per role id.
         param_overrides:
             id:
                 description: |
@@ -123,8 +123,9 @@ tools:
             only read (`read`), or can read and write (`read_write`). Every property is `read_write` unless a rule says
             otherwise. Only the member's own rules are returned.
         agent_note: >
-            Property rules from the member's roles are on access-control-role-properties-list, one call per role from
-            role-members-list. Rules for everyone in the project are on access-control-default-properties-list.
+            Property rules from the member's roles are on access-control-role-properties-list, one call per id in the
+            member's `role_ids` from access-control-members-list. Rules for everyone in the project are on
+            access-control-default-properties-list.
         param_overrides:
             id:
                 description: |
@@ -195,7 +196,8 @@ tools:
                 fallback: projectId
             role_id:
                 description: |
-                    The role id, as `role_id` in access-control-roles-list or roles-list.
+                    The role id, as `role_id` in access-control-roles-list or an entry of `role_ids` in
+                    access-control-members-list.
     access-control-role-properties-list:
         operation: organizations_projects_access_control_role_properties_retrieve
         enabled: true
@@ -218,7 +220,8 @@ tools:
                 fallback: projectId
             role_id:
                 description: |
-                    The role id, as `role_id` in access-control-roles-list or roles-list.
+                    The role id, as `role_id` in access-control-roles-list or an entry of `role_ids` in
+                    access-control-members-list.
     access-control-roles-list:
         operation: organizations_projects_access_control_roles_retrieve
         enabled: true
@@ -238,7 +241,8 @@ tools:
         agent_note: >
             A member's enforced level already includes their roles, so for a person use access-control-members-list. For
             a role's rules on one object or property, call access-control-role-objects-list or
-            access-control-role-properties-list. roles-list gives role ids and role-members-list gives who is in a role.
+            access-control-role-properties-list. A member's roles are `role_ids` on access-control-members-list, and
+            role-members-list gives who is in a role.
         param_overrides:
             id:
                 description: |

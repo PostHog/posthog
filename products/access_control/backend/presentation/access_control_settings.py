@@ -386,6 +386,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                         "email": user.email,
                     },
                     "organization_level": member.level,
+                    "role_ids": role_ids,
                     "project": _project_entry(subject, team),
                     "resources": {
                         resource: _resource_entry(subject, resource) for resource in ACCESS_CONTROL_RESOURCES

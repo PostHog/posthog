@@ -75,7 +75,7 @@ Not for changing rules. The read tools cannot write, and the settings page is wh
 | `posthog:access-control-default-objects-list`     | The object rules that apply to everyone in the project.                                          |
 | `posthog:access-control-default-properties-list`  | The property rules that apply to everyone in the project.                                        |
 | `posthog:org-members-list`                        | Membership ids, names and organization levels. No project access details.                        |
-| `posthog:roles-list`, `posthog:role-members-list` | Role ids, and who is in a role.                                                                  |
+| `posthog:roles-list`, `posthog:role-members-list` | Role names by id, and who is in a role.                                                          |
 
 All access control tools take an optional project id and default to the active project.
 
@@ -93,9 +93,9 @@ All access control tools take an optional project id and default to the active p
    member see `email`?" cannot be answered from the tool level alone. The member tools return only the
    rules set for that member. A role can set a rule on the same object or property, and the default lists
    hold the rules for everyone in the project. So call `member-objects-list`, `default-objects-list`, and
-   `role-objects-list` for each of the member's roles from `role-members-list`. Properties work the same
-   way with the properties tools. This fans out. Tell the user how many roles you would walk and ask before
-   doing it for an organization with many roles.
+   `role-objects-list` for each id in the member's `role_ids` from `members-list`. Properties work the
+   same way with the properties tools. Tell the user how many roles you would walk and ask before doing it
+   for a member in many roles.
 5. **No rule on the object or property** means the tool-level answer from step 2 applies.
 6. **"Who can ..." questions** are `members-list` without `member_id`, filtered on
    `resources.<tool>.effective_access_level`. The response is every member times every tool and has no

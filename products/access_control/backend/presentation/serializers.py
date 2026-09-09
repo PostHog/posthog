@@ -168,6 +168,10 @@ class AccessControlMemberAccessSerializer(serializers.Serializer):
         choices=OrganizationMembership.Level.choices,
         help_text="The member's organization level: 1 member, 8 admin, 15 owner. Admins and owners have full access to everything.",
     )
+    role_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="The roles the member is in. Use them as `role_id` on the role rule endpoints.",
+    )
     project = SubjectAccessEntrySerializer(help_text="Access to the project itself.")
     resources = serializers.DictField(
         child=SubjectAccessEntrySerializer(),

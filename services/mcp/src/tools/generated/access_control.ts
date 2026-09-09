@@ -144,7 +144,7 @@ const accessControlMemberObjectsList = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, '/settings/environment-access-control'),
-            "The member's tool-level access is on access-control-members-list. Object rules from the member's roles are on access-control-role-objects-list, one call per role from role-members-list.\n"
+            "The member's tool-level access and their `role_ids` are on access-control-members-list. Object rules from the member's roles are on access-control-role-objects-list, one call per role id.\n"
         )
     },
 })
@@ -189,7 +189,7 @@ const accessControlMemberPropertiesList = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, '/settings/environment-access-control'),
-            "Property rules from the member's roles are on access-control-role-properties-list, one call per role from role-members-list. Rules for everyone in the project are on access-control-default-properties-list.\n"
+            "Property rules from the member's roles are on access-control-role-properties-list, one call per id in the member's `role_ids` from access-control-members-list. Rules for everyone in the project are on access-control-default-properties-list.\n"
         )
     },
 })
@@ -260,7 +260,7 @@ const AccessControlRoleObjectsListSchema = () => {
                 .describe('Project id. If omitted, uses the active project.')
                 .optional(),
             role_id: OrganizationsProjectsAccessControlRoleObjectsRetrieveQueryParams.shape['role_id'].describe(
-                'The role id, as `role_id` in access-control-roles-list or roles-list.'
+                'The role id, as `role_id` in access-control-roles-list or an entry of `role_ids` in access-control-members-list.'
             ),
         })
 }
@@ -300,7 +300,7 @@ const AccessControlRolePropertiesListSchema = () => {
                 .describe('Project id. If omitted, uses the active project.')
                 .optional(),
             role_id: OrganizationsProjectsAccessControlRolePropertiesRetrieveQueryParams.shape['role_id'].describe(
-                'The role id, as `role_id` in access-control-roles-list or roles-list.'
+                'The role id, as `role_id` in access-control-roles-list or an entry of `role_ids` in access-control-members-list.'
             ),
         })
 }
@@ -377,7 +377,7 @@ const accessControlRolesList = (): ToolBase<
         } as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, '/settings/environment-access-control'),
-            "A member's enforced level already includes their roles, so for a person use access-control-members-list. For a role's rules on one object or property, call access-control-role-objects-list or access-control-role-properties-list. roles-list gives role ids and role-members-list gives who is in a role.\n"
+            "A member's enforced level already includes their roles, so for a person use access-control-members-list. For a role's rules on one object or property, call access-control-role-objects-list or access-control-role-properties-list. A member's roles are `role_ids` on access-control-members-list, and role-members-list gives who is in a role.\n"
         )
     },
 })
