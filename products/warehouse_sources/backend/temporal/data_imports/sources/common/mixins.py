@@ -6,13 +6,18 @@ from collections.abc import Callable, Generator, Sequence
 from contextlib import _GeneratorContextManager, contextmanager
 from typing import Any
 
+from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
 import structlog
 
 from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
-from posthog.psycopg_helpers import prefer_routable_addresses
+from posthog.psycopg_helpers import (
+    is_resolvable_hostname,
+    prefer_routable_addresses,
+    resolve_psycopg_hostaddr_with_timeout,
+)
 from posthog.utils import get_instance_region
 
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
@@ -158,6 +163,44 @@ def check_resolved_addresses(host: str, addresses: Sequence[str], team_id: int |
         return HostResolution(connect_host=host, error=None, addresses=tuple(addresses))
 
     return _check_resolved_ips(host, team_id, list(addresses))
+
+
+_resolve_hostaddr_with_timeout = resolve_psycopg_hostaddr_with_timeout
+
+
+def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id: int | None) -> dict[str, str]:
+    """Resolve `host` once, validate the answer, and return the libpq `host`/`hostaddr` pair that
+    dials exactly those addresses.
+
+    The hostname is repeated once per address because libpq pairs `host` and `hostaddr`
+    positionally: the name keeps carrying SNI, which Neon and the Supabase pooler need, and every
+    validated address stays in libpq's failover list. A failed lookup is refused rather than left
+    to libpq, because that retry would be a second, unvalidated lookup. A lookup that times out
+    raises `psycopg.OperationalError` unchanged so it stays retryable.
+
+    An IP literal (the SSH tunnel's loopback bind), a Unix socket path, or an empty host has no
+    lookup to race and comes back unchanged. Dev and test connect to local or fake hosts, so the
+    lookup is skipped there, as in `_get_sslmode`.
+    """
+    if settings.TEST or settings.DEBUG or settings.E2E_TESTING:
+        return {"host": host}
+
+    if not is_resolvable_hostname(host):
+        return {"host": host}
+
+    addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout) or []
+    resolution = check_resolved_addresses(host, addresses, team_id)
+    if resolution.connect_host is None:
+        raise DatabaseHostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
+    if not resolution.addresses:
+        # An exempt host whose lookup failed. The policy does not apply, and there is nothing to
+        # pin, so libpq resolves the name itself as it did before.
+        return {"host": host}
+
+    return {
+        "host": ",".join([host] * len(resolution.addresses)),
+        "hostaddr": ",".join(resolution.addresses),
+    }
 
 
 def _normalize_host(host: str) -> str:

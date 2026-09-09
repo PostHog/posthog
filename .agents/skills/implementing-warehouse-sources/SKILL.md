@@ -740,7 +740,7 @@ Okta's `okta_domain`) need to override this. The default is `[]` (no extra field
 Pair this with `is_database_host_valid` (`common/mixins.py`) at source-create time to block hosts
 resolving to internal/private IPs. At connect time, open every direct database connection through
 `with_ssh_tunnel()`, which re-checks the host on each open, and pin the validated addresses in the
-client where the driver allows it (see `pinned_host_kwargs` in `postgres.py`).
+client where the driver allows it (see `pinned_host_kwargs` in `common/mixins.py`).
 
 ## Mixins
 

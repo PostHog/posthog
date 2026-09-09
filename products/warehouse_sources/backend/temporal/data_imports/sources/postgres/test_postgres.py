@@ -40,6 +40,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import table_payload_bytes
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    _resolve_hostaddr_with_timeout,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import batching
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
@@ -122,7 +125,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _pk_uniqueness_probe_timeout_error,
     _raise_if_setup_connection_broken,
     _recovery_conflict_abort_error,
-    _resolve_hostaddr_with_timeout,
     _rls_active_from_conn,
     _role_subject_to_rls,
     _safe_close_connection,
@@ -2499,7 +2501,7 @@ class TestConnectToPostgresMultiAddressFailover:
         ]
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.settings"
             ) as mock_settings,
             patch(
                 "posthog.psycopg_helpers.socket.getaddrinfo",
@@ -2528,7 +2530,7 @@ class TestConnectToPostgresMultiAddressFailover:
         addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("203.0.113.5", 5432))]
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.settings"
             ) as mock_settings,
             patch(
                 "posthog.psycopg_helpers.socket.getaddrinfo",
@@ -2575,7 +2577,7 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
         with (
             override_settings(CLOUD_DEPLOYMENT="US"),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.settings"
             ) as mock_settings,
             patch("posthog.psycopg_helpers.socket.getaddrinfo", **resolver_kwargs) as getaddrinfo_mock,
             patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
@@ -2688,7 +2690,7 @@ class TestPostgresSourceDialsOnlyValidatedAddresses:
         with (
             override_settings(CLOUD_DEPLOYMENT="US"),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.settings"
             ) as mock_settings,
             patch("posthog.psycopg_helpers.socket.getaddrinfo", return_value=addrinfo),
             patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),

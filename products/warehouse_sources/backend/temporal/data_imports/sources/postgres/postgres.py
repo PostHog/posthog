@@ -34,7 +34,6 @@ from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_ta
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.psycopg_helpers import is_resolvable_hostname, resolve_psycopg_hostaddr_with_timeout
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -60,10 +59,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_operator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
-    DATABASE_HOST_NOT_ALLOWED_ERROR,
-    DatabaseHostNotAllowedError,
-    check_resolved_addresses,
     open_ssh_tunnel,
+    pinned_host_kwargs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
@@ -832,44 +829,6 @@ _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING = "received invalid response to ssl 
 
 def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
     return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
-
-
-_resolve_hostaddr_with_timeout = resolve_psycopg_hostaddr_with_timeout
-
-
-def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id: int | None) -> dict[str, str]:
-    """Resolve `host` once, validate the answer, and return the libpq `host`/`hostaddr` pair that
-    dials exactly those addresses.
-
-    The hostname is repeated once per address because libpq pairs `host` and `hostaddr`
-    positionally: the name keeps carrying SNI, which Neon and the Supabase pooler need, and every
-    validated address stays in libpq's failover list. A failed lookup is refused rather than left
-    to libpq, because that retry would be a second, unvalidated lookup. A lookup that times out
-    raises `psycopg.OperationalError` unchanged so it stays retryable.
-
-    An IP literal (the SSH tunnel's loopback bind), a Unix socket path, or an empty host has no
-    lookup to race and comes back unchanged. Dev and test connect to local or fake hosts, so the
-    lookup is skipped there, as in `_get_sslmode`.
-    """
-    if settings.TEST or settings.DEBUG or settings.E2E_TESTING:
-        return {"host": host}
-
-    if not is_resolvable_hostname(host):
-        return {"host": host}
-
-    addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout) or []
-    resolution = check_resolved_addresses(host, addresses, team_id)
-    if resolution.connect_host is None:
-        raise DatabaseHostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
-    if not resolution.addresses:
-        # An exempt host whose lookup failed. The policy does not apply, and there is nothing to
-        # pin, so libpq resolves the name itself as it did before.
-        return {"host": host}
-
-    return {
-        "host": ",".join([host] * len(resolution.addresses)),
-        "hostaddr": ",".join(resolution.addresses),
-    }
 
 
 def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> psycopg.Connection:
