@@ -11,7 +11,7 @@ from django.db import InterfaceError, InternalError, OperationalError
 
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, ProxyError
 
 from posthog.integration_secrets.errors import (
     IntegrationServiceMisconfiguredError,
@@ -501,6 +501,77 @@ async def test_transient_object_store_error_reraised_as_non_reportable():
     assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
+
+
+@parameterized.expand(
+    [
+        # urllib3 never opened the TCP connection to the proxy, so it wraps the socket timeout.
+        (
+            "connect_timeout",
+            "HTTPSConnectionPool(host='analytics.example.com', port=443): Max retries exceeded with "
+            "url: /index.php (Caused by ProxyError('Cannot connect to proxy.', TimeoutError('timed out')))",
+        ),
+        # The proxy answered the CONNECT with a transient gateway status.
+        (
+            "tunnel_502",
+            "HTTPSConnectionPool(host='analytics.example.com', port=443): Max retries exceeded with "
+            "url: /index.php (Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel "
+            "connection failed: 502 Bad gateway')))",
+        ),
+    ]
+)
+@pytest.mark.asyncio
+async def test_transient_egress_proxy_error_reraised_as_non_reportable(_name: str, message: str):
+    # PostHog's own egress proxy was briefly unreachable. Temporal retries the activity and the next
+    # attempt recovers, so this must not reach error tracking — and the fingerprint carries the
+    # source host, so each new host would otherwise open a fresh issue. Only NonReportableError stops
+    # the activity interceptor, and it has to hold by type for every source, not just the ones that
+    # list the message in get_retryable_errors.
+    error = ProxyError(message)
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    # The original text carries through so Transient_Error_Messages can rewrite it for the customer.
+    assert str(exc_info.value) == message
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_proxy_auth_failure_is_not_treated_as_a_transient_egress_error():
+    # A 407 wraps the same "Cannot connect to proxy." prefix as the transient shapes above, but proxy
+    # auth is deterministic: every attempt gets the same answer, so it has to stay reportable.
+    error = ProxyError(
+        "HTTPSConnectionPool(host='analytics.example.com', port=443): Max retries exceeded with "
+        "url: /index.php (Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel "
+        "connection failed: 407 Proxy Authentication Required')))"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(ProxyError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value is error
+    logger.aexception.assert_awaited_once()
 
 
 @pytest.mark.asyncio

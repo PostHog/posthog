@@ -1,4 +1,4 @@
-"""Shared non-retryable-error helpers for warehouse sources.
+"""Shared error-classification helpers for warehouse sources.
 
 `get_non_retryable_errors()` returns a dict mapping a substring of the stringified exception to a
 friendly message; the pipeline fails the job (instead of retrying) when a raised error contains one
@@ -32,3 +32,25 @@ def auth_non_retryable_errors(host: str | None = None, *, service: str | None = 
 
 # Host-agnostic default, for sources that just want the common pair with no service name.
 AUTH_401_403_ERRORS: dict[str, str | None] = auth_non_retryable_errors()
+
+
+# Substrings of a failure to reach PostHog's own egress proxy, in the two wordings it surfaces with.
+# urllib3 can't open the TCP connection to the proxy at all — it never gets far enough to send a
+# CONNECT — and wraps the socket timeout as
+# `ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))`. Or the proxy answers the
+# CONNECT with a transient gateway status, which `http.client` raises as
+# `OSError("Tunnel connection failed: <code> ...")`. Either way our proxy or its upstream is briefly
+# unreachable, so a fresh attempt recovers and nothing on the customer's side is wrong. A 407 (proxy
+# authentication required) stays out: it is deterministic, and it wraps the same "Cannot connect to
+# proxy." prefix, which is why the first entry matches the whole inner exception rather than that
+# prefix.
+TRANSIENT_EGRESS_PROXY_ERRORS = (
+    "Cannot connect to proxy.', TimeoutError('timed out')",
+    "Tunnel connection failed: 502",
+    "Tunnel connection failed: 503",
+    "Tunnel connection failed: 504",
+)
+
+
+def is_transient_egress_proxy_error(error_message: str) -> bool:
+    return any(needle in error_message for needle in TRANSIENT_EGRESS_PROXY_ERRORS)

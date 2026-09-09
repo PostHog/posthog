@@ -4,6 +4,7 @@ import pytest
 from unittest import mock
 
 from posthog.models.integration import UndecryptedIntegrationSecretError
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.external_data_schema import SchemaSyncResult
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import sync_new_schemas as module
@@ -72,6 +73,48 @@ def test_get_schemas_error_handling(error_msg, non_retryable, expected_exc):
     else:
         with pytest.raises(Exception, match=expected_exc):
             _run_activity(source_mock)
+
+
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        "Could not connect to ClickHouse at https://example.invalid:8443: "
+        "('Cannot connect to proxy.', TimeoutError('timed out'))",
+        "Could not connect to ClickHouse at https://example.invalid:8443: Tunnel connection failed: 502 Bad Gateway",
+    ],
+    ids=["proxy_connect_timeout", "proxy_tunnel_gateway_status"],
+)
+def test_transient_egress_proxy_error_is_not_reported(error_msg):
+    # Discovery only consults get_non_retryable_errors, so a source that lists the proxy fragments
+    # as retryable is still unprotected here. The marker type is the only thing that keeps the blip
+    # out of error tracking, and raising it leaves the Temporal retry intact.
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = Exception(error_msg)
+    source_mock.get_non_retryable_errors.return_value = {}
+
+    with pytest.raises(NonReportableError) as exc_info:
+        _run_activity(source_mock)
+
+    assert str(exc_info.value) == error_msg
+
+
+def test_proxy_auth_failure_is_still_reported():
+    # A 407 wraps the same "Cannot connect to proxy." prefix but answers every attempt the same
+    # way, so it must stay reportable.
+    error_msg = (
+        "Could not connect to ClickHouse at https://example.invalid:8443: "
+        "('Cannot connect to proxy.', OSError('Tunnel connection failed: 407 Proxy Authentication Required'))"
+    )
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = Exception(error_msg)
+    source_mock.get_non_retryable_errors.return_value = {}
+
+    with pytest.raises(Exception) as exc_info:
+        _run_activity(source_mock)
+
+    assert not isinstance(exc_info.value, NonReportableError)
 
 
 def test_undecrypted_integration_secret_error_is_skipped():

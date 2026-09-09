@@ -31,6 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
+    is_transient_egress_proxy_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _require_loopback
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
@@ -1206,9 +1209,13 @@ def _get_partition_settings(
     except ClickHouseError as e:
         # Partitioning is a best-effort optimization; any failure here degrades
         # to default partitioning. A transient rate-limit/gateway response from
-        # the source isn't actionable on our side, so don't add error-tracking
-        # noise for it — genuine errors are still captured.
-        if not _is_transient_http_response(str(e)):
+        # the source, or a blip reaching our own egress proxy, isn't actionable
+        # on our side, so don't add error-tracking noise for it — genuine errors
+        # are still captured. clickhouse-connect wraps the proxy failure in a
+        # ClickHouseError, so it never reaches the shared classification in
+        # `_handle_import_error`.
+        message = str(e)
+        if not _is_transient_http_response(message) and not is_transient_egress_proxy_error(message):
             capture_exception(e)
         logger.debug(f"_get_partition_settings: failed: {e}")
         return None

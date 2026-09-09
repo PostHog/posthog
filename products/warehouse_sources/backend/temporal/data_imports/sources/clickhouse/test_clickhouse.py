@@ -1419,6 +1419,26 @@ class TestGetPartitionSettings:
 
         mock_capture.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Error ('Cannot connect to proxy.', TimeoutError('timed out')) executing HTTP request attempt 1 "
+            "(https://example.invalid:443)",
+            "Error Tunnel connection failed: 502 Bad Gateway executing HTTP request attempt 1 "
+            "(https://example.invalid:443)",
+        ],
+    )
+    def test_transient_egress_proxy_error_not_captured(self, error_msg):
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(error_msg)
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            # clickhouse-connect wraps the proxy failure as a ClickHouseError, so
+            # this guard is the only place that can keep it out of error tracking.
+            assert _get_partition_settings(client, "db", "t", self._logger()) is None
+
+        mock_capture.assert_not_called()
+
     def test_unexpected_error_is_captured(self):
         client = MagicMock()
         client.query.side_effect = ClickHouseError("Code: 62. DB::Exception: Syntax error")
