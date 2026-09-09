@@ -15,7 +15,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIRequestFactory
 
 from ee.api.authentication import VercelAuthentication
-from ee.api.vercel.types import VercelUser
+from ee.api.vercel.types import VercelUser, VercelUserClaims
 
 
 @patch("ee.api.authentication.get_vercel_jwks")
@@ -213,6 +213,23 @@ class TestVercelAuthentication(SimpleTestCase):
         assert result1 is not None
         assert result2 is not None
         assert mock_get_jwks.call_count >= 1
+
+    def test_user_auth_captures_email_verified_claim(self, mock_get_jwks):
+        mock_get_jwks.return_value = self.mock_jwks
+
+        verified_false_token = self._token(overrides={"user_email_verified": False})
+        result = self.auth.authenticate(self._make_request(verified_false_token))
+        assert result is not None
+        user, _ = result
+        assert isinstance(user.claims, VercelUserClaims)
+        assert user.claims.user_email_verified is False
+
+        token_without_claim = self._token()
+        result = self.auth.authenticate(self._make_request(token_without_claim))
+        assert result is not None
+        user, _ = result
+        assert isinstance(user.claims, VercelUserClaims)
+        assert user.claims.user_email_verified is None
 
     def test_none_algorithm_rejected(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
