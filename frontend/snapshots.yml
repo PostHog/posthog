@@ -6096,6 +6096,14 @@ snapshots:
         hash: v1.k794b7964.967afbceab74b989f44a0e43654fc8bc219dfb858ba11a2e5ab9c00edb7a13ad.DhL8CprkQ7KvkxODyhe-4lv_TYdMdx-Or1aYK5SdE8M
     replay-tabs-collections--recordings-play-lists--light:
         hash: v1.k794b7964.ec52ea7db8e78f4b476f20a564787b7bf614ab9f6ac5b226796737d08f1d471c.7zHA9RmJgfeydgCRP5Q5YlWjnOy1Nn_S-3xGJ0lONik
+    replay-tabs-comments--replay-comments--dark:
+        hash: v1.k794b7964.6af2d3cc255214b5e3cc09e79f04b2f89d886ade9ccedbcb4580dc3911806f8c.tliRHNyKfL63iDI1FAb-nA3Dl05I3XJa_MEbL9MqKco
+    replay-tabs-comments--replay-comments--light:
+        hash: v1.k794b7964.e084d3db7021bff811b705c4f777541c4cfb0c46b8c7c86fac2c86723aba72ba.nh9hurj8GifHuw1FAk0p14LP7MwxM2Rdp00tVZCWwxw
+    replay-tabs-comments--replay-comments-empty--dark:
+        hash: v1.k794b7964.c2db163d8ad51841c9b652d731f6583685e5c52db268775903475272f6b8877f.qX_vfdLEALxvKOM-X_7BCcAVsLFsEqSYoE67GZycd-Q
+    replay-tabs-comments--replay-comments-empty--light:
+        hash: v1.k794b7964.eacc112601665aaad99a28267264805387b57496ee35b89bafef74db2c2c2794.pTNBJCYNg6D28_QldfksZRa-Bzl-VSAcEWzL5AeegF8
     replay-tabs-home-failure--not-found--dark:
         hash: v1.k794b7964.976b4bc71204d3fdd7d22bc696a779a418376dfa7d6fc74cf50ebc5023c672b9.gyNSfDI5sGG3Hamw70N9MALDuDtbPb3jeSZzD9-IC5g
     replay-tabs-home-failure--not-found--light:
