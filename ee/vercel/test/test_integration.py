@@ -3,8 +3,10 @@ from typing import Any
 from unittest import mock
 from unittest.mock import Mock, patch
 
+from django.contrib.sessions.middleware import SessionMiddleware
 from django.db import IntegrityError
-from django.test import TestCase
+from django.http import HttpResponse
+from django.test import RequestFactory, TestCase
 
 from parameterized import parameterized
 from rest_framework import exceptions
@@ -377,6 +379,38 @@ class TestVercelIntegration(TestCase):
 
         with self.assertRaises(RequiresExistingUserLogin):
             VercelIntegration._find_sso_user(sso_claims)
+
+    @patch("ee.vercel.integration.report_user_signed_up")
+    def test_sso_login_marks_a_matching_email_verified(self, mock_report):
+        installation_id = self.NEW_INSTALLATION_ID
+        claims = self._create_user_claims("vercel_user_verify")
+        claims.installation_id = installation_id
+        VercelIntegration.upsert_installation(installation_id, self.payload, claims)
+        user = User.objects.get(email=self.payload["account"]["contact"]["email"])
+        assert user.is_email_verified is False
+
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda request: HttpResponse()).process_request(request)
+        VercelIntegration._authenticate_and_login_user(request, claims, None)
+
+        user.refresh_from_db()
+        assert user.is_email_verified is True
+
+    @patch("ee.vercel.integration.report_user_signed_up")
+    def test_sso_login_leaves_verification_alone_when_the_claim_email_differs(self, mock_report):
+        installation_id = self.NEW_INSTALLATION_ID
+        claims = self._create_user_claims("vercel_user_other_email")
+        claims.installation_id = installation_id
+        VercelIntegration.upsert_installation(installation_id, self.payload, claims)
+        user = User.objects.get(email=self.payload["account"]["contact"]["email"])
+        claims.user_email = "someone-else@example.com"
+
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda request: HttpResponse()).process_request(request)
+        VercelIntegration._authenticate_and_login_user(request, claims, None)
+
+        user.refresh_from_db()
+        assert user.is_email_verified is False
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_sso_works_for_trusted_vercel_user_second_installation(self, mock_report):

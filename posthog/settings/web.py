@@ -595,6 +595,10 @@ SPECTACULAR_SETTINGS = {
             "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+            # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
+            # class carries them. The lists are derived from those literals.
+            "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
+            "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
             #
             # The same choice set is declared in more than one product. A shared Choices
@@ -1220,8 +1224,8 @@ try:
 except ValueError:
     AI_GATEWAY_TEAM_TIER_OVERRIDES = {}
 
-# Wizard gateway-token mint. WIZARD_GATEWAY_MINT_KEY unset disables the endpoint
-# (404), which the CLI treats as "stay on the legacy gateway".
+# Wizard gateway-token mint. Any of the four unset refuses every mint as
+# `unconfigured`, which ends the wizard run: there is no other gateway.
 WIZARD_GATEWAY_URL = get_from_env("WIZARD_GATEWAY_URL", "")
 WIZARD_GATEWAY_MINT_KEY = get_from_env("WIZARD_GATEWAY_MINT_KEY", "")
 # OAuth application client ids allowed to mint: llm_gateway:read is an internal

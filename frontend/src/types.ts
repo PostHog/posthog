@@ -593,7 +593,6 @@ export interface OrganizationType extends OrganizationBasicType {
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
     is_ai_training_cta_shown?: boolean
-    is_hipaa?: boolean
     has_signed_baa?: boolean
     members_can_invite?: boolean
     members_can_create_projects?: boolean
