@@ -1,6 +1,6 @@
 from typing import Any
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -289,20 +289,19 @@ class ErrorTrackingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(
-        parameters=[ErrorTrackingAlertPreviewParamsSerializer],
+    @validated_request(
+        query_serializer=ErrorTrackingAlertPreviewParamsSerializer,
         responses={200: OpenApiResponse(response=ErrorTrackingAlertPreviewSerializer)},
     )
     @action(methods=["GET"], detail=False)
-    def preview(self, request: Request, *args, **kwargs) -> Response:
+    def preview(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         """The Slack thread an alert would open, rendered from the project's most recent issue."""
-        params = ErrorTrackingAlertPreviewParamsSerializer(data=request.query_params)
-        params.is_valid(raise_exception=True)
-        sample_team = self._sample_environment(request, params.validated_data.get("environment_id"))
+        params = request.validated_query_data
+        sample_team = self._sample_environment(request, params.get("environment_id"))
         # A scoped read token must not learn its owner's email from the sample replies.
         try:
             preview = alerts_facade.preview_alert_messages(
-                self.team.id, params.validated_data["trigger"], None, sample_team_id=sample_team.id
+                self.team.id, params["trigger"], None, sample_team_id=sample_team.id
             )
         except alerts_facade.AlertValidationError as err:
             raise ValidationError(str(err)) from err
@@ -320,7 +319,13 @@ class ErrorTrackingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         team = Team.objects.filter(id=environment_id, project_id=self.team.project_id).first()
         if team is None:
             raise NotFound("Environment not found in this project.")
-        # A token confined to some environments must not widen its reach through this parameter.
+        return self._authorized_environment(request, team)
+
+    def _authorized_environment(self, request: Request, team: Team) -> Team:
+        """A sibling environment of the routed one, after the checks its own routes apply."""
+        if team.id == self.team.id:
+            return team
+        # A token confined to some environments must not widen its reach through a parameter.
         scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
         if scoped_teams is not None and team.id not in scoped_teams:
             raise PermissionDenied("This key does not have access to this environment.")
