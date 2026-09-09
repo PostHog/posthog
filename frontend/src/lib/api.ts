@@ -2474,21 +2474,7 @@ const api = {
             return await new ApiRequest().fileSystemDetail(id).update({ data })
         },
         async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemDeleteResponse | null> {
-            const response = await new ApiRequest().fileSystemDetail(id).delete()
-
-            if (typeof Response !== 'undefined' && response instanceof Response) {
-                if (response.status === 204) {
-                    return null
-                }
-
-                try {
-                    return (await response.clone().json()) as FileSystemDeleteResponse
-                } catch {
-                    return null
-                }
-            }
-
-            return (response as FileSystemDeleteResponse) ?? null
+            return (await new ApiRequest().fileSystemDetail(id).delete()) ?? null
         },
         async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
@@ -7157,10 +7143,11 @@ const api = {
         )
     },
 
-    async delete(url: string): Promise<any> {
+    /** Delete the specified URL. The result already is JSON-parsed, and is `null` for an empty body. */
+    async delete<T = any>(url: string): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        return await handleFetch(url, 'DELETE', async () =>
+        const res = await handleFetch(url, 'DELETE', async () =>
             fetch(url, {
                 method: 'DELETE',
                 headers: {
@@ -7171,6 +7158,7 @@ const api = {
                 },
             })
         )
+        return await getJSONFromSuccessResponse(res, 'DELETE', url)
     },
 
     /** Stream server-sent events over an EventSource. */

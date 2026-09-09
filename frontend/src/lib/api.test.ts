@@ -359,6 +359,14 @@ describe('API helper', () => {
             expect(error.message).toContain('[POST /api/environments/2/insights]')
         })
 
+        it('parses a DELETE body, so a caller reading a field off the result does not get undefined', async () => {
+            fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf('{"messages": [], "max_queue_messages": 2}') }))
+            await expect(api.delete('api/environments/2/conversations/abc/queue/queue-1')).resolves.toEqual({
+                messages: [],
+                max_queue_messages: 2,
+            })
+        })
+
         it('surfaces a body stream that fails mid-read as an ApiError instead of null', async () => {
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(new TypeError('network error')) }))
             const error = await api.get('api/environments/2/insights').catch((e) => e)
