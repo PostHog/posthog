@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { BehavioralCohortsWaitlistBanner } from './BehavioralCohortsWaitlistBanner'
+import { RealtimeCohortsWaitlistBanner } from './RealtimeCohortsWaitlistBanner'
 
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
@@ -18,8 +18,8 @@ const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
 
 const CONCEPT_FEATURE = {
-    flagKey: FEATURE_FLAGS.BEHAVIORAL_COHORTS,
-    name: 'Behavioral cohorts',
+    flagKey: FEATURE_FLAGS.REALTIME_COHORTS,
+    name: 'Realtime cohorts',
     enabled: false,
     stage: 'concept',
     payload: { survey_id: 'survey-1' },
@@ -50,7 +50,7 @@ function setupMocks(
     )
 }
 
-describe('BehavioralCohortsWaitlistBanner', () => {
+describe('RealtimeCohortsWaitlistBanner', () => {
     afterEach(() => {
         cleanup()
         jest.clearAllMocks()
@@ -59,9 +59,9 @@ describe('BehavioralCohortsWaitlistBanner', () => {
     it('offers the waitlist while the feature is at the concept stage', () => {
         setupMocks([CONCEPT_FEATURE])
 
-        render(<BehavioralCohortsWaitlistBanner />)
+        render(<RealtimeCohortsWaitlistBanner />)
 
-        expect(screen.getByText('Behavioral cohorts are coming soon')).toBeInTheDocument()
+        expect(screen.getByText('Realtime cohorts are coming soon')).toBeInTheDocument()
         expect(screen.getByText('Beta')).toBeInTheDocument()
         expect(screen.getByPlaceholderText('email@yourcompany.com')).toBeInTheDocument()
         expect(screen.getByText('Get notified')).toBeInTheDocument()
@@ -73,7 +73,7 @@ describe('BehavioralCohortsWaitlistBanner', () => {
     ])('renders nothing when %s', (_label, earlyAccessFeatures) => {
         setupMocks(earlyAccessFeatures)
 
-        const { container } = render(<BehavioralCohortsWaitlistBanner />)
+        const { container } = render(<RealtimeCohortsWaitlistBanner />)
 
         expect(container).toBeEmptyDOMElement()
     })

@@ -8,9 +8,9 @@ import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePrev
 import { FEATURE_FLAGS } from 'lib/constants'
 
 // pinned: localStorage key, because renaming it shows the banner again to everyone who closed it
-const DISMISS_KEY = 'behavioral-cohorts-waitlist'
+const DISMISS_KEY = 'realtime-cohorts-waitlist'
 
-export function BehavioralCohortsWaitlistBanner(): JSX.Element | null {
+export function RealtimeCohortsWaitlistBanner(): JSX.Element | null {
     const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
 
@@ -20,8 +20,8 @@ export function BehavioralCohortsWaitlistBanner(): JSX.Element | null {
 
     // The early access feature decides whether the banner shows. It appears once the concept
     // feature exists, and stops showing when the feature leaves the concept ("coming soon")
-    // stage, so shipping behavioral cohorts does not need a second frontend change.
-    const feature = earlyAccessFeatures.find((f) => f.flagKey === FEATURE_FLAGS.BEHAVIORAL_COHORTS)
+    // stage, so shipping realtime cohorts does not need a second frontend change.
+    const feature = earlyAccessFeatures.find((f) => f.flagKey === FEATURE_FLAGS.REALTIME_COHORTS)
     if (feature?.stage !== 'concept') {
         return null
     }
@@ -30,7 +30,7 @@ export function BehavioralCohortsWaitlistBanner(): JSX.Element | null {
         <LemonBanner type="info" dismissKey={DISMISS_KEY}>
             <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-semibold">Behavioral cohorts are coming soon</span>
+                    <span className="font-semibold">Realtime cohorts are coming soon</span>
                     <LemonTag type="completion">Beta</LemonTag>
                 </div>
                 <p className="m-0">
