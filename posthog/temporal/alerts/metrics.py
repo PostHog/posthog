@@ -1,26 +1,11 @@
-from collections.abc import Iterable
 from datetime import datetime
 
 from prometheus_client import Gauge
 
 from posthog.metrics import pushed_metrics_registry
 
-from products.alerts.backend.models.alert import AlertConfiguration
 
-
-def record_due_insight_alert_metrics(alerts: Iterable[AlertConfiguration], polled_at: datetime) -> None:
-    due_count = 0
-    oldest_due_at: datetime | None = None
-
-    for alert in alerts:
-        due_count += 1
-        # A newly-created alert has no scheduled timestamp until its first
-        # check. Its creation time is the best available lower bound for how
-        # long it has been due; edits that make an alert due now persist a
-        # concrete next_check_at timestamp at the write boundary.
-        due_at = alert.next_check_at or alert.created_at or polled_at
-        if oldest_due_at is None or due_at < oldest_due_at:
-            oldest_due_at = due_at
+def record_due_insight_alert_metrics(due_count: int, oldest_due_at: datetime | None, polled_at: datetime) -> None:
 
     oldest_due_age_seconds: float = 0.0
     if oldest_due_at is not None:

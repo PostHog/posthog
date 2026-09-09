@@ -3,8 +3,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from django.db import transaction
-from django.db.models import Case, F, IntegerField, Q, Value, When, Window
-from django.db.models.functions import RowNumber
+from django.db.models import Case, Count, F, IntegerField, Min, Q, Value, When, Window
+from django.db.models.functions import Coalesce, RowNumber
 
 import structlog
 import temporalio.activity
@@ -97,10 +97,12 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=polled_at))
             .filter(insight__deleted=False)
         )
-        # Measure the complete due set, not the bounded fan-out batch below.
-        # Otherwise a busy scheduler would report 50 forever even when many
-        # more alerts are waiting.
-        record_due_insight_alert_metrics(due_alerts_query.only("created_at", "next_check_at"), polled_at)
+        due_alert_metrics = due_alerts_query.aggregate(
+            due_count=Count("id"), oldest_due_at=Min(Coalesce("next_check_at", "created_at"))
+        )
+        record_due_insight_alert_metrics(
+            due_alert_metrics["due_count"], due_alert_metrics["oldest_due_at"], polled_at
+        )
 
         alerts_query = (
             due_alerts_query.annotate(_interval_order=calculation_interval_order)

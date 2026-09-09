@@ -1150,6 +1150,14 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "alert name",
                 True,
             ),
+            (
+                "unchanged_interval_preserves_schedule",
+                {"calculation_interval": "weekly"},
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                False,
+            ),
         ]
     )
     def test_patch_calculation_interval(

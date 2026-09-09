@@ -358,11 +358,10 @@ class UpsertAlertTool(MaxTool):
                 schedule_reset_required = True
 
             if action.calculation_interval is not None:
-                schedule_reset_required = (
-                    schedule_reset_required or action.calculation_interval != alert.calculation_interval
-                )
-                alert.calculation_interval = action.calculation_interval
-                update_fields.append("calculation_interval")
+                if action.calculation_interval != alert.calculation_interval:
+                    schedule_reset_required = True
+                    alert.calculation_interval = action.calculation_interval
+                    update_fields.append("calculation_interval")
 
             if action.series_index is not None:
                 alert.config = {**(alert.config or {}), "series_index": action.series_index}
