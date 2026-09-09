@@ -117,12 +117,14 @@ export function ActionFilterRow({
     filtersLeftPadding = false,
     addFilterDocLink,
     excludedProperties,
+    includeHiddenEvents,
     allowNonCapturedEvents,
     hogQLGlobals,
     inlineEventsDocLink,
     definitionPopoverRenderer,
     operatorAllowlist,
-}: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
+}: ActionFilterRowProps &
+    Pick<TaxonomicPopoverProps, 'excludedProperties' | 'includeHiddenEvents' | 'allowNonCapturedEvents'>): JSX.Element {
     const effectiveActionsTaxonomicGroupTypes = [
         TaxonomicFilterGroupType.SuggestedFilters,
         ...actionsTaxonomicGroupTypes,
@@ -409,6 +411,7 @@ export function ActionFilterRow({
                 typeKey === 'plugin-filters' ? ([] as DataWarehousePopoverField[]) : dataWarehousePopoverFields
             }
             excludedProperties={excludedProperties}
+            includeHiddenEvents={includeHiddenEvents}
             allowNonCapturedEvents={allowNonCapturedEvents}
             definitionPopoverRenderer={definitionPopoverRenderer}
         />
