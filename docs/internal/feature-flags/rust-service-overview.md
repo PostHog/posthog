@@ -274,15 +274,16 @@ Cache and query health are observable via the `flags_cohort_membership_cache_*` 
 
 ### Redis
 
-| Variable                      | Default                     | Purpose                                  |
-| ----------------------------- | --------------------------- | ---------------------------------------- |
-| `REDIS_URL`                   | `redis://localhost:6379/`   | Shared Redis primary                     |
-| `REDIS_READER_URL`            | (falls back to `REDIS_URL`) | Shared Redis replica                     |
-| `FLAGS_REDIS_URL`             | (empty)                     | Dedicated flags Redis primary            |
-| `FLAGS_REDIS_READER_URL`      | (empty)                     | Dedicated flags Redis replica            |
-| `FLAGS_REDIS_ENABLED`         | `false`                     | Read from dedicated flags Redis          |
-| `REDIS_RESPONSE_TIMEOUT_MS`   | `100`                       | Redis response timeout (capped at 30s)   |
-| `REDIS_CONNECTION_TIMEOUT_MS` | `5000`                      | Redis connection timeout (capped at 60s) |
+| Variable                                   | Default                     | Purpose                                                                                                                                                                               |
+| ------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REDIS_URL`                                | `redis://localhost:6379/`   | Shared Redis primary                                                                                                                                                                  |
+| `REDIS_READER_URL`                         | (falls back to `REDIS_URL`) | Shared Redis replica                                                                                                                                                                  |
+| `FLAGS_REDIS_URL`                          | (empty)                     | Dedicated flags Redis primary                                                                                                                                                         |
+| `FLAGS_REDIS_READER_URL`                   | (empty)                     | Dedicated flags Redis replica                                                                                                                                                         |
+| `FLAGS_REDIS_ENABLED`                      | `false`                     | Inert. Nothing reads it, so setting it moves no read path                                                                                                                             |
+| `FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED` | `false`                     | Serve the `/flags/definitions` payload and its ETag from the dedicated flags Redis instead of the shared one. See [dedicated flags Redis](hypercache-system.md#dedicated-flags-redis) |
+| `REDIS_RESPONSE_TIMEOUT_MS`                | `100`                       | Redis response timeout (capped at 30s)                                                                                                                                                |
+| `REDIS_CONNECTION_TIMEOUT_MS`              | `5000`                      | Redis connection timeout (capped at 60s)                                                                                                                                              |
 
 ### S3 / HyperCache
 
