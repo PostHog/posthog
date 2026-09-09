@@ -55,6 +55,13 @@ export function LogsImpactCounts({
         return percentage(fraction, 0)
     }
 
+    const sessionsCaption = `Estimated unique session IDs, by log count. ${percentOfLogs(
+        impact.logsWithSessionId
+    )} of the matching logs carry a session ID.`
+    const usersCaption = `Estimated unique people, by log count. ${percentOfLogs(
+        impact.logsWithDistinctId
+    )} of the matching logs carry a distinct ID.`
+
     return (
         <span className="flex items-center gap-1 text-muted text-xs" data-attr="logs-impact-counts">
             {impact.logsWithSessionId > 0 && (
@@ -63,10 +70,8 @@ export function LogsImpactCounts({
                     closeOnClickInside={false}
                     overlay={
                         <TopValuesOverlay
-                            caption={`Estimated unique session IDs, by log count. ${percentOfLogs(
-                                impact.logsWithSessionId
-                            )} of the matching logs carry a session ID.`}
-                            entries={impact.topSessions}
+                            caption={sessionsCaption}
+                            entries={impact.topSessions ?? []}
                             renderValue={(value) => (
                                 <ViewRecordingButton
                                     sessionId={value}
@@ -94,9 +99,11 @@ export function LogsImpactCounts({
                         />
                     }
                 >
-                    <LemonButton size="xsmall" data-attr="logs-impact-sessions">
+                    <LemonButton size="xsmall" data-attr="logs-impact-sessions" tooltip={sessionsCaption}>
                         <span className="text-muted text-xs font-normal">
-                            {humanFriendlyLargeNumber(impact.sessions)} sessions
+                            {/* The changing number gets its own element: a bare changing text
+                            node beside siblings breaks under in-page translation. */}
+                            <span>{humanFriendlyLargeNumber(impact.sessions)}</span> sessions
                         </span>
                     </LemonButton>
                 </LemonDropdown>
@@ -107,10 +114,8 @@ export function LogsImpactCounts({
                     closeOnClickInside={false}
                     overlay={
                         <TopValuesOverlay
-                            caption={`Estimated unique people, by log count. ${percentOfLogs(
-                                impact.logsWithDistinctId
-                            )} of the matching logs carry a distinct ID.`}
-                            entries={impact.topUsers}
+                            caption={usersCaption}
+                            entries={impact.topUsers ?? []}
                             renderValue={(value) => (
                                 <span onClick={(e) => e.stopPropagation()}>
                                     <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
@@ -133,9 +138,9 @@ export function LogsImpactCounts({
                         />
                     }
                 >
-                    <LemonButton size="xsmall" data-attr="logs-impact-users">
+                    <LemonButton size="xsmall" data-attr="logs-impact-users" tooltip={usersCaption}>
                         <span className="text-muted text-xs font-normal">
-                            {humanFriendlyLargeNumber(impact.users)} users
+                            <span>{humanFriendlyLargeNumber(impact.users)}</span> users
                         </span>
                     </LemonButton>
                 </LemonDropdown>
@@ -159,7 +164,9 @@ function TopValuesOverlay({ caption, entries, renderValue, action }: TopValuesOv
             {entries.map(({ value, count }) => (
                 <div key={value} className="flex items-center justify-between gap-4 text-xs">
                     <span className="font-mono truncate">{renderValue(value)}</span>
-                    <span className="text-muted whitespace-nowrap">{humanFriendlyLargeNumber(count)} logs</span>
+                    <span className="text-muted whitespace-nowrap">
+                        <span>{humanFriendlyLargeNumber(count)}</span> logs
+                    </span>
                 </div>
             ))}
             {action}

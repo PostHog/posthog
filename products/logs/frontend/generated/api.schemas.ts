@@ -1797,9 +1797,9 @@ export interface _LogsImpactResponseApi {
     topSessions: _LogsImpactTopValueApi[]
     /** Top person distinct IDs on the matching logs, ordered by log count descending (topK, at most 5). */
     topUsers: _LogsImpactTopValueApi[]
-    /** The dimension that carries the session ID on most matching logs. Group by this dimension to reproduce the session counts. Null when no matching log carries a session ID. */
+    /** The dimension that carries the session ID on most matching logs. Group by this dimension to drill into the sessions behind the counts. Null when no matching log carries a session ID. */
     sessionGroupKey: _LogsImpactGroupKeyApi | null
-    /** The dimension that carries the person distinct ID on most matching logs. Group by this dimension to reproduce the user counts. Null when no matching log carries a distinct ID. */
+    /** The dimension that carries the person distinct ID on most matching logs. Group by this dimension to drill into the users behind the counts. Null when no matching log carries a distinct ID. */
     personGroupKey: _LogsImpactGroupKeyApi | null
 }
 

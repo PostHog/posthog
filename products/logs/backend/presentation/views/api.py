@@ -451,14 +451,14 @@ class _LogsImpactResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "The dimension that carries the session ID on most matching logs. Group by this dimension to "
-            "reproduce the session counts. Null when no matching log carries a session ID."
+            "drill into the sessions behind the counts. Null when no matching log carries a session ID."
         ),
     )
     personGroupKey = _LogsImpactGroupKeySerializer(
         allow_null=True,
         help_text=(
             "The dimension that carries the person distinct ID on most matching logs. Group by this dimension to "
-            "reproduce the user counts. Null when no matching log carries a distinct ID."
+            "drill into the users behind the counts. Null when no matching log carries a distinct ID."
         ),
     )
 

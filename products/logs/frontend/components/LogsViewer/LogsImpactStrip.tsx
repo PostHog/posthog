@@ -19,5 +19,13 @@ export function LogsImpactStrip({ id }: LogsImpactStripProps): JSX.Element | nul
         return null
     }
 
-    return <LogsImpactCounts impact={impact} onGroupBySessions={groupBySessions} onGroupByUsers={groupByUsers} />
+    // The pivot needs the backend-named dimension; a response without one (an older backend
+    // during a deploy) hides the action instead of guessing a dimension.
+    return (
+        <LogsImpactCounts
+            impact={impact}
+            onGroupBySessions={impact.sessionGroupKey ? groupBySessions : undefined}
+            onGroupByUsers={impact.personGroupKey ? groupByUsers : undefined}
+        />
+    )
 }

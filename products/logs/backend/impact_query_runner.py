@@ -10,6 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
+from products.logs.backend.group_by_query_runner import LogsGroupBySource
 from products.logs.backend.logs_query_runner import (
     LogsQueryResponse,
     LogsQueryRunnerMixin,
@@ -37,8 +38,8 @@ def _identity_reads(attribute_keys: list[str]) -> list[tuple[ast.Expr, str]]:
     reads: list[tuple[ast.Expr, str]] = []
     for attribute_key in attribute_keys:
         for field, key, tag in (
-            ("attributes_map_str", f"{attribute_key}__str", f"log:{attribute_key}"),
-            ("resource_attributes", attribute_key, f"resource:{attribute_key}"),
+            ("attributes_map_str", f"{attribute_key}__str", f"{LogsGroupBySource.LOG}:{attribute_key}"),
+            ("resource_attributes", attribute_key, f"{LogsGroupBySource.RESOURCE}:{attribute_key}"),
         ):
             read = ast.Call(name="arrayElement", args=[ast.Field(chain=[field]), ast.Constant(value=key)])
             reads.append((ast.Call(name="nullIf", args=[read, ast.Constant(value="")]), tag))
@@ -53,14 +54,12 @@ def _identity_value_expr(attribute_keys: list[str]) -> ast.Expr:
 def _identity_key_expr(attribute_keys: list[str]) -> ast.Expr:
     # Tag of the key the value expr matched, NULL when none matched. Built from the same
     # reads as _identity_value_expr, so the most frequent tag names the dimension that
-    # reproduces the counts, and the extra expression adds no columns to the scan.
-    args: list[ast.Expr] = [
-        ast.Call(
-            name="if", args=[ast.Call(name="isNotNull", args=[read]), ast.Constant(value=tag), ast.Constant(value=None)]
-        )
-        for read, tag in _identity_reads(attribute_keys)
-    ]
-    return ast.Call(name="coalesce", args=args)
+    # carries the counts, and the extra expression adds no columns to the scan.
+    args: list[ast.Expr] = []
+    for read, tag in _identity_reads(attribute_keys):
+        args.extend([ast.Call(name="isNotNull", args=[read]), ast.Constant(value=tag)])
+    args.append(ast.Constant(value=None))
+    return ast.Call(name="multiIf", args=args)
 
 
 def _top_values(entries: list[tuple] | None) -> list[dict]:
