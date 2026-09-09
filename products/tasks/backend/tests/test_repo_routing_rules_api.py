@@ -8,7 +8,10 @@ from rest_framework import status
 from posthog.models import Team
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
-from products.tasks.backend.presentation.views.repo_routing_rules_api import RepoRoutingRuleSerializer
+from products.tasks.backend.presentation.views.repo_routing_rules_api import (
+    MAX_RULES_PER_TEAM,
+    RepoRoutingRuleSerializer,
+)
 
 
 class TestRepoRoutingRuleSerializerValidation(SimpleTestCase):
@@ -78,6 +81,15 @@ class TestRepoRoutingRulesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         rule.refresh_from_db()
         assert (rule.rule_text, rule.repository, rule.priority) == ("new", "posthog/new", 3)
+
+    def test_create_rejects_at_team_rule_cap(self):
+        RepoRoutingRule.objects.bulk_create(
+            RepoRoutingRule(team=self.team, rule_text=f"rule {i}", repository="posthog/posthog", priority=i)
+            for i in range(MAX_RULES_PER_TEAM)
+        )
+        response = self.client.post(self._url(), {"rule_text": "one too many", "repository": "posthog/posthog"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert RepoRoutingRule.objects.filter(team=self.team).count() == MAX_RULES_PER_TEAM
 
     def test_delete_removes_rule(self):
         rule = RepoRoutingRule.objects.create(team=self.team, rule_text="temp", repository="posthog/temp")

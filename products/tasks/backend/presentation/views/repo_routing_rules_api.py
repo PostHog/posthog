@@ -18,6 +18,10 @@ _AUTH_CLASSES = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAcces
 # same limit.
 MAX_RULE_TEXT_LENGTH = 300
 
+# Every rule rides in the repo selection prompt, so an unbounded set would bloat it. The cap
+# is a guardrail well above realistic use, not a product limit.
+MAX_RULES_PER_TEAM = 50
+
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
@@ -68,6 +72,10 @@ class RepoRoutingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.order_by("priority", "id")
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        if RepoRoutingRule.objects.filter(team_id=self.team_id).count() >= MAX_RULES_PER_TEAM:
+            raise serializers.ValidationError(
+                f"A project can have at most {MAX_RULES_PER_TEAM} routing rules. Remove one to add another."
+            )
         # Append at the end, matching the Slack `rules add` path: earlier rules win ties.
         max_priority = RepoRoutingRule.objects.filter(team_id=self.team_id).aggregate(m=Max("priority"))["m"]
         serializer.save(
