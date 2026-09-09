@@ -7,8 +7,10 @@ import {
     signalsScoutConfigDestroy,
     signalsScoutConfigRename,
     signalsScoutConfigUpdate,
+    signalsScoutRunsRecentPerScout,
+    signalsScoutRunsTokenCosts,
 } from 'products/signals/frontend/generated/api'
-import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalScoutConfigApi, SignalScoutRunSummaryApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
@@ -34,6 +36,8 @@ const mockReportRetrieve = visionScannersScoutReportsRetrieve as jest.MockedFunc
 const mockScoutConfigDestroy = signalsScoutConfigDestroy as jest.MockedFunction<typeof signalsScoutConfigDestroy>
 const mockScoutConfigRename = signalsScoutConfigRename as jest.MockedFunction<typeof signalsScoutConfigRename>
 const mockScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
+const mockScoutRunsList = signalsScoutRunsRecentPerScout as jest.MockedFunction<typeof signalsScoutRunsRecentPerScout>
+const mockScoutRunCosts = signalsScoutRunsTokenCosts as jest.MockedFunction<typeof signalsScoutRunsTokenCosts>
 const mockScoutsCreate = visionScannersScoutsCreate as jest.MockedFunction<typeof visionScannersScoutsCreate>
 const mockHogFunctionsRetrieve = hogFunctionsRetrieve as jest.MockedFunction<typeof hogFunctionsRetrieve>
 const mockHogFunctionsPartialUpdate = hogFunctionsPartialUpdate as jest.MockedFunction<typeof hogFunctionsPartialUpdate>
@@ -53,6 +57,24 @@ function makeReport(overrides: Partial<ScoutReportApi> = {}): ScoutReportApi {
         charts: [],
         ...overrides,
     }
+}
+
+function makeRun(skillName: string): SignalScoutRunSummaryApi {
+    return {
+        run_id: 'run-1',
+        skill_name: skillName,
+        skill_version: 1,
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-08-20T08:00:00Z',
+        started_at: '2026-08-20T08:00:00Z',
+        completed_at: '2026-08-20T08:04:00Z',
+        summary: '',
+        emitted_count: 0,
+        emitted_finding_ids: [],
+        emitted_report_ids: [],
+        edited_report_ids: [],
+    } as SignalScoutRunSummaryApi
 }
 
 function makeConfig(overrides: Partial<SignalScoutConfigApi> = {}): SignalScoutConfigApi {
@@ -90,6 +112,9 @@ describe('scannerScoutLogic', () => {
         initKeaTests()
         jest.clearAllMocks()
         mockReportsList.mockResolvedValue([])
+        // Staff-only run costs ride along with any runs load; without an answer the loader throws
+        // into the console and buries whatever the test was actually asserting.
+        mockScoutRunCosts.mockResolvedValue({ available: false, costs: [] })
     })
 
     afterEach(() => {
@@ -352,6 +377,36 @@ describe('scannerScoutLogic', () => {
             )
         }
     )
+
+    it('refetches the runs window after a rename', async () => {
+        // The window is keyed by skill name, so the renamed scout's runs stay filed under the old
+        // one until they are fetched again. Its card then reads as a scout that has never run, and
+        // says the first report arrives after the next scheduled run rather than when it last checked.
+        await mountWithReports([])
+        const fleet = scoutFleetLogic.findMounted()!
+        const config = makeConfig({ output_destinations: {} })
+        const renamed = makeConfig({ skill_name: 'signals-scout-daily-summary', output_destinations: {} })
+        fleet.actions.loadScoutConfigsSuccess([config])
+        fleet.actions.loadScoutRunsSuccess([makeRun(SKILL_NAME)])
+        mockSkillRetrieve.mockResolvedValue({ body: 'Watch this scanner.' } as any)
+        mockScoutConfigRename.mockResolvedValue(renamed)
+        mockScoutRunsList.mockResolvedValue([makeRun(renamed.skill_name)])
+        expect(logic.values.latestRun?.run_id).toBe('run-1')
+
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.saveScoutSettings({
+            name: 'Daily summary',
+            body: 'Watch this scanner.',
+            cron: '0 9 * * *',
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.scoutConfigsForScanner[0].skill_name).toBe(renamed.skill_name)
+        expect(logic.values.latestRun?.run_id).toBe('run-1')
+    })
 
     it('separates a failed report load from a scout that filed nothing', async () => {
         // Both leave the list empty. Reading a failure as "filed nothing" offers Run now, and that

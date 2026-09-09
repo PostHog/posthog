@@ -912,6 +912,10 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                             new_name: renamedSkillName,
                         })
                         scoutFleetLogic.actions.patchScoutConfigLocally(config.id, savedConfig)
+                        // The runs window is keyed by skill name, so the scout's runs read as
+                        // missing under the new one until they are fetched again — leaving the card
+                        // claiming nothing has run yet.
+                        actions.loadScoutRuns()
                     }
                     const configUpdates: Record<string, unknown> = {}
                     if (form.cron !== config.run_cron_schedule) {
