@@ -4,8 +4,8 @@
 {% block section %}
     <p style="color: #374151;">
         Some materialized views are failing in project <strong>{{ team.name }}</strong>.
-        {% if has_paused %}
-            Views marked <strong>paused</strong> failed too many times in a row, so we stopped running them. Open the
+        {% if has_suspended %}
+            Views marked <strong>suspended</strong> failed too many times in a row, so we stopped running them. Open the
             view, fix the error, and run it once to start it again. Other views will be retried automatically on their
             next scheduled run.
         {% else %}
@@ -15,7 +15,7 @@
     </p>
     <div style="background-color: #ffffff;
                 border: 1px solid #e5e7eb;
-                border-left: 4px solid {% if has_paused %}#dc3545{% else %}#fd7e14{% endif %};
+                border-left: 4px solid {% if has_suspended %}#dc3545{% else %}#fd7e14{% endif %};
                 border-radius: 8px;
                 padding: 16px 20px;
                 margin-bottom: 12px">
@@ -55,13 +55,13 @@
                                vertical-align: top;
                                text-align: right;
                                white-space: nowrap">
-                        {% if view.paused %}
+                        {% if view.suspended %}
                             <span style="background-color: #fee2e2;
                                          color: #b91c1c;
                                          border-radius: 9999px;
                                          padding: 2px 10px;
                                          font-size: 0.75em;
-                                         font-weight: 600">Paused, action required</span>
+                                         font-weight: 600">Suspended, action required</span>
                         {% else %}
                             <span style="background-color: #f3f4f6;
                                          color: #6b7280;

@@ -2163,6 +2163,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 True,
             ),
             (
+                "never_deleted_view_has_null_flag",
+                {"deleted": None, "sync_frequency_interval": dt.timedelta(hours=1)},
+                [("FAILED", dt.timedelta(hours=1), "Some error")],
+                True,
+            ),
+            (
                 # the broken parent is the one reported; mailing every descendant would bury it
                 "view_blocked_by_a_broken_parent",
                 {"sync_frequency_interval": None},
@@ -2452,17 +2458,25 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("enforced", True, [("suspended_view", True), ("retrying_view", False)], True),
-            ("not_enforced", False, [("retrying_view", False)], False),
+            (
+                "enforced",
+                True,
+                DataModelingJobEngine.CLICKHOUSE,
+                [("suspended_view", True), ("retrying_view", False)],
+                True,
+            ),
+            ("not_enforced", False, DataModelingJobEngine.CLICKHOUSE, [("retrying_view", False)], False),
+            ("shadow_marker_only", True, DataModelingJobEngine.DUCKGRES, [("retrying_view", False)], False),
         ]
     )
-    def test_send_matview_failure_digest_paused_rows_follow_enforcement(
+    def test_send_matview_failure_digest_suspended_rows_follow_enforcement(
         self,
         MockEmailMessage: MagicMock,
         _name: str,
         enforced: bool,
+        marker_engine: str,
         expected_rows: list[tuple[str, bool]],
-        expected_has_paused: bool,
+        expected_has_suspended: bool,
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2486,7 +2500,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert node is not None
         mark_node_suspended(
             node,
-            engine=DataModelingJobEngine.CLICKHOUSE,
+            engine=marker_engine,
             reason="5 consecutive failures",
             job_id=str(uuid.uuid4()),
         )
@@ -2511,12 +2525,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 1
         views = mocked_email_messages[0].properties["views"]
-        assert [(v["name"], v["paused"]) for v in views] == expected_rows
-        assert mocked_email_messages[0].properties["has_paused"] is expected_has_paused
+        assert [(v["name"], v["suspended"]) for v in views] == expected_rows
+        assert mocked_email_messages[0].properties["has_suspended"] is expected_has_suspended
 
         html = mocked_email_messages[0].html_body
         assert "Will retry" in html
-        if enforced:
+        if expected_has_suspended:
             assert "action required" in html
             assert "Memory limit (for query) exceeded" in html
         else:
