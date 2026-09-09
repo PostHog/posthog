@@ -760,6 +760,7 @@
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
+      snapshot_mode LowCardinality(Nullable(String)),
       retention_period_days Nullable(Int64),
       is_deleted UInt8,
       ai_tags_fixed Array(String),
@@ -3064,6 +3065,7 @@
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
+      snapshot_mode LowCardinality(Nullable(String)),
       retention_period_days Nullable(Int64),
       is_deleted UInt8,
       ai_tags_fixed Array(String),
@@ -6388,6 +6390,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -6432,6 +6435,7 @@
   ,`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
   ,`ai_highlighted` SimpleAggregateFunction(max, UInt8)
   ,`surfacing_score` SimpleAggregateFunction(max, Nullable(Float32))
+  ,`snapshot_mode` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
   )
   AS SELECT
   session_id,
@@ -6473,6 +6477,7 @@
   ,groupUniqArrayArray(ai_tags_freeform) as ai_tags_freeform
   ,max(ai_highlighted) as ai_highlighted
   ,max(surfacing_score) as surfacing_score
+  ,argMinState(snapshot_mode, first_timestamp) as snapshot_mode
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -8236,6 +8241,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -10344,6 +10350,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -13485,6 +13492,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -14382,6 +14390,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
