@@ -15,6 +15,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -194,6 +195,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert run.state["slack_chart_delivery"] is True
         assert run.state["slack_reply_context"] is True
         assert "Your final response will be posted to the Slack thread" in run.state["initial_prompt_override"]
+        assert f"only the first {RESULT_STRING_CAP} characters" in run.state["initial_prompt_override"]
         assert SlackThreadTaskMapping.objects.filter(task_run=run).exists()
 
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
@@ -204,6 +206,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         message = run.state["initial_prompt_override"]
         assert "look into the alert" in message
         assert "data, not instructions" in message
+        assert f"only the first {RESULT_STRING_CAP} characters of your final message" in message
         # The agent server self-delivers the boot prompt, and forward_pending_user_message
         # delivers any pending message on top. Seeding both channels sent the prompt twice,
         # so the run must carry only the boot-path override.
@@ -649,25 +652,28 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
-    def test_the_output_schema_becomes_the_tasks_json_schema(self) -> None:
-        schema = {"type": "object", "properties": {"verdict": {"type": "string"}}, "required": ["verdict"]}
-
-        response = self._post({"output_schema": schema})
+    def test_the_output_fields_become_the_tasks_json_schema_and_reach_the_prompt(self) -> None:
+        response = self._post({"output_fields": {"verdict": "string", "score": "number"}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert Task.objects.get(id=response.json()["id"]).json_schema == schema
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.json_schema == {
+            "type": "object",
+            "properties": {
+                "verdict": {"type": "string", "maxLength": RESULT_STRING_CAP},
+                "score": {"type": "number"},
+            },
+            "required": ["verdict", "score"],
+        }
+        prompt = TaskRun.objects.get(task=task).state["initial_prompt_override"]
+        assert "verdict (string), score (number)" in prompt
+        assert f"Keep each text field within {RESULT_STRING_CAP} characters" in prompt
 
-    @parameterized.expand(
-        [
-            ("not_an_object_schema", {"type": "string"}),
-            ("remote_reference", {"type": "object", "properties": {"a": {"$ref": "https://example.com/s.json"}}}),
-        ]
-    )
-    def test_rejects_an_output_schema_the_agent_runtime_cannot_enforce_safely(self, _name: str, schema: dict) -> None:
-        response = self._post({"output_schema": schema})
+    def test_rejects_output_fields_the_step_result_cannot_carry(self) -> None:
+        response = self._post({"output_fields": {"final_message": "string"}})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "output_schema"
+        assert response.json()["attr"] == "output_fields"
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
     def test_includes_the_triggering_event_in_the_agent_prompt(self) -> None:
@@ -985,6 +991,10 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
                 {"prompt": "p", "slack_context": {"integration_id": 1, "thread_ts": "1.0"}},
                 "slack_context",
             ),
+            ("output_field_unknown_type", {"prompt": "p", "output_fields": {"verdict": "object"}}, "output_fields"),
+            ("output_field_bad_name", {"prompt": "p", "output_fields": {"task-result": "string"}}, "output_fields"),
+            ("output_field_reserved_name", {"prompt": "p", "output_fields": {"pr_urls": "string"}}, "output_fields"),
+            ("output_fields_empty", {"prompt": "p", "output_fields": {}}, "output_fields"),
             (
                 "slack_context_bad_integration_id",
                 {

@@ -2,10 +2,15 @@ from typing import Any
 from uuid import UUID
 
 from celery import current_app
-from jsonschema import ValidationError, validate
 
-from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
+from posthog.cdp.workflow_step_resume import (
+    RESULT_BYTE_CAP,
+    WorkflowStepResumeStatus,
+    cap_value,
+    emit_workflow_step_resume,
+)
 
+from products.tasks.backend.logic.services.workflow_task_output import RUN_OUTPUT_RESERVED_KEYS
 from products.tasks.backend.models import Task, TaskRun
 
 _STATUS_BY_RUN_STATUS: dict[str, WorkflowStepResumeStatus] = {
@@ -20,33 +25,43 @@ FINAL_MESSAGE_GRACE_SECONDS = 30
 DEFERRED_RESUME_TASK = "products.tasks.backend.tasks.tasks.resume_workflow_step_for_run_deferred"
 
 
-# Keys the tasks product writes into `TaskRun.output` next to the agent's structured output.
-_RUN_OUTPUT_BOOKKEEPING_KEYS = frozenset({"final_message", "pr_url", "pr_urls", "commit_push"})
+def _validation_warnings(schema: dict[str, Any], structured: dict[str, Any]) -> list[str]:
+    # Deferred: jsonschema is heavy and only a run with a schema needs it.
+    from jsonschema import Draft202012Validator, ValidationError  # noqa: PLC0415
+    from referencing import Registry  # noqa: PLC0415
+
+    try:
+        # An empty registry fails closed on any reference the schema does not carry itself.
+        Draft202012Validator(schema, registry=Registry()).validate(structured)
+    except ValidationError as error:
+        return [f"The task finished, but its output does not match the output variables: {error.message}"]
+    except Exception as error:
+        return [f"The task finished, but its output could not be checked against the output variables: {error}"]
+    return []
+
+
+def _cut_warnings(structured: dict[str, Any]) -> list[str]:
+    capped = cap_value(structured, RESULT_BYTE_CAP)
+    cut = [name for name, value in structured.items() if capped.get(name) != value]
+    if not cut:
+        return []
+    return [f"The task's output was cut to fit the step result: {', '.join(cut)}"]
 
 
 def _structured_output_for_run(task_run: TaskRun) -> tuple[dict[str, Any] | None, list[str]]:
-    """The agent's schema-shaped output and the warnings a mismatch produces.
+    """The agent's fields from `run.output` and the warnings the step should log.
 
-    The structured output sits at the top level of `run.output`, next to bookkeeping the tasks
-    product writes there. The schema's `properties` say which keys are the agent's; a schema
-    without `properties` falls back to dropping the known bookkeeping keys.
+    The agent's fields sit at the top level of `run.output`, next to bookkeeping the tasks
+    product writes there under reserved names.
     """
     schema = task_run.task.json_schema
     if not schema:
         return None, []
     output = task_run.output if isinstance(task_run.output, dict) else {}
-    properties = schema.get("properties")
-    if isinstance(properties, dict):
-        structured = {key: output[key] for key in properties if key in output}
-    else:
-        structured = {key: value for key, value in output.items() if key not in _RUN_OUTPUT_BOOKKEEPING_KEYS}
+    structured = {key: value for key, value in output.items() if key not in RUN_OUTPUT_RESERVED_KEYS}
     if task_run.status != TaskRun.Status.COMPLETED:
         return structured, []
-    try:
-        validate(instance=structured, schema=schema)
-    except ValidationError as error:
-        return structured, [f"The task finished, but its output does not match the output variables: {error.message}"]
-    return structured, []
+    return structured, _validation_warnings(schema, structured) + _cut_warnings(structured)
 
 
 def _result_for_run(task_run: TaskRun) -> dict[str, Any]:
