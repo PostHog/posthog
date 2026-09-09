@@ -302,6 +302,52 @@ describe('filterToMetricConfig', () => {
         })
     })
 
+    it('uses table_name for a MEAN warehouse source when it is present', () => {
+        const dataWarehouse = [
+            {
+                id: 'warehouse_table_id',
+                table_name: 'stripe_charges',
+                name: 'Stripe charges',
+                timestamp_field: 'created_at',
+                id_field: 'customer_id',
+                aggregation_target_field: 'distinct_id',
+            },
+        ]
+
+        const result = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, dataWarehouse)
+
+        expect(result).toEqual({
+            metric_type: ExperimentMetricType.MEAN,
+            source: expect.objectContaining({ table_name: 'stripe_charges' }),
+        })
+    })
+
+    it('keeps funnel step order stable when filter order is missing', () => {
+        const events = [{ id: 'first_event' }]
+        const dataWarehouse = [
+            {
+                id: 'stripe_charges',
+                name: 'Stripe charges',
+                timestamp_field: 'created_at',
+                id_field: 'customer_id',
+                aggregation_target_field: 'distinct_id',
+            },
+        ]
+
+        const result = filterToMetricConfig(ExperimentMetricType.FUNNEL, undefined, events, dataWarehouse)
+
+        expect(result).toEqual({
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [
+                expect.objectContaining({ kind: NodeKind.EventsNode, event: 'first_event' }),
+                expect.objectContaining({
+                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    table_name: 'stripe_charges',
+                }),
+            ],
+        })
+    })
+
     it('maps data warehouse popover fields to a MEAN metric source', () => {
         const dataWarehouse = [
             {

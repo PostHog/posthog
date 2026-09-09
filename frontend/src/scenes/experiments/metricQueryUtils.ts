@@ -387,7 +387,7 @@ export function filterToMetricSource(
         return {
             kind: NodeKind.ExperimentDataWarehouseNode,
             name: data_warehouse[0].name,
-            table_name: data_warehouse[0].id,
+            table_name: data_warehouse[0].table_name || data_warehouse[0].id,
             timestamp_field: data_warehouse[0].timestamp_field,
             events_join_key: data_warehouse[0].events_join_key ?? data_warehouse[0].aggregation_target_field,
             data_warehouse_join_key: data_warehouse[0].data_warehouse_join_key ?? data_warehouse[0].id_field,
@@ -424,7 +424,7 @@ export function filterToMetricConfig(
                             custom_name: event.custom_name,
                             properties: event.properties,
                             order: event.order,
-                        }) as EventsNode & { order: number }
+                        }) as EventsNode & { order?: number }
                 ) || []
 
             const actionSteps =
@@ -436,7 +436,7 @@ export function filterToMetricConfig(
                             name: action.name,
                             properties: action.properties,
                             order: action.order,
-                        }) as ActionsNode & { order: number }
+                        }) as ActionsNode & { order?: number }
                 ) || []
 
             const dataWarehouseSteps =
@@ -452,12 +452,12 @@ export function filterToMetricConfig(
                             custom_name: dataWarehouse.custom_name,
                             properties: dataWarehouse.properties,
                             order: dataWarehouse.order,
-                        }) as ExperimentDataWarehouseNode & { order: number }
+                        }) as ExperimentDataWarehouseNode & { order?: number }
                 ) || []
 
-            const combinedSteps = [...eventSteps, ...actionSteps, ...dataWarehouseSteps].sort(
-                (a, b) => a.order - b.order
-            )
+            const combinedSteps = [...eventSteps, ...actionSteps, ...dataWarehouseSteps]
+                .map((step, index) => ({ ...step, order: step.order ?? index }))
+                .sort((a, b) => a.order - b.order)
 
             // Remove the temporary order field
             const series = combinedSteps.map(({ order, ...step }) => step as ExperimentFunnelMetricStep)
