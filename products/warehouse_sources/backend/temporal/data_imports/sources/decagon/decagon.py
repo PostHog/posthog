@@ -224,6 +224,27 @@ def get_rows(
 
         return response.json()
 
+    # Decagon refuses the whole request when an optional add-on param names an entitlement
+    # the team does not hold, so a table whose base response would sync fine never loads.
+    # Drop the add-on params and retry; a 403 about the endpoint itself fails again and
+    # still surfaces. The drop persists for the rest of the walk so each page costs one
+    # request, which matters against the 1 rps limit.
+    optional_params_dropped = not config.optional_params
+
+    def fetch_page_with_optional(params: dict[str, str]) -> dict[str, Any]:
+        nonlocal optional_params_dropped
+        if not optional_params_dropped:
+            try:
+                return fetch_page({**params, **config.optional_params})
+            except requests.HTTPError as err:
+                if err.response is None or err.response.status_code != 403:
+                    raise
+                optional_params_dropped = True
+                logger.warning(
+                    f"Decagon: {endpoint} refused {sorted(config.optional_params)}; retrying without the add-on params"
+                )
+        return fetch_page(params)
+
     def save_position(**position: Any) -> None:
         # Persisted only after a yield, so a crash re-yields the last batch rather than
         # skipping it (the duplicate rows a resumed re-yield can produce are bounded to
@@ -264,7 +285,7 @@ def get_rows(
             if timestamp_filter and config.timestamp_filter_param:
                 params[config.timestamp_filter_param] = timestamp_filter
 
-        data = fetch_page(params)
+        data = fetch_page_with_optional(params)
         items = data.get(config.data_key) or []
 
         fresh: list[dict[str, Any]] = []

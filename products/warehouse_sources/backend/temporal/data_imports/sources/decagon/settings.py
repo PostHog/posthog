@@ -64,6 +64,10 @@ class DecagonEndpointConfig:
     timestamp_filter_param: Optional[str] = None
     # Static query params always sent.
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Params requesting an add-on Decagon entitles separately from the endpoint behind it.
+    # It 403s the whole request when a team lacks the add-on rather than returning the base
+    # response, so these are sent optimistically and dropped on a 403 (see get_rows).
+    optional_params: dict[str, str] = field(default_factory=dict)
     # Order rows arrive in when the endpoint documents one. "desc" is also the safe
     # declaration for endpoints whose order is undocumented: the pipeline then defers the
     # incremental watermark to the end of a successful run instead of checkpointing
@@ -126,7 +130,9 @@ DECAGON_ENDPOINTS: dict[str, DecagonEndpointConfig] = {
     # merging on a guessed composite key that could silently merge distinct actions.
     # include_details adds a `detail` object (carrying detail.conversation_id, the join
     # key to conversations) only when detail export is enabled for the team, so nothing
-    # may depend on it being present.
+    # may depend on it being present. A team without that add-on is refused the whole
+    # request rather than served a response without `detail`, so the param rides
+    # optional_params and the walk retries without it.
     "agent_assist_actions": DecagonEndpointConfig(
         name="agent_assist_actions",
         path="/agent_assist/actions/export",
@@ -146,7 +152,7 @@ DECAGON_ENDPOINTS: dict[str, DecagonEndpointConfig] = {
         partition_key="created_at",
         incremental_param="min_timestamp",
         incremental_param_format="epoch_seconds",
-        extra_params={"include_details": "true"},
+        optional_params={"include_details": "true"},
         # This export documents no ordering, so desc is the safe declaration (see the
         # field comment).
         sort_mode="desc",
