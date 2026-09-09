@@ -29,7 +29,7 @@ describe('ActivityLogRow', () => {
         )
         fireEvent.click(screen.getByRole('button'))
 
-        expect(screen.getByRole('tab', { name: 'Release conditions' })).toHaveAttribute('aria-selected', 'true')
+        expect(screen.getByText('Release conditions').closest('[role="tab"]')).toHaveAttribute('aria-selected', 'true')
         expect(screen.getByText('the release conditions')).toBeInTheDocument()
     })
 })
