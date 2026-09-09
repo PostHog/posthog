@@ -577,6 +577,31 @@ describe('CdpLegacyEventsConsumer', () => {
             expect(invocations[0].pluginConfigId).toBe(pluginConfig.id)
         })
 
+        it('passes secrets that live in encrypted_inputs to the processor', async () => {
+            await migrate({
+                inputs: { customerioSiteId: { value: '1234567890' } },
+                encrypted_inputs: hub.encryptedFields.encrypt(
+                    JSON.stringify({ customerioToken: { value: 'cio-token' } })
+                ) as any,
+            })
+
+            const invocations = await consumer['getLegacyPluginHogFunctionInvocations'](invocation)
+
+            expect(invocations[0].invocation.state.globals.inputs).toMatchObject({
+                customerioSiteId: '1234567890',
+                customerioToken: 'cio-token',
+            })
+        })
+
+        it('runs one of two migrated rows sharing a template, not both', async () => {
+            await migrate()
+            await migrate()
+
+            const invocations = await consumer['getLegacyPluginHogFunctionInvocations'](invocation)
+
+            expect(invocations).toHaveLength(1)
+        })
+
         it('reports the migrated row against its own hog function id rather than the plugin config', async () => {
             const migrated = await migrate()
             const queueAppMetric = jest.spyOn(consumer['hogFunctionMonitoringService'], 'queueAppMetric')

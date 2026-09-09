@@ -37,21 +37,34 @@ def plugin_id_from_url(url: str) -> str:
     return PLUGIN_ID_OVERRIDES.get(plugin_id, plugin_id)
 
 
+def _as_consumer_value(value: Any) -> str:
+    """Mirror how CdpLegacyEventsConsumer builds inputs from a plugin config, so a migrated row hands
+    the processor exactly what it gets today. See `value?.toString() ?? ''` in that consumer."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return value if isinstance(value, str) else json.dumps(value, separators=(",", ":"))
+
+
 def build_inputs(plugin_config: Mapping[str, Any], plugin_id: str) -> dict[str, Any]:
-    inputs: dict[str, Any] = {key: {"value": value} for key, value in plugin_config["config"].items()}
+    inputs: dict[str, Any] = {
+        key: {"value": _as_consumer_value(value)} for key, value in plugin_config["config"].items()
+    }
 
     if plugin_id in STORAGE_BACKED_PLUGIN_IDS:
         inputs["legacy_plugin_config_id"] = {"value": str(plugin_config["id"])}
 
-    if plugin_config["config"]:
-        for attachment in PluginAttachment.objects.filter(plugin_config_id=plugin_config["id"]):
-            contents: Any = attachment.parse_contents()
-            try:
-                contents = json.loads(contents)
-            except Exception:
-                pass
-            if contents:
-                inputs[attachment.key] = {"value": contents}
+    # The consumer only folds attachments in when the config is non-empty. That drops the credential
+    # for a config that carries nothing else, so migrate the attachment either way.
+    for attachment in PluginAttachment.objects.filter(plugin_config_id=plugin_config["id"]):
+        contents: Any = attachment.parse_contents()
+        try:
+            contents = json.loads(contents)
+        except Exception:
+            pass
+        if contents:
+            inputs[attachment.key] = {"value": contents}
 
     return inputs
 
@@ -81,6 +94,15 @@ def _build_hog_function(plugin_config: Mapping[str, Any], drop_unmapped_inputs: 
         return _BuildOutcome(skip_reason="already migrated")
 
     inputs = build_inputs(plugin_config, plugin_id)
+
+    # A required input with nothing behind it saves cleanly and then fails at runtime with no credentials
+    missing = sorted(
+        entry["key"]
+        for entry in template.inputs_schema or []
+        if entry.get("required") and not inputs.get(entry["key"], {}).get("value")
+    )
+    if missing:
+        return _BuildOutcome(skip_reason=f"required inputs with no value: {', '.join(missing)}")
 
     # HogFunction.save() drops any key the template schema does not declare, without a trace
     schema_keys = {entry["key"] for entry in template.inputs_schema or []}

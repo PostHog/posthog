@@ -100,6 +100,13 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             refreshBackgroundAgeMs: 300000, // 5 minutes
             bufferMs: 10, // 10ms buffer for batching
         })
+
+        // This loader caches the combined plugin-config and migrated-function view, so the manager
+        // invalidating its own copy is not enough: enabling or deleting a migrated row has to change
+        // which of the two runs straight away, not at the next refresh.
+        deps.pubSub.on<{ teamId: number }>('reload-hog-functions', ({ teamId }) => {
+            this.pluginConfigsLoader.markForRefresh(teamId.toString())
+        })
     }
 
     private async loadAndBuildHogFunctions(teamIds: string[]): Promise<Record<string, PluginConfigHogFunction[]>> {
@@ -240,7 +247,17 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         const results: Record<string, PluginConfigHogFunction[]> = {}
 
         for (const [teamId, pluginConfigFns] of Object.entries(fromPluginConfigs)) {
-            const migrated = fromHogFunctions[teamId] ?? []
+            // Nothing in the database stops two migrated rows sharing a template, and running both
+            // would send every event twice. Keep the oldest and ignore the rest.
+            const byTemplate = new Map<string, HogFunctionType>()
+            for (const fn of [...(fromHogFunctions[teamId] ?? [])].sort((a, b) => a.id.localeCompare(b.id))) {
+                const templateId = fn.template_id ?? ''
+                if (!byTemplate.has(templateId)) {
+                    byTemplate.set(templateId, fn)
+                }
+            }
+
+            const migrated = [...byTemplate.values()]
             const migratedTemplateIds = new Set(migrated.map((fn) => fn.template_id))
 
             const superseded = pluginConfigFns.filter((x) => migratedTemplateIds.has(x.hogFunction.template_id))
@@ -409,8 +426,9 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         }
 
         return pluginConfigHogFunctions.map(({ hogFunction, pluginConfigId }) => {
-            // Plugin configs are always static { value: any } so we can just convert to a record of strings
-            const inputs = Object.entries(hogFunction.inputs || {}).reduce(
+            // Plugin configs are always static { value: any } so we can just convert to a record of strings.
+            // A migrated row keeps its secrets in encrypted_inputs, which the manager decrypts separately.
+            const inputs = Object.entries({ ...hogFunction.inputs, ...hogFunction.encrypted_inputs }).reduce(
                 (acc, [key, value]) => {
                     acc[key] = value?.value
                     return acc

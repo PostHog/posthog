@@ -594,23 +594,27 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         return super().to_internal_value(data)
 
-    API_MANAGED_TYPE_ERRORS = {
+    # A legacy destination is only ever written by the plugin config migration. One created here would
+    # supersede the plugin config it shares a template with, silently replacing it.
+    UNCREATABLE_TYPE_ERRORS = {
         HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value: "Cannot create or modify warehouse source webhook functions via this API.",
-        # A legacy destination is only ever written by the plugin config migration. One created here
-        # would supersede the plugin config it shares a template with, silently replacing it.
-        HogFunctionType.LEGACY_DESTINATION.value: "Cannot create or modify legacy destination functions via this API.",
+        HogFunctionType.LEGACY_DESTINATION.value: "Cannot create legacy destination functions via this API.",
     }
+    # A migrated legacy destination stays editable, so a person can disable one that misbehaves
+    UNEDITABLE_TYPES = {HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value}
 
     def validate_type(self, value):
-        if value in self.API_MANAGED_TYPE_ERRORS:
-            raise serializers.ValidationError(self.API_MANAGED_TYPE_ERRORS[value])
+        is_create = bool(self.context.get("view")) and self.context["view"].action == "create"
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        changing_type = instance is not None and instance.type != value
 
-        # Ensure it is only set when creating a new function
-        if self.context.get("view") and self.context["view"].action == "create":
+        if value in self.UNCREATABLE_TYPE_ERRORS and (is_create or changing_type or value in self.UNEDITABLE_TYPES):
+            raise serializers.ValidationError(self.UNCREATABLE_TYPE_ERRORS[value])
+
+        if is_create:
             return value
 
-        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
-        if instance and instance.type != value:
+        if changing_type:
             raise serializers.ValidationError("Cannot modify the type of an existing function")
         return value
 
