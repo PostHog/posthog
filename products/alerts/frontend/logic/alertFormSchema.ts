@@ -95,6 +95,9 @@ const alertFormSchema = z
 
         const bounds = alert.threshold?.configuration?.bounds
         const forecast = (alert as AlertFormType).forecast_config
+        // Only the threshold and predicted-breach paths show the bounds, so both bound rules stop
+        // here for a target alert. A stale bound it never reads must not block the save with an
+        // error no visible field can show.
         const usesThresholdBounds = !forecast || forecast.condition === ForecastConditionType.FUTURE_BREACH
         if (!alert.detector_config && usesThresholdBounds && hasInvertedThresholdBounds(bounds)) {
             ctx.addIssue({
@@ -112,6 +115,7 @@ const alertFormSchema = z
         }
 
         const hasNegativeRelativeBound =
+            usesThresholdBounds &&
             alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE &&
             [bounds?.lower, bounds?.upper].some((value) => isFiniteThresholdBound(value) && value < 0)
         if (hasNegativeRelativeBound) {
