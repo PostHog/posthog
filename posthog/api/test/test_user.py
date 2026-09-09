@@ -2613,7 +2613,7 @@ class TestToolbarAccessControl(APIBaseTest):
     )
     def test_get_toolbar_entitlements_reflects_org_features(self, _name, extra_features, expected):
         self.organization.available_product_features = [
-            *self.organization.available_product_features,
+            *(self.organization.available_product_features or []),
             *extra_features,
         ]
         self.organization.save()
