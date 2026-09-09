@@ -22,7 +22,7 @@ export function WizardRepositoryPicker({
             integrationId={integrationId}
             value={value}
             onChange={(repository) => onChange(repository ?? '')}
-            disabled={!!disabledReason}
+            disabledReason={disabledReason}
             repositoryFilter={isWizardRepositoryEligible}
             placeholder="Select a repository"
             fullWidth

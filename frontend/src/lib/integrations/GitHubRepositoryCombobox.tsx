@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 
 import { IconGithub } from '@posthog/icons'
 import {
@@ -23,6 +23,7 @@ export interface GitHubRepositoryComboboxProps {
     value: string
     onChange: (value: string | null) => void
     disabled?: boolean
+    disabledReason?: string
     placeholder?: string
     /** When true, prepends a "— No repository —" item so users can explicitly clear the selection. */
     showNoneOption?: boolean
@@ -43,6 +44,7 @@ export function GitHubRepositoryCombobox({
     value,
     onChange,
     disabled = false,
+    disabledReason,
     placeholder = 'Select repository...',
     showNoneOption = false,
     repositoryFilter,
@@ -56,6 +58,8 @@ export function GitHubRepositoryCombobox({
     const { setSearchQuery, loadMore, refresh } = useActions(logic)
 
     const triggerRef = useRef<HTMLButtonElement>(null)
+    const disabledReasonId = useId()
+    const isDisabled = disabled || !!disabledReason
     const [open, setOpen] = useState(false)
 
     const trimmedSearchQuery = searchQuery.trim()
@@ -83,7 +87,7 @@ export function GitHubRepositoryCombobox({
             }}
             inputValue={searchQuery}
             onInputValueChange={(next: string) => setSearchQuery(next)}
-            disabled={disabled}
+            disabled={isDisabled}
         >
             <ComboboxTrigger
                 render={
@@ -91,8 +95,9 @@ export function GitHubRepositoryCombobox({
                         ref={triggerRef}
                         variant="outline"
                         size="sm"
-                        disabled={disabled}
+                        disabled={isDisabled}
                         aria-label="Repository"
+                        aria-describedby={disabledReason ? disabledReasonId : undefined}
                         className={fullWidth ? 'min-h-10 w-full justify-start' : undefined}
                     >
                         <IconGithub className="shrink-0" />
@@ -104,11 +109,16 @@ export function GitHubRepositoryCombobox({
                 <ComboboxSearchField
                     itemsLabel="repositories"
                     loading={loading}
-                    disabled={disabled}
+                    disabled={isDisabled}
                     onRefresh={refresh}
                 />
                 <ComboboxEmpty>
-                    {showInlineLoadingState ? 'Loading repositories...' : (error ?? 'No repositories found.')}
+                    {showInlineLoadingState
+                        ? 'Loading repositories...'
+                        : (error ??
+                          (hasMore
+                              ? 'No available repositories in these results. Load more to keep looking.'
+                              : 'No repositories found.'))}
                 </ComboboxEmpty>
                 <ComboboxList>
                     {(repo: string) =>
@@ -134,6 +144,11 @@ export function GitHubRepositoryCombobox({
                     />
                 )}
             </ComboboxContent>
+            {disabledReason && (
+                <p id={disabledReasonId} className="mb-0 mt-1 text-xs text-muted" role="status">
+                    {disabledReason}
+                </p>
+            )}
         </Combobox>
     )
 }

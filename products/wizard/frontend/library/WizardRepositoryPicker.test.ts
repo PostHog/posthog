@@ -1,27 +1,18 @@
 import { isWizardRepositoryEligible } from './WizardRepositoryPicker'
 
 describe('isWizardRepositoryEligible', () => {
-    it('includes accessible installation repositories when GitHub reports can_push as false', () => {
+    it.each([
+        { archived: false, can_push: false, expected: true },
+        { archived: true, can_push: true, expected: false },
+    ])('returns $expected for archived=$archived and can_push=$can_push', ({ archived, can_push, expected }) => {
         expect(
             isWizardRepositoryEligible({
                 id: 1,
                 name: 'posthog',
                 full_name: 'PostHog/posthog',
-                archived: false,
-                can_push: false,
+                archived,
+                can_push,
             })
-        ).toBe(true)
-    })
-
-    it('excludes archived repositories', () => {
-        expect(
-            isWizardRepositoryEligible({
-                id: 1,
-                name: 'posthog',
-                full_name: 'PostHog/posthog',
-                archived: true,
-                can_push: true,
-            })
-        ).toBe(false)
+        ).toBe(expected)
     })
 })
