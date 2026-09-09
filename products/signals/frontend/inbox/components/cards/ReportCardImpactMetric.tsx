@@ -4,7 +4,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { formatReportMetricValue, reportMetricRowParts } from '../../utils/reportMetrics'
+import { formatReportMetricValue, reportMetricChartType, reportMetricRowParts } from '../../utils/reportMetrics'
 import { ReportCardSparkline } from './ReportCardSparkline'
 
 export function selectReportCardImpactMetric(metrics?: ReportMetricApi[]): ReportMetricApi | null {
@@ -23,7 +23,7 @@ export function selectReportCardImpactMetric(metrics?: ReportMetricApi[]): Repor
 }
 
 /**
- * The row's headline impact: the trailing buckets as a bar strip, then the figure over its unit word.
+ * The row's headline impact: the trailing buckets as a bar or line strip, then the figure over its unit word.
  * What it measures and when live in the tooltip.
  *
  * The two columns are fixed so figures and strips line up down a list of rows. The strip column keeps
@@ -57,7 +57,9 @@ export function ReportCardImpactMetric({ metrics }: { metrics?: ReportMetricApi[
                 data-attr="report-card-impact-metric"
             >
                 <div className="flex items-center justify-end">
-                    {series.length > 1 ? <ReportCardSparkline values={series} /> : null}
+                    {series.length > 1 ? (
+                        <ReportCardSparkline values={series} type={reportMetricChartType(metric)} />
+                    ) : null}
                 </div>
                 <div className="flex min-w-0 flex-col items-end gap-0.5 text-right">
                     <span className="font-mono text-sm font-semibold leading-tight tabular-nums text-primary">

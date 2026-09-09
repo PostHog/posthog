@@ -5,12 +5,13 @@ import type { ReportMetricApi } from 'products/signals/frontend/generated/api.sc
 
 import {
     asReportMetricAggregateQuery,
-    asReportMetricBarQuery,
+    asReportMetricSeriesQuery,
     asReportMetricTrendsQuery,
     formatReportMetricParts,
     formatReportMetricValue,
     mergeReportMetricSnapshots,
     reportMetricAggregate,
+    reportMetricChartType,
     reportNeedsMetricRefresh,
     reportMetricDelta,
     reportMetricFilterCount,
@@ -89,46 +90,66 @@ describe('reportMetrics', () => {
         expect(formatReportMetricParts(metric, value)).toEqual(expected)
     })
 
-    it('embeds a Trends query as a bar chart without changing its measurement', () => {
-        const query = asReportMetricBarQuery({
+    function trendsQuery(math: string, trendsFilter?: Record<string, unknown>): ReportMetricApi['query'] {
+        return {
             kind: 'InsightVizNode',
             source: {
                 kind: 'TrendsQuery',
                 dateRange: { date_from: '-7d' },
                 interval: 'day',
-                series: [{ kind: 'EventsNode', event: '$autocapture', math: 'dau' }],
+                series: [{ kind: 'EventsNode', event: '$autocapture', math }],
+                ...(trendsFilter ? { trendsFilter } : {}),
             },
-        })
+        }
+    }
 
-        expect(query).toMatchObject({
-            embedded: true,
-            showFilters: false,
-            source: {
-                dateRange: { date_from: '-7d' },
-                interval: 'day',
-                series: [{ event: '$autocapture', math: 'dau' }],
-                trendsFilter: { display: ChartDisplayType.ActionsBar },
-            },
-        })
+    // Buckets that add up draw as bars; buckets that are levels draw as a line.
+    const chartTypeCases: [string, Pick<ReportMetricApi, 'value_format' | 'query'>, 'bar' | 'line'][] = [
+        ['a count', { value_format: 'count', query: trendsQuery('dau') }, 'bar'],
+        ['a percentage rate', { value_format: 'percentage', query: trendsQuery('total') }, 'line'],
+        ['a scaled rate', { value_format: 'percentage_scaled', query: trendsQuery('total') }, 'line'],
+        ['a duration', { value_format: 'duration', query: trendsQuery('avg') }, 'line'],
+        ['a plain number', { value_format: 'number', query: trendsQuery('total') }, 'line'],
+        ['summed revenue', { value_format: 'currency', query: trendsQuery('sum') }, 'bar'],
+        ['average revenue', { value_format: 'currency', query: trendsQuery('avg') }, 'line'],
+        ['revenue with no query', { value_format: 'currency', query: undefined }, 'line'],
+    ]
+    it.each(chartTypeCases)('draws %s as a %s strip', (_name, metric, expected) => {
+        expect(reportMetricChartType(metric)).toBe(expected)
     })
 
-    it('drops a stored percent-stack view and hidden series when deriving the bar', () => {
-        const query = asReportMetricBarQuery({
-            kind: 'InsightVizNode',
-            source: {
-                kind: 'TrendsQuery',
-                dateRange: { date_from: '-7d' },
-                interval: 'day',
-                series: [{ kind: 'EventsNode', event: '$autocapture', math: 'dau' }],
-                trendsFilter: {
-                    display: ChartDisplayType.ActionsLineGraph,
-                    showPercentStackView: true,
-                    hiddenLegendIndexes: [0],
+    it.each([
+        ['count', 'bar', ChartDisplayType.ActionsBar],
+        ['percentage', 'line', ChartDisplayType.ActionsLineGraph],
+    ] as const)(
+        'embeds a %s metric Trends query as a %s chart without changing its measurement',
+        (valueFormat, _shape, display) => {
+            const query = asReportMetricSeriesQuery({ value_format: valueFormat, query: trendsQuery('dau') })
+
+            expect(query).toMatchObject({
+                embedded: true,
+                showFilters: false,
+                source: {
+                    dateRange: { date_from: '-7d' },
+                    interval: 'day',
+                    series: [{ event: '$autocapture', math: 'dau' }],
+                    trendsFilter: { display },
                 },
-            },
+            })
+        }
+    )
+
+    it('drops a stored percent-stack view and hidden series when deriving the chart', () => {
+        const query = asReportMetricSeriesQuery({
+            value_format: 'count',
+            query: trendsQuery('dau', {
+                display: ChartDisplayType.ActionsLineGraph,
+                showPercentStackView: true,
+                hiddenLegendIndexes: [0],
+            }),
         })
 
-        // A single-series metric bar must not percent-stack (every bucket would read 100%) or hide
+        // A single-series metric chart must not percent-stack (every bucket would read 100%) or hide
         // its only series.
         expect(query?.source.trendsFilter).toMatchObject({
             display: ChartDisplayType.ActionsBar,

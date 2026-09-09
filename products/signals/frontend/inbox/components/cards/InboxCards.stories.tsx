@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { NodeKind, type InsightVizNode, type TrendsQuery } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayType, PropertyMathType } from '~/types'
 
 import { makeReport, pullRequestReports, reportTabReports, runReportsMany } from '../../__mocks__/inboxMocks'
 import { SignalReport, SignalReportStatus } from '../../types'
@@ -48,7 +48,7 @@ function CardList({ children }: { children: React.ReactNode }): JSX.Element {
 function metricQuery(
     event: string,
     customName: string,
-    math: BaseMathType = BaseMathType.TotalCount
+    math: BaseMathType | PropertyMathType = BaseMathType.TotalCount
 ): InsightVizNode<TrendsQuery> {
     return {
         kind: NodeKind.InsightVizNode,
@@ -63,7 +63,7 @@ function metricQuery(
 }
 
 // One row per figure shape the impact column has to line up: a rising count, a flat count, a rate, a
-// scaled rate, a duration with no strip, and a report with no figure at all.
+// scaled rate, a duration, summed revenue, a plain number with no strip, and a report with no figure at all.
 const impactReports: SignalReport[] = [
     makeReport({
         title: "fix(max): Stop 'Conversation not found' on AI chat deep links",
@@ -177,10 +177,57 @@ const impactReports: SignalReport[] = [
                 role: 'primary',
                 value: 287,
                 value_at: '2026-06-10T10:00:00Z',
-                series: null,
+                series: [214, 221, 218, 230, 226, 241, 255, 249, 262, 271, 268, 280, 284, 287],
                 value_format: 'duration',
                 unit: 's',
-                query: metricQuery('ci_job_finished', 'CI CLI job'),
+                query: metricQuery('ci_job_finished', 'CI CLI job', PropertyMathType.Median),
+                caption: null,
+            },
+        ],
+    }),
+    makeReport({
+        title: 'fix(billing): Stop double-charging annual plans on renewal',
+        summary:
+            'Annual plans renewed in the last two weeks were invoiced twice. The second invoice settles before the first refund lands.',
+        priority: 'P1',
+        source_products: ['revenue_analytics'],
+        created_at: '2026-06-03T09:30:00Z',
+        updated_at: '2026-06-10T12:15:00Z',
+        metrics: [
+            {
+                metric_id: 'refunded-revenue',
+                title: 'Revenue refunded after a double charge',
+                kind: 'revenue',
+                role: 'primary',
+                value: 18420,
+                value_at: '2026-06-10T12:00:00Z',
+                series: [0, 0, 640, 1180, 920, 1460, 1720, 1310, 1890, 2050, 1640, 2210, 1980, 1420],
+                value_format: 'currency',
+                unit: 'USD',
+                query: metricQuery('refund_issued', 'Refunded revenue', PropertyMathType.Sum),
+                caption: null,
+            },
+        ],
+    }),
+    makeReport({
+        title: 'perf(ingestion): Raise the batch size on the person-property writer',
+        summary: 'The writer flushes tiny batches under load, so the consumer lag grows through every peak.',
+        priority: 'P3',
+        source_products: ['data_pipelines'],
+        created_at: '2026-06-02T15:00:00Z',
+        updated_at: '2026-06-09T18:00:00Z',
+        metrics: [
+            {
+                metric_id: 'batch-size',
+                title: 'Average rows per flush',
+                kind: 'custom',
+                role: 'primary',
+                value: 41,
+                value_at: '2026-06-09T18:00:00Z',
+                series: null,
+                value_format: 'number',
+                unit: 'rows',
+                query: metricQuery('person_property_flush', 'Rows per flush', PropertyMathType.Average),
                 caption: null,
             },
         ],

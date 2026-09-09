@@ -161,6 +161,29 @@ describe('ReportCard', () => {
         expect(within(block as HTMLElement).getByText(unitWord)).toBeInTheDocument()
     })
 
+    it('draws a rate strip as a line instead of bars', () => {
+        enableRedesign()
+        const { container } = render(
+            <ReportCard
+                report={makeReport({
+                    metrics: [
+                        makeMetric({
+                            kind: 'error_rate',
+                            value: 40,
+                            value_format: 'percentage',
+                            unit: 'failure',
+                            series: [35, 42, 38],
+                        }),
+                    ],
+                })}
+            />
+        )
+
+        const strip = container.querySelector('[data-attr="report-card-impact-sparkline"]')
+        expect(strip?.tagName).toBe('svg')
+        expect(strip?.querySelector('polyline')).not.toBeNull()
+    })
+
     it('draws no strip for a single-bucket series but keeps the figure', () => {
         enableRedesign()
         const { container } = render(<ReportCard report={makeReport({ metrics: [makeMetric({ series: [9] })] })} />)

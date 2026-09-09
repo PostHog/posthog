@@ -2,7 +2,7 @@ import type { ReportMetricApi } from 'products/signals/frontend/generated/api.sc
 
 import {
     asReportMetricAggregateQuery,
-    asReportMetricBarQuery,
+    asReportMetricSeriesQuery,
     formatReportMetricValue,
 } from '../../utils/reportMetrics'
 import { comparisonMetaSegments, measuredMetaSegments, ReportMetricMetaLine } from './ReportMetricMetaLine'
@@ -12,9 +12,9 @@ import { ReportPrimaryMetricQuery } from './ReportPrimaryMetricQuery'
 
 export function ReportPrimaryMetric({ reportId, metric }: { reportId: string; metric: ReportMetricApi }): JSX.Element {
     const aggregateQuery = asReportMetricAggregateQuery(metric.query)
-    const barQuery = asReportMetricBarQuery(metric.query)
+    const seriesQuery = asReportMetricSeriesQuery(metric)
 
-    if (!aggregateQuery || !barQuery) {
+    if (!aggregateQuery || !seriesQuery) {
         // No query means nothing ran: the list projection omits it during the detail fetch, and access
         // rules can redact it for a viewer. Show the saved snapshot or `Not available`, not a load
         // failure the reader cannot fix by refreshing. A live query that fails is handled downstream in
@@ -39,7 +39,7 @@ export function ReportPrimaryMetric({ reportId, metric }: { reportId: string; me
             reportId={reportId}
             metric={metric}
             aggregateQuery={aggregateQuery.source}
-            barQuery={barQuery}
+            seriesQuery={seriesQuery}
         />
     )
 }

@@ -18,18 +18,18 @@ export function ReportPrimaryMetricQuery({
     reportId,
     metric,
     aggregateQuery,
-    barQuery,
+    seriesQuery,
 }: {
     reportId: string
     metric: ReportMetricApi
     aggregateQuery: TrendsQuery
-    barQuery: InsightVizNode
+    seriesQuery: InsightVizNode
 }): JSX.Element {
     const metricKey = `report-metric-${reportId}-${metric.metric_id}`
     const insightProps: InsightLogicProps<InsightVizNode> = {
         dashboardItemId: `new-AdHoc.${metricKey}`,
         dataNodeCollectionId: `report-metrics-${reportId}`,
-        query: barQuery,
+        query: seriesQuery,
     }
     const dataNodeProps: DataNodeLogicProps = {
         key: `ReportMetricAggregate.${reportId}.${metric.metric_id}`,
@@ -94,7 +94,7 @@ export function ReportPrimaryMetricQuery({
                 )}
             </div>
             <div className="flex h-28 min-w-0 flex-col overflow-hidden">
-                <Query query={barQuery} uniqueKey={metricKey} context={{ insightProps }} readOnly embedded />
+                <Query query={seriesQuery} uniqueKey={metricKey} context={{ insightProps }} readOnly embedded />
             </div>
         </ReportObservationCard>
     )

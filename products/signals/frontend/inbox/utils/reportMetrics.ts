@@ -4,15 +4,20 @@ import { humanFriendlyNumber, percentage, significantDecimalPlaces } from 'lib/u
 
 import { CurrencyCode, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, PropertyMathType } from '~/types'
 
 import type { ReportMetricApi, SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
 
 export type ReportMetricInsightQuery = InsightVizNode & { source: TrendsQuery }
 type ReportMetricFormatting = Pick<ReportMetricApi, 'unit' | 'value_format'>
+export type ReportMetricChartType = 'bar' | 'line'
 
 function finiteNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function isString(value: unknown): value is string {
+    return typeof value === 'string'
 }
 
 export function reportMetricAggregate(response: unknown): number | null {
@@ -109,8 +114,33 @@ export function asReportMetricTrendsQuery(query: unknown): ReportMetricInsightQu
     return insightQuery as ReportMetricInsightQuery
 }
 
-export function asReportMetricBarQuery(query: unknown): ReportMetricInsightQuery | null {
-    const insightQuery = asReportMetricTrendsQuery(query)
+function seriesMathValues(query: unknown): string[] {
+    const source = asReportMetricTrendsQuery(query)?.source
+    return source?.series.map((series) => (series as { math?: unknown }).math).filter(isString) ?? []
+}
+
+/**
+ * Bars for a metric whose buckets add up: a count of events, sessions, or people, or revenue summed per
+ * bucket. A line for a metric whose bucket value is a level: a rate, a duration, an average, or revenue
+ * that is not a sum. Bars invite the reader to add the buckets up and compare their heights against
+ * zero, which misreads a rate that sits between 35% and 45% as fourteen near-full bars.
+ */
+export function reportMetricChartType(metric: Pick<ReportMetricApi, 'value_format' | 'query'>): ReportMetricChartType {
+    const valueFormat = metric.value_format ?? 'number'
+    if (valueFormat === 'count') {
+        return 'bar'
+    }
+    if (valueFormat === 'currency') {
+        const maths = seriesMathValues(metric.query)
+        return maths.length > 0 && maths.every((math) => math === PropertyMathType.Sum) ? 'bar' : 'line'
+    }
+    return 'line'
+}
+
+export function asReportMetricSeriesQuery(
+    metric: Pick<ReportMetricApi, 'value_format' | 'query'>
+): ReportMetricInsightQuery | null {
+    const insightQuery = asReportMetricTrendsQuery(metric.query)
     if (!insightQuery) {
         return null
     }
@@ -120,10 +150,13 @@ export function asReportMetricBarQuery(query: unknown): ReportMetricInsightQuery
         kind: NodeKind.TrendsQuery,
         trendsFilter: {
             ...insightQuery.source.trendsFilter,
-            display: ChartDisplayType.ActionsBar,
+            display:
+                reportMetricChartType(metric) === 'bar'
+                    ? ChartDisplayType.ActionsBar
+                    : ChartDisplayType.ActionsLineGraph,
             // A report metric renders a single series, so a stored percent-stack view would normalize
             // every bucket to 100% and a hidden-legend index could blank the only series. Drop both
-            // display leftovers before deriving the longitudinal bar.
+            // display leftovers before deriving the longitudinal chart.
             showPercentStackView: false,
             hiddenLegendIndexes: undefined,
         },
