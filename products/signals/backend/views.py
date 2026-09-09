@@ -4587,8 +4587,7 @@ class SignalUserAutonomyConfigView(APIView):
         target = defaults.get("slack_notification_channel")
         wants_direct_message = bool(validated.get("slack_notification_direct_message"))
         if wants_direct_message or (target and is_slack_member_target(target)):
-            # A member target sends report contents to one person, so it is resolved against the
-            # workspace that would deliver it: the one this request sets, or the saved one.
+            # Resolve against the workspace that would deliver it: this request's, or the saved one.
             workspace = (
                 defaults["slack_notification_integration"]
                 if integration_in_request

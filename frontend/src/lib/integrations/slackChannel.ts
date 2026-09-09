@@ -11,9 +11,8 @@ export function slackChannelId(channelValue: string): string {
 const SLACK_MEMBER_ID_PATTERN = /^[UW][A-Z0-9]{4,}$/
 
 /**
- * Whether a picker value targets one workspace member rather than a channel. Slack's
- * `chat.postMessage` opens the direct message when handed a member id, so both kinds of target
- * are stored the same way. Mirrors the backend `is_slack_member_target`.
+ * `chat.postMessage` opens the direct message when handed a member id, so a member target and a
+ * channel target share this format. Mirrors the backend `is_slack_member_target`.
  */
 export function isSlackMemberTarget(value: string): boolean {
     return SLACK_MEMBER_ID_PATTERN.test(slackChannelId(value))

@@ -604,14 +604,11 @@ def _deliver_route_notification(
     try:
         slack = SlackIntegration(route.integration)
         if route.is_direct_message and slack.get_user_by_id(channel_id) is None:
-            # Eligibility is decided again here because a member who could be direct messaged when
-            # the target was saved can since have left the workspace or become a guest, and report
-            # contents must not reach them.
+            # A member reachable when the target was saved can since have left or become a guest.
             logger.warning("Skipping signals inbox-item Slack DM to an ineligible member", extra=log_context)
             _capture_notification_delivered(report, route, trigger=trigger, delivered=False)
             return False
-        # A direct message is already addressed to its reader, so it carries no mentions: the only
-        # one it could hold is the reader's own.
+        # The only reviewer a direct message could mention is the person already reading it.
         mentions = [] if route.is_direct_message else _resolve_reviewer_mentions(slack, route.users)
         blocks, text = _build_message_blocks(
             report,

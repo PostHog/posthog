@@ -309,8 +309,7 @@ def test_dispatch_no_notification_without_team_channel_or_user_config(org_and_te
     ("target", "expected_conversation", "expects_mention"),
     [
         ("C123|#inbox", "C123", True),
-        # A member target is delivered as a direct message, where the only reviewer the message
-        # could mention is the person already reading it.
+        # A member target is delivered as a direct message, which mentions nobody.
         ("U0123ABC456|@reviewer", "U0123ABC456", False),
     ],
 )
@@ -356,8 +355,7 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_co
 
 @pytest.mark.django_db
 def test_dispatch_skips_a_direct_message_to_an_ineligible_member(org_and_team):
-    # A member who was reachable when the target was saved can leave the workspace or become a
-    # guest, and report contents must not follow them there.
+    # Report contents must not follow a member who left the workspace or became a guest.
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer-dm@example.com", "dm-bot")
     integration = _make_slack_integration(team, user)

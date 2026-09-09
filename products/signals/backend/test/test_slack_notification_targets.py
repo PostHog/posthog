@@ -24,8 +24,7 @@ class TestSlackNotificationTargets(SimpleTestCase):
             ("enterprise grid member", "W0123ABC456|@sam", True),
             ("public channel", "C0123ABC456|#alerts", False),
             ("private channel", "G0123ABC456|#alerts", False),
-            # A channel whose id starts with D is Slack's own DM conversation id, which the member
-            # path must not claim: it is delivered as a plain channel target.
+            # A `D` id is Slack's own DM conversation, delivered as a plain channel target.
             ("dm conversation", "D0123ABC456", False),
             ("free text", "not-a-target", False),
         ]
@@ -89,8 +88,7 @@ class TestSlackNotificationTargetAPI(APIBaseTest):
         assert self._saved_target() == "U0123ABC456|@sam"
 
     def test_direct_message_prefers_the_slack_account_linked_to_posthog(self):
-        # The linked account is the person's own statement of who they are in Slack, so it wins over
-        # an email match, which can miss when their Slack email differs from their PostHog one.
+        # The linked account wins over an email match, which misses when the two emails differ.
         UserIntegration.objects.create(
             user=self.user,
             kind=UserIntegration.IntegrationKind.SLACK,
@@ -116,8 +114,7 @@ class TestSlackNotificationTargetAPI(APIBaseTest):
         assert self._saved_target() is None
 
     def test_member_target_the_workspace_cannot_dm_is_refused(self):
-        # `get_user_by_id` returns None for a bot, a deactivated account, a guest, and a Slack
-        # Connect member from another workspace. An API caller must not be able to store one.
+        # `get_user_by_id` refuses bots, deactivated accounts, guests, and outside members.
         response, _ = self._post({"slack_notification_channel": "U0123ABC456|@sam"}, member=None)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST

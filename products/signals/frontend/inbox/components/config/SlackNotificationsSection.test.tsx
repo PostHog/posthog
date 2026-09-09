@@ -36,8 +36,7 @@ describe('SlackNotificationsSection', () => {
                 '/api/users/@me/signal_autonomy/': async ({ request }) => {
                     const body = (await request.clone().json()) as Record<string, unknown>
                     saves.push(body)
-                    // The API resolves the caller's own Slack account and answers with the target it
-                    // stored, which is the only way the client learns who the direct message goes to.
+                    // The client never names the direct message target; the API answers with it.
                     const { slack_notification_direct_message: wantsDm, ...fields } = body
                     autonomyConfig = {
                         ...autonomyConfig,
@@ -51,8 +50,6 @@ describe('SlackNotificationsSection', () => {
     })
     afterEach(cleanup)
 
-    // Nothing else in the card says which target is live, so a saved direct message that opened on
-    // the channel tab would read as "no channel picked yet" over a working ping.
     it('opens a saved direct message on the direct message tab', async () => {
         autonomyConfig = { slack_notification_integration_id: 1, slack_notification_channel: DM_TARGET }
 
@@ -62,8 +59,7 @@ describe('SlackNotificationsSection', () => {
         expect(screen.queryByText(CHANNEL_HELP)).not.toBeInTheDocument()
     })
 
-    // The channel picker emits a clear when it mounts empty, so looking at the tab you are not
-    // using must not turn your notifications off behind you.
+    // The channel picker emits a clear when it mounts empty, which must not wipe a saved target.
     it('keeps a saved direct message when the channel tab is opened', async () => {
         autonomyConfig = { slack_notification_integration_id: 1, slack_notification_channel: DM_TARGET }
 
@@ -76,8 +72,6 @@ describe('SlackNotificationsSection', () => {
         expect(saves).toEqual([])
     })
 
-    // The whole point of the direct message target: turning pings on takes one click, with no
-    // channel to create and no PostHog app to invite into it.
     it('turns the card on straight into a direct message', async () => {
         render(<SlackNotificationsSection />)
 
@@ -87,8 +81,7 @@ describe('SlackNotificationsSection', () => {
         expect(saves).toEqual([{ slack_notification_integration_id: 1, slack_notification_direct_message: true }])
     })
 
-    // Switching back from a channel has to ask the API for the target, because only it knows which
-    // workspace member the person is.
+    // Switching from a channel asks the API for the target, since only it knows the member id.
     it('replaces a saved channel with a direct message', async () => {
         autonomyConfig = { slack_notification_integration_id: 1, slack_notification_channel: 'C0123ABC456|#alerts' }
 

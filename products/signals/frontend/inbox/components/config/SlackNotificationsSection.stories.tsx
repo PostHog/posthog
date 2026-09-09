@@ -4,10 +4,6 @@ import { useStorybookMocks } from '~/mocks/browser'
 
 import { SlackNotificationsSection } from './SlackNotificationsSection'
 
-// The Slack cards from the agents setup rail: a team-wide channel, plus the personal reviewer ping
-// that goes to a direct message or a channel. Both read `signals/config` and
-// `users/@me/signal_autonomy`, so each story mocks those GETs to place the cards in a given state.
-
 const WORKSPACE = { id: 1, kind: 'slack', display_name: 'PostHog', config: {}, created_at: '2026-01-01T00:00:00Z' }
 
 const CHANNELS = [
@@ -16,9 +12,7 @@ const CHANNELS = [
 ]
 
 interface CardsState {
-    /** Slack workspaces connected to the project. Empty shows the connect prompt. */
     connected?: boolean
-    /** The team-wide channel every report is posted to. */
     teamChannel?: string | null
     /** The personal reviewer ping target: the person's own account (`U…|@name`) or a channel. */
     myTarget?: string | null

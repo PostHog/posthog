@@ -644,11 +644,8 @@ export function captureInboxSettingsChanged(params: {
     success: boolean
     /** Whether the setting governs the whole team or just the person changing it. */
     scope: 'team' | 'user'
-    /**
-     * For a Slack notification target, what it points at. The target itself names the customer's
-     * own channel or teammate, so only its kind travels, and only that shows whether people take
-     * the direct message over standing up a channel.
-     */
+    /** Which kind of target a Slack notification setting points at. The target itself names the
+     * customer's own channel or teammate, so only its kind travels. */
     targetKind?: 'direct_message' | 'channel' | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.SETTINGS_CHANGED, {
