@@ -144,7 +144,7 @@ overlap its own. The lane script over-reports targets on purpose, so in
 practice that is most of the queue. So:
 
 - The failing run is on that branch, never on the PR's head SHA. Take it from
-  the `Trunk Merge Queue` check run (`/merging-prs` step 4), not `gh pr checks`.
+  `trunk merge status <n>` (`/merging-prs` step 4), not `gh pr checks`. Trunk publishes no check run here.
   The branch is ephemeral; the run and its logs stay on GitHub, and the
   warehouse keeps its jobs under that `head_branch` (query 8 in the
   `investigating-ci-failures` references).

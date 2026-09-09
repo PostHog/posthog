@@ -6,18 +6,82 @@ import type {
   SDKAssistantMessage,
   SDKModelRefusalFallbackMessage,
   SDKPartialAssistantMessage,
+  SDKResultMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
 import { Logger } from "../../../utils/logger";
 import type { Session } from "../types";
 import {
+  handleResultMessage,
   handleStreamEvent,
   handleSystemMessage,
   handleUserAssistantMessage,
   type MessageHandlerContext,
   stripMarkerTags,
 } from "./sdk-to-acp";
+
+describe("handleResultMessage error text", () => {
+  it("shows a subscription usage-limit result as-is, without an 'Internal error:' prefix", () => {
+    const message = {
+      subtype: "success",
+      is_error: true,
+      result: "Claude AI usage limit reached. Your limit will reset at 3pm.",
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message);
+
+    expect(error?.message).toBe(
+      "Claude AI usage limit reached. Your limit will reset at 3pm.",
+    );
+  });
+
+  it("keeps the 'Internal error:' prefix for other agent errors", () => {
+    const message = {
+      subtype: "success",
+      is_error: true,
+      result: "API Error: 500 something broke",
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message);
+
+    expect(error?.message).toBe(
+      "Internal error: API Error: 500 something broke",
+    );
+  });
+
+  it("keeps tool progress on a provider error", () => {
+    const message = {
+      subtype: "success",
+      is_error: true,
+      result: "API Error: 500 something broke",
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message, true);
+
+    expect(
+      (error as unknown as { data?: { madeProgress?: boolean } }).data
+        ?.madeProgress,
+    ).toBe(true);
+  });
+
+  it("keeps tool progress on an execution error", () => {
+    const message = {
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: ["API Error: 500 something broke"],
+    } as unknown as SDKResultMessage;
+
+    const { error } = handleResultMessage(message, true);
+
+    expect(error).toMatchObject({
+      data: expect.objectContaining({
+        classification: "upstream_provider_failure",
+        madeProgress: true,
+      }),
+    });
+  });
+});
 
 describe("stripMarkerTags", () => {
   it("strips a single marker and keeps surrounding prose", () => {

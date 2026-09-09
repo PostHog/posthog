@@ -884,6 +884,29 @@ class CurrencyCode(StrEnum):
     ZMW = "ZMW"
 
 
+class CustomBotField(StrEnum):
+    FIELD_RAW_USER_AGENT = "$raw_user_agent"
+    FIELD_IP = "$ip"
+    FIELD_LIB = "$lib"
+    FIELD_HOST = "$host"
+    FIELD_PATHNAME = "$pathname"
+    FIELD_CURRENT_URL = "$current_url"
+    FIELD_BROWSER = "$browser"
+    FIELD_OS = "$os"
+    FIELD_BROWSER_LANGUAGE = "$browser_language"
+    FIELD_SCREEN_WIDTH = "$screen_width"
+    FIELD_SCREEN_HEIGHT = "$screen_height"
+    FIELD_GEOIP_COUNTRY_CODE = "$geoip_country_code"
+    FIELD_REFERRER = "$referrer"
+    FIELD_REFERRING_DOMAIN = "$referring_domain"
+
+
+class CustomBotMatcher(StrEnum):
+    CONTAINS = "contains"
+    REGEX = "regex"
+    CIDR = "cidr"
+
+
 class CustomChannelField(StrEnum):
     UTM_SOURCE = "utm_source"
     UTM_MEDIUM = "utm_medium"
@@ -2637,6 +2660,9 @@ class ExternalDataSourceType(StrEnum):
     MEDUSA = "Medusa"
     MEMBRAIN = "Membrain"
     RECALL_AI = "RecallAI"
+    TENJIN = "Tenjin"
+    FOLK = "Folk"
+    CYBERSOURCE = "Cybersource"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3437,7 +3463,6 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
     MARKETING_ANALYTICS_RETENTION_QUERY = "MarketingAnalyticsRetentionQuery"
-    NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
@@ -3481,11 +3506,6 @@ class NodeKind(StrEnum):
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
-
-
-class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
-    SOURCE = "Source"
-    CAMPAIGN = "Campaign"
 
 
 class PathType(StrEnum):
@@ -3664,6 +3684,7 @@ class ProductKey(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"
+    BUSINESS_KNOWLEDGE = "business_knowledge"
     COHORTS = "cohorts"
     COMMENTS = "comments"
     CONVERSATIONS = "conversations"
@@ -3701,11 +3722,16 @@ class ProductKey(StrEnum):
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PIPELINE_TRANSFORMATIONS = "pipeline_transformations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
+    POSTHOG_AI_ONBOARDING = "posthog_ai_onboarding"
+    POSTHOG_DESKTOP = "posthog_desktop"
+    POSTHOG_GITHUB = "posthog_github"
+    POSTHOG_SLACK = "posthog_slack"
     PRODUCT_ANALYTICS = "product_analytics"
     PRODUCT_TOURS = "product_tours"
     PULSE = "pulse"
     REVENUE_ANALYTICS = "revenue_analytics"
     REVIEW_HOG = "review_hog"
+    SELF_DRIVING = "self_driving"
     SESSION_REPLAY = "session_replay"
     REPLAY_VISION = "replay_vision"
     SITE_APPS = "site_apps"

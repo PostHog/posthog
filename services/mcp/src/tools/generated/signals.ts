@@ -3,7 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/signals/api'
-import { ReportInboxInputSchema } from '@/schema/tool-inputs'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
@@ -189,6 +188,39 @@ const inboxReportsBulkSetState = (): ToolBase<
     },
 })
 
+const InboxReportsClaimSchema = () => {
+    const SignalsReportsClaimBody = orvalSchemas.SignalsReportsClaimBody()
+    const SignalsReportsClaimParams = orvalSchemas.SignalsReportsClaimParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['report_id'] }),
+        SignalsReportsClaimParams.omit({ project_id: true }).extend(SignalsReportsClaimBody.shape)
+    )
+}
+
+const inboxReportsClaim = (): ToolBase<
+    ReturnType<typeof InboxReportsClaimSchema>,
+    WithPostHogUrl<Schemas.SignalReport>
+> => ({
+    name: 'inbox-reports-claim',
+    schema: InboxReportsClaimSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsClaimSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.pr_url !== undefined) {
+            body['pr_url'] = params.pr_url
+        }
+        if (params.release !== undefined) {
+            body['release'] = params.release
+        }
+        const result = await context.api.request<Schemas.SignalReport>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/claim/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+    },
+})
+
 const InboxReportsListSchema = () => {
     const SignalsReportsListQueryParams = orvalSchemas.SignalsReportsListQueryParams()
     return SignalsReportsListQueryParams
@@ -208,6 +240,7 @@ const inboxReportsList = (): ToolBase<
             query: {
                 actionability: params.actionability,
                 already_addressed: params.already_addressed,
+                assignee: params.assignee,
                 channel_id: params.channel_id,
                 count_only: params.count_only,
                 has_implementation_pr: params.has_implementation_pr,
@@ -227,6 +260,7 @@ const inboxReportsList = (): ToolBase<
                 suggested_reviewers: params.suggested_reviewers,
                 task_id: params.task_id,
                 teammate_uuid: params.teammate_uuid,
+                unclaimed: params.unclaimed,
                 use_priority_preference: params.use_priority_preference,
                 view: params.view,
             },
@@ -247,8 +281,13 @@ const inboxReportsList = (): ToolBase<
                     'signal_count',
                     'total_weight',
                     'source_products',
+                    'scout_name',
                     'is_suggested_reviewer',
                     'implementation_pr_url',
+                    'implementation_pr_state',
+                    'implementation_pr_merged',
+                    'work_state',
+                    'assignee',
                     'created_at',
                     'updated_at',
                 ])
@@ -265,7 +304,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            "If you do ANY work connected to one of these reports — even pure research or investigation — always first associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own task id is filled in automatically). That task_run artefact IS the task↔report association — commits you push are recorded on the report through it, and without it your work is invisible to the report. If that call fails with a 400 saying a task id is required, you simply have no task id of your own — that's expected, not an error to fix; skip the association and carry on. Without the write tools (a read-only session) ignore the association step entirely — artefact persistence is handled for you. Read the report's work log via inbox-report-artefacts-list before acting."
+            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
         )
     },
 })
@@ -292,7 +331,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            "If you do ANY work connected to this report — even pure research or investigation — always first associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own task id is filled in automatically). That task_run artefact IS the task↔report association — commits you push via git_signed_commit are recorded on the report through it, and without it your work is invisible to the report. If that call fails with a 400 saying a task id is required, you simply have no task id of your own — that's expected, not an error to fix; skip the association and continue. Then log the work as artefacts as you go — notes, code references, and any commit you have already pushed to a remote branch outside git_signed_commit (signed pushes are recorded automatically; never record a commit that is not on a remote branch). Status artefacts (priority, actionability, reviewers) are latest-wins — append a new version to re-assess. Without the write tools, work as instructed by your task — artefact persistence is handled for you."
+            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. A later claim can replace the current owner.\nIf you create a pull request implementing the remediation, call inbox-reports-claim again with `pr_url` to attach it. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
         )
     },
 })
@@ -579,6 +618,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -705,6 +747,9 @@ const scoutConfigUpdate = (): ToolBase<
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -812,6 +857,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         }
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
+        }
+        if (params.append_evidence !== undefined) {
+            body['append_evidence'] = params.append_evidence
         }
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
@@ -1334,60 +1382,6 @@ const scoutScratchpadSearch = (): ToolBase<
     },
 })
 
-const SelfDrivingInboxGetSchema = () => ReportInboxInputSchema
-
-const selfDrivingInboxGet = (): ToolBase<
-    ReturnType<typeof SelfDrivingInboxGetSchema>,
-    Schemas.PaginatedSignalReportList
-> => ({
-    name: 'self-driving-inbox-get',
-    schema: SelfDrivingInboxGetSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof SelfDrivingInboxGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const parsedParams = SelfDrivingInboxGetSchema().parse(params)
-        const result = await context.api.request<Schemas.PaginatedSignalReportList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
-            query: parsedParams,
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'title',
-                    'summary',
-                    'status',
-                    'priority',
-                    'actionability',
-                    'already_addressed',
-                    'dismissal_reason',
-                    'dismissal_note',
-                    'signal_count',
-                    'total_weight',
-                    'source_products',
-                    'scout_name',
-                    'is_suggested_reviewer',
-                    'implementation_pr_url',
-                    'implementation_pr_merged',
-                    'created_at',
-                    'updated_at',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(
-            context,
-            {
-                ...filtered,
-                results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
-                ),
-            },
-            '/inbox'
-        )
-    },
-})
-
 const SignalsScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -1434,6 +1428,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         }
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
         }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
@@ -1561,6 +1558,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -1596,6 +1596,9 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
+        }
+        if (params.append_evidence !== undefined) {
+            body['append_evidence'] = params.append_evidence
         }
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
@@ -2014,6 +2017,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-retrieve': inboxReportArtefactsRetrieve,
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
+    'inbox-reports-claim': inboxReportsClaim,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
@@ -2049,7 +2053,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,
-    'self-driving-inbox-get': selfDrivingInboxGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,

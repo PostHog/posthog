@@ -1,3 +1,4 @@
+use crate::api::api_key_usage::ApiKeyKind;
 use crate::{
     api::{
         auth,
@@ -22,6 +23,7 @@ use axum::{
 };
 use common_hypercache::{HyperCacheError, KeyType};
 use common_metrics::inc;
+use common_redis::CustomRedisError;
 use common_types::TeamId;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -29,7 +31,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
 
@@ -38,7 +40,7 @@ const ALLOWLIST_TTL_SECS: u64 = 60;
 /// time in epoch millis). Must stay in sync with `REBUILD_REQUESTS_ZSET` in
 /// `products/feature_flags/backend/rebuild_queue.py` (pinned by the Python test
 /// `test_request_zset_key_matches_rust_contract`).
-const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
+pub(crate) const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
 static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_ALLOW_LIST_TEAMS"));
 
 /// Refresh the rate limit allowlist from the database if stale, then update the limiter.
@@ -322,18 +324,44 @@ async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<Str
             }
         },
         Err(e) => {
-            warn!(
-                etag_key = %etag_key,
-                error = %e,
-                "Failed to read ETag from Redis"
-            );
+            // Absence is routine while a team's entry fills, and at warn level one cold
+            // entry writes a line per request. An unreachable cluster is not routine.
+            if matches!(e, CustomRedisError::NotFound) {
+                debug!(etag_key = %etag_key, "ETag absent from Redis");
+            } else {
+                warn!(
+                    etag_key = %etag_key,
+                    error = %e,
+                    "Failed to read ETag from Redis"
+                );
+            }
             inc(
                 FLAG_DEFINITIONS_ETAG_COUNTER,
-                &[("result".to_string(), "redis_error".to_string())],
+                &[(
+                    "result".to_string(),
+                    etag_read_failure_label(&e).to_string(),
+                )],
                 1,
             );
             None
         }
+    }
+}
+
+/// Metric label for a failed ETag read.
+///
+/// An absent key and an unreachable Redis need opposite responses: the first says the
+/// Redis endpoint that answered holds no ETag key for this team, the second says the
+/// cluster is down. One label for both hides that difference from the on-call, who has to
+/// pick between rebuilding the cache and treating Redis as the fault.
+///
+/// `redis_missing` names what the read saw, not the cause. Reads go to a replica, and
+/// `NotFound` is unrecoverable, so `ReadWriteClient` does not consult the primary. A key
+/// that Django wrote to the primary therefore reads as absent until it replicates.
+fn etag_read_failure_label(err: &CustomRedisError) -> &'static str {
+    match err {
+        CustomRedisError::NotFound => "redis_missing",
+        _ => "redis_error",
     }
 }
 
@@ -370,26 +398,25 @@ async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, Flag
 /// `?token=` param to disambiguate — returns an error in that case.
 async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result<Team, FlagError> {
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let (team_id, api_token, is_project_secret) =
-            auth::validate_secret_api_token(state, &token).await?;
-
-        let method = if is_project_secret {
-            "project_secret_api_key"
-        } else {
-            "secret_api_key"
-        };
+        let secret = auth::validate_secret_api_token(state, &token).await?;
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
-            &[("method".to_string(), method.to_string())],
+            &[("method".to_string(), secret.method_label().to_string())],
             1,
         );
+
+        // The team comes from the token itself, so the key is fully authenticated here. Stamp
+        // before the lookup so an infrastructure failure there does not leave it "never used".
+        state
+            .record_project_secret_key_usage(secret.project_secret_key_id)
+            .await;
 
         // Prefer HyperCache via api_token (new cache entries include it).
         // Fall back to PG for old cache entries that predate the field.
         let svc = state.flag_service();
-        return match api_token {
+        return match secret.api_token {
             Some(t) => svc.verify_token_and_get_team(&t).await,
-            None => svc.get_team_by_id(team_id).await,
+            None => svc.get_team_by_id(secret.team_id).await,
         };
     }
 
@@ -471,14 +498,29 @@ async fn get_from_cache(
 
 /// Fire-and-forget enqueue of a flag-definitions rebuild request on cache miss.
 ///
-/// Writes to a Redis sorted set on `state.redis_client` — the same shared client
-/// the flags-with-cohorts HyperCacheReader is built from (see `server.rs`), so the
-/// queue can never point at a different Redis than the one the cache lives in.
+/// Writes to a Redis sorted set on the flags-namespace client, because that is where the
+/// Django writer lives. The Celery drain derives its Redis from
+/// `flag_definitions_hypercache.redis_url` (`rebuild_queue.py`), which resolves from the same
+/// `FLAGS_REDIS_URL`. A request written to any other cluster is never drained and the team
+/// never gets rebuilt.
+///
+/// The two ends agree on configuration, not on connection state. A process that cannot reach
+/// the dedicated cluster at startup falls back to the shared one and enqueues there for its
+/// whole life, while Celery keeps draining the dedicated one. Those teams wait for the hourly
+/// verifier instead. The same startup failure already sends the flags.json, team-metadata, and
+/// remote-config readers to the shared cluster, where Django writes nothing, so it degrades
+/// more than this queue.
+///
+/// This is deliberately not the client the payload and the ETag are read from. During the
+/// migration the flags-with-cohorts reader stays pinned to the shared cluster (`server.rs`),
+/// which Django mirrors the cache to. Unifying the queue with the reader severs the queue
+/// from the drain.
+///
 /// Re-enqueuing a team only updates its score, so a client polling a missing team
 /// every ~30s occupies a single slot. Spawned so it never adds latency to (or
 /// changes) the failing response.
 fn enqueue_flag_definitions_rebuild(state: &AppState, team_id: i32) {
-    let redis = state.redis_client.clone();
+    let redis = state.flags_namespace_redis_client();
     tokio::spawn(async move {
         let score = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -521,18 +563,15 @@ async fn authenticate_flag_definitions(
     // Try team secret token or project secret API key (from Authorization header only)
     // Both use phs_ prefix and share the same cache; the unified loader handles both.
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let (_, _, is_project_secret) =
-            auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
-        let method = if is_project_secret {
-            "project_secret_api_key"
-        } else {
-            "secret_api_key"
-        };
+        let secret = auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
-            &[("method".to_string(), method.to_string())],
+            &[("method".to_string(), secret.method_label().to_string())],
             1,
         );
+        state
+            .record_project_secret_key_usage(secret.project_secret_key_id)
+            .await;
         return Ok(());
     }
 
@@ -547,7 +586,9 @@ async fn authenticate_flag_definitions(
         );
 
         // PAK last_used_at tracking is advisory; shared with remote_config via the State helper.
-        state.record_pak_last_used(pak_id).await;
+        state
+            .record_api_key_last_used(ApiKeyKind::Personal, pak_id)
+            .await;
 
         return Ok(());
     }
@@ -616,6 +657,23 @@ mod tests {
     fn test_extract_etag_from_header_empty() {
         let val = axum::http::HeaderValue::from_static("");
         assert_eq!(extract_etag_from_header(Some(&val)), None);
+    }
+
+    #[test]
+    fn test_etag_read_failure_label_separates_absence_from_failure() {
+        // The on-call reads this label to choose between rebuilding the cache tier and
+        // treating Redis as the fault, so an absent key must not report as an error.
+        assert_eq!(
+            etag_read_failure_label(&CustomRedisError::NotFound),
+            "redis_missing"
+        );
+        for err in [
+            CustomRedisError::Timeout,
+            CustomRedisError::ParseError("bad pickle".to_string()),
+            CustomRedisError::InvalidConfiguration("no url".to_string()),
+        ] {
+            assert_eq!(etag_read_failure_label(&err), "redis_error");
+        }
     }
 
     #[test]

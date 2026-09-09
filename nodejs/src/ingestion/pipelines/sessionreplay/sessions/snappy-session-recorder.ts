@@ -5,6 +5,7 @@ import { logger } from '~/common/utils/logger'
 import {
     PRE_SERIALIZED_FLAG_ACTIVE,
     PRE_SERIALIZED_FLAG_CLICK,
+    PRE_SERIALIZED_FLAG_FULL_SNAPSHOT,
     PRE_SERIALIZED_FLAG_KEYPRESS,
     PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY,
     ParsedMessageData,
@@ -15,10 +16,12 @@ import {
     activeMillisecondsFromSegmentationEvents,
     toSegmentationEvent,
 } from '~/ingestion/pipelines/sessionreplay/segmentation'
+import { ReplayIndexEntry } from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB
 const MAX_URLS_COUNT = 25
+const MAX_REPLAY_INDEX_BYTES = 128 * 1024
 
 export interface EndResult {
     /** The complete compressed session block */
@@ -51,6 +54,8 @@ export interface EndResult {
     snapshotLibrary: string | null
     /** ID of the batch this session belongs to */
     batchId: string
+    replayIndexEntries?: ReplayIndexEntry[]
+    replayIndexTruncated?: boolean
 }
 
 /**
@@ -94,6 +99,9 @@ export class SnappySessionRecorder {
     private snapshotLibrary: string | null = null
     private segmentationEvents: SegmentationEvent[] = []
     private droppedUrlsCount: number = 0
+    private replayIndexEntries: ReplayIndexEntry[] = []
+    private replayIndexBytes = 0
+    private replayIndexTruncated = false
 
     constructor(
         public readonly sessionId: string,
@@ -186,10 +194,25 @@ export class SnappySessionRecorder {
      * instead of walking parsed events.
      */
     private recordPreSerialized(message: ParsedMessageData): number {
-        const { lines, events } = message.preSerialized!
+        const { lines, events, windowId } = message.preSerialized!
 
         this.uncompressedChunks.push(lines)
         for (const event of events) {
+            if (
+                windowId !== undefined &&
+                (event.flags & PRE_SERIALIZED_FLAG_FULL_SNAPSHOT || event.jsonLd || event.href)
+            ) {
+                const common = { windowId, eventTimestamp: event.ts, eventIndex: this.eventCount }
+                if (event.flags & PRE_SERIALIZED_FLAG_FULL_SNAPSHOT) {
+                    this.appendReplayIndexEntry({ ...common, kind: 'full_snapshot' })
+                }
+                if (event.jsonLd) {
+                    this.appendReplayIndexEntry({ ...common, kind: 'json_ld', ...event.jsonLd })
+                }
+                if (event.href) {
+                    this.appendReplayIndexEntry({ ...common, kind: 'page', url: event.href.slice(0, MAX_URL_LENGTH) })
+                }
+            }
             this.segmentationEvents.push({
                 timestamp: event.ts,
                 isActive: (event.flags & PRE_SERIALIZED_FLAG_ACTIVE) !== 0,
@@ -211,6 +234,19 @@ export class SnappySessionRecorder {
         this.size += lines.length
         this.messageCount += 1
         return lines.length
+    }
+
+    private appendReplayIndexEntry(entry: ReplayIndexEntry): void {
+        if (this.replayIndexTruncated) {
+            return
+        }
+        const bytes = Buffer.byteLength(JSON.stringify(entry)) + 1
+        if (this.replayIndexBytes + bytes > MAX_REPLAY_INDEX_BYTES) {
+            this.replayIndexTruncated = true
+            return
+        }
+        this.replayIndexEntries.push(entry)
+        this.replayIndexBytes += bytes
     }
 
     private addUrl(url: string): void {
@@ -285,6 +321,8 @@ export class SnappySessionRecorder {
             snapshotSource: this.snapshotSource,
             snapshotLibrary: this.snapshotLibrary,
             batchId: this.batchId,
+            ...(this.replayIndexEntries.length ? { replayIndexEntries: this.replayIndexEntries } : {}),
+            ...(this.replayIndexTruncated ? { replayIndexTruncated: true } : {}),
         }
     }
 }

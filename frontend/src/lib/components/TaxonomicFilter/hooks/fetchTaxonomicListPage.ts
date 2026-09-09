@@ -76,12 +76,7 @@ export async function fetchTaxonomicListPage({
     const useScoped = group.scopedEndpoint && !isExpanded
     const primaryUrl = useScoped ? group.scopedEndpoint! : remoteEndpoint
 
-    const [primary, expandedCount] = await Promise.all([
-        api.get(combineUrl(primaryUrl, baseParams).url, { signal }),
-        useScoped
-            ? api.get(combineUrl(remoteEndpoint, { ...baseParams, limit: 1, offset: 0 }).url, { signal })
-            : Promise.resolve(null),
-    ])
+    const primary = await api.get(combineUrl(primaryUrl, baseParams).url, { signal })
 
     const results = primary?.results ?? primary ?? []
     const count = primary?.count ?? (Array.isArray(primary) ? primary.length : results.length)
@@ -90,6 +85,5 @@ export async function fetchTaxonomicListPage({
         results,
         searchQuery,
         count,
-        expandedCount: expandedCount?.count,
     }
 }

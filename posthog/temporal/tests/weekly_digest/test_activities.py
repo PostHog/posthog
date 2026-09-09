@@ -8,11 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
 
+from posthog.models.team import Team
 from posthog.temporal.weekly_digest.activities import (
+    _cut_team_id_ranges,
     _query_team_usage_trends,
+    _teams_in_range,
     _usage_trend_metric,
     count_organizations,
-    count_teams,
     generate_dashboard_lookup,
     generate_event_definition_lookup,
     generate_experiment_completed_lookup,
@@ -28,6 +30,7 @@ from posthog.temporal.weekly_digest.activities import (
     generate_user_notification_lookup,
     send_weekly_digest_batch,
 )
+from posthog.temporal.weekly_digest.queries import query_team_ids_for_digest, query_teams_for_digest
 from posthog.temporal.weekly_digest.types import (
     DEFAULT_PRODUCT_SUGGESTION_TEXT,
     CommonInput,
@@ -35,6 +38,7 @@ from posthog.temporal.weekly_digest.types import (
     GenerateDigestDataBatchInput,
     GenerateOrganizationDigestInput,
     SendWeeklyDigestBatchInput,
+    TeamIdRange,
     UsageTrends,
 )
 
@@ -82,6 +86,9 @@ class MockAsyncQuerySet:
 
     def __init__(self, items):
         self.items = items
+
+    def filter(self, id__gte: int, id__lt: int):
+        return MockAsyncQuerySet([item for item in self.items if id__gte <= item.id < id__lt])
 
     def __getitem__(self, key):
         """Support slicing operations."""
@@ -137,17 +144,29 @@ async def mock_heartbeater():
         yield
 
 
-@pytest.mark.asyncio
-async def test_count_teams():
-    """Test counting teams for digest."""
-    mock_queryset = AsyncMock()
-    mock_queryset.acount = AsyncMock(return_value=42)
+@pytest.mark.django_db
+def test_team_id_ranges_page_every_digest_team_exactly_once(organization, digest):
+    for i in range(5):
+        Team.objects.create(organization=organization, name=f"digest team {i}")
+        if i == 2:
+            # Sits inside a batch range, so a leak here shows up as an extra paged team.
+            Team.objects.create(organization=organization, name="demo team", is_demo=True)
 
-    with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_queryset):
-        result = await count_teams()
+    common = CommonInput(batch_size=2, redis_host="localhost", redis_port=6379)
+    expected = list(query_teams_for_digest().values_list("id", flat=True))
 
-    assert result == 42
-    mock_queryset.acount.assert_called_once()
+    paged: list[int] = []
+    for team_id_range in _cut_team_id_ranges(list(query_team_ids_for_digest()), common.batch_size):
+        team_ids = [
+            team.id
+            for team in _teams_in_range(
+                GenerateDigestDataBatchInput(team_id_range=team_id_range, digest=digest, common=common)
+            )
+        ]
+        assert len(team_ids) <= common.batch_size
+        paged.extend(team_ids)
+
+    assert paged == expected
 
 
 @pytest.mark.asyncio
@@ -166,8 +185,9 @@ async def test_count_organizations():
 @pytest.mark.asyncio
 async def test_generate_dashboard_lookup(mock_redis, common_input, digest):
     """Test generating dashboard lookup with mock Redis."""
-    batch = (0, 2)
-    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
 
     # Mock teams
     mock_team_1 = MagicMock()
@@ -205,8 +225,9 @@ async def test_generate_dashboard_lookup(mock_redis, common_input, digest):
 @pytest.mark.asyncio
 async def test_generate_event_definition_lookup(mock_redis, common_input, digest):
     """Test generating event definition lookup with mock Redis."""
-    batch = (0, 1)
-    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
 
     mock_team = MagicMock()
     mock_team.id = 1
@@ -239,8 +260,9 @@ async def test_generate_event_definition_lookup(mock_redis, common_input, digest
 @pytest.mark.asyncio
 async def test_generate_experiment_launched_lookup(mock_redis, common_input, digest):
     """Test generating experiment launched lookup with mock Redis."""
-    batch = (0, 1)
-    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
 
     mock_team = MagicMock()
     mock_team.id = 1
@@ -274,8 +296,9 @@ async def test_generate_experiment_launched_lookup(mock_redis, common_input, dig
 @pytest.mark.asyncio
 async def test_generate_experiment_completed_lookup(mock_redis, common_input, digest):
     """Test generating experiment completed lookup with mock Redis."""
-    batch = (0, 1)
-    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
 
     mock_team = MagicMock()
     mock_team.id = 1
@@ -314,8 +337,9 @@ async def test_generate_experiment_completed_lookup(mock_redis, common_input, di
 @pytest.mark.asyncio
 async def test_generate_external_data_source_lookup(mock_redis, common_input, digest):
     """Test generating external data source lookup with mock Redis."""
-    batch = (0, 1)
-    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
 
     mock_team = MagicMock()
     mock_team.id = 1
@@ -346,8 +370,9 @@ async def test_generate_external_data_source_lookup(mock_redis, common_input, di
 @pytest.mark.asyncio
 async def test_generate_feature_flag_lookup(mock_redis, common_input, digest):
     """Test generating feature flag lookup with mock Redis."""
-    batch = (0, 1)
-    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
 
     mock_team = MagicMock()
     mock_team.id = 1
@@ -380,8 +405,9 @@ async def test_generate_feature_flag_lookup(mock_redis, common_input, digest):
 @pytest.mark.asyncio
 async def test_generate_survey_lookup(mock_redis, common_input, digest):
     """Test generating survey lookup with mock Redis."""
-    batch = (0, 1)
-    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
 
     mock_team = MagicMock()
     mock_team.id = 1
@@ -419,8 +445,9 @@ async def test_generate_survey_lookup(mock_redis, common_input, digest):
 @pytest.mark.asyncio
 async def test_generate_filter_lookup(mock_redis, common_input, digest):
     """Test generating filter lookup with mock Redis and playlist counts."""
-    batch = (0, 1)
-    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
 
     mock_team = MagicMock()
     mock_team.id = 1
@@ -469,8 +496,9 @@ async def test_generate_filter_lookup(mock_redis, common_input, digest):
 @pytest.mark.asyncio
 async def test_generate_recording_lookup(mock_redis, common_input, digest):
     """Test generating recording lookup with mock Redis and ClickHouse."""
-    batch = (0, 1)
-    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
 
     mock_team = MagicMock()
     mock_team.id = 1
@@ -502,8 +530,9 @@ async def test_generate_recording_lookup(mock_redis, common_input, digest):
 @pytest.mark.asyncio
 async def test_generate_user_notification_lookup(mock_redis, common_input, digest):
     """Test generating user notification lookup with mock Redis."""
-    batch = (0, 1)
-    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
 
     mock_team = MagicMock()
     mock_team.id = 1
@@ -737,8 +766,9 @@ async def test_send_weekly_digest_batch_dry_run(mock_redis, common_input, digest
 @pytest.mark.asyncio
 async def test_generate_product_suggestion_lookup(mock_redis, common_input, digest):
     """Test that an org's active product push campaign becomes one suggestion per opted-in user."""
-    batch = (0, 1)
-    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
 
     organization_id = UUID("12345678-1234-1234-1234-123456789abc")
     mock_team = MagicMock()
@@ -801,8 +831,9 @@ async def test_generate_product_suggestion_lookup_skips_projects_already_using_t
     mock_redis, common_input, digest
 ):
     """Test that a project already using the pushed product isn't nudged about it."""
-    batch = (0, 1)
-    input_data = GenerateDigestDataBatchInput(batch=batch, digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
 
     mock_team = MagicMock()
     mock_team.id = 1
@@ -1015,7 +1046,9 @@ def test_query_team_usage_trends_windows_persons_and_test_accounts(team):
 async def test_generate_usage_trends_lookup_raises_only_when_every_team_fails(
     side_effects, should_raise, mock_redis, common_input, digest
 ):
-    input_data = GenerateDigestDataBatchInput(batch=(0, 2), digest=digest, common=common_input)
+    input_data = GenerateDigestDataBatchInput(
+        team_id_range=TeamIdRange(start=1, end=3), digest=digest, common=common_input
+    )
     team_1, team_2 = MagicMock(), MagicMock()
     team_1.id, team_2.id = 1, 2
     mock_team_queryset = MockAsyncQuerySet([team_1, team_2])

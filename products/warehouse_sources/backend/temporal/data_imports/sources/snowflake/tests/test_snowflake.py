@@ -728,6 +728,18 @@ class TestSnowflakeSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"MFA-enrollment error should be non-retryable: {error_msg}"
 
+    def test_mfa_required_maps_to_a_message_instead_of_the_raw_snowflake_text(self, source):
+        # The raw text carries the account host and vendor codes, so the entry must supply its own
+        # message rather than letting the failure surface unchanged.
+        error_msg = (
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "MFA authentication is required."
+        )
+        non_retryable = source.get_non_retryable_errors()
+        messages = [message for pattern, message in non_retryable.items() if pattern in error_msg]
+        assert messages, f"MFA-required error should be non-retryable: {error_msg}"
+        assert all(message is not None and "multi-factor authentication" in message for message in messages)
+
     @pytest.mark.parametrize(
         "error_msg",
         [
@@ -811,10 +823,11 @@ class TestSnowflakeSourceNonRetryableErrors:
             "290403: 290403: HTTP 403: Forbidden",
         ],
     )
-    def test_forbidden_403_is_non_retryable(self, source, error_msg):
+    def test_forbidden_403_is_non_retryable_and_names_both_causes(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Persistent HTTP 403 should be non-retryable: {error_msg}"
+        messages = [message for pattern, message in non_retryable.items() if pattern in error_msg]
+        assert messages, f"HTTP 403 should be non-retryable: {error_msg}"
+        assert all(message is not None and "expired" in message and "grants" in message for message in messages)
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1046,6 +1059,32 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         assert message is not None and "multi-factor authentication" in message
+        mock_capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "raw_message",
+        [
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Duo Security authentication is denied.",
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "MFA authentication is required.",
+        ],
+    )
+    def test_mfa_enforced_login_returns_friendly_message_without_capture(self, source, raw_message):
+        # Without a mapping these fall back to the generic "check all connection details" message,
+        # which sends people round re-entering credentials that were correct all along.
+        error = DatabaseError(msg=raw_message, errno=250001, sqlstate="08001")
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "multi-factor authentication" in message
+        assert "snowflakecomputing.com" not in message
         mock_capture.assert_not_called()
 
     def test_unexpected_value_error_is_still_captured(self, source):
