@@ -3,7 +3,12 @@ import {
   FREEFORM_ESM_HOST,
   FREEFORM_QUILL_CSS_URLS,
 } from "@posthog/core/canvas/freeformWhitelist";
+import { resolveExternalAnchorUrl } from "@posthog/core/canvas/sandboxLinks";
 import { createFragmentCompiler } from "@posthog/core/sketchpad/fragmentCompiler";
+import {
+  SHARED_FIELD_READ_ONLY_STATE,
+  SHARED_TEXT_FULL,
+} from "@posthog/core/sketchpad/frameCopy";
 import {
   CANVAS_SDK_SPECIFIER,
   SKETCHPAD_ALLOWED_IMPORTS,
@@ -14,11 +19,6 @@ import {
   SKETCHPAD_TAILWIND_PREFIX,
   vendoredModuleUrl,
 } from "@posthog/shared";
-import { resolveExternalAnchorUrl } from "@posthog/ui/features/canvas/freeform/sandboxRuntime";
-import {
-  SHARED_FIELD_READ_ONLY_STATE,
-  SHARED_TEXT_FULL,
-} from "@posthog/ui/features/sketchpad/sketchpadCopy";
 
 const TAILWIND_URL = `${SKETCHPAD_TAILWIND_PREFIX}browser@4.3.1`;
 

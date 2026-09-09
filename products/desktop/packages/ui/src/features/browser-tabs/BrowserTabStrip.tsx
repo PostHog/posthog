@@ -46,6 +46,7 @@ import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { navigateToReport } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { isMac } from "@posthog/ui/utils/platform";
 import { useQuery } from "@tanstack/react-query";
@@ -760,6 +761,12 @@ function BrowserTabStripImpl() {
           case "archived":
             navigate({ to: "/archived", state });
             break;
+          case "report": {
+            const reportId = activityReportIdFromHref(tab.href);
+            if (reportId) navigateToReport(reportId);
+            else navigate({ to: DEFAULT_TAB_HREF, state });
+            break;
+          }
           case "skills":
             navigate({ to: "/skills", state });
             break;
