@@ -126,6 +126,7 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextThreadSerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
+    TaskBasicSerializer,
     TaskCommentDetailQuerySerializer,
     TaskCommentDetailSerializer,
     TaskCommentsQuerySerializer,
@@ -463,7 +464,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
         },
         summary="List tasks",
-        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. Pass basic=true for a summary payload that drops the description body from each row; use the search parameter to match description text server-side.",
     )
     def list(self, request, *args, **kwargs):
         filters = {key: request.query_params.get(key) for key in request.query_params}
@@ -480,8 +481,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
+        # Description bodies dominate the list payload. A summary surface asks for basic=true
+        # and gets the smaller rows without them.
+        basic = getattr(request, "validated_query_data", {}).get("basic", False)
+        serializer_class = TaskBasicSerializer if basic else TaskSerializer
         return self.get_paginated_response(
-            TaskSerializer(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
+            serializer_class(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
         )
 
     @validated_request(
@@ -779,6 +784,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(request=TaskWriteSerializer, responses={200: TaskSerializer})
     def partial_update(self, request, pk=None, **kwargs):
+        authenticator = request.successful_authenticator
+        if (
+            "channel" in request.data
+            and isinstance(authenticator, OAuthAccessTokenAuthentication)
+            and authenticator.access_token.sandbox_task_id is not None
+        ):
+            raise PermissionDenied("Task agents cannot move tasks between channels.")
         serializer = self._write_serializer(request.data, partial=True)
         task = tasks_facade.update_task(
             pk, self.team_id, self._user_id(), validated_data=dict(serializer.validated_data)
@@ -2033,6 +2045,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def relay_message(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        trace_id = request.validated_data.get("trace_id")
         relay_status, relay_id = tasks_facade.relay_task_run_message(
             pk,
             task_id,
@@ -2040,6 +2053,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             text=request.validated_data["text"],
             text_parts=request.validated_data.get("text_parts"),
             message_id=request.validated_data.get("message_id"),
+            # Validated as a UUID, carried on as the string form the events it ends up on use.
+            trace_id=str(trace_id) if trace_id else None,
         )
         if relay_status == "failed":
             return Response(

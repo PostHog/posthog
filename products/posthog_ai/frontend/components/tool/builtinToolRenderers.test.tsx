@@ -47,8 +47,9 @@ describe('builtin tool renderers', () => {
                 })}
             />
         )
-        expect(screen.getByText('pnpm build')).toBeInTheDocument()
+        expect(screen.queryByText('pnpm build')).not.toBeInTheDocument()
         fireEvent.click(screen.getByRole('button'))
+        expect(screen.getByText('pnpm build')).toBeInTheDocument()
         expect(screen.getByText('build succeeded')).toBeInTheDocument()
     })
 
@@ -65,6 +66,7 @@ describe('builtin tool renderers', () => {
             />
         )
         expect(screen.getByText('Read 2 lines')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button'))
         expect(screen.getByText('app.ts')).toBeInTheDocument()
     })
 
@@ -98,6 +100,7 @@ describe('builtin tool renderers', () => {
             />
         )
         expect(screen.getByText('Grep TODO')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button'))
         expect(screen.getByText('3 results')).toBeInTheDocument()
     })
 
@@ -173,6 +176,7 @@ describe('builtin tool renderers', () => {
             />
         )
         expect(screen.getByText('Search tools')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button'))
         expect(screen.getByText('funnel')).toBeInTheDocument()
     })
 

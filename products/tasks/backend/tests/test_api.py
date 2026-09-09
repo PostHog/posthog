@@ -1216,6 +1216,28 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertIn("Task 1", task_titles)
         self.assertIn("Task 2", task_titles)
 
+    @parameterized.expand(
+        [
+            ("default_full", None, True),
+            ("basic_false_full", "false", True),
+            ("basic_true_summary", "true", False),
+        ]
+    )
+    def test_list_basic_omits_description(self, _name, basic_param, expect_description):
+        self.create_task("Task 1")
+
+        url = "/api/projects/@current/tasks/"
+        if basic_param is not None:
+            url += f"?basic={basic_param}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        row = response.json()["results"][0]
+        if expect_description:
+            self.assertEqual(row["description"], "Test Description")
+        else:
+            self.assertNotIn("description", row)
+
     def test_list_tasks_includes_latest_run(self):
         task1 = self.create_task("Task 1")
         task2 = self.create_task("Task 2")
@@ -5617,6 +5639,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_external_followups_generation": 7,
                 "sandbox_gone": False,
                 "ai_stage": "research",
+                "ai_agent_name": "signals-scout-errors",
                 "self_driving_head_branch": "posthog-self-driving/real-3f9a2c",
                 "runtime_adapter": "claude",
                 "provider": "anthropic",
@@ -5684,6 +5707,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_gone": True,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
+                    # a forged agent name bills this run's spend to another agent
+                    "ai_agent_name": "signals-scout-general",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
                     "self_driving_head_branch": "posthog-self-driving/attacker-000000",
                     "runtime_adapter": "codex",
@@ -5731,6 +5756,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["same_run_resume_idle"] is False
         assert run.state["handoff_resumed"] is True
         assert run.state["handoff_resume_idle"] is False
+        assert run.state["ai_agent_name"] == "signals-scout-errors"
         assert run.state["workflow_id"] == "wf-real"
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
@@ -6109,6 +6135,29 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertIsNotNone(data["log_url"])
         self.assertTrue(data["log_url"].startswith("http"))
 
+    def test_retrieve_run_serves_the_sandbox_its_attribution_stamps(self):
+        # The in-sandbox agent server reads run state back off this endpoint, so a stamp the
+        # public filter drops never reaches the gateway. Sandbox credentials share that state.
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={
+                "ai_stage": "scout:custom",
+                "ai_agent_name": "signals-scout-errors",
+                "sandbox_connect_token": "connect-token",
+            },
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        state = response.json()["state"]
+        self.assertEqual(state["ai_stage"], "scout:custom")
+        self.assertEqual(state["ai_agent_name"], "signals-scout-errors")
+        self.assertNotIn("sandbox_connect_token", state)
+
     def test_list_runs_only_returns_task_runs(self):
         task1 = self.create_task("Task 1")
         task2 = self.create_task("Task 2")
@@ -6402,8 +6451,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
 
+    @parameterized.expand(
+        [
+            ("without_a_trace_id", {}, None),
+            (
+                "with_a_trace_id",
+                {"trace_id": "f960aead-b2af-4ee0-b0eb-630109a1b2a0"},
+                "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
+            ),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
-    def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):
+    def test_relay_message_enqueues_slack_relay_workflow(
+        self, _name, extra_body, expected_trace_id, mock_execute_relay
+    ):
         from posthog.models.integration import Integration
 
         from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -6427,7 +6488,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
-            {"text": "Which license should I use?"},
+            {"text": "Which license should I use?", **extra_body},
             format="json",
         )
 
@@ -6438,6 +6499,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             text="Which license should I use?",
             delete_progress=True,
             message_id=None,
+            trace_id=expected_trace_id,
         )
 
     @parameterized.expand(
@@ -6491,6 +6553,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             text=expected_posted_text,
             delete_progress=True,
             message_id=None,
+            trace_id=None,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
@@ -8272,7 +8335,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertNotIn("user_id", decoded)
         self.assertIn("exp", decoded)
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_returns_proxy_url_when_configured_and_flag_enabled(self):
+        reset_sandbox_jwt_key_cache()
+
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -8285,9 +8351,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["stream_base_url"], "https://agent-proxy.example.com")
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_omits_proxy_url_for_thin_tail_run(self):
         # Only the Django read leg serves the durable backlog, so a thin-tail run must
         # never be routed to the agent-proxy even with the proxy flag enabled.
+        reset_sandbox_jwt_key_cache()
+
         task = self.create_task()
         run = TaskRun.objects.create(
             task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"stream_thin_tail": True}
@@ -8302,7 +8371,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["stream_base_url"])
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_omits_proxy_url_when_flag_disabled(self):
+        reset_sandbox_jwt_key_cache()
+
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -8323,7 +8395,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["stream_base_url"])
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_returns_proxy_url_for_pi_when_flag_disabled(self):
+        reset_sandbox_jwt_key_cache()
+
         task = self.create_task(runtime=Task.Runtime.PI)
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -8342,8 +8417,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["stream_base_url"], "https://agent-proxy.example.com")
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_returns_proxy_url_in_debug_without_flag(self):
         # Local dev (DEBUG) disables the analytics SDK, so the URL setting alone opts in.
+        reset_sandbox_jwt_key_cache()
+
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -8353,8 +8431,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["stream_base_url"], "http://localhost:8003")
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_omits_proxy_url_when_flag_evaluation_fails(self):
         # A flag-service outage must fall back to reading from Django, not break token issuance.
+        reset_sandbox_jwt_key_cache()
+
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -13050,6 +13131,35 @@ class TestCloudUsageGate(BaseTaskAPITest):
         task.save()
         return task
 
+    def _create_pr_task(
+        self,
+        *,
+        relationship: str = "implementation",
+        link_other_report: bool = False,
+        report_in_other_team: bool = False,
+    ) -> Task:
+        # `record_report_task` writes this row on the manual and the auto-start path.
+        from products.signals.backend.models import SignalReport, SignalReportTask
+
+        report_team = (
+            Team.objects.create(organization=self.organization, name="Report Team")
+            if report_in_other_team
+            else self.team
+        )
+        report = SignalReport.objects.create(team=report_team)
+        task = self.create_task()
+        task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        task.signal_report = report
+        task.repository = "posthog/posthog"
+        task.save()
+        SignalReportTask.objects.create(
+            team=self.team,
+            report=SignalReport.objects.create(team=self.team) if link_other_report else report,
+            task=task,
+            relationship=relationship,
+        )
+        return task
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_without_code_access_returns_403_before_usage_check(self, mock_gate, mock_workflow):
@@ -13278,6 +13388,25 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertFalse(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
+    @parameterized.expand(
+        [
+            ("implementation_link", "implementation", False, False, True),
+            ("discussion_label", "discussion", False, False, False),
+            ("link_to_another_report", "implementation", True, False, False),
+            ("report_in_another_team", "implementation", False, True, False),
+        ]
+    )
+    def test_exemption_for_create_pr_task_needs_a_team_scoped_implementation_link(
+        self, _name, relationship, link_other_report, report_in_other_team, expected
+    ):
+        task = self._create_pr_task(
+            relationship=relationship,
+            link_other_report=link_other_report,
+            report_in_other_team=report_in_other_team,
+        )
+
+        self.assertEqual(tasks_facade.task_exempt_from_code_access(task.id, self.team.id), expected)
+
     def test_create_signal_report_task_ignores_channel_repository(self):
         from products.signals.backend.models import SignalReport
         from products.tasks.backend.models import Channel
@@ -13489,6 +13618,24 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, expected_status)
         mock_gate.assert_called_once()
         self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_status == status.HTTP_200_OK)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_run_report_create_pr_task_bypasses_code_access(self, _mock_gate, mock_workflow):
+        # "Create PR" holds a repository by design, so the repo-less Inbox exemption cannot cover
+        # it. The implementation link entitles the run while the Desktop policy denies the caller.
+        self.set_tasks_feature_flag(False)
+        task = self._create_pr_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_called_once()
 
 
 class TestGetPosthogCodeUsage(TestCase):

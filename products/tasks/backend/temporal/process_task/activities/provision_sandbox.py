@@ -98,6 +98,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_otel_env_vars,
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
+    mcp_exec_skills_env_vars,
     parse_run_state,
     run_gateway_env_vars,
 )
@@ -297,17 +298,28 @@ def _prewarmed_resume_needs_fresh_agent(
     *,
     used_snapshot: bool,
 ) -> bool:
-    """Whether a full resume snapshot bundled an agent that cannot idle before the resumed prompt."""
+    """Whether a restored full snapshot bundled an agent that cannot idle before the resumed prompt.
+
+    A repository snapshot (``snapshot_id``) restores the same filesystem as a resume snapshot
+    (``snapshot_external_id``), so it supplies the snapshot's own agent binary too and needs the
+    same probe. Only a directory restore keeps the vetted image's agent.
+    """
+    # `prewarmedResumeMessageDriven` is an ACP capability, advertised and consumed only by the
+    # ACP agent server. The Pi server dispatches no startup turn and downloads its session
+    # history from the API instead of the snapshot, so probing a Pi bundle for the string
+    # rejects a healthy snapshot and re-clones the repository for no behavior change.
+    if ctx.task_runtime == Task.Runtime.PI:
+        return False
     if (
         not used_snapshot
-        or prepared.snapshot_external_id is None
+        or (prepared.snapshot_external_id is None and prepared.snapshot_id is None)
         or prepared.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
         or not (ctx.state or {}).get("prewarmed")
         or not (ctx.state or {}).get("resume_from_run_id")
     ):
         return False
     try:
-        return not sandbox.agent_server_supports_prewarmed_resume_idle()
+        return not sandbox.agent_server_supports_prewarmed_resume_message_driven()
     except Exception:
         logger.warning("prewarmed_resume_agent_capability_probe_failed", extra={"run_id": ctx.run_id})
         return True
@@ -520,6 +532,7 @@ def _build_environment_variables(
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
     environment_variables.update(run_gateway_env_vars(ctx, task))
+    environment_variables.update(mcp_exec_skills_env_vars(ctx))
 
     if settings.DEBUG:
         # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
