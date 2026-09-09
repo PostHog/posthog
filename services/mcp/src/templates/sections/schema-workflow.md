@@ -1,3 +1,7 @@
+#### Read the skill first (mandatory)
+
+Before constructing any insight query, read the `querying-posthog-data` skill if it is installed in your environment, and follow its query-path guidance and examples. It is a built-in PostHog skill, not a team skill in the skills store — do not fetch it with `skill-get`. When it is not installed, the `execute-sql` tool description carries the same core guidance.
+
 #### Schema-first workflow
 
 Verify the data schema before constructing any insight query. Canonical-looking events

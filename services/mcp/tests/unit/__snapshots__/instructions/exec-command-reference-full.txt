@@ -222,6 +222,10 @@ By insight type:
 
 Each `query-*` tool's own description carries its full feature set, use cases, and schema documentation — read it (e.g. `info query-trends`) before constructing the query.
 
+#### Read the skill first (mandatory)
+
+Before constructing any insight query, read the `querying-posthog-data` skill if it is installed in your environment, and follow its query-path guidance and examples. It is a built-in PostHog skill, not a team skill in the skills store — do not fetch it with `skill-get`. When it is not installed, the `execute-sql` tool description carries the same core guidance.
+
 #### Schema-first workflow
 
 Verify the data schema before constructing any insight query. Canonical-looking events
@@ -302,8 +306,6 @@ The user can also ask you to send feedback directly — e.g. "make a PostHog fee
 Submitting feedback is **not** a way to end your turn or skip work. It's a side report to the PostHog team — call it when warranted, then keep going and finish the user's task with the other tools.
 
 ### Examples
-
-Before writing any queries, read the `querying-posthog-data` skill when it is installed in your environment, and follow any relevant query examples. It is a built-in PostHog skill, not a team skill in the skills store, so do not fetch it with `skill-get`. When it is not installed, the `execute-sql` tool description carries the same core guidance.
 
 #### Creating an insight with segmentation
 
