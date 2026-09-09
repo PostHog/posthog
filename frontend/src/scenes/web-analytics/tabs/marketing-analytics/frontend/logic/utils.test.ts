@@ -20,6 +20,7 @@ import {
     getSortedColumnsByArray,
     orderArrayByPreference,
     rowMatchesSearch,
+    sanitizeIntegrationFilter,
     validColumnsForTiles,
 } from './utils'
 
@@ -474,6 +475,25 @@ describe('marketing analytics utils', () => {
             ['undefined math counts conversions', undefined, false],
         ])('%s', (_name, math, expected) => {
             expect(goalSumsAProperty(goalWithMath(math))).toBe(expected)
+        })
+    })
+
+    describe('sanitizeIntegrationFilter', () => {
+        it('drops a key the query schema no longer accepts', () => {
+            const stored = { integrationSourceIds: ['abc'], includeNonIntegrated: true }
+            expect(sanitizeIntegrationFilter(stored)).toEqual({ integrationSourceIds: ['abc'] })
+        })
+
+        it.each([
+            ['selected ids survive', { integrationSourceIds: ['a', 'b'] }, ['a', 'b']],
+            ['empty selection', { integrationSourceIds: [] }, []],
+            ['missing field', {}, []],
+            ['null', null, []],
+            ['undefined', undefined, []],
+            ['non-array ids', { integrationSourceIds: 'a' }, []],
+            ['non-string entries', { integrationSourceIds: ['a', 3, null] }, ['a']],
+        ])('%s', (_name, stored, expected) => {
+            expect(sanitizeIntegrationFilter(stored)).toEqual({ integrationSourceIds: expected })
         })
     })
 })
