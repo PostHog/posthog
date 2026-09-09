@@ -36,3 +36,15 @@ class EnterpriseEventDefinition(EventDefinition):
         default=None,
         db_column="tags",
     )
+
+    class Meta:
+        indexes = [
+            # `?exclude_hidden=true` comes from every taxonomy picker, and it asks for the rows that
+            # are NOT in this index. Hidden events are rare, so a partial index stays small and lets
+            # the anti-join skip the enterprise heap for the whole matching set.
+            models.Index(
+                condition=models.Q(hidden=True),
+                fields=["eventdefinition_ptr"],
+                name="ee_event_definition_hidden",
+            ),
+        ]

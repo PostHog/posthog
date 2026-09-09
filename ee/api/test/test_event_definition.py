@@ -613,11 +613,14 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         EnterpriseEventDefinition.objects.create(
             team=self.demo_team, project=self.demo_team.project, name="hidden_event2", hidden=True
         )
+        # Ingestion writes the base row only. Such an event is hidden by nobody, so it must stay.
+        EventDefinition.objects.create(team=self.demo_team, project=self.demo_team.project, name="base_only_event")
 
         response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=true")
         assert response.status_code == status.HTTP_200_OK
         event_names = {p["name"] for p in response.json()["results"]}
         assert "visible_event" in event_names
+        assert "base_only_event" in event_names
         assert "hidden_event1" not in event_names
         assert "hidden_event2" not in event_names
 

@@ -52,6 +52,12 @@ from posthog.utils import get_safe_cache, relative_date_parse
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
 
+ENTERPRISE_JOIN = (
+    "LEFT JOIN ee_enterpriseeventdefinition"
+    " ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
+)
+
+
 def _event_definitions_source_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool,
@@ -66,11 +72,7 @@ def _event_definitions_source_sql(
     # The join type does change the plan. A full join can be neither a nested loop nor a filter
     # pushed into the scan, which leaves a sequential scan of the whole table available to the
     # planner — and it picked that plan in production once statistics shifted.
-    enterprise_join = (
-        "LEFT JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
-        if is_enterprise
-        else ""
-    )
+    enterprise_join = ENTERPRISE_JOIN if is_enterprise else ""
 
     if event_type == EventDefinitionType.EVENT_CUSTOM:
         conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
@@ -131,21 +133,29 @@ def create_event_definitions_sql(
     # split this query's load across hundreds of fingerprints and none of them looks expensive.
     selected_fields = sorted(event_definition_fields)
 
-    additional_ordering = []
-    for order_expression, order_direction in order_expressions:
-        if order_expression:
-            additional_ordering.append(
-                f"{order_expression} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}"
-            )
+    ordering = ",".join(
+        f"{expression} {direction} NULLS {'FIRST' if direction == 'ASC' else 'LAST'}"
+        for expression, direction in order_expressions
+        if expression
+    )
 
-    # A `RawQuerySet` has no `count()`, so DRF's paginator counts it with `len()` and slices the
-    # result in Python. Without this clause one page of 100 costs a read of every event definition
-    # the project has, wide columns included.
+    source_sql = _event_definitions_source_sql(event_type, is_enterprise, conditions)
+
+    # Two steps. The inner step selects one narrow column, so Postgres sorts and pages small
+    # tuples, and never reads a wide column such as `description` for a row the page drops. A
+    # `?verified=` filter still holds the enterprise join down there, but it only adds a boolean to
+    # the sort input. The outer step reads the wide columns for one page.
     return f"""
             SELECT {",".join(selected_fields)}
-            {_event_definitions_source_sql(event_type, is_enterprise, conditions)}
-            ORDER BY {",".join(additional_ordering)}
-            LIMIT %(limit)s OFFSET %(offset)s
+            FROM (
+                SELECT posthog_eventdefinition.id AS page_id
+                {source_sql}
+                ORDER BY {ordering}
+                LIMIT %(limit)s OFFSET %(offset)s
+            ) AS page
+            JOIN posthog_eventdefinition ON posthog_eventdefinition.id=page.page_id
+            {ENTERPRISE_JOIN if is_enterprise else ""}
+            ORDER BY {ordering}
         """
 
 
@@ -405,7 +415,19 @@ class EventDefinitionViewSet(
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and EE_AVAILABLE:
-            search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
+            # An anti-join, not `hidden IS NULL OR hidden = false` on the enterprise join. The two
+            # keep the same rows, because a base row with no enterprise row is hidden by neither.
+            # The anti-join reads the partial index `ee_event_definition_hidden`, which holds only
+            # the rare hidden rows, so it never touches the enterprise heap. The equality form has
+            # to read the heap of every matching row to see the column.
+            # It also frees the enterprise join: with no other enterprise column in `conditions`,
+            # Postgres drops the join from the count and from the inner page.
+            search_query = (
+                search_query
+                + " AND NOT EXISTS (SELECT 1 FROM ee_enterpriseeventdefinition hidden_check"
+                + " WHERE hidden_check.eventdefinition_ptr_id = posthog_eventdefinition.id"
+                + " AND hidden_check.hidden)"
+            )
 
         exclude_stale = self.request.GET.get("exclude_stale", "false").lower() == "true"
         if exclude_stale:
