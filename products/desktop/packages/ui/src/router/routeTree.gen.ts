@@ -35,6 +35,7 @@ import { Route as FoldersFolderIdRouteImport } from './routes/folders/$folderId'
 import { Route as CodeSplatRouteImport } from './routes/code.$'
 import { Route as AgentsSplatRouteImport } from './routes/agents.$'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
+import { Route as ShellSketchpadsRouteImport } from './routes/_shell/sketchpads'
 import { Route as ShellNewRouteImport } from './routes/_shell/new'
 import { Route as ShellMcpServersRouteImport } from './routes/_shell/mcp-servers'
 import { Route as ShellCommandCenterRouteImport } from './routes/_shell/command-center'
@@ -54,6 +55,7 @@ import { Route as InboxReportsReportIdRouteImport } from './routes/inbox/reports
 import { Route as InboxPullsReportIdRouteImport } from './routes/inbox/pulls.$reportId'
 import { Route as InboxDismissedReportIdRouteImport } from './routes/inbox/dismissed.$reportId'
 import { Route as ShellSpacesContextRouteImport } from './routes/_shell/spaces/context'
+import { Route as ShellSketchpadsSketchpadIdRouteImport } from './routes/_shell/sketchpads/$sketchpadId'
 import { Route as ShellSettingsCategoryRouteImport } from './routes/_shell/settings/$category'
 import { Route as ShellFeedsFeedIdRouteImport } from './routes/_shell/feeds/$feedId'
 import { Route as ShellSpacesChannelIdIndexRouteImport } from './routes/_shell/spaces/$channelId/index'
@@ -65,6 +67,7 @@ import { Route as ShellSpacesChannelIdContextRouteImport } from './routes/_shell
 import { Route as ShellSpacesChannelIdCanvasesRouteImport } from './routes/_shell/spaces/$channelId/canvases'
 import { Route as ShellSpacesChannelIdArtifactsRouteImport } from './routes/_shell/spaces/$channelId/artifacts'
 import { Route as ShellSpacesChannelIdTasksTaskIdRouteImport } from './routes/_shell/spaces/$channelId/tasks/$taskId'
+import { Route as ShellSpacesChannelIdSketchpadsSketchpadIdRouteImport } from './routes/_shell/spaces/$channelId/sketchpads/$sketchpadId'
 import { Route as ShellSpacesChannelIdReportsReportIdRouteImport } from './routes/_shell/spaces/$channelId/reports/$reportId'
 import { Route as ShellSpacesChannelIdDashboardsDashboardIdRouteImport } from './routes/_shell/spaces/$channelId/dashboards/$dashboardId'
 
@@ -197,6 +200,11 @@ const ShellSkillsRoute = ShellSkillsRouteImport.update({
   path: '/skills',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellSketchpadsRoute = ShellSketchpadsRouteImport.update({
+  id: '/sketchpads',
+  path: '/sketchpads',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellNewRoute = ShellNewRouteImport.update({
   id: '/new',
   path: '/new',
@@ -292,6 +300,12 @@ const ShellSpacesContextRoute = ShellSpacesContextRouteImport.update({
   path: '/spaces/context',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellSketchpadsSketchpadIdRoute =
+  ShellSketchpadsSketchpadIdRouteImport.update({
+    id: '/$sketchpadId',
+    path: '/$sketchpadId',
+    getParentRoute: () => ShellSketchpadsRoute,
+  } as any)
 const ShellSettingsCategoryRoute = ShellSettingsCategoryRouteImport.update({
   id: '/settings/$category',
   path: '/settings/$category',
@@ -355,6 +369,12 @@ const ShellSpacesChannelIdTasksTaskIdRoute =
     path: '/spaces/$channelId/tasks/$taskId',
     getParentRoute: () => ShellRoute,
   } as any)
+const ShellSpacesChannelIdSketchpadsSketchpadIdRoute =
+  ShellSpacesChannelIdSketchpadsSketchpadIdRouteImport.update({
+    id: '/spaces/$channelId/sketchpads/$sketchpadId',
+    path: '/spaces/$channelId/sketchpads/$sketchpadId',
+    getParentRoute: () => ShellRoute,
+  } as any)
 const ShellSpacesChannelIdReportsReportIdRoute =
   ShellSpacesChannelIdReportsReportIdRouteImport.update({
     id: '/spaces/$channelId/reports/$reportId',
@@ -380,6 +400,7 @@ export interface FileRoutesByFullPath {
   '/command-center': typeof ShellCommandCenterRoute
   '/mcp-servers': typeof ShellMcpServersRoute
   '/new': typeof ShellNewRoute
+  '/sketchpads': typeof ShellSketchpadsRouteWithChildren
   '/skills': typeof ShellSkillsRoute
   '/agents/$': typeof AgentsSplatRoute
   '/code/$': typeof CodeSplatRoute
@@ -401,6 +422,7 @@ export interface FileRoutesByFullPath {
   '/website/': typeof WebsiteIndexRoute
   '/feeds/$feedId': typeof ShellFeedsFeedIdRoute
   '/settings/$category': typeof ShellSettingsCategoryRoute
+  '/sketchpads/$sketchpadId': typeof ShellSketchpadsSketchpadIdRoute
   '/spaces/context': typeof ShellSpacesContextRoute
   '/inbox/dismissed/$reportId': typeof InboxDismissedReportIdRoute
   '/inbox/pulls/$reportId': typeof InboxPullsReportIdRoute
@@ -425,6 +447,7 @@ export interface FileRoutesByFullPath {
   '/spaces/$channelId/': typeof ShellSpacesChannelIdIndexRoute
   '/spaces/$channelId/dashboards/$dashboardId': typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
   '/spaces/$channelId/reports/$reportId': typeof ShellSpacesChannelIdReportsReportIdRoute
+  '/spaces/$channelId/sketchpads/$sketchpadId': typeof ShellSpacesChannelIdSketchpadsSketchpadIdRoute
   '/spaces/$channelId/tasks/$taskId': typeof ShellSpacesChannelIdTasksTaskIdRoute
 }
 export interface FileRoutesByTo {
@@ -437,6 +460,7 @@ export interface FileRoutesByTo {
   '/command-center': typeof ShellCommandCenterRoute
   '/mcp-servers': typeof ShellMcpServersRoute
   '/new': typeof ShellNewRoute
+  '/sketchpads': typeof ShellSketchpadsRouteWithChildren
   '/skills': typeof ShellSkillsRoute
   '/agents/$': typeof AgentsSplatRoute
   '/code/$': typeof CodeSplatRoute
@@ -454,6 +478,7 @@ export interface FileRoutesByTo {
   '/website': typeof WebsiteIndexRoute
   '/feeds/$feedId': typeof ShellFeedsFeedIdRoute
   '/settings/$category': typeof ShellSettingsCategoryRoute
+  '/sketchpads/$sketchpadId': typeof ShellSketchpadsSketchpadIdRoute
   '/spaces/context': typeof ShellSpacesContextRoute
   '/inbox/dismissed/$reportId': typeof InboxDismissedReportIdRoute
   '/inbox/pulls/$reportId': typeof InboxPullsReportIdRoute
@@ -478,6 +503,7 @@ export interface FileRoutesByTo {
   '/spaces/$channelId': typeof ShellSpacesChannelIdIndexRoute
   '/spaces/$channelId/dashboards/$dashboardId': typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
   '/spaces/$channelId/reports/$reportId': typeof ShellSpacesChannelIdReportsReportIdRoute
+  '/spaces/$channelId/sketchpads/$sketchpadId': typeof ShellSpacesChannelIdSketchpadsSketchpadIdRoute
   '/spaces/$channelId/tasks/$taskId': typeof ShellSpacesChannelIdTasksTaskIdRoute
 }
 export interface FileRoutesById {
@@ -493,6 +519,7 @@ export interface FileRoutesById {
   '/_shell/command-center': typeof ShellCommandCenterRoute
   '/_shell/mcp-servers': typeof ShellMcpServersRoute
   '/_shell/new': typeof ShellNewRoute
+  '/_shell/sketchpads': typeof ShellSketchpadsRouteWithChildren
   '/_shell/skills': typeof ShellSkillsRoute
   '/agents/$': typeof AgentsSplatRoute
   '/code/$': typeof CodeSplatRoute
@@ -515,6 +542,7 @@ export interface FileRoutesById {
   '/website/': typeof WebsiteIndexRoute
   '/_shell/feeds/$feedId': typeof ShellFeedsFeedIdRoute
   '/_shell/settings/$category': typeof ShellSettingsCategoryRoute
+  '/_shell/sketchpads/$sketchpadId': typeof ShellSketchpadsSketchpadIdRoute
   '/_shell/spaces/context': typeof ShellSpacesContextRoute
   '/inbox/dismissed/$reportId': typeof InboxDismissedReportIdRoute
   '/inbox/pulls/$reportId': typeof InboxPullsReportIdRoute
@@ -539,6 +567,7 @@ export interface FileRoutesById {
   '/_shell/spaces/$channelId/': typeof ShellSpacesChannelIdIndexRoute
   '/_shell/spaces/$channelId/dashboards/$dashboardId': typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
   '/_shell/spaces/$channelId/reports/$reportId': typeof ShellSpacesChannelIdReportsReportIdRoute
+  '/_shell/spaces/$channelId/sketchpads/$sketchpadId': typeof ShellSpacesChannelIdSketchpadsSketchpadIdRoute
   '/_shell/spaces/$channelId/tasks/$taskId': typeof ShellSpacesChannelIdTasksTaskIdRoute
 }
 export interface FileRouteTypes {
@@ -555,6 +584,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/mcp-servers'
     | '/new'
+    | '/sketchpads'
     | '/skills'
     | '/agents/$'
     | '/code/$'
@@ -576,6 +606,7 @@ export interface FileRouteTypes {
     | '/website/'
     | '/feeds/$feedId'
     | '/settings/$category'
+    | '/sketchpads/$sketchpadId'
     | '/spaces/context'
     | '/inbox/dismissed/$reportId'
     | '/inbox/pulls/$reportId'
@@ -600,6 +631,7 @@ export interface FileRouteTypes {
     | '/spaces/$channelId/'
     | '/spaces/$channelId/dashboards/$dashboardId'
     | '/spaces/$channelId/reports/$reportId'
+    | '/spaces/$channelId/sketchpads/$sketchpadId'
     | '/spaces/$channelId/tasks/$taskId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -612,6 +644,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/mcp-servers'
     | '/new'
+    | '/sketchpads'
     | '/skills'
     | '/agents/$'
     | '/code/$'
@@ -629,6 +662,7 @@ export interface FileRouteTypes {
     | '/website'
     | '/feeds/$feedId'
     | '/settings/$category'
+    | '/sketchpads/$sketchpadId'
     | '/spaces/context'
     | '/inbox/dismissed/$reportId'
     | '/inbox/pulls/$reportId'
@@ -653,6 +687,7 @@ export interface FileRouteTypes {
     | '/spaces/$channelId'
     | '/spaces/$channelId/dashboards/$dashboardId'
     | '/spaces/$channelId/reports/$reportId'
+    | '/spaces/$channelId/sketchpads/$sketchpadId'
     | '/spaces/$channelId/tasks/$taskId'
   id:
     | '__root__'
@@ -667,6 +702,7 @@ export interface FileRouteTypes {
     | '/_shell/command-center'
     | '/_shell/mcp-servers'
     | '/_shell/new'
+    | '/_shell/sketchpads'
     | '/_shell/skills'
     | '/agents/$'
     | '/code/$'
@@ -689,6 +725,7 @@ export interface FileRouteTypes {
     | '/website/'
     | '/_shell/feeds/$feedId'
     | '/_shell/settings/$category'
+    | '/_shell/sketchpads/$sketchpadId'
     | '/_shell/spaces/context'
     | '/inbox/dismissed/$reportId'
     | '/inbox/pulls/$reportId'
@@ -713,6 +750,7 @@ export interface FileRouteTypes {
     | '/_shell/spaces/$channelId/'
     | '/_shell/spaces/$channelId/dashboards/$dashboardId'
     | '/_shell/spaces/$channelId/reports/$reportId'
+    | '/_shell/spaces/$channelId/sketchpads/$sketchpadId'
     | '/_shell/spaces/$channelId/tasks/$taskId'
   fileRoutesById: FileRoutesById
 }
@@ -921,6 +959,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSkillsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/sketchpads': {
+      id: '/_shell/sketchpads'
+      path: '/sketchpads'
+      fullPath: '/sketchpads'
+      preLoaderRoute: typeof ShellSketchpadsRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/new': {
       id: '/_shell/new'
       path: '/new'
@@ -1054,6 +1099,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSpacesContextRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/sketchpads/$sketchpadId': {
+      id: '/_shell/sketchpads/$sketchpadId'
+      path: '/$sketchpadId'
+      fullPath: '/sketchpads/$sketchpadId'
+      preLoaderRoute: typeof ShellSketchpadsSketchpadIdRouteImport
+      parentRoute: typeof ShellSketchpadsRoute
+    }
     '/_shell/settings/$category': {
       id: '/_shell/settings/$category'
       path: '/settings/$category'
@@ -1131,6 +1183,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSpacesChannelIdTasksTaskIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/spaces/$channelId/sketchpads/$sketchpadId': {
+      id: '/_shell/spaces/$channelId/sketchpads/$sketchpadId'
+      path: '/spaces/$channelId/sketchpads/$sketchpadId'
+      fullPath: '/spaces/$channelId/sketchpads/$sketchpadId'
+      preLoaderRoute: typeof ShellSpacesChannelIdSketchpadsSketchpadIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/spaces/$channelId/reports/$reportId': {
       id: '/_shell/spaces/$channelId/reports/$reportId'
       path: '/spaces/$channelId/reports/$reportId'
@@ -1148,12 +1207,25 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface ShellSketchpadsRouteChildren {
+  ShellSketchpadsSketchpadIdRoute: typeof ShellSketchpadsSketchpadIdRoute
+}
+
+const ShellSketchpadsRouteChildren: ShellSketchpadsRouteChildren = {
+  ShellSketchpadsSketchpadIdRoute: ShellSketchpadsSketchpadIdRoute,
+}
+
+const ShellSketchpadsRouteWithChildren = ShellSketchpadsRoute._addFileChildren(
+  ShellSketchpadsRouteChildren,
+)
+
 interface ShellRouteChildren {
   ShellActivityRoute: typeof ShellActivityRoute
   ShellCanvasesRoute: typeof ShellCanvasesRoute
   ShellCommandCenterRoute: typeof ShellCommandCenterRoute
   ShellMcpServersRoute: typeof ShellMcpServersRoute
   ShellNewRoute: typeof ShellNewRoute
+  ShellSketchpadsRoute: typeof ShellSketchpadsRouteWithChildren
   ShellSkillsRoute: typeof ShellSkillsRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellFeedsFeedIdRoute: typeof ShellFeedsFeedIdRoute
@@ -1172,6 +1244,7 @@ interface ShellRouteChildren {
   ShellSpacesChannelIdIndexRoute: typeof ShellSpacesChannelIdIndexRoute
   ShellSpacesChannelIdDashboardsDashboardIdRoute: typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
   ShellSpacesChannelIdReportsReportIdRoute: typeof ShellSpacesChannelIdReportsReportIdRoute
+  ShellSpacesChannelIdSketchpadsSketchpadIdRoute: typeof ShellSpacesChannelIdSketchpadsSketchpadIdRoute
   ShellSpacesChannelIdTasksTaskIdRoute: typeof ShellSpacesChannelIdTasksTaskIdRoute
 }
 
@@ -1181,6 +1254,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellCommandCenterRoute: ShellCommandCenterRoute,
   ShellMcpServersRoute: ShellMcpServersRoute,
   ShellNewRoute: ShellNewRoute,
+  ShellSketchpadsRoute: ShellSketchpadsRouteWithChildren,
   ShellSkillsRoute: ShellSkillsRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellFeedsFeedIdRoute: ShellFeedsFeedIdRoute,
@@ -1201,6 +1275,8 @@ const ShellRouteChildren: ShellRouteChildren = {
     ShellSpacesChannelIdDashboardsDashboardIdRoute,
   ShellSpacesChannelIdReportsReportIdRoute:
     ShellSpacesChannelIdReportsReportIdRoute,
+  ShellSpacesChannelIdSketchpadsSketchpadIdRoute:
+    ShellSpacesChannelIdSketchpadsSketchpadIdRoute,
   ShellSpacesChannelIdTasksTaskIdRoute: ShellSpacesChannelIdTasksTaskIdRoute,
 }
 

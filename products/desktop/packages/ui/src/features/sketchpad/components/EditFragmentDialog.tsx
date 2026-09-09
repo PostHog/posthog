@@ -1,0 +1,158 @@
+import { WarningIcon } from "@phosphor-icons/react";
+import {
+  Button,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Field,
+  FieldLabel,
+  Input,
+} from "@posthog/quill";
+import {
+  checkFragmentCode,
+  type SketchpadFragment,
+  type SketchpadFragmentPatch,
+  type SketchpadOp,
+} from "@posthog/shared";
+import {
+  DIALOG_CANCEL,
+  EDIT_FRAGMENT_SUBMIT,
+  fragmentCodeBlockedReason,
+} from "@posthog/ui/features/sketchpad/sketchpadCopy";
+import { SkillCodeEditor } from "@posthog/ui/features/skills/SkillCodeEditor";
+import { type ReactElement, useEffect, useRef, useState } from "react";
+
+interface EditFragmentDialogProps {
+  open: boolean;
+  fragment: SketchpadFragment | null;
+  isPending: boolean;
+  onOpenChange: (open: boolean) => void;
+  applyLocal: (ops: SketchpadOp[]) => void;
+}
+
+export function EditFragmentDialog({
+  open,
+  fragment,
+  isPending,
+  onOpenChange,
+  applyLocal,
+}: EditFragmentDialogProps): ReactElement {
+  const [title, setTitle] = useState("");
+  const [code, setCode] = useState("");
+  const [initialCode, setInitialCode] = useState("");
+  const editingId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !fragment) {
+      editingId.current = null;
+      return;
+    }
+    if (editingId.current === fragment.id) return;
+    editingId.current = fragment.id;
+    setTitle(fragment.title ?? "");
+    setCode(fragment.code);
+    setInitialCode(fragment.code);
+  }, [open, fragment]);
+
+  const trimmedCode = code.trim();
+  const blocked =
+    trimmedCode.length > 0 ? checkFragmentCode(trimmedCode).violations : [];
+  const canSubmit =
+    Boolean(fragment) &&
+    trimmedCode.length > 0 &&
+    blocked.length === 0 &&
+    !isPending;
+
+  const submit = (): void => {
+    if (!fragment || !canSubmit) return;
+    const patch: SketchpadFragmentPatch = { code };
+    const trimmedTitle = title.trim();
+    if (trimmedTitle !== (fragment.title ?? "")) {
+      patch.title = trimmedTitle;
+    }
+    applyLocal([{ type: "update_fragment", id: fragment.id, patch }]);
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && isPending) return;
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent size="wide">
+        <DialogHeader>
+          <DialogTitle>Edit fragment</DialogTitle>
+          <DialogDescription>
+            The new code runs for everyone on the board.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="flex min-h-0 flex-col gap-5 pt-1">
+          <Field className="gap-1.5">
+            <FieldLabel htmlFor="sketchpad-fragment-title">Title</FieldLabel>
+            <Input
+              id="sketchpad-fragment-title"
+              value={title}
+              placeholder="Signups this week"
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </Field>
+          <Field className="gap-1.5">
+            <FieldLabel>Code</FieldLabel>
+            <div className="h-[min(52vh,440px)] overflow-hidden rounded-md border border-(--gray-6)">
+              <SkillCodeEditor
+                key={fragment?.id ?? "none"}
+                initialContent={initialCode}
+                filePath="fragment.tsx"
+                onDocChanged={setCode}
+              />
+            </div>
+            {blocked.length > 0 ? (
+              <div className="flex items-start gap-2 rounded-md border border-(--red-6) bg-(--red-2) px-3 py-2">
+                <WarningIcon
+                  weight="fill"
+                  className="mt-px size-3.5 shrink-0 text-(--red-9)"
+                />
+                <div className="min-w-0 space-y-0.5">
+                  <p className="font-medium text-(--red-11) text-[12px]">
+                    This code cannot run on a board
+                  </p>
+                  <p className="text-(--red-11)/85 text-[12px]">
+                    {fragmentCodeBlockedReason(blocked)}
+                  </p>
+                  <p className="text-(--gray-11) text-[11px]">
+                    A fragment draws data the board already has. It cannot load
+                    code from anywhere else.
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </Field>
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            disabled={isPending}
+            onClick={() => onOpenChange(false)}
+          >
+            {DIALOG_CANCEL}
+          </Button>
+          <Button
+            variant="primary"
+            loading={isPending}
+            disabled={!canSubmit}
+            onClick={submit}
+          >
+            {EDIT_FRAGMENT_SUBMIT}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

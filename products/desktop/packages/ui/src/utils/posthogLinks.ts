@@ -99,6 +99,17 @@ export function inboxReportUrl(
  * project-scoped: the ids are globally-unique desktop file-system row ids. The
  * inbound desktop side lives in `CanvasLinkService` / `useCanvasDeepLink`.
  */
+export function sketchpadShareUrl(
+  channelId: string,
+  sketchpadId: string,
+  regionOverride?: CloudRegion | null,
+): string | null {
+  return getPostHogUrl(
+    `/code/canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(sketchpadId)}?type=sketchpad`,
+    regionOverride,
+  );
+}
+
 export function canvasShareUrl(
   channelId: string,
   dashboardId: string,

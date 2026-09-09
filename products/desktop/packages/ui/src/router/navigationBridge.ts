@@ -221,6 +221,36 @@ export function navigateToLoopDetail(
   });
 }
 
+export function navigateToSpaceSketchpad(
+  channelId: string,
+  sketchpadId: string,
+): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/sketchpads/$sketchpadId",
+    params: { channelId, sketchpadId },
+  });
+}
+
+export function navigateToSpaceCanvases(channelId: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/canvases",
+    params: { channelId },
+  });
+}
+
+export function navigateToSketchpads(sketchpadId: string): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+  void router.navigate({
+    to: "/sketchpads/$sketchpadId",
+    params: { sketchpadId },
+  });
+}
+
+export function navigateToAgents(): void {
+  void getRouterOrNull()?.navigate({ to: "/agents" });
+}
+
 export function navigateToArchived(): void {
   void getRouterOrNull()?.navigate({ to: "/archived" });
 }
