@@ -56,7 +56,7 @@ struct Coordination {
     router_leases: HashMap<String, String>,
     /// Reads that failed, so a missing section does not read as an
     /// empty one.
-    errors: Vec<String>,
+    errors: Vec<Unread>,
 }
 
 #[derive(Default)]
@@ -65,7 +65,21 @@ struct HandoffAcks {
     drained: Vec<PodDrainedAck>,
     warmed: Vec<PodWarmedAck>,
     quorum: Option<Vec<String>>,
-    unreadable: Vec<String>,
+    unreadable: Vec<Unread>,
+}
+
+/// A read that did not answer, kept with the name of the section it
+/// belongs to. The name is what lets a predicate refuse to judge state
+/// that nobody read.
+struct Unread {
+    what: &'static str,
+    why: String,
+}
+
+impl std::fmt::Display for Unread {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ({})", self.what, self.why)
+    }
 }
 
 /// Snapshot pod registrations, their etcd leases, and coordinator state
@@ -223,14 +237,17 @@ async fn lease_within(
 /// The value, or the default with `what` recorded as unread. A read that
 /// failed must not render as a state that is merely empty.
 fn take<T: Default, E: std::fmt::Display>(
-    what: &str,
+    what: &'static str,
     result: Result<T, E>,
-    errors: &mut Vec<String>,
+    errors: &mut Vec<Unread>,
 ) -> T {
     match result {
         Ok(value) => value,
         Err(e) => {
-            errors.push(format!("{what} ({e})"));
+            errors.push(Unread {
+                what,
+                why: e.to_string(),
+            });
             T::default()
         }
     }
@@ -332,6 +349,14 @@ fn render(state: &Coordination, partitions: u32, view: &ProcessView, now_ms: i64
 /// coordinator, which is what separates a stuck participant from a stuck
 /// coordinator.
 fn waiting_on(handoff: &HandoffState, state: &Coordination, acks: &HandoffAcks) -> String {
+    let blocked = unread_inputs(handoff.phase, state, acks);
+    if !blocked.is_empty() {
+        return format!(
+            "cannot say what it waits on; unread: {}",
+            blocked.join(", ")
+        );
+    }
+
     let quorum = acks.quorum.as_deref();
     let mut line = match handoff.phase {
         HandoffPhase::Freezing => {
@@ -364,9 +389,31 @@ fn waiting_on(handoff: &HandoffState, state: &Coordination, acks: &HandoffAcks) 
         HandoffPhase::Complete => "complete; the coordinator has not cleaned it up".to_string(),
     };
     if !acks.unreadable.is_empty() {
-        let _ = write!(line, "  unread: {}", acks.unreadable.join(", "));
+        let rest: Vec<String> = acks.unreadable.iter().map(Unread::to_string).collect();
+        let _ = write!(line, "  unread: {}", rest.join(", "));
     }
     line
+}
+
+/// The reads a phase's predicate consults that did not answer.
+///
+/// `freeze_quorum_met` and `drain_satisfied` both read an empty list as a
+/// condition already met, so a substituted default would answer with the
+/// dump's own wedge verdict on state nobody read.
+fn unread_inputs(phase: HandoffPhase, state: &Coordination, acks: &HandoffAcks) -> Vec<String> {
+    let needed: &[&str] = match phase {
+        HandoffPhase::Freezing => &["routers", "freeze acks", "freeze quorum"],
+        HandoffPhase::Draining => &["pods", "drained acks"],
+        HandoffPhase::Warming => &["warmed acks"],
+        HandoffPhase::Complete => &[],
+    };
+    state
+        .errors
+        .iter()
+        .chain(&acks.unreadable)
+        .filter(|unread| needed.contains(&unread.what))
+        .map(Unread::to_string)
+        .collect()
 }
 
 async fn registration_lease(store: &PersonhogStore, key: &str) -> String {
@@ -465,6 +512,66 @@ mod tests {
         AssignmentStatus, PodStatus, RegisteredPod, RegisteredRouter,
     };
     use uuid::Uuid;
+
+    /// A read that failed leaves an empty list behind, and two of the
+    /// three advance predicates read empty as a condition already met.
+    /// The dump must not answer with the coordinator verdict on a
+    /// section nobody read.
+    #[test]
+    fn an_unread_predicate_input_withholds_the_handoff_verdict() {
+        for (phase, section, in_acks) in [
+            (HandoffPhase::Freezing, "routers", false),
+            (HandoffPhase::Draining, "pods", false),
+            (HandoffPhase::Warming, "warmed acks", true),
+        ] {
+            let mut state = Coordination {
+                handoffs: vec![HandoffState {
+                    partition: 0,
+                    old_owner: Some("leader-0".to_string()),
+                    new_owner: "leader-1".to_string(),
+                    new_owner_address: None,
+                    phase,
+                    started_at: 0,
+                    handoff_id: "handoff-0".to_string(),
+                    freeze_quorum: None,
+                    freeze_quorum_ref: None,
+                    created_at_ms: 0,
+                    phase_entered_at_ms: 0,
+                }],
+                ..Coordination::default()
+            };
+            let unread = Unread {
+                what: section,
+                why: "etcd unavailable".to_string(),
+            };
+            let mut acks = HandoffAcks::default();
+            if in_acks {
+                acks.unreadable.push(unread);
+            } else {
+                state.errors.push(unread);
+            }
+            state.acks.insert(0, acks);
+
+            let view = ProcessView {
+                live_leaders: vec!["leader-0".to_string()],
+                paused_leaders: vec![],
+                routers: vec![],
+                retired: vec![],
+            };
+            let report = render(&state, 1, &view, 0);
+
+            assert!(
+                report.contains(&format!(
+                    "cannot say what it waits on; unread: {section} (etcd unavailable)"
+                )),
+                "{phase:?}: {report}"
+            );
+            assert!(
+                !report.contains("the coordinator has not"),
+                "{phase:?}: {report}"
+            );
+        }
+    }
 
     /// The dump only ever runs on a failure, so nothing else exercises
     /// it: a panic, a wrong key, or a lease lookup that reads the state
