@@ -21,23 +21,27 @@ describe('logsQueryToolOutput', () => {
         it.each(['direct', 'structuredContent', 'app metadata'])(
             'maps rows from %s to severity, body, and timestamp',
             (source) => {
-            const payload = {
-                results: [
-                    { severity_text: 'error', body: 'connection refused', timestamp: '2026-09-08T10:00:00Z' },
-                    { severity_text: 'info', body: 'request served', timestamp: '2026-09-08T10:00:01Z' },
-                ],
-            }
-            const content = [{ type: 'text', text: '2 log entries' }]
-            const output = source === 'direct' ? payload : source === 'structuredContent'
-                ? { content, structuredContent: payload }
-                : { content, _meta: { 'com.posthog.mcp/app_data': payload } }
-            const rows = extractLogRows(toolMessage(output))
+                const payload = {
+                    results: [
+                        { severity_text: 'error', body: 'connection refused', timestamp: '2026-09-08T10:00:00Z' },
+                        { severity_text: 'info', body: 'request served', timestamp: '2026-09-08T10:00:01Z' },
+                    ],
+                }
+                const content = [{ type: 'text', text: '2 log entries' }]
+                const output =
+                    source === 'direct'
+                        ? payload
+                        : source === 'structuredContent'
+                          ? { content, structuredContent: payload }
+                          : { content, _meta: { 'com.posthog.mcp/app_data': payload } }
+                const rows = extractLogRows(toolMessage(output))
 
-            expect(rows).toEqual([
-                { severityText: 'error', body: 'connection refused', timestamp: '2026-09-08T10:00:00Z' },
-                { severityText: 'info', body: 'request served', timestamp: '2026-09-08T10:00:01Z' },
-            ])
-        })
+                expect(rows).toEqual([
+                    { severityText: 'error', body: 'connection refused', timestamp: '2026-09-08T10:00:00Z' },
+                    { severityText: 'info', body: 'request served', timestamp: '2026-09-08T10:00:01Z' },
+                ])
+            }
+        )
 
         it('returns an empty array when the query matched no rows', () => {
             expect(extractLogRows(toolMessage({ results: [] }))).toEqual([])
