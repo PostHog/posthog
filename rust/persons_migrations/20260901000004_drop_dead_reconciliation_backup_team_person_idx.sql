@@ -1,0 +1,18 @@
+-- no-transaction
+--
+-- Drop a dead index on posthog_person_reconciliation_backup. The table has a primary key
+-- over (job_id, team_id, person_id) and a plain index over (team_id, person_id). Its only
+-- reader (fetch_backup_entries_paginated in posthog/dags/person_property_reconciliation_restore.py)
+-- always filters WHERE job_id = %s and orders by (team_id, person_id). The primary key btree
+-- leads with job_id, so it serves both the filter and the ordering; the plain index never
+-- leads with job_id, so the planner cannot use it for that query. It is unreachable and only
+-- costs storage and write overhead. The primary key stays.
+--
+-- CONCURRENTLY, alone in its own no-transaction file: a plain DROP INDEX takes
+-- ACCESS EXCLUSIVE on the table, which blocks every read and write until it commits.
+-- sqlx runs a no-transaction file as one implicitly-transactional batch and CONCURRENTLY
+-- cannot run inside a transaction, so each concurrent statement must be alone in its file.
+--
+-- IF EXISTS makes this idempotent under bin/migrate retries. If a DROP CONCURRENTLY is
+-- interrupted it may leave the index INVALID but still present; a rerun completes the drop.
+DROP INDEX CONCURRENTLY IF EXISTS person_reconciliation_backup_team_person;
