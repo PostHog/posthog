@@ -1,4 +1,5 @@
 from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -17,7 +18,8 @@ from products.customer_analytics.backend.models.customer_task import CustomerTas
 class TestCustomerTasksHogqlAccess(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def test_task_visibility_matches_rest_listing(self) -> None:
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
+    def test_task_visibility_matches_rest_listing(self, _feature_flag_enabled: object) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},

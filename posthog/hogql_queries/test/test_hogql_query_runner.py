@@ -101,6 +101,21 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.modifiers.sessionTableVersion == SessionTableVersion.V1
         assert runner.get_cache_payload()["hogql_modifier_precedence"] == "runner"
 
+    def test_customer_tasks_feature_flag_partitions_cache(self):
+        query = HogQLQuery(query="select * from system.customer_tasks")
+
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            enabled_runner = self._create_runner(query)
+            enabled_cache_key = enabled_runner.get_cache_key()
+            assert enabled_runner.get_cache_payload()["system_table_feature_flags"] == {"customer_tasks": True}
+
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
+            disabled_runner = self._create_runner(query)
+            disabled_cache_key = disabled_runner.get_cache_key()
+            assert disabled_runner.get_cache_payload()["system_table_feature_flags"] == {"customer_tasks": False}
+
+        assert enabled_cache_key != disabled_cache_key
+
     def test_default_hogql_query(self):
         runner = self._create_runner(HogQLQuery(query="select count(event) from events"))
         query = runner.to_query()

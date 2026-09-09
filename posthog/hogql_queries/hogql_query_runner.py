@@ -17,6 +17,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.database import get_system_table_feature_flag_states
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
@@ -103,6 +104,14 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         # `requires_fresh_calculation` below keeps a stored result from being served in every mode that may
         # calculate. CACHE_ONLY_NEVER_CALCULATE is the mode it cannot reach: that one returns a stored
         # result however stale it is, so the key carries what the guards depend on.
+        system_table_feature_flags = get_system_table_feature_flag_states(
+            self.team,
+            self.user,
+            {name.removeprefix("system.") for name in self._queried_table_names},
+        )
+        if system_table_feature_flags:
+            payload["system_table_feature_flags"] = system_table_feature_flags
+
         if _ACTIVITY_LOGS_TABLE in self._queried_table_names:
             # Nothing else in the key tracks the visibility rules. Varying on their fingerprint means a
             # result stored under the previous rules stops being served once they change.

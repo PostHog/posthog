@@ -12,7 +12,7 @@ from typing import Any, cast
 import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.db import connection
@@ -4403,6 +4403,22 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database = Database.create_for(team=self.team, user=self.user)
 
         assert ("system.activity_logs" in database.get_system_table_names()) is expected_visible
+
+    @parameterized.expand(
+        [
+            ("disabled", False, False),
+            ("enabled", True, True),
+        ]
+    )
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
+    def test_feature_flag_gated_system_table_visibility(
+        self, _name: str, enabled: bool, expected_visible: bool, feature_flag_enabled: Mock
+    ) -> None:
+        feature_flag_enabled.return_value = enabled
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert ("system.customer_tasks" in database.get_system_table_names()) is expected_visible
 
 
 class TestSourcesCacheConcurrency(TestCase):

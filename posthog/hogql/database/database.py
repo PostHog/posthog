@@ -592,6 +592,47 @@ def _unentitled_system_tables(team: Team) -> set[str]:
     return {name for name, feature in required_features.items() if not organization.is_feature_available(feature)}
 
 
+@cache
+def _system_table_required_feature_flags() -> Mapping[str, str]:
+    return MappingProxyType(
+        {
+            name: table_node.table.required_feature_flag
+            for name, table_node in SystemTables().children.items()
+            if isinstance(table_node.table, PostgresTable) and table_node.table.required_feature_flag is not None
+        }
+    )
+
+
+def get_system_table_feature_flag_states(
+    team: Team,
+    user: Optional[User | SyntheticUser | SharedLinkUser],
+    table_names: Collection[str],
+) -> dict[str, bool]:
+    required_feature_flags = _system_table_required_feature_flags()
+    if not required_feature_flags:
+        return {}
+
+    # Feature flags use a person's distinct ID. Non-person principals cannot query these tables.
+    from posthog.models.user import User  # noqa: PLC0415 - keeps Django models off the import path
+    from posthog.permissions import (
+        posthog_feature_flag_enabled,  # noqa: PLC0415 - keeps Django models off the import path
+    )
+
+    if not isinstance(user, User):
+        return {name: False for name in table_names if name in required_feature_flags}
+
+    return {
+        name: posthog_feature_flag_enabled(
+            required_feature_flags[name],
+            str(user.distinct_id),
+            organization_id=team.organization_id,
+            team_id=team.id,
+        )
+        for name in table_names
+        if name in required_feature_flags
+    }
+
+
 def _compute_system_table_access_decision(
     team: Team,
     user: Optional[User | SyntheticUser | SharedLinkUser],
@@ -626,6 +667,13 @@ def _compute_system_table_access_decision(
     # Applies to every principal below, admins included - an entitlement the organization does not
     # have cannot be granted by a role.
     unentitled = _unentitled_system_tables(team)
+    disabled_by_feature_flag = {
+        name
+        for name, enabled in get_system_table_feature_flag_states(
+            team, user, _system_table_required_feature_flags()
+        ).items()
+        if not enabled
+    }
 
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
@@ -635,20 +683,20 @@ def _compute_system_table_access_decision(
         }
         if user is None:
             denied_by_access_control.difference_update(allowed_system_table_names)
-        return None, unentitled | denied_by_access_control
+        return None, unentitled | disabled_by_feature_flag | denied_by_access_control
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     org_membership = user_access_control._organization_membership
     if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
-        return user_access_control, unentitled
+        return user_access_control, unentitled | disabled_by_feature_flag
 
     # Resources the user holds object-level grants on despite having no resource-level access. REST
     # serves those routes and narrows the rows to the grants; the printer guard does the same, so the
     # table stays queryable here instead of disappearing (see build_access_control_guard).
     allowlisted_scopes = user_access_control.allowlisted_resource_ids_by_scope
 
-    denied: set[str] = set(unentitled)
+    denied: set[str] = unentitled | disabled_by_feature_flag
     for name, table in scoped_tables.items():
         access_scope = cast(APIScopeObject, table.access_scope)
         access = user_access_control.access_level_for_resource(access_scope)
@@ -1557,7 +1605,11 @@ class Database(BaseModel):
             bypass_warehouse_access_control=False,
             direct_connection_metadata=None,
             user_access_control=None,
-            denied_system_table_names=set(_scoped_system_tables()) | set(_system_table_required_features()),
+            denied_system_table_names=(
+                set(_scoped_system_tables())
+                | set(_system_table_required_features())
+                | set(_system_table_required_feature_flags())
+            ),
             # Resolving the org gate needs a feature-flag check, which is exactly the I/O this path
             # exists to avoid, so the table is pruned here as the other gated tables are.
             include_flag_evaluations_table=False,

@@ -95,6 +95,7 @@ class PostgresTable(FunctionCallTable):
     # REST viewsets: enforced on Cloud only, self-hosted stays ungated. Holds an `AvailableFeature`
     # value as a plain string so this module keeps the ORM off its import path.
     required_feature_on_cloud: Optional[str] = None
+    required_feature_flag: Optional[str] = None
     # Column that object-level access control filters ids against.
     # Defaults to the primary key, which is correct when the table's rows ARE the access-controlled object
     # (e.g. system.dashboards). Child tables that only expose a parent object's data set this
