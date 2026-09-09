@@ -760,6 +760,7 @@
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
+      snapshot_mode LowCardinality(Nullable(String)),
       retention_period_days Nullable(Int64),
       is_deleted UInt8,
       ai_tags_fixed Array(String),
@@ -3064,6 +3065,7 @@
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
+      snapshot_mode LowCardinality(Nullable(String)),
       retention_period_days Nullable(Int64),
       is_deleted UInt8,
       ai_tags_fixed Array(String),
@@ -4387,7 +4389,6 @@
   
   CREATE TABLE IF NOT EXISTS posthog_test.metrics2
   (
-      `uuid` String,
       `team_id` Int32,
       `metric_name` LowCardinality(String),
       `time_bucket` DateTime MATERIALIZED toStartOfHour(timestamp),
@@ -4419,31 +4420,6 @@
       INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
-      PROJECTION projection_series_minute
-      (
-          SELECT
-              team_id,
-              metric_name,
-              service_name,
-              metric_type,
-              resource_fingerprint,
-              series_fingerprint,
-              toStartOfMinute(timestamp) AS minute,
-              count() AS sample_count,
-              sum(value) AS total_value,
-              min(value) AS min_value,
-              max(value) AS max_value,
-              argMin(value, timestamp) AS first_value,
-              argMax(value, timestamp) AS last_value
-          GROUP BY
-              team_id,
-              metric_name,
-              service_name,
-              metric_type,
-              resource_fingerprint,
-              series_fingerprint,
-              minute
-      ),
       PROJECTION projection_series_activity
       (
           SELECT
@@ -4590,7 +4566,6 @@
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metrics TO posthog_test.metrics2
   AS SELECT
-      uuid,
       team_id,
       metric_name,
       series_fingerprint,
@@ -6388,6 +6363,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -6432,6 +6408,7 @@
   ,`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
   ,`ai_highlighted` SimpleAggregateFunction(max, UInt8)
   ,`surfacing_score` SimpleAggregateFunction(max, Nullable(Float32))
+  ,`snapshot_mode` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
   )
   AS SELECT
   session_id,
@@ -6473,6 +6450,7 @@
   ,groupUniqArrayArray(ai_tags_freeform) as ai_tags_freeform
   ,max(ai_highlighted) as ai_highlighted
   ,max(surfacing_score) as surfacing_score
+  ,argMinState(snapshot_mode, first_timestamp) as snapshot_mode
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -8236,6 +8214,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -10344,6 +10323,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -11426,7 +11406,6 @@
   
   CREATE TABLE IF NOT EXISTS posthog_test.metrics2
   (
-      `uuid` String,
       `team_id` Int32,
       `metric_name` LowCardinality(String),
       `time_bucket` DateTime MATERIALIZED toStartOfHour(timestamp),
@@ -11458,31 +11437,6 @@
       INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
-      PROJECTION projection_series_minute
-      (
-          SELECT
-              team_id,
-              metric_name,
-              service_name,
-              metric_type,
-              resource_fingerprint,
-              series_fingerprint,
-              toStartOfMinute(timestamp) AS minute,
-              count() AS sample_count,
-              sum(value) AS total_value,
-              min(value) AS min_value,
-              max(value) AS max_value,
-              argMin(value, timestamp) AS first_value,
-              argMax(value, timestamp) AS last_value
-          GROUP BY
-              team_id,
-              metric_name,
-              service_name,
-              metric_type,
-              resource_fingerprint,
-              series_fingerprint,
-              minute
-      ),
       PROJECTION projection_series_activity
       (
           SELECT
@@ -13485,6 +13439,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -14382,6 +14337,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),

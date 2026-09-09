@@ -1716,15 +1716,15 @@ class GitHubIntegrationBase:
             nodes {
               id isResolved path
               comments(last: 1) {
-                nodes { id url body author { login } authorAssociation }
+                nodes { id url body author { login __typename } authorAssociation }
               }
             }
           }
           comments(last: 30) {
-            nodes { id url body author { login } authorAssociation }
+            nodes { id url body author { login __typename } authorAssociation }
           }
           reviews(last: 10) {
-            nodes { id url body author { login } authorAssociation }
+            nodes { id url body author { login __typename } authorAssociation }
           }
           commits(last: 1) {
             nodes {
@@ -1790,6 +1790,12 @@ class GitHubIntegrationBase:
             "url": node.get("url"),
         }
 
+    @staticmethod
+    def _is_bot_author(node: dict[str, Any]) -> bool:
+        # GraphQL drops the `[bot]` login suffix REST adds, and authorAssociation says
+        # nothing about whether an author is automated.
+        return ((node.get("author") or {}).get("__typename")) == "Bot"
+
     def get_pull_request_babysit_snapshot(self, pr_url: str) -> dict[str, Any]:
         """Fetch the per-item PR state the babysit loop dispatches on: every unresolved
         review thread with its latest comment, top-level comments and review bodies,
@@ -1825,8 +1831,13 @@ class GitHubIntegrationBase:
                 if not isinstance(node, dict):
                     continue
                 item = self._feedback_item(node)
-                if item["id"] and item["body"].strip() and item["author"] != author_login:
-                    feedback.append(item)
+                if not (item["id"] and item["body"].strip() and item["author"] != author_login):
+                    continue
+                # A bot review is code feedback. A bot comment is merge-queue and CI chatter,
+                # and waking on it makes the agent push the PR out of the queue (#96393).
+                if connection == "comments" and self._is_bot_author(node):
+                    continue
+                feedback.append(item)
 
         rollup_nodes = ((pr.get("commits") or {}).get("nodes")) or []
         rollup = ((rollup_nodes[0] or {}).get("commit") or {}).get("statusCheckRollup") if rollup_nodes else None
