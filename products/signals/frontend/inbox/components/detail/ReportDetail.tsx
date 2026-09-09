@@ -394,7 +394,12 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_CLASS}>
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
-                            <DetailSection icon={<IconTrends />} title="Observation">
+                            <DetailSection
+                                icon={<IconTrends />}
+                                title="Observation"
+                                collapsible
+                                onToggleCollapsed={captureSectionToggle('observation')}
+                            >
                                 <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
                             </DetailSection>
                         )}
