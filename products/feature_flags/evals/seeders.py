@@ -19,7 +19,7 @@ score averages.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.utils import timezone
@@ -33,6 +33,7 @@ from products.feature_flags.backend.models.team_feature_flag_policy_config impor
     TeamFeatureFlagPolicyConfig,
     team_requires_flag_tags,
 )
+from products.feature_flags.evals.scorers import read_flag_state
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 __all__ = [
@@ -52,6 +53,9 @@ __all__ = [
     "ROLLOUT_TO_PERCENTAGE",
     "STALE_FLAG_KEY",
     "STALE_FLAG_LAST_CALLED_DAYS_AGO",
+    "STALE_FULL_ROLLOUT_FLAG_KEY",
+    "STALE_PARTIAL_ROLLOUT_FLAG_KEY",
+    "guard_claude_runtime",
     "seed_active_flag",
     "seed_existing_key_flag",
     "seed_inactive_flag",
@@ -60,6 +64,8 @@ __all__ = [
     "seed_require_flag_tags",
     "seed_rollout_flag",
     "seed_stale_flag",
+    "seed_stale_full_rollout_flag",
+    "seed_stale_partial_rollout_flag",
 ]
 
 METADATA_FLAG_KEY = "file-preview-thumbnails"
@@ -327,3 +333,84 @@ def seed_require_flag_tags(context: CustomPromptSandboxContext) -> dict[str, Any
         )
 
     return {"feature_flag_key": REQUIRED_TAGS_FLAG_KEY, "requires_tags": True}
+
+
+# --- Stale-flag cleanup suite -------------------------------------------------
+# These keys are invented and must not appear in the sandbox's `posthog/hedgebox`
+# checkout, because the cleanup cases assert a no-references outcome.
+
+STALE_FULL_ROLLOUT_FLAG_KEY = "sunset-widget-rollout"
+STALE_PARTIAL_ROLLOUT_FLAG_KEY = "beta-search-ranking"
+
+# Mirrors eval_instrument_flags: the shared file-edit scorers match Claude's named file
+# tools (Edit/Write/MultiEdit), which the codex runtime does not carry, so a codex run
+# would report edit-direction numbers that are artifacts of the harness, not the agent.
+_CODEX_UNSUPPORTED = (
+    "This suite grades file-edit direction via Claude's named file tools, which the codex "
+    "runtime does not have. Run without --agent-runtime codex."
+)
+
+
+def _require_claude_runtime(context: CustomPromptSandboxContext) -> None:
+    """Refuse codex runs as an infra error rather than scoring a corrupt mean."""
+    if context.runtime_adapter == "codex":
+        raise RuntimeError(_CODEX_UNSUPPORTED)
+
+
+def guard_claude_runtime(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    """Setup for cases that seed nothing but still must not run under codex."""
+    _require_claude_runtime(context)
+    return {}
+
+
+def _backdate_updated_at(flag: FeatureFlag) -> None:
+    """Age the flag's ``updated_at``, which ``auto_now`` pins to the moment of creation.
+
+    ``feature-flag-get-all`` returns ``updated_at`` and not ``created_at``, so a freshly
+    seeded flag reads as modified seconds ago. The skill excludes a recently changed flag,
+    which would end the run at candidate selection instead of the branch under test.
+    """
+    FeatureFlag.objects.filter(pk=flag.id).update(updated_at=flag.created_at)
+
+
+def seed_stale_full_rollout_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    """A configuration-stale boolean flag: one 100% condition, no property filters, never called, 90 days old."""
+    _require_claude_runtime(context)
+    flag = FeatureFlag.objects.create(
+        team_id=context.team_id,
+        key=STALE_FULL_ROLLOUT_FLAG_KEY,
+        name="Sunset widget rollout",
+        created_by_id=context.user_id,
+        active=True,
+        created_at=datetime.now(UTC) - timedelta(days=90),
+        filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+    )
+    _backdate_updated_at(flag)
+    return {
+        "flag_id": flag.id,
+        "flag_key": flag.key,
+        "rollout": "full",
+        "state": read_flag_state(flag.id),
+    }
+
+
+def seed_stale_partial_rollout_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    """A usage-stale flag stuck at a 40% rollout — a candidate no agent may edit code for."""
+    _require_claude_runtime(context)
+    flag = FeatureFlag.objects.create(
+        team_id=context.team_id,
+        key=STALE_PARTIAL_ROLLOUT_FLAG_KEY,
+        name="Beta search ranking",
+        created_by_id=context.user_id,
+        active=True,
+        created_at=datetime.now(UTC) - timedelta(days=120),
+        last_called_at=datetime.now(UTC) - timedelta(days=60),
+        filters={"groups": [{"properties": [], "rollout_percentage": 40}]},
+    )
+    _backdate_updated_at(flag)
+    return {
+        "flag_id": flag.id,
+        "flag_key": flag.key,
+        "rollout": "partial",
+        "state": read_flag_state(flag.id),
+    }

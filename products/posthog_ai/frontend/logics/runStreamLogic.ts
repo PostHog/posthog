@@ -39,7 +39,6 @@ import {
 import type {
     ContextUsage,
     PermissionRequestRecord,
-    ResourceProduct,
     RunArtifacts,
     RunLifecycleEvent,
     ProgressStatus,
@@ -340,6 +339,7 @@ function extractUserMessageText(content: string | unknown[] | undefined): string
     }
     if (Array.isArray(content)) {
         return content
+            .filter((block) => !isHiddenUserContent(block))
             .map((block) =>
                 block && typeof block === 'object' && typeof (block as { text?: unknown }).text === 'string'
                     ? (block as { text: string }).text
@@ -348,6 +348,13 @@ function extractUserMessageText(content: string | unknown[] | undefined): string
             .join('')
     }
     return ''
+}
+
+function isHiddenUserContent(content: unknown): boolean {
+    if (!isRecord(content) || !isRecord(content._meta) || !isRecord(content._meta.ui)) {
+        return false
+    }
+    return content._meta.ui.hidden === true
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -400,32 +407,11 @@ function normalizeHistory(entries: unknown[], runId: string, resumed: boolean): 
     })
 }
 
-/**
- * Union incoming resource products into the accumulated list by `id`, preserving first-seen order.
- * Pure — mirrors the reference `accumulateSessionResources`. Products without an `id` are skipped.
- */
-export function mergeResourceProducts(
-    existing: ResourceProduct[],
-    incoming: { id?: string; label?: string }[]
-): ResourceProduct[] {
-    const seen = new Set(existing.map((p) => p.id))
-    const next = [...existing]
-    for (const product of incoming) {
-        if (typeof product.id !== 'string' || product.id === '' || seen.has(product.id)) {
-            continue
-        }
-        seen.add(product.id)
-        next.push({ id: product.id, label: product.label })
-    }
-    return next
-}
-
 const RUN_ARTIFACT_KEYS = ['prUrl', 'branch', 'baseBranch', 'repo'] as const
 
 /**
  * Latest-wins fold of git artifacts onto the accumulated snapshot — a non-empty string overwrites,
- * undefined/empty values are ignored (so a later frame that omits a field never clears it). Mirrors
- * the `mergeResourceProducts` accumulation pattern.
+ * undefined/empty values are ignored (so a later frame that omits a field never clears it).
  */
 export function mergeRunArtifacts(existing: RunArtifacts, partial: Partial<RunArtifacts>): RunArtifacts {
     const next: RunArtifacts = { ...existing }
@@ -1350,6 +1336,9 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
         const sessionUpdate = update.sessionUpdate
         if (sessionUpdate === 'user_message_chunk' || sessionUpdate === 'user_message') {
+            if (isHiddenUserContent(update.content)) {
+                continue
+            }
             const content = update.content as { text?: string } | undefined
             const userText = String(content?.text ?? update.text ?? '')
             if (source === 'replay') {
@@ -1449,7 +1438,6 @@ export interface runStreamLogicValues {
     permissionResponseRequestIds: Set<string>
     reconnectAttempt: number
     resolvedPermissionRequestIds: Set<string>
-    resourcesUsed: ResourceProduct[]
     respondingToPermission: boolean
     runArtifacts: RunArtifacts
     runConnectionState: RunConnectionState | null
@@ -1578,17 +1566,6 @@ export interface runStreamLogicActions {
     }
     markTurnStarted: () => {
         value: true
-    }
-    mergeResourcesUsed: (
-        products: {
-            id?: string
-            label?: string
-        }[]
-    ) => {
-        products: {
-            id?: string | undefined
-            label?: string | undefined
-        }[]
     }
     mergeRunArtifacts: (partial: Partial<RunArtifacts>) => {
         partial: Partial<RunArtifacts>
@@ -1920,8 +1897,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
         pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
         /** Echoes a `/clear` boundary the backend just recorded against a finished run, which has no stream to send it back. */
         pushConversationCleared: true,
-        /** Union the products an answer was grounded in — accumulates across the whole session. */
-        mergeResourcesUsed: (products: { id?: string; label?: string }[]) => ({ products }),
         /** Latest-wins merge of git artifacts (PR url / branch / base / repo) a run exposes. */
         mergeRunArtifacts: (partial: Partial<RunArtifacts>) => ({ partial }),
         /** Latest-wins context-usage snapshot fold (token/cost/breakdown or numeric aggregate). */
@@ -2212,15 +2187,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 pushHumanMessage: () => false,
                 markTurnStarted: () => false,
                 reset: () => false,
-            },
-        ],
-        // Products the agent grounded answers in, unioned by id (first-seen order) across the whole
-        // session. NOT cleared on markTurnComplete — the bar accumulates; only a reset clears it.
-        resourcesUsed: [
-            [] as ResourceProduct[],
-            {
-                mergeResourcesUsed: (state, { products }) => mergeResourceProducts(state, products),
-                reset: () => [],
             },
         ],
         // Git artifacts a coding run exposes (PR url, working branch, base branch, repo), accumulated
@@ -3431,11 +3397,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
                 return
             }
-            // The agent reports, per turn, which PostHog products an answer was grounded in.
-            if (isPosthogNotification(notification, '_posthog/resources_used')) {
-                actions.mergeResourcesUsed(notification.params?.products ?? [])
-                return
-            }
             // Token usage + cost + context-window breakdown. The numeric used/size aggregate that
             // drives the percentage ring arrives separately on a session/update (handled below).
             if (isPosthogNotification(notification, '_posthog/usage_update')) {
@@ -3456,6 +3417,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // unattached optimistic stream has no task id and records nothing — its send path marks
             // sent keys directly.
             if (isPosthogNotification(notification, '_posthog/user_message')) {
+                const content = notification.params?.content
+                if (Array.isArray(content) && content.length > 0 && content.every(isHiddenUserContent)) {
+                    return
+                }
                 actions.markTurnStarted()
                 if (values.bootstrappedTaskId) {
                     const lines = contextBlockLinesFromUserMessage(extractUserMessageText(notification.params?.content))
@@ -3500,6 +3465,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // chains persist a turn in both wire forms, and the seen-lines reducer dedupes the overlap.
             // Chunked frames are skipped: a partial text could truncate a block mid-line.
             if (isSessionUpdateUserMessage(update)) {
+                if (isHiddenUserContent(update.content)) {
+                    return
+                }
                 actions.markTurnStarted()
                 if (values.bootstrappedTaskId && update.sessionUpdate === 'user_message') {
                     const lines = contextBlockLinesFromUserMessage(String(update.content?.text ?? update.text ?? ''))
