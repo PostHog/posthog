@@ -16,27 +16,24 @@ SCANNED_ROOTS = ("posthog", "ee", "products", "common")
 SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".mypy_cache"}
 REGENERATE = "python posthog/test/repo_invariants/test_database_free_test_classes.py"
 
-# Cheap enough to run over every file in the repo, unlike a full parse. `[^)]*`
-# spans newlines, so a signature broken over several lines still gives up its bases,
-# and the leading `\s*` reaches a nested class too.
+# Must reach a signature split over several lines and a nested class: a base it does
+# not see is one that gets reported as a candidate.
 CLASS_BASES = re.compile(r"^\s*class\s+\w+\s*\(([^)]*)\)", re.MULTILINE)
 
-# Bases that bring Django `TestCase` with them. A class that inherits one of these
-# through a project-specific subclass is out of scope, which keeps the scan cheap.
+# Bases that bring Django `TestCase` with them. Reaching one through a project-specific
+# subclass is out of scope.
 POSTHOG_BASES = {
     "APIBaseTest",
     "BaseTest",
     "NonAtomicBaseTest",
     "NonAtomicBaseTestKeepIdentities",
 }
-# Only from django.test: `unittest.TestCase` takes no database, so a class on that
-# base is already where this scan wants it.
+# Only from django.test: a class on `unittest.TestCase` is already where this wants it.
 DJANGO_BASES = {"TestCase", "TransactionTestCase"}
 DATABASE_BASES = POSTHOG_BASES | DJANGO_BASES
 
-# Any of these in the class body is read as "this class may reach the database".
-# Keep the list broad: an extra token only hides a candidate, while a missing one
-# reports a class that does need its database.
+# Any of these in the class body reads as "may reach the database". Keep it broad: an
+# extra token hides a candidate, a missing one reports a class that needs its database.
 DATABASE_TOKENS = (
     ".objects",
     "_create",
@@ -111,20 +108,10 @@ def _runs_tests(node: ast.ClassDef) -> bool:
 
 
 def collect_candidates() -> list[str]:
-    # A class other tests inherit names nothing itself, while every subclass reaches
-    # the database, so reporting it would ask for `BaseTest` to move to
-    # `SimpleTestCase`. Collect what the repo inherits from with a regex, then parse
-    # only the files that could hold a candidate.
-    #
-    # The regex reads every file, and has to: production code inherits from test
-    # bases, so a scan limited to test paths knows a fraction of the names and starts
-    # reporting the bases again. It is also the cheap half. The substring check below
-    # already keeps all but a handful of non-test files out of the parse, which is
-    # where the time actually goes.
-    #
-    # A name the regex picks up wrongly only hides a candidate, which is safe; a base
-    # it fails to see is the direction that reports one, so the pattern errs towards
-    # taking too much.
+    # Reporting a class other tests inherit would ask for `BaseTest` itself to move to
+    # `SimpleTestCase`, so gather the inherited names first and drop them at the end.
+    # That gather reads every file, and has to: production code inherits from test bases,
+    # so limiting it to test paths knows a fraction of the names and reports those bases.
     inherited: set[str] = set()
     found: list[tuple[str, str]] = []
     for root in SCANNED_ROOTS:
@@ -152,8 +139,7 @@ def collect_candidates() -> list[str]:
                     continue
                 if not _takes_a_database(node, django_names) or not _runs_tests(node):
                     continue
-                # Raw source rather than unparsed nodes, so a comment naming a table or
-                # a fixture counts as a sign the class reaches the database.
+                # Raw source, so a comment naming a table counts as a sign too.
                 body = "\n".join(lines[node.lineno - 1 : node.end_lineno])
                 if any(token in body for token in DATABASE_TOKENS):
                     continue
