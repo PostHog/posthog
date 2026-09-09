@@ -147,6 +147,14 @@ listing feature flags, running HogQL queries, searching session recordings, etc.
 The MCP server is ready to use today.
 For details on available tools, see [Implementing MCP tools](/handbook/engineering/ai/implementing-mcp-tools).
 
+### Tool cards in PostHog AI
+
+Registered product tools can render rich cards in PostHog AI threads, including saved insight visualizations.
+The shared widget parser accepts direct tool payloads and MCP result envelopes: it prefers `structuredContent`,
+then decodes JSON or TOON from text content blocks. Failed or unrenderable insight results keep the generic tool card.
+The agent's `rawOutput` can be a transport envelope, so widget extractors unwrap it before reading entity fields.
+See the [PostHog AI integration guide](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/README.md#seam-4--render-your-own-tool-cards).
+
 ### Skills
 
 Skills are job-to-be-done templates that teach agents _how_ to compose MCP tools into workflows.
