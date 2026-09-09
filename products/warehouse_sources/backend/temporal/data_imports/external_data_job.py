@@ -470,11 +470,11 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             )
         elif not platform_failure:
             # A retryable failure that outlasted the whole retry budget lands here with
-            # `latest_error` still set to the raw driver text. The source's own exhaustion message
-            # names the class most precisely, so it wins over the generic transient copy.
-            # Retryability is untouched: the schema is not disabled and the next scheduled run
-            # still tries.
-            exhaustion_message = next(
+            # `latest_error` still set to the raw driver text. The generic transient copy is
+            # consulted first; the source's own exhaustion messages cover the classes it does not
+            # name. Retryability is untouched: the schema is not disabled and the next scheduled
+            # run still tries.
+            transient_message = _transient_error_message(internal_error_normalized) or next(
                 (
                     message
                     for error, message in source_cls.get_retry_exhausted_errors().items()
@@ -482,7 +482,6 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 ),
                 None,
             )
-            transient_message = exhaustion_message or _transient_error_message(internal_error_normalized)
             if transient_message is not None:
                 inputs.latest_error = transient_message
 

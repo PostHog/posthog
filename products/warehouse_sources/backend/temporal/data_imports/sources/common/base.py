@@ -253,7 +253,8 @@ class _BaseSource(ABC, Generic[ConfigType]):
         Keys are partial error messages matched against `str(error)`, and should be drawn from
         `get_retryable_errors` — a class the source never retries has no exhaustion to describe.
         `get_non_retryable_errors` is consulted first, so a message matching both keeps the
-        non-retryable wording.
+        non-retryable wording. The finalizer's generic `Transient_Error_Messages` map is consulted
+        next, so entries here only apply to classes that map does not name.
 
         Returns `dict[str, str]`:
             key = a partial error message to match on
