@@ -2,8 +2,10 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import {
   type NavRailPane,
   railPaneForMatches,
+  railPaneForPath,
   railPaneHasSidebar,
 } from "@posthog/ui/features/canvas/railPane";
+import { reportSourceHref } from "@posthog/ui/router/reportNavigation";
 import { useRouterState } from "@tanstack/react-router";
 
 export interface RailSurface {
@@ -15,7 +17,14 @@ export interface RailSurface {
 /** The rail destination the route names. A string, so the selector's result is
  *  stable and unrelated route changes don't re-render every consumer. */
 export function useRailPane(): NavRailPane {
-  return useRouterState({ select: (s) => railPaneForMatches(s.matches) });
+  return useRouterState({
+    select: (state) => {
+      const source = reportSourceHref(state.location);
+      return source
+        ? railPaneForPath(source.split(/[?#]/)[0])
+        : railPaneForMatches(state.matches);
+    },
+  });
 }
 
 /** What the rail is putting on screen. The one answer, for all three surfaces

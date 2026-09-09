@@ -1,5 +1,6 @@
 import type { NotificationTarget } from "@posthog/platform/notifications";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
+import { reportNavigationState } from "./reportNavigation";
 import { getRouterOrNull } from "./routerRef";
 
 // This bridge isolates imperative router calls behind a stable API and, by
@@ -147,53 +148,47 @@ export function navigateToInboxReports(): void {
   void getRouterOrNull()?.navigate({ to: "/inbox/reports" });
 }
 
-export function navigateToInboxPullRequestDetail(reportId: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/inbox/pulls/$reportId",
+export function navigateToReport(
+  reportId: string,
+  options?: { preserveSource?: boolean; returnToTriage?: boolean },
+): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+  if (options?.returnToTriage) {
+    const location = router.history.location;
+    router.history.replace(location.href, {
+      ...location.state,
+      inboxTriageOrigin: { reportId },
+    });
+  }
+  void router.navigate({
+    to: "/reports/$reportId",
     params: { reportId },
+    state:
+      options?.preserveSource === false ? keepTabTag : reportNavigationState,
   });
+}
+
+export function navigateToInboxPullRequestDetail(reportId: string): void {
+  navigateToReport(reportId);
 }
 
 export function navigateToInboxReportDetail(
   reportId: string,
   options?: { returnToTriage?: boolean },
 ): void {
-  const router = getRouterOrNull();
-  if (!router) return;
-
-  const inboxTriageOrigin = options?.returnToTriage ? { reportId } : undefined;
-  if (inboxTriageOrigin) {
-    const location = router.history.location;
-    router.history.replace(location.href, {
-      ...location.state,
-      inboxTriageOrigin,
-    });
-  }
-
-  void router.navigate({
-    to: "/inbox/reports/$reportId",
-    params: { reportId },
-    state: inboxTriageOrigin
-      ? (previous) => ({ ...previous, inboxTriageOrigin })
-      : undefined,
-  });
+  navigateToReport(reportId, options);
 }
 
 export function navigateToInboxDismissedDetail(reportId: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/inbox/dismissed/$reportId",
-    params: { reportId },
-  });
+  navigateToReport(reportId);
 }
 
 export function navigateToChannelReportDetail(
-  channelId: string,
+  _channelId: string,
   reportId: string,
 ): void {
-  void getRouterOrNull()?.navigate({
-    to: "/spaces/$channelId/reports/$reportId",
-    params: { channelId, reportId },
-  });
+  navigateToReport(reportId);
 }
 
 export function navigateToLoops(options?: { ignoreBlocker?: boolean }): void {

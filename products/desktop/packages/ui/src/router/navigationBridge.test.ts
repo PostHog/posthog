@@ -10,8 +10,18 @@ vi.mock("./routerRef", () => ({
 
 import {
   navigateToChannelNewTask,
+  navigateToChannelReportDetail,
+  navigateToInboxDismissedDetail,
+  navigateToInboxPullRequestDetail,
+  navigateToInboxReportDetail,
   navigateToNewTask,
+  navigateToReport,
 } from "./navigationBridge";
+import {
+  reportNavigationState,
+  reportSourceHref,
+  validReportSource,
+} from "./reportNavigation";
 
 type StateUpdater = (prev: Record<string, unknown>) => Record<string, unknown>;
 
@@ -77,5 +87,110 @@ describe("new-task navigation carries the tab tag", () => {
     expect(() => navigateToNewTask()).not.toThrow();
     expect(() => navigateToChannelNewTask("chan-1")).not.toThrow();
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("canonical report navigation", () => {
+  const navigate = vi.fn();
+  const replace = vi.fn();
+  const location = {
+    href: "/settings/agents?filter=custom",
+    pathname: "/settings/agents",
+    state: { tabId: "agents-tab" },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getRouterOrNull.mockReturnValue({
+      navigate,
+      state: { location },
+      history: { location, replace },
+    });
+  });
+
+  it.each([
+    navigateToReport,
+    navigateToInboxReportDetail,
+    navigateToInboxPullRequestDetail,
+    navigateToInboxDismissedDetail,
+    (reportId: string) =>
+      navigateToChannelReportDetail("owning-space", reportId),
+  ])("opens the canonical path and keeps the source", (open) => {
+    open("report-1");
+    const { to, params, state } = navigate.mock.calls[0][0];
+    expect(to).toBe("/reports/$reportId");
+    expect(params).toEqual({ reportId: "report-1" });
+    expect(state(location.state)).toEqual({
+      tabId: "agents-tab",
+      reportSourceHref: location.href,
+    });
+  });
+
+  it("opens external deep links without inheriting a source", () => {
+    navigateToReport("report-1", { preserveSource: false });
+    expect(
+      navigate.mock.calls[0][0].state({
+        tabId: "agents-tab",
+        reportSourceHref: "/activity",
+      }),
+    ).toEqual({ tabId: "agents-tab" });
+  });
+
+  it("keeps the original source when opening another report", () => {
+    mocks.getRouterOrNull.mockReturnValue({
+      state: {
+        location: {
+          href: "/reports/first",
+          pathname: "/reports/first",
+          state: { reportSourceHref: "/activity?task=task-1" },
+        },
+      },
+    });
+    expect(reportNavigationState({ tabId: "report-tab" })).toEqual({
+      tabId: "report-tab",
+      reportSourceHref: "/activity?task=task-1",
+    });
+  });
+
+  it("records triage selection on the source history entry", () => {
+    navigateToInboxReportDetail("report-1", { returnToTriage: true });
+    expect(replace).toHaveBeenCalledWith(location.href, {
+      ...location.state,
+      inboxTriageOrigin: { reportId: "report-1" },
+    });
+  });
+
+  it.each([
+    "/settings/agents",
+    "/activity?task=task-1",
+    "/spaces/space-1",
+    "/inbox/reports",
+    "/tasks/task-1",
+  ])("accepts internal origin %s", (source) =>
+    expect(validReportSource(source)).toBe(source),
+  );
+
+  it.each([
+    undefined,
+    null,
+    {},
+    "https://example.com",
+    "//example.com",
+    "/\\example.com",
+    "/reports/first",
+    "/inbox/pulls/first",
+    "/spaces/space-1/reports/first",
+    "/activity\n",
+  ])("rejects unsafe or recursive origin %s", (source) =>
+    expect(validReportSource(source)).toBeUndefined(),
+  );
+
+  it("ignores leftover origin state outside the report route", () => {
+    expect(
+      reportSourceHref({
+        pathname: "/activity",
+        state: { reportSourceHref: "/settings/agents" },
+      }),
+    ).toBeUndefined();
   });
 });

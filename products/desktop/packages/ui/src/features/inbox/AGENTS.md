@@ -24,7 +24,18 @@ Inbox has four tabs and one reviewer-scope control:
 | Runs | `/inbox/runs` | Reports that are still in progress or waiting on input |
 | Archive | `/inbox/dismissed` | Terminal reports: archived/suppressed (`status === "suppressed"`) and resolved-by-merged-PR (`status === "resolved"`) |
 
-Detail pages live under the same tab: `/inbox/<tab>/$reportId`.
+Reports have one canonical detail route: `/reports/$reportId`. The old
+`/inbox/{reports,pulls,dismissed}/$reportId` and space-report URLs replace-redirect
+there. Runs remain at `/inbox/runs/$reportId`.
+
+`ReportPage` renders the shared report, PR, or archived content based on current
+status without changing the URL. In-app links carry a validated `reportSourceHref`
+in history state: the source rail/sidebar remains selected, and reports opened
+from Settings reuse `SettingsLayout`. External deep links have neutral navigation.
+The report header identifies the object and links to its owning space rather
+than treating ownership as a back destination. Desktop history returns to the
+source; report opening must not reset Inbox filters. Restore updates the canonical
+page in place. Existing embedded Activity previews remain supported.
 
 The Archive tab (route `/inbox/dismissed`, user-facing label "Archive") is
 the exception: it holds the two terminal, not-in-inbox states — `suppressed`

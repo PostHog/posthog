@@ -51,7 +51,8 @@ import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
-import { useParams } from "@tanstack/react-router";
+import { reportSourceHref } from "@posthog/ui/router/reportNavigation";
+import { useParams, useRouterState } from "@tanstack/react-router";
 import { memo, useDeferredValue, useEffect, useRef } from "react";
 
 /**
@@ -210,10 +211,15 @@ function ChannelsSidebarImpl() {
   // slide to there's only the list.
   const { pane: railPane, showsActivityDetail } = useRailSurface();
   const selectedActivityId = useActivitySelection()?.id;
-  const feedId = useParams({
-    strict: false,
-    select: (params) => params.feedId,
+  const sourceFeedId = useRouterState({
+    select: (state) =>
+      reportSourceHref(state.location)?.match(/^\/feeds\/([^/?#]+)/)?.[1],
   });
+  const feedId =
+    useParams({
+      strict: false,
+      select: (params) => params.feedId,
+    }) ?? sourceFeedId;
   const pane = useChannelPaneStore((s) => s.pane);
   const { isPending: pendingTabSwitch, viewState: pendingTabViewState } =
     usePendingTabViewState();

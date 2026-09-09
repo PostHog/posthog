@@ -36,6 +36,7 @@ import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/uti
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { Button as UiButton } from "@posthog/ui/primitives/Button";
+import { reportNavigationState } from "@posthog/ui/router/reportNavigation";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { HTMLAttributes, MouseEvent, ReactNode } from "react";
 
@@ -324,15 +325,10 @@ export function ReportCard(props: ReportCardProps) {
   const { report, isSelected = false, onRowClick } = props;
   const isArchived = props.variant === "archived";
 
-  const detailRoute = isArchived
-    ? {
-        to: "/inbox/dismissed/$reportId" as const,
-        params: { reportId: report.id },
-      }
-    : {
-        to: "/inbox/reports/$reportId" as const,
-        params: { reportId: report.id },
-      };
+  const detailRoute = {
+    to: "/reports/$reportId" as const,
+    params: { reportId: report.id },
+  };
   const { prefetch, pointerHandlers } =
     useInboxReportDetailPrefetch(detailRoute);
   const navigate = useNavigate();
@@ -350,6 +346,7 @@ export function ReportCard(props: ReportCardProps) {
   const renderBody = (body: ReactNode, className: string) => (
     <Link
       {...detailRoute}
+      state={reportNavigationState}
       preload="intent"
       onClick={(event) => {
         onRowClick?.(event);

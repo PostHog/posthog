@@ -42,7 +42,7 @@ export function PullRequestDetail({
  * they're pipeline machinery, and the decision block distills what matters
  * from them into one line.
  */
-function PullRequestDetailContent({ report }: { report: SignalReport }) {
+export function PullRequestDetailContent({ report }: { report: SignalReport }) {
   const prRef = report.implementation_pr_url
     ? parsePrUrl(report.implementation_pr_url)
     : null;

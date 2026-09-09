@@ -1,17 +1,13 @@
-import type { SignalReport } from "@posthog/shared/types";
-import { PullRequestDetail } from "@posthog/ui/features/inbox/components/PullRequestDetail";
-import { getCachedInboxReportDetail } from "@posthog/ui/features/inbox/inboxQueries";
-import { createFileRoute } from "@tanstack/react-router";
+import { legacyReportNavigationState } from "@posthog/ui/router/reportNavigation";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/inbox/pulls/$reportId")({
-  component: PullRequestDetailRoute,
-  pendingComponent: () => null,
-  loader: ({ params }): SignalReport | null =>
-    getCachedInboxReportDetail(params.reportId) ?? null,
+  beforeLoad: ({ params, location }) => {
+    throw redirect({
+      to: "/reports/$reportId",
+      params: { reportId: params.reportId },
+      state: legacyReportNavigationState(location.state),
+      replace: true,
+    });
+  },
 });
-
-function PullRequestDetailRoute() {
-  const { reportId } = Route.useParams();
-  const cachedReport = Route.useLoaderData();
-  return <PullRequestDetail reportId={reportId} cachedReport={cachedReport} />;
-}

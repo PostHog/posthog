@@ -19,6 +19,7 @@ export type TabAppView = Extract<
   | "activity"
   | "home"
   | "inbox"
+  | "report"
   | "agents"
   | "loops"
   | "archived"
@@ -39,6 +40,7 @@ export const TAB_APP_VIEW_META: Record<
   },
   home: { label: "Home", icon: <SquaresFourIcon size={14} /> },
   inbox: { label: "Self-driving", icon: <TrayIcon size={14} /> },
+  report: { label: "Report", icon: <EnvelopeSimple size={14} /> },
   agents: { label: "Agents", icon: <RobotIcon size={14} /> },
   loops: { label: "Loops", icon: <RepeatIcon size={14} /> },
   archived: { label: "Archived", icon: <ArchiveIcon size={14} /> },

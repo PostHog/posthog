@@ -1,4 +1,6 @@
 import { ArrowLeftIcon } from "@phosphor-icons/react";
+import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { useReportPage } from "@posthog/ui/features/inbox/components/ReportPageContext";
 import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { Link } from "@tanstack/react-router";
 
@@ -9,6 +11,27 @@ interface DetailBackLinkProps {
 
 export function DetailBackLink({ to, label }: DetailBackLinkProps) {
   const triageOrigin = useInboxTriageOrigin();
+  const report = useReportPage();
+  const { channels } = useChannels({ enabled: report !== null });
+  const channel = report?.channel_id
+    ? channels.find((item) => item.id === report.channel_id)
+    : undefined;
+  if (report) {
+    return (
+      <>
+        <span>Report</span>
+        {channel && (
+          <Link
+            to="/spaces/$channelId"
+            params={{ channelId: channel.id }}
+            className="text-gray-11 hover:text-gray-12"
+          >
+            In #{channel.name}
+          </Link>
+        )}
+      </>
+    );
+  }
   const returnsToTriage = to === "/inbox/reports" && triageOrigin !== null;
 
   return (

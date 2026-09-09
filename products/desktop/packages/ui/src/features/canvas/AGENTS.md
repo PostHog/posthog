@@ -42,6 +42,10 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   `railPane.ts`: Home (`/`), Spaces (`/spaces`), Activity (`/activity`),
   Inbox (`/inbox`), Command Center (`/command-center`), Loops (`/loops`).
   Unclaimed routes belong to Spaces.
+  Canonical report pages (`/reports/$reportId`) are not a new rail button.
+  `useRailPane` keeps the source pane from validated report history state; a
+  report with no source selects no rail button and has no contextual sidebar.
+  Space and feed sources retain their own sidebar, not the report's owning space.
   Only Spaces and Activity own the column beside the rail; the rest are
   whole-screen, so no route under them may draw a second nav.
 - **A rail pick returns you to where that destination was**, not to its index.

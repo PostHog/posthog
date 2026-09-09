@@ -59,7 +59,12 @@ export function focusExistingTab(destination: BrowserTabDestination): boolean {
   const tab = mirror.tabs.find(matchesDestination);
   if (!tab) return false;
 
-  pushTabHistoryEntry(history, tab.href ?? destination.href, tab.id);
+  pushTabHistoryEntry(
+    history,
+    tab.href ?? destination.href,
+    tab.id,
+    tab.viewState?.reportSourceHref,
+  );
   return true;
 }
 

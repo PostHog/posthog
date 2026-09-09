@@ -14,6 +14,7 @@ export type AppViewType =
   | "activity"
   | "home"
   | "inbox"
+  | "report"
   // The Agents page moved into Settings, so no route yields this view any
   // more. It stays for tabs that were opened on the old page.
   | "agents"
@@ -69,6 +70,8 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "home" };
     case "/inbox":
       return { type: "inbox" };
+    case "/reports/$reportId":
+      return { type: "report" };
     case "/loops":
       return { type: "loops" };
     case "/archived":

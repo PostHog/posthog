@@ -46,6 +46,7 @@ import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { reportSourceHref } from "@posthog/ui/router/reportNavigation";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { isMac } from "@posthog/ui/utils/platform";
 import { useQuery } from "@tanstack/react-query";
@@ -135,6 +136,12 @@ function BrowserTabStripImpl() {
   const snapshot = useTabsSnapshot();
   const navigate = useNavigate();
   const router = useRouter();
+  const reportSource = useRouterState({
+    select: (state) =>
+      state.resolvedLocation
+        ? reportSourceHref(state.resolvedLocation)
+        : undefined,
+  });
   const client = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const openBrowserTab = useOpenBrowserTab();
   const params = useParams({ strict: false }) as {
@@ -401,6 +408,7 @@ function BrowserTabStripImpl() {
       title: routeTitle ?? mirrorActive?.viewState?.title,
       listOpen,
       spaceId: stampedSpaceId,
+      reportSourceHref: reportSource,
       lastByPane: isRestorableVisitHref(railPane, locationHref)
         ? { ...previousLastByPane, [railPane]: visit }
         : previousLastByPane,
@@ -503,6 +511,7 @@ function BrowserTabStripImpl() {
     routeChannelSection,
     routeAppView,
     locationHref,
+    reportSource,
     activeSession.taskId,
     activeSession.channelId,
     routeTitle,
@@ -692,7 +701,13 @@ function BrowserTabStripImpl() {
     (tab: TabRef) => {
       const state = (prev: object) => ({ ...prev, tabId: tab.id });
       if (tab.href) {
-        pushTabHistoryEntry(router.history, tab.href, tab.id);
+        pushTabHistoryEntry(
+          router.history,
+          tab.href,
+          tab.id,
+          readMirror().tabs.find((entry) => entry.id === tab.id)?.viewState
+            ?.reportSourceHref,
+        );
         return;
       }
       if (tab.taskId && tab.channelId) {
@@ -736,6 +751,7 @@ function BrowserTabStripImpl() {
             navigate({ to: "/activity", state });
             break;
           case "home":
+          case "report":
             navigate({ to: "/", state });
             break;
           case "inbox":

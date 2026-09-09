@@ -17,7 +17,6 @@ import {
   useReportOpenTracker,
 } from "@posthog/ui/features/inbox/hooks/useReportOpenTracker";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
-import { Flex, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
 
@@ -32,6 +31,7 @@ interface InboxReportDetailGateProps {
    * URL and so never needs the inbox's status↔route redirect.
    */
   statusRedirect?: boolean;
+  requireFreshStatus?: boolean;
   /**
    * Where the missing-report shell's back link points, when it should differ
    * from `backTo`. The Archive detail sets these to the recorded origin so the
@@ -75,6 +75,7 @@ export function InboxReportDetailGate({
   backTo,
   backLabel,
   statusRedirect = true,
+  requireFreshStatus = false,
   backLinkTo,
   backLinkLabel,
   missingCopy,
@@ -123,7 +124,9 @@ export function InboxReportDetailGate({
   // fetch settles. Routes without status redirects and the Archive route render
   // from cache: neither can expose actions for the wrong status route.
   const statusUnconfirmed =
-    statusRedirect && !onDismissedRoute && isFetching && !isFetchedAfterMount;
+    (requireFreshStatus || (statusRedirect && !onDismissedRoute)) &&
+    isFetching &&
+    !isFetchedAfterMount;
   const redirectReportId = resolvedReport?.id;
   useEffect(() => {
     if (!redirectTo || !redirectReportId) return;
@@ -163,19 +166,15 @@ export function InboxReportDetailGate({
 
   if (!resolvedReport) {
     return (
-      <Flex direction="column" className="h-full min-h-0">
-        <Flex
-          direction="column"
-          gap="3"
-          className="border-(--gray-5) border-b px-6 py-6"
-        >
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex flex-col gap-3 border-(--gray-5) border-b px-6 py-6">
           <DetailBackLink
             to={backLinkTo ?? backTo}
             label={backLinkLabel ?? backLabel}
           />
-          <Text className="text-[13px] text-gray-11">{missingCopy}</Text>
-        </Flex>
-      </Flex>
+          <p className="m-0 text-[13px] text-gray-11">{missingCopy}</p>
+        </div>
+      </div>
     );
   }
 
@@ -206,7 +205,7 @@ function tabFromBackTo(
  * Mounts only once a report is resolved, so the OPENED/CLOSED engagement events
  * bracket the time the detail body is actually on screen. Renders nothing.
  */
-function ReportOpenTracker({
+export function ReportOpenTracker({
   report,
   tab,
 }: {
