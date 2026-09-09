@@ -234,6 +234,47 @@ class TestStartDateCheck(QueryScanCheckTest):
 
         self.assertEqual(check_start_date(tree).date_to, date(2026, 2, 1))
 
+    @parameterized.expand(
+        [
+            (
+                "a whole month",
+                "SELECT count() FROM events WHERE toStartOfMonth(timestamp) = '2026-03-01'",
+                date(2026, 3, 1),
+                date(2026, 4, 1),
+            ),
+            (
+                "a whole day",
+                "SELECT count() FROM events WHERE toDate(timestamp) = '2026-02-10'",
+                date(2026, 2, 10),
+                date(2026, 2, 11),
+            ),
+            (
+                "every week up to one",
+                "SELECT count() FROM events WHERE timestamp > '2026-01-01' AND toStartOfWeek(timestamp) <= '2026-02-01'",
+                date(2026, 1, 1),
+                date(2026, 2, 8),
+            ),
+            (
+                "two truncations leave the upper bound unknown",
+                "SELECT count() FROM events WHERE timestamp > '2026-01-01' "
+                "AND toStartOfMonth(toStartOfWeek(timestamp)) <= '2026-02-01'",
+                date(2026, 1, 1),
+                date(2026, 3, 15),
+            ),
+        ]
+    )
+    @freeze_time(NOW)
+    def test_a_truncated_bound_covers_the_interval_it_admits(
+        self, _name: str, sql: str, expected_date_from: date, expected_date_to: date
+    ) -> None:
+        tree, _context = self.prepare(sql)
+
+        outcome = check_start_date(tree)
+
+        self.assertEqual(outcome.classification, "bound")
+        self.assertEqual(outcome.date_from, expected_date_from)
+        self.assertEqual(outcome.date_to, expected_date_to)
+
     @freeze_time(NOW)
     def test_two_events_reads_widen_the_range_to_cover_both(self) -> None:
         tree, _context = self.prepare(

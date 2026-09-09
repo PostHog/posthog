@@ -26,23 +26,29 @@ StartDateReason = Literal["column", "filters"]
 
 _TIMESTAMP_COLUMN = "timestamp"
 
+# Date functions that collapse their argument to the start of an interval, with the interval
+# each one covers. An upper bound through one of them admits the whole interval, not just the
+# instant it names.
+_TRUNCATION_PERIODS: dict[str, timedelta | relativedelta] = {
+    "toDate": timedelta(days=1),
+    "toStartOfDay": timedelta(days=1),
+    "toStartOfHour": timedelta(hours=1),
+    "toStartOfMinute": timedelta(minutes=1),
+    "toStartOfMonth": relativedelta(months=1),
+    "toStartOfQuarter": relativedelta(months=3),
+    "toStartOfWeek": timedelta(days=7),
+    "toStartOfYear": relativedelta(years=1),
+}
+
 # Date functions that keep the order of their argument, so a bound through one of them is
-# still a bound on the raw column. Taken from the list
-# IsSimpleTimestampFieldExpressionVisitor.visit_call accepts, plus toDate.
-_MONOTONE_DATE_FUNCTIONS = frozenset(
+# still a bound on the raw column. The truncating ones above plus the rest of the list
+# IsSimpleTimestampFieldExpressionVisitor.visit_call accepts.
+_MONOTONE_DATE_FUNCTIONS = frozenset(_TRUNCATION_PERIODS) | frozenset(
     {
         "assumeNotNull",
         "parseDateTime64BestEffortOrNull",
-        "toDate",
         "toDateTime",
         "toDateTime64",
-        "toStartOfDay",
-        "toStartOfHour",
-        "toStartOfMinute",
-        "toStartOfMonth",
-        "toStartOfQuarter",
-        "toStartOfWeek",
-        "toStartOfYear",
         "toTimeZone",
     }
 )
@@ -168,24 +174,39 @@ def _timestamp_bounds(term: ast.Expr, read: EventsRead, now: datetime) -> list[_
     term = strip_aliases(term)
 
     if isinstance(term, ast.BetweenExpr):
-        if term.negated or not _is_timestamp_side(term.expr, read):
+        truncations = _timestamp_side_truncations(term.expr, read)
+        if term.negated or truncations is None:
             return []
         return [
             _TimestampBound(side="lower", value=_evaluate_datetime(term.low, now), clause=term),
-            _TimestampBound(side="upper", value=_evaluate_datetime(term.high, now), clause=term),
+            _TimestampBound(
+                side="upper",
+                value=_end_of_interval(_evaluate_datetime(term.high, now), truncations),
+                clause=term,
+            ),
         ]
 
     if not isinstance(term, ast.CompareOperation):
         return []
 
     for field_side, value_side, flipped in ((term.left, term.right, False), (term.right, term.left, True)):
-        if not _is_timestamp_side(field_side, read):
+        truncations = _timestamp_side_truncations(field_side, read)
+        if truncations is None:
             continue
         sides = _bound_sides(term.op, flipped=flipped)
         if not sides:
             return []
         value = _evaluate_datetime(value_side, now)
-        return [_TimestampBound(side=side, value=value, clause=term) for side in sides]
+        # A truncation only moves a timestamp backwards, so it leaves a lower bound alone and
+        # widens an upper one.
+        return [
+            _TimestampBound(
+                side=side,
+                value=_end_of_interval(value, truncations) if side == "upper" else value,
+                clause=term,
+            )
+            for side in sides
+        ]
     return []
 
 
@@ -203,22 +224,48 @@ def _bound_sides(op: ast.CompareOperationOp, *, flipped: bool) -> tuple[_BoundSi
     return ()
 
 
-def _is_timestamp_side(expr: ast.Expr, read: EventsRead) -> bool:
-    inner = _unwrap_monotone(expr)
-    return inner is not None and is_column_of(inner, read, _TIMESTAMP_COLUMN)
+def _timestamp_side_truncations(expr: ast.Expr, read: EventsRead) -> frozenset[str] | None:
+    """The truncating functions wrapping the read's timestamp column, empty for the bare column,
+    or ``None`` when ``expr`` is not that column at all."""
+    unwrapped = _unwrap_monotone(expr)
+    if unwrapped is None:
+        return None
+    inner, truncations = unwrapped
+    if not is_column_of(inner, read, _TIMESTAMP_COLUMN):
+        return None
+    return truncations
 
 
-def _unwrap_monotone(expr: ast.Expr) -> ast.Expr | None:
+def _unwrap_monotone(expr: ast.Expr) -> tuple[ast.Expr, frozenset[str]] | None:
+    truncations: set[str] = set()
     for _ in range(8):
         expr = strip_aliases(expr)
         if isinstance(expr, ast.TypeCast | ast.TryCast):
             expr = expr.expr
             continue
         if isinstance(expr, ast.Call) and expr.name in _MONOTONE_DATE_FUNCTIONS and expr.args:
+            if expr.name in _TRUNCATION_PERIODS:
+                truncations.add(expr.name)
             expr = expr.args[0]
             continue
-        return expr
+        return expr, frozenset(truncations)
     return None
+
+
+def _end_of_interval(value: datetime | None, truncations: frozenset[str]) -> datetime | None:
+    """The end of the interval a truncated upper bound admits.
+
+    ``toStartOfMonth(timestamp) <= '2026-03-15'`` matches every timestamp in March, so the bound
+    on the raw column is the start of April, not March 15. Two different truncations shift the
+    value twice over, which this does not model, so those leave the bound unknown. That widens
+    the range instead of narrowing it wrongly.
+    """
+    if value is None or not truncations:
+        return value
+    if len(truncations) > 1:
+        return None
+    name = next(iter(truncations))
+    return _truncate(name, value) + _TRUNCATION_PERIODS[name]
 
 
 def _evaluate_datetime(expr: ast.Expr, now: datetime) -> datetime | None:
