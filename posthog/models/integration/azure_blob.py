@@ -49,6 +49,7 @@ class AzureBlobIntegration:
 
         config: dict[str, str] = {}
 
+        connection_string = strip_leading_whitespace(connection_string)
         try:
             validate_azure_blob_connection_string(connection_string)
         except ValueError as e:
@@ -144,7 +145,19 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
     for endpoint in explicit_endpoints + derived_endpoints:
         if validation_applies and not endpoint.lower().startswith("https://"):
             raise ValueError("Endpoints in the connection string must use https")
+
         if validation_applies:
             allowed, error = is_url_allowed(endpoint)
             if not allowed:
                 raise EndpointNotAllowedError(f"Invalid endpoint found in connection string: {error}")
+
+
+def strip_leading_whitespace(conn_str: str) -> str:
+    """Remove any leading whitespace from key=value pairs.
+
+    This is rejected by Azure SDK when parsing. In contrast, I like to help our users
+    get things right. I do not strip trailing whitespace as I cannot confirm whether
+    values can have trailing whitespace, in contrast to keys, which most definitely
+    don't.
+    """
+    return ";".join(value.lstrip() for value in conn_str.split(";"))

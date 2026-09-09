@@ -115,17 +115,6 @@ def _is_authorization_failure_response_error(err: HttpResponseError) -> bool:
     return getattr(err, "error_code", None) == StorageErrorCode.AUTHORIZATION_FAILURE
 
 
-def _strip_leading_whitespace(conn_str: str) -> str:
-    """Remove any leading whitespace from key=value pairs.
-
-    This is rejected by Azure SDK when parsing. In contrast, I like to help our users
-    get things right. I do not strip trailing whitespace as I cannot confirm whether
-    values can have trailing whitespace, in contrast to keys, which most definitely
-    don't.
-    """
-    return ";".join(value.lstrip() for value in conn_str.split(";"))
-
-
 @dataclasses.dataclass(kw_only=True)
 class AzureBlobInsertInputs(BatchExportInsertInputs):
     container_name: str
@@ -195,7 +184,6 @@ class AzureBlobConsumer(Consumer):
         # See: https://learn.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobserviceclient
 
         try:
-            connection_string = _strip_leading_whitespace(connection_string)
             await asyncio.to_thread(validate_azure_blob_connection_string, connection_string)
             blob_service_client = BlobServiceClient.from_connection_string(
                 conn_str=connection_string,
