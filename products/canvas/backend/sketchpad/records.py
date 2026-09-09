@@ -15,7 +15,7 @@ from rest_framework.exceptions import ValidationError
 
 from products.canvas.backend.facade.enums import SketchpadRecordKind
 from products.canvas.backend.models import Sketchpad, SketchpadOp, SketchpadRecord
-from products.canvas.backend.sketchpad.schema import FRAGMENT_PROPERTIES
+from products.canvas.backend.sketchpad.schema import FRAGMENT_PROPERTIES, MAX_COLLECTION_ITEMS
 
 JsonObject = dict[str, JsonValue]
 
@@ -192,6 +192,29 @@ class SketchpadRecords:
             "edit_field": self._apply_edit_field,
         }
         return handlers[str(op["type"])](op, seq)
+
+    def validate_limits(self) -> None:
+        labels = {
+            SketchpadRecordKind.FRAGMENT: "fragments",
+            SketchpadRecordKind.STATE: "shared state values",
+        }
+        for kind, label in labels.items():
+            unchanged = 0 if self.reset else self.queryset.filter(kind=kind).exclude(key__in=self.dirty[kind]).count()
+            changed = sum(self.records[kind].get(key) is not None for key in self.dirty[kind])
+            if unchanged + changed > MAX_COLLECTION_ITEMS:
+                raise ValidationError(f"A sketchpad can contain at most {MAX_COLLECTION_ITEMS} {label}.")
+
+        for key in self.dirty[SketchpadRecordKind.STATE]:
+            row = self.records[SketchpadRecordKind.STATE].get(key)
+            value = row.value if row is not None else None
+            if not isinstance(value, dict) or "__field" not in value:
+                continue
+            entries = value.get("entries")
+            removed = value.get("removed")
+            if isinstance(entries, dict) and len(entries) > MAX_COLLECTION_ITEMS:
+                raise ValidationError(f"A shared field can contain at most {MAX_COLLECTION_ITEMS} entries.")
+            if isinstance(removed, list) and len(removed) > MAX_COLLECTION_ITEMS:
+                raise ValidationError(f"A shared field can contain at most {MAX_COLLECTION_ITEMS} removed entries.")
 
     def _apply_restore(self, op: JsonObject, seq: int) -> JsonObject:
         if op.get("expectedSeq") != seq - 1:

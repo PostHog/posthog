@@ -85,6 +85,7 @@ def append_ops(
             results.append(row)
         scoped_ops.bulk_create(appended)
         if appended:
+            records.validate_limits()
             records.save()
             hydrate_ops(appended)
             _compact_history(locked)

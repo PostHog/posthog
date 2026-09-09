@@ -141,6 +141,77 @@ class TestSketchpadValidation(SimpleTestCase):
 
 
 class TestSketchpadValidationEndpoint(APIBaseTest):
+    @patch("products.canvas.backend.sketchpad.records.MAX_COLLECTION_ITEMS", 2)
+    def test_cumulative_record_limits_allow_replacements_and_removals(self) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(team_id=self.team.id, name="general")
+        sketchpad = Sketchpad.objects.for_team(self.team.id).create(
+            team_id=self.team.id, channel=channel, name="Test sketchpad"
+        )
+        url = f"/api/projects/{self.team.id}/sketchpads/{sketchpad.id}/ops/"
+
+        def append(op_id: str, op: dict[str, Any]) -> Any:
+            sketchpad.refresh_from_db()
+            return self.client.post(
+                url,
+                {"base_seq": sketchpad.head_seq, "ops": [{"op_id": op_id, "op": op}], "actor": {"kind": "user"}},
+                format="json",
+            )
+
+        assert append("add-one", {"type": "add_fragment", "fragment": {**FRAGMENT, "id": "one"}}).status_code == 200
+        assert append("add-two", {"type": "add_fragment", "fragment": {**FRAGMENT, "id": "two"}}).status_code == 200
+        assert append("replace-two", {"type": "add_fragment", "fragment": {**FRAGMENT, "id": "two"}}).status_code == 200
+        assert append("add-three", {"type": "add_fragment", "fragment": {**FRAGMENT, "id": "three"}}).status_code == 400
+        assert append("remove-one", {"type": "remove_fragment", "id": "one"}).status_code == 200
+        assert (
+            append(
+                "add-three-after-remove", {"type": "add_fragment", "fragment": {**FRAGMENT, "id": "three"}}
+            ).status_code
+            == 200
+        )
+
+        assert append("state-one", {"type": "set_state", "key": "one", "value": 1}).status_code == 200
+        assert append("state-two", {"type": "set_state", "key": "two", "value": 2}).status_code == 200
+        assert append("state-three", {"type": "set_state", "key": "three", "value": 3}).status_code == 400
+
+    @patch("products.canvas.backend.sketchpad.records.MAX_COLLECTION_ITEMS", 2)
+    def test_cumulative_shared_field_limits(self) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(team_id=self.team.id, name="general")
+        sketchpad = Sketchpad.objects.for_team(self.team.id).create(
+            team_id=self.team.id, channel=channel, name="Test sketchpad"
+        )
+        url = f"/api/projects/{self.team.id}/sketchpads/{sketchpad.id}/ops/"
+
+        def edit(op_id: str, *, insert: list[dict[str, Any]] | None = None, remove: list[str] | None = None) -> Any:
+            sketchpad.refresh_from_db()
+            return self.client.post(
+                url,
+                {
+                    "base_seq": sketchpad.head_seq,
+                    "ops": [
+                        {
+                            "op_id": op_id,
+                            "op": {
+                                "type": "edit_field",
+                                "key": "notes",
+                                "kind": "list",
+                                "insert": insert or [],
+                                "remove": remove or [],
+                            },
+                        }
+                    ],
+                    "actor": {"kind": "user"},
+                },
+                format="json",
+            )
+
+        assert (
+            edit("insert-two", insert=[{"id": "one", "k": "a", "v": 1}, {"id": "two", "k": "b", "v": 2}]).status_code
+            == 200
+        )
+        assert edit("insert-third", insert=[{"id": "three", "k": "c", "v": 3}]).status_code == 400
+        assert edit("remove-two", remove=["one", "two"]).status_code == 200
+        assert edit("remove-third", remove=["three"]).status_code == 400
+
     def test_read_shares_source_and_keeps_previews(self) -> None:
         channel = Channel.objects.for_team(self.team.id).create(team_id=self.team.id, name="general")
         sketchpad = Sketchpad.objects.for_team(self.team.id).create(

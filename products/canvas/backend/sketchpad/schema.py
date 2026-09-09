@@ -6,9 +6,8 @@ from django.core.exceptions import ValidationError
 
 from jsonschema import Draft202012Validator
 
-# One cap for every collection a single request can carry, so a restore or a
-# field edit cannot make the compiler hold an unbounded number of rows in one
-# locking transaction.
+# Use one cap for every stored collection. Request validation and the locked
+# record update both enforce it because separate edits can grow the same value.
 MAX_COLLECTION_ITEMS = 2000
 
 STATE_KEY_SCHEMA = {
@@ -29,6 +28,7 @@ STATE_VALUE_SCHEMA = {
             "__field": FIELD_KIND_SCHEMA,
             "entries": {
                 "type": "object",
+                "maxProperties": MAX_COLLECTION_ITEMS,
                 "propertyNames": FIELD_ID_SCHEMA,
                 "additionalProperties": {
                     "type": "object",
@@ -36,7 +36,7 @@ STATE_VALUE_SCHEMA = {
                     "properties": FIELD_ENTRY_PROPERTIES,
                 },
             },
-            "removed": {"type": "array", "items": FIELD_ID_SCHEMA},
+            "removed": {"type": "array", "maxItems": MAX_COLLECTION_ITEMS, "items": FIELD_ID_SCHEMA},
         },
     },
 }
