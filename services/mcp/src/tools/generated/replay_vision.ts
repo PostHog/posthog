@@ -235,7 +235,10 @@ const VisionScannersCreateSchema = () => {
     return VisionScannersCreateBody
 }
 
-const visionScannersCreate = (): ToolBase<ReturnType<typeof VisionScannersCreateSchema>, Schemas.ReplayScanner> => ({
+const visionScannersCreate = (): ToolBase<
+    ReturnType<typeof VisionScannersCreateSchema>,
+    WithAgentNote<Schemas.ReplayScanner>
+> => ({
     name: 'vision-scanners-create',
     schema: VisionScannersCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersCreateSchema>>) => {
@@ -291,7 +294,10 @@ const visionScannersCreate = (): ToolBase<ReturnType<typeof VisionScannersCreate
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/`,
             body,
         })
-        return result
+        return withAgentNote(
+            result,
+            'A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person that rating results thumbs up or down turns into a config recommendation they can review, and that `_posthogUrl` plus the Calibration tab is where they do it. There is nothing to rate yet, so this is a closing sentence for them, not a step for you.\n'
+        )
     },
 })
 
@@ -573,7 +579,7 @@ const visionScannersObservationsList = (): ToolBase<
                     },
                     '/replay'
                 ),
-                "Each observation's `_posthogUrl` opens the recording it analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them.\n"
+                "Each observation's `_posthogUrl` opens the recording it analysed. `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only describing them. Rate the observations you read with `vision-observations-label-create`, right ones as well as wrong ones: those ratings are what `vision-scanners-prompt-suggestions-generate` learns the scanner's config from.\n"
             )
         },
     })
@@ -589,7 +595,7 @@ const VisionScannersObservationsStatsSchema = () => {
 
 const visionScannersObservationsStats = (): ToolBase<
     ReturnType<typeof VisionScannersObservationsStatsSchema>,
-    Schemas.ObservationStats
+    WithAgentNote<Schemas.ObservationStats>
 > => ({
     name: 'vision-scanners-observations-stats',
     schema: VisionScannersObservationsStatsSchema(),
@@ -614,7 +620,10 @@ const visionScannersObservationsStats = (): ToolBase<
                 verdict: params.verdict,
             },
         })
-        return result
+        return withAgentNote(
+            result,
+            "When `labels.up_total` and `labels.down_total` are both near zero against `status_counts.succeeded`, this scanner has results nobody has rated, so a prompt suggestion has almost nothing to learn from. Rate a few observations with `vision-observations-label-create` before you call `vision-scanners-prompt-suggestions-generate`. Testing a suggestion is not available over MCP, so tell the person to test it on the scanner's Calibration tab before they apply it.\n"
+        )
     },
 })
 

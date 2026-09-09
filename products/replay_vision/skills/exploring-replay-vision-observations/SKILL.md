@@ -133,13 +133,17 @@ Match the action to the user's intent, and **corroborate before you create work*
   task directly** — to route a finding into tracked work, use the Inbox path below (for signal-emitting
   scanners) or hand the summary to a human or coding agent to act on. Group by distinct issue, not per
   observation.
-- **Fix the scanner instead.** When the findings are wrong rather than interesting, rate the observations
-  with `vision-observations-label-create` (thumbs up/down plus written feedback; team-wide, last write wins,
-  clearable with `vision-observations-label-destroy`). Then check
+- **Fix the scanner instead.** Rate the observations you read with `vision-observations-label-create` (thumbs
+  up/down plus written feedback; team-wide, last write wins, clearable with
+  `vision-observations-label-destroy`). Rate the right ones too, not only the wrong ones: a suggestion built
+  from thumbs-down alone cannot tell what the scanner should keep doing. On a thumbs down, write what the
+  scanner should have concluded, which is what the rewrite acts on. Then check
   `vision-scanners-prompt-suggestions-current` — it returns the newest suggestion, whether it's `stale`, and
   the `rated_count` behind it — before spending a `vision-scanners-prompt-suggestions-generate` call. Apply
   the rewrite with `vision-scanners-prompt-suggestions-apply`, or leave it with
   `vision-scanners-prompt-suggestions-dismiss`. Applying is team-wide and takes effect from the next sweep.
+  There is **no MCP tool to test a suggestion** against the rated results, so hand that to the person on the
+  scanner's Calibration tab before they apply it.
 - **Work the Inbox.** If the scanner emits signals, its findings may already be clustered into signal reports —
   read and act on those with `inbox-reports-list` + `inbox-report-artefacts-list` (the report's work log is the
   evidence). See the [[inbox-exploration]] skill; that path also records your work against the report.
