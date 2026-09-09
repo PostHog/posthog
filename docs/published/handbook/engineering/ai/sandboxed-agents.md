@@ -477,6 +477,22 @@ The flow, driven from the PostHog Desktop Environments → Cloud tab:
    falling back to the standard base if the image can't be loaded.
    Repo-setup snapshots are skipped for custom-image runs; resume snapshots still apply.
 
+## Continuing after sandbox inactivity
+
+When a sandbox expires, a new user message starts the next turn with the preserved
+conversation and workspace. A prewarmed successor waits for the queued message even
+after activation clears `await_user_message`. The agent restores context and decides
+whether to wait before accepting commands. Message IDs deduplicate retried deliveries.
+
+Explicit recovery of an interrupted run can still continue automatically. Idle
+same-run restores stay idle until a message arrives. Internal recovery instructions
+use hidden content blocks; adapters and transcript rendering omit those blocks from
+user message echoes. Existing unmarked transcript entries are unchanged.
+
+The agent advertises `prewarmedResumeMessageDriven` alongside `prewarmedResumeIdle`.
+Publish the updated agent and rebuild sandbox images before changing backend snapshot
+compatibility checks to require the new capability.
+
 ## Local development
 
 To set up sandboxed agents for local development:
