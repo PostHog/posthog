@@ -3,7 +3,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from django.db import transaction
-from django.db.models import Case, F, IntegerField, Q, Value, When
+from django.db.models import Case, F, IntegerField, Q, Value, When, Window
+from django.db.models.functions import RowNumber
 
 import structlog
 import temporalio.activity
@@ -67,6 +68,7 @@ from products.notifications.backend.facade.api import (
 logger = structlog.get_logger(__name__)
 
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
+MAX_DUE_ALERTS_PER_SCHEDULE_RUN = 50
 
 
 @temporalio.activity.defn
@@ -91,8 +93,25 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
             .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
             .filter(insight__deleted=False)
             .annotate(_interval_order=calculation_interval_order)
-            .order_by("_interval_order", F("next_check_at").asc(nulls_first=True))
-            .only("id", "team_id", "calculation_interval", "insight_id")
+            .annotate(
+                _team_rank=Window(
+                    expression=RowNumber(),
+                    partition_by=[F("team_id")],
+                    order_by=[
+                        F("_interval_order").asc(),
+                        F("next_check_at").asc(nulls_first=True),
+                        F("id").asc(),
+                    ],
+                ),
+            )
+            .order_by(
+                "_team_rank",
+                "_interval_order",
+                F("next_check_at").asc(nulls_first=True),
+                "team_id",
+                "id",
+            )
+            .only("id", "team_id", "calculation_interval", "insight_id")[:MAX_DUE_ALERTS_PER_SCHEDULE_RUN]
         )
 
         return [
