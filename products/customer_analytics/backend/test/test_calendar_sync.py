@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -52,7 +54,7 @@ class TestCalendarSync(BaseTest):
     ) -> calendar_sync.CalendarSyncCounts:
         with (
             patch.object(calendar_sync, "_person_uuids_by_email", return_value=person_uuids or {}),
-            patch.object(calendar_sync.requests, "get", side_effect=responses),
+            patch.object(calendar_sync, "google_workspace_request", side_effect=responses),
         ):
             return calendar_sync.sync_calendar_integration(self.integration.id, self.team.id)
 
@@ -137,6 +139,50 @@ class TestCalendarSync(BaseTest):
         assert counts.upserted == 1
         self.integration.refresh_from_db()
         assert self.integration.config["calendar_sync_token"] == "fresh"
+
+    def test_backfill_uses_the_date_range_without_changing_the_incremental_cursor(self) -> None:
+        self.integration.config["calendar_sync_token"] = "existing"
+        self.integration.save(update_fields=["config"])
+        start_at = datetime(2026, 7, 1, tzinfo=UTC)
+        end_at = datetime(2026, 8, 1, tzinfo=UTC)
+
+        first_page = _pages_response([_event()])
+        first_page.json.return_value = {"items": [_event()], "nextPageToken": "page-2"}
+        with (
+            patch.object(calendar_sync, "_person_uuids_by_email", return_value={}),
+            patch.object(
+                calendar_sync,
+                "google_workspace_request",
+                side_effect=[first_page, _pages_response([])],
+            ) as mock_get,
+        ):
+            result = calendar_sync.sync_calendar_integration_backfill_page(
+                self.integration.id,
+                self.team.id,
+                start_at=start_at,
+                end_at=end_at,
+                page_token=None,
+            )
+            final_result = calendar_sync.sync_calendar_integration_backfill_page(
+                self.integration.id,
+                self.team.id,
+                start_at=start_at,
+                end_at=end_at,
+                page_token=result.next_page_token,
+            )
+
+        assert result.counts.upserted == 1
+        assert result.next_page_token == "page-2"
+        assert final_result.next_page_token is None
+        first_params = mock_get.call_args_list[0].kwargs["params"]
+        second_params = mock_get.call_args_list[1].kwargs["params"]
+        assert first_params["timeMin"] == start_at.isoformat()
+        assert first_params["timeMax"] == end_at.isoformat()
+        assert "syncToken" not in first_params
+        assert second_params["pageToken"] == "page-2"
+        self.integration.refresh_from_db()
+        assert self.integration.config["calendar_sync_token"] == "existing"
+        assert "calendar_last_synced_at" not in self.integration.config
 
     def test_known_email_matches_account_on_personal_domain(self):
         account = Account.objects.for_team(self.team.id).create(team=self.team, name="Kwak Bros", external_id="kwak")
