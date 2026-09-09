@@ -1,9 +1,12 @@
+import { render } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -16,6 +19,9 @@ import {
     pollIntervalMs,
     sqlV2RunErrorMessage,
 } from './notebookNodeSQLV2Logic'
+
+const renderToastText = (message: string | JSX.Element): string =>
+    typeof message === 'string' ? message : (render(message).container.textContent ?? '')
 
 describe('notebookNodeSQLV2Logic', () => {
     let logic: ReturnType<typeof notebookNodeSQLV2Logic.build>
@@ -237,19 +243,29 @@ describe('notebookNodeSQLV2Logic', () => {
     // backend decides it at dispatch. A client that guesses from a kernel poll either bills a
     // user twice for one sandbox or starts a paid one in silence.
     test.each([
-        ['names the rate when the run starts a paid sandbox', true, 0.25, ['compute sandbox at $0.25 / h']],
+        ['names the rate when the run starts a paid sandbox', true, 0.25, false, ['compute sandbox at $0.25 / h']],
+        [
+            'strikes the rate through to $0.00 when the free compute flag is on',
+            true,
+            0.25,
+            true,
+            ['compute sandbox at $0.25 / h $0.00 / h while it runs'],
+        ],
         // The unpriced branch is the only one that ends the sentence here, so matching it also
         // proves no rate was quoted.
-        ['announces without a rate when the run reports no price', true, null, ['compute sandbox. The cell']],
-        ['stays quiet when the run reuses a running sandbox', false, null, []],
-    ])('%s', async (_name, startsSandbox, price, expected) => {
+        ['announces without a rate when the run reports no price', true, null, false, ['compute sandbox. The cell']],
+        ['stays quiet when the run reuses a running sandbox', false, null, false, []],
+    ])('%s', async (_name, startsSandbox, price, freeCompute, expected) => {
+        featureFlagLogic.actions.setFeatureFlags(freeCompute ? [FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE] : [], {
+            [FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE]: freeCompute,
+        })
         runSpy.mockResolvedValue({ run_id: 'r1', starts_sandbox: startsSandbox, sandbox_hourly_price: price })
         const toastSpy = jest.spyOn(lemonToast, 'info')
         mount()
         logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(toastSpy.mock.calls.map(([message]) => message)).toEqual(
+        expect(toastSpy.mock.calls.map(([message]) => renderToastText(message))).toEqual(
             expected.map((fragment) => expect.stringContaining(fragment))
         )
     })
