@@ -90702,9 +90702,27 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export interface _LogsImpactGroupKey {
+      /** Attribute map the key lives in, in the group-by endpoint's vocabulary: "log" or "resource".
+       *
+       * * `log` - log
+       * * `resource` - resource
+       * * `column` - column */
+      source: LogsGroupBySourceEnum;
+      /** The attribute key that carries the ID on most matching logs. */
+      key: string;
+    }
+
     export interface _LogsImpactRequest {
       /** The impact query to execute. Takes the same filters as the count query. */
       query: _LogsCountBody;
+    }
+
+    export interface _LogsImpactTopValue {
+      /** The session ID or person distinct ID. */
+      value: string;
+      /** Approximate number of matching logs that carry this value (topK estimate). */
+      count: number;
     }
 
     export interface _LogsImpactResponse {
@@ -90718,6 +90736,14 @@ export namespace Schemas {
       logsWithDistinctId: number;
       /** Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error). */
       users: number;
+      /** Top session IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+      topSessions: _LogsImpactTopValue[];
+      /** Top person distinct IDs on the matching logs, ordered by log count descending (topK, at most 5). */
+      topUsers: _LogsImpactTopValue[];
+      /** The dimension that carries the session ID on most matching logs. Group by this dimension to drill into the sessions behind the counts. Null when no matching log carries a session ID. */
+      sessionGroupKey: _LogsImpactGroupKey | null;
+      /** The dimension that carries the person distinct ID on most matching logs. Group by this dimension to drill into the users behind the counts. Null when no matching log carries a distinct ID. */
+      personGroupKey: _LogsImpactGroupKey | null;
     }
 
     export interface _LogsPatternsBody {
