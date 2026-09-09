@@ -1460,7 +1460,6 @@ CREATE TABLE posthog.metrics2_input (
   _offset UInt64
 ) ENGINE = Null();
 CREATE TABLE posthog.metrics_distributed (
-  uuid String,
   team_id Int32,
   metric_name LowCardinality(String),
   time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),

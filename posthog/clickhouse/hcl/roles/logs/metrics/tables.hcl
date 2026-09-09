@@ -917,9 +917,6 @@ SQL
     }
   }
   table "metrics_distributed" {
-    column "uuid" {
-      type = "String"
-    }
     column "team_id" {
       type = "Int32"
     }
