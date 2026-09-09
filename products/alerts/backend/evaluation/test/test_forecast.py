@@ -1,6 +1,5 @@
 import datetime
 from collections.abc import Callable
-from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import cast
 
@@ -550,12 +549,6 @@ class TestHistoryRequirements:
         assert extract.call_args.args[4] == expected_mode
 
 
-@contextmanager
-def _unavailable_forecast_slot(*, team_id: int):
-    raise ForecastEvaluationCapacityExceeded
-    yield
-
-
 def test_scheduled_forecast_capacity_is_deferred_without_extracting() -> None:
     alert = cast(
         AlertConfiguration,
@@ -572,14 +565,17 @@ def test_scheduled_forecast_capacity_is_deferred_without_extracting() -> None:
         "series": [{"kind": "EventsNode", "event": "$pageview"}],
     }
     extractor = MagicMock()
+    unavailable_slot = MagicMock()
+    unavailable_slot.return_value.__enter__.side_effect = ForecastEvaluationCapacityExceeded
 
     with (
-        patch("products.alerts.backend.evaluation.dispatcher.forecast_evaluation_slot", _unavailable_forecast_slot),
+        patch("products.alerts.backend.evaluation.dispatcher.forecast_evaluation_slot", unavailable_slot),
         patch("products.alerts.backend.evaluation.dispatcher.FORECAST_EXTRACTORS", {"TrendsQuery": extractor}),
         pytest.raises(ForecastEvaluationCapacityExceeded),
     ):
         check_forecast_alert(alert, cast(Insight, SimpleNamespace()), query)
 
+    unavailable_slot.assert_called_once_with(team_id=123)
     extractor.extract.assert_not_called()
 
 
