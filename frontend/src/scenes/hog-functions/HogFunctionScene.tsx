@@ -515,6 +515,10 @@ export function HogFunctionScene(): JSX.Element {
         return <NotFound object="Hog function" />
     }
 
+    // A legacy destination runs the bundled plugin code inline in CdpLegacyEventsConsumer, which
+    // writes app metrics but no invocation results
+    const isLegacyDestination = type === 'legacy_destination'
+
     const tabs: (LemonTab<HogFunctionSceneTab> | null)[] = [
         {
             label: 'Configuration',
@@ -531,7 +535,8 @@ export function HogFunctionScene(): JSX.Element {
               },
         // Log transformations aggregate outcomes per Kafka message and never write
         // per-invocation results, so the Invocations tab would always be empty for them.
-        type === 'site_app' || type === 'site_destination' || type === 'transformation_log'
+        // The legacy consumer discards a legacy destination's logs for the same reason.
+        type === 'site_app' || type === 'site_destination' || type === 'transformation_log' || isLegacyDestination
             ? null
             : {
                   label: 'Invocations',

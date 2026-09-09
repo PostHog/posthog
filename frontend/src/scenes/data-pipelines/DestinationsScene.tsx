@@ -60,7 +60,7 @@ export function DestinationsScene(): JSX.Element {
             content: (
                 <DataPipelinesHogFunctions
                     kind="destination"
-                    additionalKinds={['site_destination', 'internal_destination']}
+                    additionalKinds={['site_destination', 'internal_destination', 'legacy_destination']}
                 />
             ),
         },
