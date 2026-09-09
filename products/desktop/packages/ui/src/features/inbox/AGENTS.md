@@ -24,7 +24,22 @@ Inbox has four tabs and one reviewer-scope control:
 | Runs | `/inbox/runs` | Reports that are still in progress or waiting on input |
 | Archive | `/inbox/dismissed` | Terminal reports: archived/suppressed (`status === "suppressed"`) and resolved-by-merged-PR (`status === "resolved"`) |
 
-Detail pages live under the same tab: `/inbox/<tab>/$reportId`.
+Reports have one canonical detail route: `/reports/$reportId`. The old
+`/inbox/{reports,pulls,dismissed}/$reportId` and space-report URLs replace-redirect
+there. Runs remain at `/inbox/runs/$reportId`.
+
+`ReportPage` renders the shared report, PR, or archived content based on current
+status without changing the URL. In-app links carry the source in a validated
+`?from=` search param, so it survives a reload, a new tab and a window restore:
+the source rail/sidebar remains selected, and the report header breadcrumb links
+to that source. `resolveNavigationSource` in `router/reportNavigation.ts` is the
+only place that reads a source path; ask it for the label, space or feed rather
+than matching the href again. A report with no source reads as
+`Self-driving / <space>` and never renders inside another page's chrome.
+The header identifies the object and links to its owning space rather than
+treating ownership as a back destination. Report opening must not reset Inbox
+filters. Restore updates the canonical page in place. Existing embedded Activity
+previews remain supported.
 
 The Archive tab (route `/inbox/dismissed`, user-facing label "Archive") is
 the exception: it holds the two terminal, not-in-inbox states — `suppressed`
