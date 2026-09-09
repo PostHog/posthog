@@ -7,6 +7,7 @@ from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.permissions import APIScopePermission
@@ -37,11 +38,16 @@ class RepoRoutingRuleSerializer(serializers.ModelSerializer):
         max_length=255,
         help_text="Target repository as owner/repo, e.g. 'posthog/posthog.com'.",
     )
+    created_by = UserBasicSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Who created the rule, from the UI or the Slack commands. Null when that user was deleted.",
+    )
 
     class Meta:
         model = RepoRoutingRule
-        fields = ["id", "rule_text", "repository", "priority", "created_at", "updated_at"]
-        read_only_fields = ["id", "priority", "created_at", "updated_at"]
+        fields = ["id", "rule_text", "repository", "priority", "created_by", "created_at", "updated_at"]
+        read_only_fields = ["id", "priority", "created_by", "created_at", "updated_at"]
 
     def validate_repository(self, value: str) -> str:
         if not _REPOSITORY_RE.match(value):

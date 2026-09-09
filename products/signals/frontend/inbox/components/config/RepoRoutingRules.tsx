@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil, IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -134,6 +134,20 @@ function RuleRow({ rule }: { rule: RepoRoutingRuleApi }): JSX.Element {
                 {rule.rule_text}
             </span>
             <span className="text-xs text-muted shrink-0">{rule.repository}</span>
+            {rule.created_by && (
+                <Tooltip
+                    title={`Added by ${rule.created_by.first_name || rule.created_by.email}${rule.created_by.first_name ? ` (${rule.created_by.email})` : ''}`}
+                >
+                    <ProfilePicture
+                        user={{
+                            first_name: rule.created_by.first_name,
+                            last_name: rule.created_by.last_name,
+                            email: rule.created_by.email,
+                        }}
+                        size="sm"
+                    />
+                </Tooltip>
+            )}
             <LemonButton
                 size="xsmall"
                 icon={<IconPencil />}

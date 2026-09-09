@@ -14,6 +14,7 @@ function rule(id: string, ruleText: string, repository: string, priority: number
         rule_text: ruleText,
         repository,
         priority,
+        created_by: null,
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
     }

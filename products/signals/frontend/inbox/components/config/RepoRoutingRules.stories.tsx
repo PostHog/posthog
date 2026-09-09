@@ -17,12 +17,21 @@ const GITHUB_INTEGRATION = {
     errors: '',
 }
 
+const CREATOR = {
+    id: 1,
+    uuid: '018f0000-0000-7000-8000-0000000000aa',
+    email: 'max@posthog.com',
+    first_name: 'Max',
+    hedgehog_config: null,
+}
+
 const RULES = [
     {
         id: '018f0000-0000-7000-8000-000000000001',
         rule_text: 'anything about the marketing site or docs',
         repository: 'posthog/posthog.com',
         priority: 0,
+        created_by: CREATOR,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
     },
@@ -31,6 +40,7 @@ const RULES = [
         rule_text: 'crashes in the Android app',
         repository: 'posthog/posthog-android',
         priority: 1,
+        created_by: null,
         created_at: '2024-01-02T00:00:00Z',
         updated_at: '2024-01-02T00:00:00Z',
     },
@@ -94,6 +104,7 @@ export const ManyRules: Story = {
                 rule_text: `rule ${i + 1}`,
                 repository: i % 2 === 0 ? 'posthog/posthog.com' : 'posthog/posthog-android',
                 priority: i,
+                created_by: i % 2 === 0 ? CREATOR : null,
                 created_at: '2024-01-01T00:00:00Z',
                 updated_at: '2024-01-01T00:00:00Z',
             }))}

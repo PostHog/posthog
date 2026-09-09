@@ -44,6 +44,7 @@ class TestRepoRoutingRulesAPI(APIBaseTest):
         RepoRoutingRule.objects.create(team=self.team, rule_text="existing", repository="posthog/posthog", priority=4)
         response = self.client.post(self._url(), {"rule_text": "docs and website", "repository": "PostHog/posthog.com"})
         assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["created_by"]["email"] == self.user.email
         rule = RepoRoutingRule.objects.get(id=response.json()["id"])
         assert rule.team == self.team
         assert rule.created_by == self.user

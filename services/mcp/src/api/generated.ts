@@ -68004,6 +68004,8 @@ export namespace Schemas {
          */
       repository?: string;
       readonly priority?: number;
+      /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+      readonly created_by?: UserBasic | null;
       readonly created_at?: string;
       readonly updated_at?: string;
     }
@@ -76661,6 +76663,8 @@ export namespace Schemas {
          */
       repository: string;
       readonly priority: number;
+      /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+      readonly created_by: UserBasic | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
