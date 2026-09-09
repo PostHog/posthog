@@ -38,8 +38,7 @@ _OWNING_ACCESSORS: tuple[tuple[str, str, str | None], ...] = (
 def flag_owner_kind(flag: "FeatureFlag") -> str | None:
     """Return the product that owns this flag, or None when nothing owns it.
 
-    Ownership decides which approval policy family governs a write, so a flag must have at most one
-    owner. `assert_flag_available_for` keeps it that way.
+    A flag may be owned by at most one product. `assert_flag_available_for` keeps it that way.
     """
     for accessor, kind, manager in _OWNING_ACCESSORS:
         related = getattr(flag, accessor)
@@ -53,10 +52,9 @@ def flag_owner_kind(flag: "FeatureFlag") -> str | None:
 def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
     """Reject adopting a flag that a different product already owns.
 
-    Ownership decides which approval policy family governs a write, so what must stay unambiguous
-    is the owning *product*, not the owning object. Two experiments sharing one flag still resolve
-    to one family, so this permits it; a product that wants one object per flag enforces that
-    itself, as early access features do.
+    What must stay unambiguous is the owning *product*, not the owning object. Two experiments
+    sharing one flag leave one owner, so this permits it; a product that wants one object per flag
+    enforces that itself, as early access features do.
 
     Call this only when a write points a product at a flag it did not point at before. Re-saving a
     parent that already owns the flag must not raise, so the caller compares the incoming id
@@ -70,6 +68,5 @@ def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
     if owner is not None and owner != product:
         raise serializers.ValidationError(
             f"The feature flag {flag.key} already belongs to {_OWNER_LABELS[owner]}. "
-            f"A flag can belong to one thing at a time. Pick a different flag, "
-            f"or edit this one where it is already used."
+            f"Pick a different flag, or edit this one where it is already used."
         )

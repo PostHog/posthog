@@ -1526,9 +1526,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         targeting_flag_id = data.get("targeting_flag_id")
         if targeting_flag_id:
             try:
-                FeatureFlag.objects.get(pk=targeting_flag_id, team_id=self.context["team_id"])
+                targeting_flag = FeatureFlag.objects.get(pk=targeting_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Targeting Feature Flag with this ID does not exist")
+            # Re-saving a survey with the flag it already owns is not an adoption.
+            if self.instance is None or self.instance.targeting_flag_id != targeting_flag_id:
+                assert_flag_available_for(targeting_flag, product=FLAG_OWNER_SURVEY)
 
         linked_insight_id = data.get("linked_insight_id")
         if linked_insight_id:
@@ -1716,12 +1719,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 team_id=self.context["team_id"],
                 feature_flag_id=validated_data["targeting_flag_id"],
             )
-            assert_flag_available_for(
-                FeatureFlag.objects.get(
-                    pk=validated_data["targeting_flag_id"], team__project_id=self.context["project_id"]
-                ),
-                product=FLAG_OWNER_SURVEY,
-            )
         if validated_data.get("targeting_flag_filters"):
             assert_feature_flag_write_scope(
                 self.context["request"],
@@ -1773,13 +1770,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 team_id=self.context["team_id"],
                 feature_flag_id=validated_data["targeting_flag_id"],
             )
-            if validated_data["targeting_flag_id"] != instance.targeting_flag_id:
-                assert_flag_available_for(
-                    FeatureFlag.objects.get(
-                        pk=validated_data["targeting_flag_id"], team__project_id=self.context["project_id"]
-                    ),
-                    product=FLAG_OWNER_SURVEY,
-                )
 
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:

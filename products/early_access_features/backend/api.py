@@ -382,7 +382,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
     feature_flag_id = serializers.IntegerField(
         required=False,
         write_only=True,
-        help_text="Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate.",
+        help_text="Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not belong to another product such as a survey or experiment, must not be group-based, and must not be multivariate.",
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
@@ -465,7 +465,8 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             ).first()
             if existing_flag is not None:
                 # Linking is only advice worth giving when the flag is actually linkable; the check
-                # above rejects a flag another product already owns.
+                # above rejects a flag that already has a feature attached, or that another
+                # product owns.
                 remedy = (
                     "Rename this feature."
                     if flag_owner_kind(existing_flag) is not None
@@ -497,8 +498,10 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         if feature_flag_id:
             feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
 
-            # Only require feature_flag:write when we actually mutate the linked flag (active
-            # stage). Linking an existing flag without changing it is not a flag write.
+            # Linking claims the flag, which stops other products adopting it, so editor access
+            # is required whatever the stage. Only the active stage writes the flag row.
+            assert_feature_flag_rbac_access(self.user_access_control, feature_flag=feature_flag)
+
             if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
                 assert_feature_flag_write_scope(
                     self.context["request"],
@@ -507,7 +510,6 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                     team_id=self.context["team_id"],
                     feature_flag_id=feature_flag.id,
                 )
-                assert_feature_flag_rbac_access(self.user_access_control, feature_flag=feature_flag)
                 update_flag(
                     feature_flag,
                     {"filters": set_feature_enrollment(feature_flag.get_filters(), True)},

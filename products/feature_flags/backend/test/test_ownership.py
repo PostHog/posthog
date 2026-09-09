@@ -33,6 +33,9 @@ class TestFlagOwnership(APIBaseTest):
     def _own_by_archived_product_tour(self, flag: FeatureFlag) -> None:
         ProductTour.objects.create(team=self.team, name="t", internal_targeting_flag=flag, archived=True)
 
+    def _own_by_deleted_experiment(self, flag: FeatureFlag) -> None:
+        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, deleted=True)
+
     def _own_by_early_access(self, flag: FeatureFlag) -> None:
         EarlyAccessFeature.objects.create(team=self.team, name="f", stage="beta", feature_flag=flag)
 
@@ -48,6 +51,7 @@ class TestFlagOwnership(APIBaseTest):
             ("product tour", "_own_by_product_tour", "product_tour"),
             ("archived product tour", "_own_by_archived_product_tour", "product_tour"),
             ("early access feature", "_own_by_early_access", "early_access_feature"),
+            ("deleted experiment", "_own_by_deleted_experiment", "experiment"),
             ("survey linked flag", "_reference_by_survey_linked_flag", None),
             ("nothing", None, None),
         ]
@@ -86,6 +90,26 @@ class TestSurveyFlagAdoptionGuard(APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={"name": "poacher", "type": "popover", "targeting_flag_id": flag.id},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "already belongs to an experiment" in str(response.json())
+
+    def test_survey_cannot_be_repointed_at_a_flag_another_product_owns(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "plain", "type": "popover"},
+            format="json",
+        )
+        assert created.status_code == 201, created.json()
+
+        flag = FeatureFlag.objects.create(team=self.team, key="taken-by-experiment", created_by=self.user)
+        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{created.json()['id']}/",
+            data={"targeting_flag_id": flag.id},
             format="json",
         )
 
