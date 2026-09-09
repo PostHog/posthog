@@ -288,19 +288,23 @@ class EmailLookupHandler:
         letter case. One case-insensitive rule keeps every caller on the same account, so a login,
         a password reset, and the login precheck cannot disagree about who is signing in.
         `EmailMultiRecordHandler` chooses between case variations when more than one matches.
+
+        The fold is `LOWER`, matching the duplicate check signup runs before it creates an account.
+        `iexact` would fold on `UPPER`, which is wider: `UPPER` maps `ı` (U+0131) to `I` and `ſ`
+        (U+017F) to `S`, while `LOWER` leaves both alone. Two addresses that differ only by one of
+        those characters are separate accounts at signup, so they have to stay separate here too.
         """
         from posthog.models.user import User
 
         queryset = User.objects.filter(is_active=is_active) if is_active else User.objects.all()
+        matches = queryset.alias(_lower_email=Lower("email")).filter(_lower_email=email.lower())
 
         try:
-            return queryset.get(email__iexact=email)
+            return matches.get()
         except User.DoesNotExist:
             return None
         except MultipleObjectsReturned:
-            return EmailMultiRecordHandler.handle_multiple_users(
-                queryset.filter(email__iexact=email), email, "user_lookup"
-            )
+            return EmailMultiRecordHandler.handle_multiple_users(matches, email, "user_lookup")
 
 
 class EmailMultiRecordHandler:
