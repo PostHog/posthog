@@ -219,6 +219,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
         previous_observation_id: null,
         next_observation_id: null,
         label: null,
+        viewed: false,
         started_at: '2026-05-11T09:00:00Z',
         completed_at: '2026-05-11T09:01:00Z',
         created_at: '2026-05-11T09:00:00Z',
