@@ -20,6 +20,7 @@ jest.mock('lib/monaco/CodeEditorInline', () => ({
 }))
 
 const accountId = '11111111-1111-4111-8111-111111111111'
+const UNAVAILABLE_ASSIGNEE = 'Saved assignee is unavailable. Choose another member or edit the raw value.'
 
 describe('CustomerTaskWorkflowReferenceInput', () => {
     beforeEach(async () => {
@@ -79,10 +80,16 @@ describe('CustomerTaskWorkflowReferenceInput', () => {
         expect(onChange).toHaveBeenCalledWith({ value: accountId, templating: 'hog' })
     })
 
-    it('resolves a saved member on entering Picker without opening the member menu', async () => {
-        const onChange = renderInput('assigned_to_id', String(MOCK_SECOND_BASIC_USER.id))
+    it.each([
+        ['resolves a saved member', String(MOCK_SECOND_BASIC_USER.id), MOCK_SECOND_BASIC_USER.first_name, false],
+        ['flags a saved member the organization cannot resolve', '999', 'User 999', true],
+    ])('%s on entering Picker without opening the member menu', async (_name, value, label, unavailable) => {
+        const onChange = renderInput('assigned_to_id', value)
         fireEvent.click(screen.getByText('Picker'))
-        await waitFor(() => expect(screen.getByText(MOCK_SECOND_BASIC_USER.first_name)).toBeInTheDocument())
+        await waitFor(() => {
+            expect(screen.getByText(label)).toBeInTheDocument()
+            expect(screen.queryByText(UNAVAILABLE_ASSIGNEE) !== null).toBe(unavailable)
+        })
         expect(onChange).not.toHaveBeenCalled()
     })
 

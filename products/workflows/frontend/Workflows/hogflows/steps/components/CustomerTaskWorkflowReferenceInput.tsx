@@ -6,6 +6,7 @@ import { LemonButton, LemonInputSelect, LemonLabel, LemonSegmentedButton } from 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
+import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
@@ -32,11 +33,15 @@ export function CustomerTaskWorkflowReferenceInput({
     const logic = customerTaskWorkflowAccountLogic({ id, projectId })
     const { choices, choicesLoading } = useValues(logic)
     const { loadChoices } = useActions(logic)
+    const { members, meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
     const isAccount = schema.key === 'account_id'
     const rawValue = input.value == null ? '' : String(input.value)
     const accountId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawValue) ? rawValue : null
     const memberId = /^[1-9]\d*$/.test(rawValue) && Number(rawValue) <= 2147483647 ? Number(rawValue) : null
+    // MemberSelect labels an id it cannot match with its defaultLabel, so a departed member or an
+    // id from another organization would read as unassigned while the step still carries it.
+    const savedMember = memberId === null ? null : (meFirstMembers.find((m) => m.user.id === memberId)?.user ?? null)
 
     useEffect(() => {
         if (mode === 'picker') {
@@ -109,7 +114,22 @@ export function CustomerTaskWorkflowReferenceInput({
                             type="secondary"
                             size="small"
                             onChange={(user) => onChange({ ...input, value: user ? String(user.id) : null })}
-                        />
+                        >
+                            {() => (
+                                <LemonButton type="secondary" size="small">
+                                    {savedMember
+                                        ? fullName(savedMember) || savedMember.email
+                                        : memberId === null
+                                          ? 'Unassigned'
+                                          : `User ${memberId}`}
+                                </LemonButton>
+                            )}
+                        </MemberSelect>
+                    )}
+                    {!isAccount && memberId !== null && !savedMember && members !== null && !membersLoading && (
+                        <span className="text-xs text-secondary">
+                            Saved assignee is unavailable. Choose another member or edit the raw value.
+                        </span>
                     )}
                     {isAccount &&
                         accountId &&
