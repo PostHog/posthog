@@ -902,7 +902,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         try:
             left = process_incremental_value(current, field_type)
             right = process_incremental_value(candidate, field_type)
-            left, right = _align_epoch_cursor(left, right)
+            left, right = _align_epoch_cursor(left, right), _align_epoch_cursor(right, left)
         except Exception:
             return None
         if left is None or right is None:
@@ -1100,21 +1100,13 @@ def _parse_datetime_string(value: str) -> datetime:
         return parser.parse(stripped)
 
 
-def _align_epoch_cursor(left: Any, right: Any) -> tuple[Any, Any]:
-    # Two epoch numbers already order as numbers; only a mixed pair needs the conversion.
-    if _is_epoch(left) and isinstance(right, datetime | date):
-        return _epoch_as(left, right), right
-    if _is_epoch(right) and isinstance(left, datetime | date):
-        return left, _epoch_as(right, left)
-    return left, right
-
-
-def _is_epoch(value: Any) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
-
-
-def _epoch_as(epoch: int | float, partner: datetime | date) -> datetime | date:
-    converted = datetime.fromtimestamp(epoch, tz=UTC)
+def _align_epoch_cursor(value: Any, partner: Any) -> Any:
+    # Two epoch numbers already order as numbers, so only a mixed pair needs the conversion.
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return value
+    if not isinstance(partner, datetime | date):
+        return value
+    converted = datetime.fromtimestamp(value, tz=UTC)
     if isinstance(partner, datetime):
         return converted if partner.tzinfo else converted.replace(tzinfo=None)
     return converted.date()
