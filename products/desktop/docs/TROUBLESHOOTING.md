@@ -1,5 +1,15 @@
 # Troubleshooting
 
+## Connected MCP server authentication failed
+
+If a task reports a connected MCP server authentication error, reconnect that server in PostHog. Then retry the task.
+Changing the model or billing provider does not repair the connected server's credentials.
+
+The desktop MCP proxy returns HTTP 502 when a connected server returns HTTP 401.
+It does not forward the authentication challenge or request a PostHog token refresh for that response.
+This prevents the agent from starting an OAuth flow against the local proxy, which cannot reconnect the server.
+PostHog-owned targets retain their existing token refresh behavior.
+
 ## Black screen during development
 
 If the app launches but renders a blank/black screen, it's almost always a stale Vite cache.

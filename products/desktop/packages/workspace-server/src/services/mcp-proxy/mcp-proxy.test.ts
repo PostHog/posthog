@@ -1,3 +1,4 @@
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { RootLogger } from "@posthog/di/logger";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpProxyService } from "./mcp-proxy";
@@ -256,29 +257,79 @@ describe("McpProxyService", () => {
       expect(authServiceMock.authenticatedFetch).toHaveBeenCalledTimes(2);
     });
 
-    it("passes an installation credential failure through without refreshing", async () => {
-      // The failing credential belongs to the connected vendor, not to PostHog, so a
-      // PostHog token refresh cannot fix it and the retry only hides the real error.
-      authServiceMock.authenticatedFetch.mockResolvedValue(
-        new Response(JSON.stringify({ error: "Authentication failed" }), {
-          status: 401,
-          headers: { "content-type": "application/json" },
-        }),
-      );
+    it.each(['{"error":"Authentication failed"}', "Unauthorized", ""])(
+      "reports an installation 401 as an upstream failure without OAuth: %s",
+      async (body) => {
+        authServiceMock.authenticatedFetch.mockResolvedValue(
+          new Response(body, {
+            status: 401,
+            headers: {
+              "content-type": "application/json",
+              "www-authenticate": "Bearer",
+            },
+          }),
+        );
 
+        await service.start();
+        const proxyUrl = service.register(
+          "installation-abc",
+          "https://example.com/mcp",
+          { credentialOwner: "installation" },
+        );
+
+        const res = await fetch(proxyUrl, { method: "POST", body: "payload" });
+
+        expect(res.status).toBe(502);
+        expect(res.headers.has("www-authenticate")).toBe(false);
+        expect(await res.json()).toEqual({
+          error:
+            "Connected MCP server authentication failed. Reconnect this server in PostHog.",
+        });
+        expect(authServiceMock.refreshAccessToken).not.toHaveBeenCalled();
+        expect(authServiceMock.authenticatedFetch).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("fails an MCP connection without starting local OAuth for a rejected installation credential", async () => {
+      authServiceMock.authenticatedFetch.mockImplementation(
+        async () => new Response("Unauthorized", { status: 401 }),
+      );
       await service.start();
       const proxyUrl = service.register(
-        "installation-abc",
-        "https://app.posthog.com/api/environments/1/mcp_server_installations/abc/proxy/",
+        "installation-example",
+        "https://example.com/mcp",
         { credentialOwner: "installation" },
       );
-
-      const res = await fetch(proxyUrl, { method: "POST", body: "payload" });
-
-      expect(res.status).toBe(401);
-      expect(await res.text()).toBe('{"error":"Authentication failed"}');
-      expect(authServiceMock.refreshAccessToken).not.toHaveBeenCalled();
-      expect(authServiceMock.authenticatedFetch).toHaveBeenCalledTimes(1);
+      const transportFetch = vi.fn(fetch);
+      const redirectToAuthorization = vi.fn();
+      const transport = new StreamableHTTPClientTransport(new URL(proxyUrl), {
+        fetch: transportFetch,
+        authProvider: {
+          redirectUrl: "http://127.0.0.1/callback",
+          clientMetadata: { redirect_uris: ["http://127.0.0.1/callback"] },
+          clientInformation: vi.fn(),
+          saveClientInformation: vi.fn(),
+          tokens: vi.fn(),
+          saveTokens: vi.fn(),
+          redirectToAuthorization,
+          saveCodeVerifier: vi.fn(),
+          codeVerifier: vi.fn().mockReturnValue("test-verifier"),
+        },
+      });
+      try {
+        await transport.start();
+        await expect(
+          transport.send({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+        ).rejects.toMatchObject({
+          code: 502,
+          message: expect.stringContaining("Reconnect this server in PostHog"),
+        });
+        expect(transportFetch).toHaveBeenCalledTimes(1);
+        expect(redirectToAuthorization).not.toHaveBeenCalled();
+        expect(authServiceMock.refreshAccessToken).not.toHaveBeenCalled();
+      } finally {
+        await transport.close();
+      }
     });
 
     it("does not refresh on a permission denial", async () => {
