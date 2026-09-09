@@ -176,6 +176,13 @@ function scoutWeeklyDay(form: ScoutCreateFormValues): string {
     return day && /^[0-6]$/.test(day) ? day : DEFAULT_SCOUT_WEEKLY_DAY
 }
 
+// Version of the persisted draft's shape. The `name` field used to hold only the part after
+// `signals-scout-`, because the input rendered the prefix separately and the submit added it back.
+// Restoring such a draft into the field that now holds the whole name would create a differently
+// named scout, and would leave its suggestion on offer, because the backend retires a suggestion
+// only when the submitted name matches the one it proposed. Bumping this drops those drafts.
+const SCOUT_CREATE_DRAFT_STORAGE_VERSION = 'v2.'
+
 // Names the inbox reads as sub-pages of `/inbox/scouts/`, so a scout that took one could never be
 // opened. The backend refuses them too; this is so the reason shows next to the field.
 const RESERVED_SCOUT_NAMES = new Set(['scratchpad', 'findings', 'runs'])
@@ -320,7 +327,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
         // is a separate action rather than tied to the form reset.
         mcpServersDefaulted: [
             logicProps.initialValues?.config?.mcp_gateway_server_ids !== undefined,
-            buildUserScopedPersistenceConfig(),
+            buildUserScopedPersistenceConfig(SCOUT_CREATE_DRAFT_STORAGE_VERSION),
             {
                 markMcpServersDefaulted: () => true,
                 resetMcpServersDefaulted: () => logicProps.initialValues?.config?.mcp_gateway_server_ids !== undefined,
@@ -428,8 +435,12 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     // a fresh mount, so without this a restored draft would open unguarded and one backdrop click
     // would discard it.
     reducers(() => ({
-        scoutCreateForm: [DEFAULT_SCOUT_CREATE_FORM_VALUES, buildUserScopedPersistenceConfig(), {}],
-        scoutCreateFormChanged: [false, buildUserScopedPersistenceConfig(), {}],
+        scoutCreateForm: [
+            DEFAULT_SCOUT_CREATE_FORM_VALUES,
+            buildUserScopedPersistenceConfig(SCOUT_CREATE_DRAFT_STORAGE_VERSION),
+            {},
+        ],
+        scoutCreateFormChanged: [false, buildUserScopedPersistenceConfig(SCOUT_CREATE_DRAFT_STORAGE_VERSION), {}],
     })),
     // The team's servers load asynchronously, so the default is applied once they arrive
     // rather than in the form defaults. Applying it once keeps a later reload from
