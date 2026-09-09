@@ -313,6 +313,8 @@ ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stal
 
 `redis_missing` and `redis_error` are the pair that separates a cache-tier problem from an unreachable cluster. Keep them apart on dashboards and alerts. `redis_missing` reports the read, not the cause: reads go to the replica, so a key Django wrote to the primary counts here until it replicates. A sustained rise is a tier that holds nothing, and a short burst that clears on its own is lag.
 
+`hit`, `miss`, and `none` partition every request. The two failure labels sit on top of that partition, and do not slice it. A failed ETag read increments `redis_missing` or `redis_error`, then falls through and increments `none` or `miss` as well. So read a failure label as a ratio over `hit + miss + none`, and never as a share of a stacked total. Stacked, the total exceeds the request rate, and `none` climbs in step with `redis_missing` for the same underlying cause.
+
 Read repair result labels: `success`, `skipped` (key already existed, repair deferred to it), `error`
 
 `skipped` also covers replica lag: reads go to the replica and repairs to the primary, so a key written to the primary but not yet replicated reads as cold and its repair is correctly refused.
@@ -397,12 +399,12 @@ update_flag_caches(team)
 
 ## Common issues
 
-| Symptom                      | Likely cause                                        | Solution                                                                                                        |
-| ---------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Stale data after flag change | Signal not firing                                    | Check transaction.on_commit is used                                                                               |
-| Cache misses in production   | Redis unreachable, or the tier holds no entry        | Split the two with `flags_flag_definitions_etag_total`: `redis_error` is the cluster, `redis_missing` is the tier |
-| S3 fallback errors           | Object storage misconfigured                         | Verify OBJECT_STORAGE_ENABLED setting                                                                             |
-| ETag mismatches              | Non-deterministic JSON serialization                 | HyperCache uses `sort_keys=True`                                                                                  |
+| Symptom                      | Likely cause                                  | Solution                                                                                                          |
+| ---------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Stale data after flag change | Signal not firing                             | Check transaction.on_commit is used                                                                               |
+| Cache misses in production   | Redis unreachable, or the tier holds no entry | Split the two with `flags_flag_definitions_etag_total`: `redis_error` is the cluster, `redis_missing` is the tier |
+| S3 fallback errors           | Object storage misconfigured                  | Verify OBJECT_STORAGE_ENABLED setting                                                                             |
+| ETag mismatches              | Non-deterministic JSON serialization          | HyperCache uses `sort_keys=True`                                                                                  |
 
 ## Dedicated flags Redis
 
