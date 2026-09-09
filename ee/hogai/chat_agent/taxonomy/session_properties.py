@@ -7,14 +7,9 @@ def session_property_types() -> dict[str, str]:
     """
     Map each session property to the type to report for it, in the taxonomy's own order.
 
-    A session entry property is copied from the event property it comes from, and most of those
-    carry no type, so the copy has none either. The `sessions` table declares a column for each
-    one, so the column's type answers for the copy. A property with no type is dropped from the
-    taxonomy read, which is what left the web analytics acquisition fields, such as
-    `$entry_utm_source`, impossible to verify before a query used them.
-
-    A type in the taxonomy definition wins, because it is the type the rest of the product
-    already shows for that property.
+    A session entry property is copied from an event property that carries no type, so the copy
+    has none either, and an untyped property is dropped from the taxonomy read. The `sessions`
+    table declares a column for each one, so its type answers for the copy.
     """
     column_types = {
         str(prop["name"]): str(prop["property_type"]) for prop in get_lazy_session_table_properties_v2(None)

@@ -9,9 +9,6 @@ from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.chat_agent.taxonomy.entities import resolve_entity_name
 from ee.hogai.utils.helpers import format_events_yaml, get_event_description
 
-# The taxonomy names an entity in the singular, but a query reads the plural table it lives in,
-# so the accepted names are spelled out rather than left for a caller to guess from the query it
-# just wrote.
 ENTITY_FIELD_DESCRIPTION = (
     "The entity to read: `person`, `session` for the columns of the `sessions` table, or a group type name. "
     "The plural form of any of these is accepted too."

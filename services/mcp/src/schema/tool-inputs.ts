@@ -649,9 +649,6 @@ export const ExecuteSQLSchema = z.object({
 
 const MAX_EVENTS_PAGE_SIZE = 500
 
-// The taxonomy names an entity in the singular, but a query reads the plural table it lives
-// in, so the accepted names are spelled out here rather than left for a caller to guess from
-// the query it just wrote.
 const ENTITY_FIELD_DESCRIPTION =
     'The entity to read: `person`, `session` for the columns of the `sessions` table, or a group type name. The plural form of any of these is accepted too.'
 

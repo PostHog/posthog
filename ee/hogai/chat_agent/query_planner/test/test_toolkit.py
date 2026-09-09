@@ -210,8 +210,6 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_retrieve_entity_properties_lists_the_session_fields_web_analytics_breaks_down_by(self):
-        # A session property is reported only when it has a type, and the acquisition columns
-        # take theirs from the sessions table because their taxonomy definition has none.
         breakdown_fields = (
             "$entry_pathname",
             "$entry_hostname",
@@ -241,7 +239,6 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             toolkit.retrieve_entity_property_values("sessions", "$session_duration"),
             "30, 146, 2 and many more distinct values.",
         )
-        # An acquisition column has examples but no type of its own, which used to raise a KeyError.
         self.assertEqual(
             toolkit.retrieve_entity_property_values("session", "$entry_utm_source"),
             '"Google", "Bing", "Twitter", "Facebook" and many more distinct values.',

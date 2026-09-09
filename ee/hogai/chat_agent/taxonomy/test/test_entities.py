@@ -154,7 +154,6 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("session", property_vals)
         self.assertIn("$session_duration", "\n".join(property_vals.get("session", [])))
         self.assertIn("$channel_type", "\n".join(property_vals.get("session", [])))
-        # An acquisition column has examples but no type of its own, which used to raise a KeyError.
         self.assertIn("$entry_utm_source", "\n".join(property_vals.get("session", [])))
         self.assertTrue(any("Google" in str(val) for val in property_vals.get("session", [])))
         self.assertIn("nonexistent_property", "\n".join(property_vals.get("session", [])))
