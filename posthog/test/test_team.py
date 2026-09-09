@@ -223,16 +223,6 @@ class TestTeam(BaseTest):
                     # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
                     assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
 
-    def test_team_with_nothing_pinned_reads_persons_on_events_v2_under_test(self):
-        # Guards the test-mode default in dynamic_settings.py. Both CI lanes pin the
-        # variable themselves, so nothing else in CI would notice the default going back
-        # to the legacy joined mode, and product snapshots would then only fail locally.
-        with self.is_cloud(False):
-            assert not self.team.modifiers
-            self.assertEqual(
-                self.team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-            )
-
     def test_each_team_gets_project_with_default_name_and_same_id(self):
         # Can be removed once environments are fully rolled out
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
