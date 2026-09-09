@@ -356,7 +356,6 @@ services:
             KAFKA_HOSTS: 'kafka'
             DEPLOYMENT: hobby
             CDP_API_URL: 'http://plugins:6738'
-            FLAGS_REDIS_ENABLED: false
             # Off-ORM persons_db util (posthog/persons_db.py). Hobby keeps persons in
             # the main posthog DB, so both point there.
             PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@db:5432/posthog'
