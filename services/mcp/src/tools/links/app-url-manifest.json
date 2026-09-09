@@ -1749,11 +1749,6 @@
         "params": [],
         "scope": "project"
     },
-    "wizard": {
-        "template": "/wizard",
-        "params": [],
-        "scope": "project"
-    },
     "wizardRuns": {
         "template": "/wizard/runs",
         "params": [],
