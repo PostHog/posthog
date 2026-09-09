@@ -46,6 +46,14 @@ pub struct Config {
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        Self::init_from_env()
+        let config = Self::init_from_env()?;
+        // A zero pull interval panics the puller task, which would stop
+        // cross-pod convergence while the service keeps serving traffic.
+        if config.metrics_series_redis_pull_interval_secs == 0 {
+            return Err(envconfig::Error::ParseError {
+                name: "METRICS_SERIES_REDIS_PULL_INTERVAL_SECS",
+            });
+        }
+        Ok(config)
     }
 }
