@@ -14,6 +14,8 @@ const fragments = ["first source", "second source", "first source"].map(
     h: 240,
     z: index,
     codeVersion: 1,
+    surface: "card" as const,
+    hidden: false,
     code,
   }),
 );
@@ -21,6 +23,8 @@ const input = {
   sketchpadId: "board",
   name: "Sketchpad",
   headSeq: 1,
+  historyStartSeq: 1,
+  historySnapshot: { schemaVersion: 1 as const, fragments: [], state: {} },
   snapshot: { schemaVersion: 1 as const, fragments, state: {} },
 };
 
