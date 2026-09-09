@@ -11,7 +11,8 @@ from django.conf import settings
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from temporalio.client import WorkflowFailureError
+from temporalio.client import ScheduleOverlapPolicy, WorkflowFailureError
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -49,7 +50,7 @@ CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
 
 
 @pytest.mark.asyncio
-async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
+async def test_schedule_due_alert_checks_starts_child_with_shared_slo_context() -> None:
     alert = AlertInfo(
         alert_id="alert-1",
         team_id=42,
@@ -64,12 +65,14 @@ async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
             new=AsyncMock(return_value=[alert]),
         ),
         patch(
-            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_child_workflow", new=AsyncMock()
-        ) as execute_child,
+            "posthog.temporal.alerts.workflows.temporalio.workflow.start_child_workflow", new=AsyncMock()
+        ) as start_child,
     ):
         await ScheduleDueAlertChecksWorkflow().run()
 
-    inputs = execute_child.call_args.args[1]
+    start_child.assert_awaited_once()
+    assert start_child.await_args is not None
+    inputs = start_child.await_args.args[1]
     assert isinstance(inputs, CheckAlertWorkflowInputs)
     assert inputs.slo is not None
     assert inputs.slo.operation == SloOperation.ALERT_CHECK
@@ -88,10 +91,52 @@ async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
     assert "alert_state" not in inputs.slo.start_properties
 
 
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_skips_already_running_children() -> None:
+    alert = AlertInfo(
+        alert_id="alert-1",
+        team_id=42,
+        distinct_id="user-1",
+        calculation_interval=AlertCalculationInterval.DAILY.value,
+        insight_id=123,
+    )
+
+    with (
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
+            new=AsyncMock(return_value=[alert]),
+        ),
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.start_child_workflow",
+            new=AsyncMock(side_effect=WorkflowAlreadyStartedError("check-alert-alert-1", "check-alert")),
+        ) as start_child,
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.logger", new=MagicMock()),
+    ):
+        await ScheduleDueAlertChecksWorkflow().run()
+
+    start_child.assert_awaited_once()
+
+
 def test_schedule_is_registered_in_init_schedules():
     from posthog.temporal.schedule import schedules
 
     assert create_schedule_due_alert_checks_schedule in schedules
+
+
+@pytest.mark.asyncio
+async def test_due_alert_schedule_skips_overlapping_runs() -> None:
+    captured: dict = {}
+
+    async def create_schedule(*args, **kwargs) -> None:
+        captured["schedule"] = args[2]
+
+    with (
+        patch("posthog.temporal.alerts.schedule.a_schedule_exists", new=AsyncMock(return_value=False)),
+        patch("posthog.temporal.alerts.schedule.a_create_schedule", new=create_schedule),
+    ):
+        await create_schedule_due_alert_checks_schedule(MagicMock())
+
+    assert captured["schedule"].policy.overlap == ScheduleOverlapPolicy.SKIP
 
 
 def _valid_trends_query() -> dict:

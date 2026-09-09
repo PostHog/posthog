@@ -1,11 +1,10 @@
 import json
-import asyncio
 import datetime as dt
 from uuid import UUID
 
 import temporalio.common
 import temporalio.workflow
-from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.schema import AlertState
 
@@ -61,64 +60,42 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
             ),
         )
 
-        # Fan-out child workflows — one per alert. Deterministic ID prevents
-        # duplicate checks when schedule runs overlap; Temporal guarantees no
-        # two open workflows can share the same ID, so a still-running child
-        # rejects the duplicate start.
-        tasks = []
+        # Fan-out child workflows — one per alert. Deterministic IDs prevent
+        # duplicate checks from retries or concurrent manual triggers. Wait
+        # only for Temporal to accept the start; the children run independently.
         for alert in alerts:
             slo_properties: dict[str, JsonValue] = {
                 "alert_type": "insight",
                 "calculation_interval": alert.calculation_interval,
                 "insight_id": alert.insight_id,
             }
-            task = temporalio.workflow.execute_child_workflow(
-                CheckAlertWorkflow.run,
-                CheckAlertWorkflowInputs(
-                    alert_id=alert.alert_id,
-                    team_id=alert.team_id,
-                    distinct_id=alert.distinct_id,
-                    calculation_interval=alert.calculation_interval,
-                    insight_id=alert.insight_id,
-                    slo=SloConfig(
-                        operation=SloOperation.ALERT_CHECK,
-                        area=SloArea.ANALYTIC_PLATFORM,
+            try:
+                await temporalio.workflow.start_child_workflow(
+                    CheckAlertWorkflow.run,
+                    CheckAlertWorkflowInputs(
+                        alert_id=alert.alert_id,
                         team_id=alert.team_id,
-                        resource_id=alert.alert_id,
                         distinct_id=alert.distinct_id,
-                        start_properties=slo_properties.copy(),
-                        completion_properties=slo_properties.copy(),
+                        calculation_interval=alert.calculation_interval,
+                        insight_id=alert.insight_id,
+                        slo=SloConfig(
+                            operation=SloOperation.ALERT_CHECK,
+                            area=SloArea.ANALYTIC_PLATFORM,
+                            team_id=alert.team_id,
+                            resource_id=alert.alert_id,
+                            distinct_id=alert.distinct_id,
+                            start_properties=slo_properties.copy(),
+                            completion_properties=slo_properties.copy(),
+                        ),
                     ),
-                ),
-                id=f"check-alert-{alert.alert_id}",
-                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=alert_timeouts(alert.calculation_interval).workflow_execution,
-            )
-            tasks.append(task)
-
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            failed_ids = []
-            for alert, result in zip(alerts, results):
-                if isinstance(result, BaseException):
-                    if isinstance(result, WorkflowAlreadyStartedError):
-                        # Previous schedule run's child still processing this
-                        # alert — not a failure, just skip it.
-                        temporalio.workflow.logger.info(
-                            "check_alert.already_running",
-                            extra={"alert_id": alert.alert_id},
-                        )
-                    else:
-                        failed_ids.append(alert.alert_id)
-                        temporalio.workflow.logger.warning(
-                            "check_alert.child_workflow_error",
-                            extra={"alert_id": alert.alert_id, "error": str(result)},
-                        )
-
-            if failed_ids:
-                raise ApplicationError(
-                    f"Alert checks failed for IDs: {failed_ids}",
-                    non_retryable=True,
+                    id=f"check-alert-{alert.alert_id}",
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=alert_timeouts(alert.calculation_interval).workflow_execution,
+                )
+            except WorkflowAlreadyStartedError:
+                temporalio.workflow.logger.info(
+                    "check_alert.already_running",
+                    extra={"alert_id": alert.alert_id},
                 )
 
 
