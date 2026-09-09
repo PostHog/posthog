@@ -730,6 +730,12 @@ CREATE TABLE posthog.person_overrides_to_delete (
   distinct_id String,
   partitions Array(String)
 ) ENGINE = Join(ANY, LEFT, team_id, distinct_id);
+CREATE TABLE posthog.person_property_mutation_log (
+  team_id Int64,
+  event_uuid UUID,
+  properties String,
+  ingested_at DateTime('UTC')
+) ENGINE = Distributed('aux', 'posthog', 'person_property_mutation_log_data');
 CREATE TABLE posthog.person_static_cohort (
   id UUID,
   person_id UUID,

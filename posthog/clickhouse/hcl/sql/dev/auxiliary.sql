@@ -145,6 +145,12 @@ CREATE TABLE posthog.message_assets_data (
   INDEX person_id_idx person_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX recipient_idx recipient TYPE bloom_filter(0.01) GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.message_assets_data', '{replica}-{shard}', version) ORDER BY (team_id, function_kind, function_id, invocation_id, action_id) PARTITION BY toYYYYMMDD(sent_at) TTL toDate(sent_at) + toIntervalDay(30) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.person_property_mutation_log_data (
+  team_id Int64,
+  event_uuid UUID,
+  properties String,
+  ingested_at DateTime('UTC')
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at) ORDER BY (team_id, event_uuid) PARTITION BY toDate(ingested_at) TTL ingested_at + toIntervalDay(30) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.property_values (
   team_id Int64 CODEC(DoubleDelta, ZSTD(1)),
   property_type LowCardinality(String),
@@ -1155,6 +1161,12 @@ CREATE TABLE posthog.message_assets (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'message_assets_data');
+CREATE TABLE posthog.person_property_mutation_log (
+  team_id Int64,
+  event_uuid UUID,
+  properties String,
+  ingested_at DateTime('UTC')
+) ENGINE = Distributed('aux', 'posthog', 'person_property_mutation_log_data');
 CREATE TABLE posthog.session_replay_features (
   session_id String,
   team_id Int64,
