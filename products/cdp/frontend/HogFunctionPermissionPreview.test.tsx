@@ -51,6 +51,15 @@ describe('HogFunctionPermissionPreview', () => {
         ],
         ['an empty configuration', [{ props: { id: 'function-1' }, values: { loaded: true, configuration: {} } }]],
         [
+            'a new-function form carrying no id',
+            [
+                {
+                    props: { templateId: 'template-1' },
+                    values: { loaded: true, configuration: { name: 'Template default' } },
+                },
+            ],
+        ],
+        [
             'different function',
             [
                 {
@@ -73,6 +82,25 @@ describe('HogFunctionPermissionPreview', () => {
             mounted as ReturnType<typeof hogFunctionConfigurationLogic.findAllMounted>
         )
         render(<HogFunctionPermissionPreview request={request} fallback={<div>Original evidence</div>} />)
+        expect(screen.getByText('Original evidence')).toBeInTheDocument()
+    })
+
+    it('uses evidence when the proposal names no function', () => {
+        jest.mocked(hogFunctionConfigurationLogic.findAllMounted).mockReturnValue([
+            { props: { id: 'function-1' }, values: { loaded: true, configuration: { name: 'Original destination' } } },
+        ] as ReturnType<typeof hogFunctionConfigurationLogic.findAllMounted>)
+        render(
+            <HogFunctionPermissionPreview
+                request={{
+                    ...request,
+                    rawToolCall: {
+                        ...request.rawToolCall,
+                        input: { command: 'call cdp-functions-partial-update {"name":"Updated destination"}' },
+                    },
+                }}
+                fallback={<div>Original evidence</div>}
+            />
+        )
         expect(screen.getByText('Original evidence')).toBeInTheDocument()
     })
 
