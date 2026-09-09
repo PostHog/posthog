@@ -48,6 +48,7 @@ import {
 import { useCreateTask } from "@posthog/ui/features/tasks/useTaskCrudMutations";
 import { Badge } from "@posthog/ui/primitives/Badge";
 import { toast } from "@posthog/ui/primitives/toast";
+import { settingsSourceHref } from "@posthog/ui/router/reportNavigation";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
@@ -199,6 +200,7 @@ export function ConfigureAgentsSection() {
         <Link
           to="/settings/$category"
           params={{ category: "mcp-servers" }}
+          search={{ from: settingsSourceHref() }}
           onClick={() =>
             track(ANALYTICS_EVENTS.AGENTS_ACTION, {
               action_type: "open_mcp_servers",

@@ -38,8 +38,11 @@ export function useScoutDeepLink() {
     log.info(
       `Opening scout from deep link: skillSlug=${skillSlug} findingId=${findingId ?? "(none)"}`,
     );
-    agentsPageActions().openAgent(skillSlug, { findingId });
+    // One navigation carries the whole target: a second call (openSettings
+    // after openAgent) builds its own entry and clears the agent fields the
+    // first one wrote.
     openSettings("agents");
+    agentsPageActions().openAgent(skillSlug, { findingId });
   }, []);
 
   useEffect(() => {
