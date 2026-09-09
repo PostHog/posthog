@@ -2340,20 +2340,28 @@ class TestSaveTimeAccessBlock(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
 
-    def test_adding_insight_to_shared_dashboard_blocked(self):
+    @parameterized.expand([("stored_query",), ("query_in_same_patch",)])
+    def test_adding_insight_to_shared_dashboard_blocked(self, coverage: str):
         self._deny_editor()
-        self.insight.query = self._DENIED_QUERY
-        self.insight.save()
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
         SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        payload: dict = {"dashboards": [dashboard.id]}
+        if coverage == "stored_query":
+            self.insight.query = self._DENIED_QUERY
+            self.insight.save()
+        else:
+            # The insight isn't shared yet, so only the dashboard gate runs. It must see the
+            # incoming query, not the stored one that is about to be overwritten.
+            payload["query"] = self._DENIED_QUERY
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"dashboards": [dashboard.id]}
-        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/insights/{self.insight.id}/", payload)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "publicly shared" in str(response.json())
         assert not DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists()
+        if coverage == "query_in_same_patch":
+            self.insight.refresh_from_db()
+            assert self.insight.query["source"]["query"] == "SELECT 1 AS one"
 
     def test_adding_insight_to_unshared_dashboard_allowed(self):
         self._deny_editor()

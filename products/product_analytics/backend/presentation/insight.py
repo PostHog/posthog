@@ -935,7 +935,8 @@ class InsightSerializer(InsightBasicSerializer):
         else:
             dashboard_ids = validated_data.pop("dashboards", None)
             if dashboard_ids is not None:
-                self._update_insight_dashboards(dashboard_ids, instance)
+                # The membership write runs before the query is saved, so gate on the incoming one.
+                self._update_insight_dashboards(dashboard_ids, instance, validated_data.get("query", instance.query))
 
         updated_insight = super().update(instance, validated_data)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
@@ -1008,7 +1009,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         return []
 
-    def _update_insight_dashboards(self, dashboard_ids: list[int], instance: Insight) -> None:
+    def _update_insight_dashboards(self, dashboard_ids: list[int], instance: Insight, query: Any) -> None:
         # Counts the field being accepted as write input — before the no-op early return, so
         # integrations that round-trip an unchanged dashboards list still register as writers.
         _record_deprecated_dashboards_field_used(self.context, usage="write")
@@ -1017,6 +1018,7 @@ class InsightSerializer(InsightBasicSerializer):
             change = update_insight_dashboard_membership(
                 insight=instance,
                 dashboard_ids=dashboard_ids,
+                query=query,
                 user=self.context["request"].user,
                 user_permissions=self.user_permissions,
                 user_access_control=self.user_access_control,
