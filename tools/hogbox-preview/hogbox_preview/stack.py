@@ -222,18 +222,20 @@ class PostHogPreviewStack:
         self.wait_for_health()
         return self.backend.web_url
 
-    def _reuse_existing_secret_key(self) -> None:
-        """Adopt the SECRET_KEY the box already runs with (read from its override)
-        so a deferred swap doesn't rotate it. Falls back to the freshly-minted
-        key when the override can't be read — shouldn't happen post-bring_up, but
-        a random key is a safe default either way."""
-        r = self.backend.exec(
-            f"sed -n 's/.*SECRET_KEY=//p' {self.repo_dir}/{self.OVERRIDE} 2>/dev/null | head -n1",
+    def _override_value(self, name: str) -> str:
+        """Read one environment value out of the override the box already runs
+        with. Empty when the box has no override yet, or no such entry."""
+        return self.backend.exec(
+            f"sed -n 's/.*{name}=//p' {self.repo_dir}/{self.OVERRIDE} 2>/dev/null | head -n1",
             timeout=60,
-        )
-        key = r.stdout.strip()
-        if key:
-            self.secret_key = key
+        ).stdout.strip()
+
+    def _reuse_existing_secret_key(self) -> None:
+        """Adopt the SECRET_KEY the box already runs with so a deferred swap
+        doesn't rotate it. Falls back to the freshly-minted key when the override
+        can't be read — shouldn't happen post-bring_up, but a random key is a
+        safe default either way."""
+        self.secret_key = self._override_value("SECRET_KEY") or self.secret_key
 
     def _ensure_oidc_private_key(self) -> None:
         """Give the box an RSA key for OAuth token signing, once per box.
@@ -244,10 +246,7 @@ class PostHogPreviewStack:
         the override when the box already has one, because rotating it would
         invalidate every token the preview already issued.
         """
-        existing = self.backend.exec(
-            f"sed -n 's/.*OIDC_RSA_PRIVATE_KEY=//p' {self.repo_dir}/{self.OVERRIDE} 2>/dev/null | head -n1",
-            timeout=60,
-        ).stdout.strip()
+        existing = self._override_value("OIDC_RSA_PRIVATE_KEY")
         if existing:
             self.oidc_private_key = existing
             return
@@ -355,7 +354,7 @@ class PostHogPreviewStack:
             f"      - SECRET_KEY={self.secret_key}",
             # Without this PostHog refuses to sign OAuth tokens, so an OAuth
             # application cannot be saved on the preview.
-            *([f"      - OIDC_RSA_PRIVATE_KEY={self.oidc_private_key}"] if self.oidc_private_key else []),
+            f"      - OIDC_RSA_PRIVATE_KEY={self.oidc_private_key}",
             # A preview serves one user, and each worker costs a full Django import
             # at boot, so one worker reaches a serving /_health much sooner.
             "      - GRANIAN_WORKERS=1",
