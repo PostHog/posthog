@@ -938,7 +938,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     // person asking for a blank insight. Building the stock trends query for it
                     // would throw the drill-down away. The previous location is meaningless on the
                     // mount replay, where it holds the current one, so only compare a real previous.
-                    const straySamePageWrite = !q && !initial && previousPathname === pathname
+                    // Read the raw type rather than `queryFromUrl`, which stays null for a type the
+                    // enum does not recognize.
+                    const straySamePageWrite = !q && !insightType && !initial && previousPathname === pathname
                     if (straySamePageWrite && !queryFromUrl && isDrillDownTable(values.insightQuery)) {
                         return
                     }

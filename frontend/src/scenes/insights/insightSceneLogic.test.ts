@@ -281,9 +281,9 @@ describe('insightSceneLogic', () => {
         }
     })
 
-    it('keeps a drill-down when a stray write lands during the cold-load upgrade', async () => {
-        // A cold load applies the drill-down through upgradeQuery rather than the reset block, and
-        // that request is in flight for about the second the table is visible before it disappears.
+    it('keeps a drill-down that arrived through the cold-load path', async () => {
+        // A cold load routes the query through `upgradeQuery` instead of the reset block, so the
+        // stray write meets a scene that reached the same table by a different route.
         const dataTableQuery = {
             kind: NodeKind.DataTableNode,
             source: {
@@ -303,9 +303,38 @@ describe('insightSceneLogic', () => {
         expect((logic.values.insightLogicRef?.logic.values.insight.query as any)?.kind).toEqual(NodeKind.DataTableNode)
     })
 
-    it('replaces a drill-down left in memory when a blank insight is opened from another page', async () => {
+    it('replaces a drill-down when a blank insight is opened from another page', async () => {
+        // The scene stays mounted across this move, so the navigation is not an initial one. Only
+        // the path comparison separates it from a stray write.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+            },
+        }
+
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        await expectLogic(logic).toFinishAllListeners()
+        expect((logic.values.insightLogicRef?.logic.values.insight.query as any)?.kind).toEqual(NodeKind.DataTableNode)
+
+        router.actions.push(urls.savedInsights())
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push(urls.insightNew())
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((logic.values.insightLogicRef?.logic.values.insight.query as any)?.kind).toEqual(NodeKind.InsightVizNode)
+    })
+
+    it('replaces a drill-down left in memory when the scene remounts', async () => {
         // The scene's insight logics outlive the scene, so a drill-down stays in memory after the
-        // user leaves. Opening a blank insight from the saved insights list must still reset.
+        // user leaves. Opening a blank insight after a remount must still reset.
         const dataTableQuery = {
             kind: NodeKind.DataTableNode,
             source: {
