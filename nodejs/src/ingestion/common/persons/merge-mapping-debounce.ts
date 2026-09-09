@@ -13,19 +13,16 @@ export class MergeMappingDebounce {
         this.cache = new LRUCache({ max: maxEntries, ttl: ttlMs })
     }
 
-    /** Returns the distinct ids not seen within the TTL, marking them seen. */
-    claim(teamId: number, distinctIds: string[]): string[] {
-        return distinctIds.filter((distinctId) => {
-            const key = `${teamId}:${distinctId}`
-            if (this.cache.has(key)) {
-                return false
-            }
-            this.cache.set(key, true)
-            return true
-        })
+    /**
+     * Returns the distinct ids not seen within the TTL, without marking them:
+     * callers mark via touch only after their emission succeeds, so a failed
+     * read or produce leaves the ids eligible for the retry to heal.
+     */
+    unseen(teamId: number, distinctIds: string[]): string[] {
+        return distinctIds.filter((distinctId) => !this.cache.has(`${teamId}:${distinctId}`))
     }
 
-    /** Marks freshly written mappings so an immediately following no-op does not re-emit them. */
+    /** Marks handled mappings so a following no-op does not re-emit them. */
     touch(teamId: number, distinctIds: string[]): void {
         for (const distinctId of distinctIds) {
             this.cache.set(`${teamId}:${distinctId}`, true)

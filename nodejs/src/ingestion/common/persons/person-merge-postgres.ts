@@ -243,7 +243,7 @@ export class PostgresPersonMerge {
         if (!debounce) {
             return { kafkaAck: Promise.resolve() }
         }
-        const toEmit = debounce.claim(this.teamId, distinctIds)
+        const toEmit = debounce.unseen(this.teamId, distinctIds)
         mergeNoopMappingEmissionCounter.labels({ action: 'debounced' }).inc(distinctIds.length - toEmit.length)
         if (toEmit.length === 0) {
             return { kafkaAck: Promise.resolve() }
@@ -251,9 +251,15 @@ export class PostgresPersonMerge {
         const mappings = await this.store.fetchPersonDistinctIdMappings(this.teamId, toEmit)
         mergeNoopMappingEmissionCounter.labels({ action: 'emitted' }).inc(mappings.length)
         if (mappings.length === 0) {
+            debounce.touch(this.teamId, toEmit)
             return { kafkaAck: Promise.resolve() }
         }
-        return { kafkaAck: this.produceMessages(mappings.map((mapping) => mapping.message)) }
+        // Mark only on delivery: a failed read or produce replays the event, and the
+        // replay must find the ids unmarked to heal them.
+        const kafkaAck = this.produceMessages(mappings.map((mapping) => mapping.message)).then(() =>
+            debounce.touch(this.teamId, toEmit)
+        )
+        return { kafkaAck }
     }
 
     private async produceMessages(messages: PersonMessage[]): Promise<void> {
