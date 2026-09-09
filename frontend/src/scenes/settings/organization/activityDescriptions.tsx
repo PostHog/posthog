@@ -4,6 +4,7 @@ import {
     HumanizedChange,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { UserNameWithEmail } from 'lib/components/ActivityLog/UserNameWithEmail'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { membershipLevelToName } from 'lib/utils/permissioning'
@@ -161,10 +162,12 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
     const targetEmail = context?.target_email || ''
     const organizationName = context?.organization_name || 'the organization'
     const level = context?.level || 'member'
-    // The backend supplies inviter_user_name when the invite was not created by the acting user, so
-    // that name has no log item to resolve an email from.
+    // The context names whoever created the invite, who is not always the person who acted on this
+    // row, so the email must come from the same context as the name. A system or impersonated row
+    // hides it, as the actor's name and avatar do.
+    const inviterEmail = logItem.is_system || logItem.was_impersonated ? undefined : context?.inviter_user_email
     const inviter = context?.inviter_user_name ? (
-        <strong className="ph-no-capture">{context.inviter_user_name}</strong>
+        <UserNameWithEmail name={context.inviter_user_name} email={inviterEmail} />
     ) : (
         <ActivityLogUserName logItem={logItem} />
     )
