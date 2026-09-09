@@ -129,9 +129,10 @@ function pickCapRetryDelayMs(retryAfterMs: number | null, refillPerSecond: numbe
     return Math.floor(clampedMs * (1 + Math.random()))
 }
 
-// Observations pinned at the top bucket mean a backlog deeper than the reservation
-// horizon: those sends re-contend hourly instead of holding a real slot, so a sustained
-// top-bucket rate is the signal that a team's backlog outruns its sending budget.
+// A reserved park never reaches past the horizon, so it lands at or below the top bucket.
+// A park beyond the top bucket is an overflow send, jittered above the horizon because its
+// own slot lies further out than the cursor will reserve. A sustained rate up there is the
+// signal that a team's backlog outruns its sending budget.
 const emailReservedParkMs = new Histogram({
     name: 'cdp_email_reserved_park_ms',
     help: 'How far into the future a rate-limit-denied email parked, by limiter.',
@@ -155,8 +156,11 @@ function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: 
         return parkMs
     }
     // Past the horizon the limiter reserves nothing and hands every caller the same wake time,
-    // so these callers spread themselves or they re-contend as one herd.
-    return parkMs + Math.floor(Math.random() * 250)
+    // and that population is unbounded. Spread it across the whole horizon, the way the tier-cap
+    // sibling above does. An overflow caller's own slot already lies past the horizon, so waking
+    // it exactly there is too early by construction: it cannot send yet, and the whole group
+    // arriving together only refills the queue head with claims that must be denied.
+    return Math.floor(parkMs * (1 + Math.random()))
 }
 
 const teamEmailCapDelayedTotal = new Counter({

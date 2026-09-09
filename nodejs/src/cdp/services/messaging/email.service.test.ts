@@ -510,13 +510,13 @@ describe('EmailService', () => {
                 // then finds the bucket short and parks again behind the whole queue.
                 ['exactly at the reserved slot', 5000, true, 5000, 5000],
                 // Past the horizon nothing is reserved and every caller is handed the same wake
-                // time, so those wakes get up to 250ms of spread to break up the herd.
+                // time, so those wakes are spread 1x-2x across the whole horizon.
                 [
                     'with spread when re-contending at the horizon',
                     60 * 60 * 1000,
                     false,
                     60 * 60 * 1000,
-                    60 * 60 * 1000 + 249,
+                    2 * 60 * 60 * 1000,
                 ],
                 // No horizon at all (error-path denial) falls back to the clamped token
                 // interval: 120/minute refills every 500ms, clamped to [1s, 2s] jittered.
@@ -565,6 +565,27 @@ describe('EmailService', () => {
                     expect(parkedAt).toBeGreaterThanOrEqual(before + i * slotMs)
                     expect(parkedAt).toBeLessThanOrEqual(after + i * slotMs)
                 }
+            })
+
+            it('scatters a backlog that overflows the reservation horizon', async () => {
+                // Once the slot cursor runs past the horizon the limiter reserves nothing and
+                // hands every remaining send the same wake time. That set is unbounded, and a
+                // rescheduled email keeps its dequeue position, so waking them together puts the
+                // whole group back at the head of the queue to be denied again.
+                claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs: 60 * 60 * 1000, reserved: false })
+
+                const parkedAt: number[] = []
+                for (let i = 0; i < 20; i++) {
+                    const denied = await limitedService.executeSendEmail(invocation)
+                    expect(denied.finished).toBe(false)
+                    parkedAt.push(denied.invocation.queueScheduledAt!.toMillis())
+                }
+
+                // The wakes have to cover a real span of the horizon rather than one narrow
+                // window. Twenty samples spread over an hour clear ten minutes with room to
+                // spare; the herd this replaces fits inside a quarter of a second.
+                const spreadMs = Math.max(...parkedAt) - Math.min(...parkedAt)
+                expect(spreadMs).toBeGreaterThan(10 * 60 * 1000)
             })
 
             it('claims one token scoped to the workflow and sends when granted', async () => {
