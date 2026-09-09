@@ -141,6 +141,13 @@ class TestEventFilterCheck(QueryScanCheckTest):
                 "usable",
                 None,
             ),
+            (
+                # Positional aliases rename by the table's column order, so `kind` is `event`.
+                "filter on a renamed event column",
+                "SELECT count() FROM events AS e (id, kind, props, ts) WHERE e.kind = 'a'",
+                "usable",
+                None,
+            ),
         ]
     )
     @freeze_time(NOW)
@@ -269,6 +276,13 @@ class TestStartDateCheck(QueryScanCheckTest):
                 "bound outside a union of two events reads",
                 "SELECT count() FROM (SELECT timestamp FROM events UNION ALL SELECT timestamp FROM events) "
                 "WHERE timestamp >= '2026-01-01'",
+                "bound",
+                date(2026, 1, 1),
+            ),
+            (
+                # Positional aliases rename by the table's column order, so `ts` is `timestamp`.
+                "bound on a renamed timestamp column",
+                "SELECT count() FROM events AS e (id, kind, props, ts) WHERE e.ts >= '2026-01-01'",
                 "bound",
                 date(2026, 1, 1),
             ),

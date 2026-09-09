@@ -122,7 +122,7 @@ def resolve_to_table_columns(type_: ast.Type | None) -> list[tuple[ast.TableType
             continue
         table_type = _unwrap_table_alias(current.table_type)
         if isinstance(table_type, ast.TableType):
-            resolved.append((table_type, current.name))
+            resolved.append((table_type, _physical_column_name(current)))
             continue
         select_type = _select_type_of(table_type)
         if select_type is None:
@@ -130,6 +130,19 @@ def resolve_to_table_columns(type_: ast.Type | None) -> list[tuple[ast.TableType
         pending.extend((column, hops + 1) for column in _exported_columns(select_type, current.name))
 
     return resolved
+
+
+def _physical_column_name(field_type: ast.FieldType) -> str:
+    """The database column a field names.
+
+    ``FROM events AS e (id, kind, props, ts)`` renames the table's columns for the query, and
+    the field keeps the name the query used, so map it back the way
+    ``FieldType.resolve_database_field`` does.
+    """
+    table_type = field_type.table_type
+    if isinstance(table_type, ast.ColumnAliasedTableType):
+        return table_type.alias_to_original.get(field_type.name, field_type.name)
+    return field_type.name
 
 
 def _unwrap_table_alias(table_type: ast.Type) -> ast.Type:
