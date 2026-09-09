@@ -632,6 +632,63 @@ describe('PushNotificationService', () => {
             })
         })
 
+        it('declares a content-available push with no alert body as background', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+            invocation.queueParameters = {
+                ...invocation.queueParameters,
+                payload: {
+                    title: 'Test',
+                    apns: { contentAvailable: true },
+                },
+            } as any
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            expect(mockTrackedFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    fetchParams: expect.objectContaining({
+                        headers: expect.objectContaining({ 'apns-push-type': 'background' }),
+                    }),
+                })
+            )
+        })
+
+        it('keeps a content-available push that also carries an alert body as alert', async () => {
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+            invocation.queueParameters = {
+                ...invocation.queueParameters,
+                payload: {
+                    title: 'Test',
+                    body: 'You have a new message',
+                    apns: { contentAvailable: true },
+                },
+            } as any
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            expect(mockTrackedFetch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    fetchParams: expect.objectContaining({
+                        headers: expect.objectContaining({ 'apns-push-type': 'alert' }),
+                    }),
+                })
+            )
+        })
+
         it('reuses a cached APNS provider token across sends instead of minting one each time', async () => {
             const send = (): Promise<any> =>
                 service.executeSendPushNotification(
