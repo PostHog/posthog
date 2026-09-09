@@ -48,6 +48,7 @@ import {
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     findSchemaByFieldName,
     generateUniqueName,
+    sanitizeIntegrationFilter,
     validColumnsForTiles,
 } from './utils'
 
@@ -248,6 +249,7 @@ export interface marketingAnalyticsLogicValues {
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // sourceManagementLogic
     baseCurrency: CurrencyCode // teamLogic
     _drillDownLevel: MarketingAnalyticsDrillDownLevel
+    _integrationFilter: IntegrationFilter
     activeTab: MarketingAnalyticsTab
     allAvailableSources: {
         id: string
@@ -485,6 +487,7 @@ export interface marketingAnalyticsLogicMeta {
             _drillDownLevel: MarketingAnalyticsDrillDownLevel,
             featureFlags: FeatureFlagsSet
         ) => MarketingAnalyticsDrillDownLevel
+        integrationFilter: (stored: IntegrationFilter) => IntegrationFilter
         validSourcesMap: (sources_map: Record<string, SourceMap>) => {
             [x: string]: SourceMap
         } | null
@@ -723,7 +726,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
             ],
             optionsOpen: [false as boolean, { setOptionsOpen: (_, { optionsOpen }) => optionsOpen }],
-            integrationFilter: [
+            _integrationFilter: [
                 { integrationSourceIds: [] } as IntegrationFilter,
                 persistConfig,
                 {
@@ -839,6 +842,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         }
     }),
     selectors({
+        integrationFilter: [
+            (s) => [s._integrationFilter],
+            (stored: IntegrationFilter): IntegrationFilter => sanitizeIntegrationFilter(stored),
+        ],
         drillDownLevel: [
             (s) => [s._drillDownLevel, s.featureFlags],
             (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
