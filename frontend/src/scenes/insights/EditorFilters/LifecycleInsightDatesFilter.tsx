@@ -17,7 +17,7 @@ export function LifecycleInsightDatesFilter(): JSX.Element {
                 updateInsightFilter({ onlyUseInsightDates: checked })
             }}
             label={<span className="font-normal">Only use insight dates</span>}
-            info="Decide who is new from the date range, not from when we first saw the person. Anyone active in the first period counts as new, and activity before the range is ignored."
+            info="Decide who is new from the date range, not from when each counted person, group, or data warehouse row was created. Anyone active in the first period counts as new, and activity before the range is ignored."
             size="small"
         />
     )

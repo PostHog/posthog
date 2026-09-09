@@ -440,7 +440,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
     @property
     def only_use_insight_dates(self) -> bool:
-        """True when the date range, not the profile creation date, is the origin of the history."""
+        """True when the date range, not the actor creation date, is the origin of the history."""
         return bool(self.query.lifecycleFilter and self.query.lifecycleFilter.onlyUseInsightDates)
 
     @property
