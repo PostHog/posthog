@@ -632,6 +632,33 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(response.json()["code"], expected_code)
 
+    @parameterized.expand(
+        [
+            (
+                "attributes",
+                "LogAttributesQueryRunner",
+                "attributes",
+                {"attribute_type": "log", "search": "service"},
+            ),
+            (
+                "values",
+                "LogValuesQueryRunner",
+                "values",
+                {"attribute_type": "log", "key": "service.name"},
+            ),
+        ]
+    )
+    def test_attribute_endpoints_report_missing_logs_schema(self, _name, runner, path, query_params):
+        # These two actions catch exposed ClickHouse errors themselves, so a missing logs table
+        # must still reach the typed answer rather than the raw ClickHouse text.
+        with patch(
+            f"products.logs.backend.presentation.views.api.{runner}.calculate",
+            side_effect=CHQueryErrorUnknownTable("Table logs does not exist", code=60),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/logs/{path}", query_params)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "logs_not_available")
+
     @freeze_time("2025-12-16T10:33:00Z")
     def test_logs_integration_exact_limit(self):
         # query matches exactly 50 results from the test data

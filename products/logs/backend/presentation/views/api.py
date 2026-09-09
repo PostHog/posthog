@@ -1799,6 +1799,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         try:
             result = runner.calculate()
         except (QueryError, ExposedCHQueryError) as e:
+            # A missing logs schema arrives as an exposed ClickHouse error, so let it through to
+            # handle_exception for the typed answer instead of showing the raw ClickHouse text.
+            if logs_unavailable_reason(e) is not None:
+                raise
             # A user query error (HogQL or ClickHouse) becomes a clean 400 the filter can show.
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(
@@ -1878,6 +1882,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             try:
                 result = runner.calculate()
             except (QueryError, ExposedCHQueryError) as e:
+                # A missing logs schema arrives as an exposed ClickHouse error, so let it through to
+                # handle_exception for the typed answer instead of showing the raw ClickHouse text.
+                if logs_unavailable_reason(e) is not None:
+                    raise
                 # A user query error (HogQL or ClickHouse) becomes a clean 400 the filter can show.
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
             span.set_attribute("result_count", len(result.results))
