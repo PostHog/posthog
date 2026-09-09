@@ -260,6 +260,7 @@ class HogQLDatabaseSources:
     # synced S3 copies, so the build derives virtual DirectSQLTables from these schema rows instead.
     virtual_source: Optional[ExternalDataSource] = None
     virtual_schemas: list[ExternalDataSchema] = dataclasses.field(default_factory=list)
+
     def copy_for_request(
         self,
         team: Team,

@@ -18,16 +18,15 @@ FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 
 
 class FlagEvaluationsPersonSubTable(VirtualTable):
-    """Person columns carried on the flag-evaluation row itself.
+    """The person column carried on the flag-evaluation row itself.
 
-    Narrower than EventsPersonSubTable, which also declares `person_created_at` -- a column this
-    table does not store, so reusing it would let `person.created_at` and `SELECT person.*`
-    compile into a column the shards lack.
+    Narrower than EventsPersonSubTable, which also declares `person_created_at` and `properties` --
+    columns this table does not store, so reusing it would let `person.created_at`,
+    `person.properties` and `SELECT person.*` compile into a column the shards lack.
     """
 
     fields: dict[str, FieldOrTable] = {
         "id": UUIDDatabaseField(name="person_id", nullable=False),
-        "properties": StringJSONDatabaseField(name="person_properties", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):
@@ -100,12 +99,12 @@ class FlagEvaluationsTable(Table):
             nullable=False,
             description="Identifier of the flag-evaluation request, shared by every flag evaluated in it.",
         ),
-        # Person columns on the row itself. Should not be used directly; reached via `person`.
+        # The person column on the row itself. Should not be used directly; reached via `person`.
         "poe": FlagEvaluationsPersonSubTable(),
         "person": FieldTraverser(
             chain=["poe"],
-            description="The person the evaluation was attributed to when it happened. Access properties via "
-            "`person.properties.*`.",
+            description="The person the evaluation was attributed to when it happened. Carries the id alone: the "
+            "row stores no person properties, so join to `persons` to read them.",
         ),
         # Group keys only. The row carries no group properties, so there is nothing to traverse to:
         # join to `groups` on one of these keys to read a group's current properties.

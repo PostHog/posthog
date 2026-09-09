@@ -17,10 +17,7 @@ from posthog.models import PropertyDefinition
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 
-# The row carries the same key in both blobs with a different value in each, so a field pointed at
-# the wrong physical column returns the other blob's value instead of merely returning something.
 EVENT_PROBE = "from-event-properties"
-PERSON_PROBE = "from-person-properties"
 
 # Compares greater than 9 as a number and less than it as a string, so the assertion tells the two
 # apart rather than passing under either.
@@ -38,8 +35,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         sync_execute(
             """
             INSERT INTO writable_flag_evaluations
-                (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id,
-                 person_properties)
+                (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id)
             VALUES
             """,
             [
@@ -62,7 +58,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                     "probe-distinct-id",
                     occurred_at,
                     str(self.person_id),
-                    json.dumps({"probe": PERSON_PROBE, "count": NUMERIC_PROBE}),
                 )
             ],
         )
@@ -102,8 +97,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     def test_every_field_reads_its_own_physical_column(self):
         results = self._select(
-            "flag_key, response, session_id, request_id, `$group_0`, person_id, person.id, "
-            "properties.probe, person.properties.probe"
+            "flag_key, response, session_id, request_id, `$group_0`, person_id, person.id, properties.probe"
         )
 
         assert results == [
@@ -116,56 +110,20 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 self.person_id,
                 self.person_id,
                 EVENT_PROBE,
-                PERSON_PROBE,
             )
         ]
 
-    @parameterized.expand(
-        [
-            ("event", PropertyDefinition.Type.EVENT, None, "properties.probe", "person.properties.probe", PERSON_PROBE),
-            (
-                "person",
-                PropertyDefinition.Type.PERSON,
-                None,
-                "person.properties.probe",
-                "properties.probe",
-                EVENT_PROBE,
-            ),
-        ]
-    )
-    def test_restricted_property_is_scrubbed_for_its_own_class_only(
-        self,
-        _name: str,
-        property_type,
-        group_type_index: int | None,
-        restricted: str,
-        untouched: str,
-        untouched_value: str,
-    ):
-        # The blob columns are named like the events table's, so they clear the printer's column-name
-        # check; whether they are scrubbed depends on the table type reaching a dispatch branch.
-        self._restrict("probe", property_type, group_type_index)
-
-        assert self._select(restricted) == [(None,)]
-        assert self._select(untouched) == [(untouched_value,)]
-
-    @parameterized.expand(
-        [
-            ("event", PropertyDefinition.Type.EVENT, "properties.count"),
-            ("person", PropertyDefinition.Type.PERSON, "person.properties.count"),
-        ]
-    )
-    def test_numeric_property_compares_as_a_number(self, _name: str, property_type, expression: str):
+    def test_numeric_property_compares_as_a_number(self):
         # Drop this table from any of the property-type dispatches and the read stays a String, so
         # the comparison no longer answers the numeric question.
         PropertyDefinition.objects.create(
             team=self.team,
             name="count",
             property_type="Numeric",
-            type=property_type,
+            type=PropertyDefinition.Type.EVENT,
         )
 
-        assert self._select(f"{expression} > 9") == [(True,)]
+        assert self._select("properties.count > 9") == [(True,)]
 
     @parameterized.expand(
         [
@@ -187,10 +145,14 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert self._select(column) == [(None,)]
         assert self._select("uuid", where=f" AND {column} = '{stored_value}'") == []
 
-    def test_restricted_key_is_dropped_from_a_whole_blob_read(self):
+    def test_restricted_property_is_hidden_from_both_read_paths(self):
+        # The explicit read lowers to a NULL constant and the blob read is scrubbed by the printer.
+        # Both consult the same dispatch, so a table dropped from it leaks through both.
         self._restrict("probe", PropertyDefinition.Type.EVENT)
 
-        blob = self._select("properties")[0][0]
+        assert self._select("properties.probe") == [(None,)]
 
-        assert "probe" not in json.loads(blob)
-        assert json.loads(blob)["$feature_flag"] == "probe-flag"
+        blob = json.loads(self._select("properties")[0][0])
+
+        assert "probe" not in blob
+        assert blob["$feature_flag"] == "probe-flag"

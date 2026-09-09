@@ -12,7 +12,7 @@ from posthog.hogql.database.schema.events import (
     EventsPersonSubTable,
     EventsTable,
 )
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.errors import QueryError
@@ -115,7 +115,7 @@ class PropertyFinder(TraversingVisitor):
                             if self.group_properties.get(global_group_id) is None:
                                 self.group_properties[global_group_id] = set()
                             self.group_properties[global_group_id].add(property_name)
-                if isinstance(resolved_table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
+                if isinstance(resolved_table, EventsPersonSubTable):
                     self.person_properties.add(property_name)
                 elif isinstance(resolved_table, EventsGroupSubTable):
                     pass  # group properties are handled above via GroupsTable
@@ -707,7 +707,7 @@ class PropertySwapper(CloningVisitor):
                                 return self._convert_string_property_to_type(
                                     node, "group", f"{global_group_id}_{property_name}"
                                 )
-                if isinstance(resolved_table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
+                if isinstance(resolved_table, EventsPersonSubTable):
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
                 elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
