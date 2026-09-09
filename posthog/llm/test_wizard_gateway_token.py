@@ -78,17 +78,10 @@ class TestMintWizardGatewayToken:
             "product": "wizard",
             "obo": "org_1",
             "user": "user_1",
-            "allowed_models": [
-                "claude-sonnet-4-6",
-                "claude-sonnet-5",
-                "claude-haiku-4-5",
-                "claude-haiku-4-5-20251001",
-                "claude-opus-4-8",
-                "gpt-5.6-luna",
-                "gpt-5.6-sol",
-                "gpt-5.6-terra",
-            ],
-            "allowed_efforts": ["none", "minimal", "low", "medium", "high", "xhigh"],
+            # Derived: this case pins that the mint carries the pins, not which
+            # models are on the table. TestWizardModelAllowlist owns the contents.
+            "allowed_models": allowed_models(),
+            "allowed_efforts": allowed_efforts(),
         }
         assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer phs_wizard_secret"}
         assert post.call_args.kwargs["timeout"] > 0
