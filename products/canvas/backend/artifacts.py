@@ -27,6 +27,7 @@ from posthog.storage import object_storage
 from products.canvas.backend.contract import artifact_csp
 from products.canvas.backend.models import CanvasBuild
 
+CANVAS_ARTIFACT_RESPONSE_MARKER = "_posthog_canvas_artifact"
 ARTIFACT_TOKEN_SALT = "posthog.canvas.artifact.v1"
 # Tokens embed a coarse time bucket instead of a per-second timestamp, so the
 # artifact URL for a build is stable within a bucket (the iframe src doesn't
@@ -172,5 +173,6 @@ def _with_artifact_headers(response: HttpResponse, etag: str, manifest: dict) ->
     response["X-Content-Type-Options"] = "nosniff"
     network_origins = ((manifest.get("capabilities") or {}).get("network") or {}).get("origins") or []
     response["Content-Security-Policy"] = artifact_csp(network_origins)
+    setattr(response, CANVAS_ARTIFACT_RESPONSE_MARKER, True)
     response["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     return response
