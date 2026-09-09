@@ -57,6 +57,10 @@ describe('toolRegistry', () => {
         expect(toolRegistry.lookup('query-llm-trace')).toBeNull()
         expect(toolRegistry.lookup('search_error_tracking_issues')).toBeNull()
         expect(toolRegistry.lookup('filter_error_tracking_issues')).toBeNull()
+        expect(toolRegistry.lookup('create_insight')).toBeNull()
+        expect(toolRegistry.lookup('upsert_dashboard')).toBeNull()
+        expect(toolRegistry.lookup('search_session_recordings')).toBeNull()
+        expect(toolRegistry.lookup('filter_session_recordings')).toBeNull()
     })
 
     // A user-installed MCP server can expose a tool whose bare name collides with a product-widget key
