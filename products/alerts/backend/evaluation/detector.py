@@ -77,8 +77,22 @@ def extract_trends_series(
     else:
         filters_override = _date_range_override_for_detector(query, min_samples)
 
+    query_override = None
+    if query.compareFilter and query.compareFilter.compare:
+        # Comparison responses interleave current and previous-period rows, while alerts select one
+        # current series. Disable comparison only for this execution: it prevents selecting the
+        # wrong row and avoids calculating data the detector/forecast never consumes.
+        query_override = query.model_copy(
+            update={"compareFilter": query.compareFilter.model_copy(update={"compare": False})}
+        ).model_dump(by_alias=True)
+
     calculation_result = calculate_for_query_based_insight(
-        insight, team=team, execution_mode=execution_mode, user=user, filters_override=filters_override
+        insight,
+        team=team,
+        execution_mode=execution_mode,
+        user=user,
+        filters_override=filters_override,
+        query_override=query_override,
     )
 
     if calculation_result.result is None:

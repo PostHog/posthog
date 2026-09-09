@@ -10,10 +10,18 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ForecastConfig, InsightsThresholdBounds, InsightThreshold, InsightThresholdType, IntervalType
+from posthog.schema import (
+    ForecastConfig,
+    InsightsThresholdBounds,
+    InsightThreshold,
+    InsightThresholdType,
+    IntervalType,
+    TrendsQuery,
+)
 
 from posthog.api.services.query import ExecutionMode
 from posthog.models.team import Team
+from posthog.tasks.alerts.detector import _date_range_override_for_detector
 
 from products.alerts.backend.evaluation.contract import (
     AlertExtractionError,
@@ -23,14 +31,18 @@ from products.alerts.backend.evaluation.contract import (
     SeriesPoint,
     SimulationContext,
 )
+from products.alerts.backend.evaluation.detector import extract_trends_series
 from products.alerts.backend.evaluation.dispatcher import check_forecast_alert
 from products.alerts.backend.evaluation.forecast import (
     TrendsForecastExtractor,
+    _forecast_extraction_contract,
     _index_for_target_date,
     _target_projection,
     evaluate_with_forecast,
+    simulate_forecast_on_insight,
 )
 from products.alerts.backend.evaluation.validation import validate_alert_config
+from products.alerts.backend.forecasting.capacity import ForecastEvaluationCapacityExceeded
 from products.alerts.backend.forecasting.engine import ForecastConfigurationError, ForecastResult
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -41,7 +53,7 @@ class StubEngine:
         self._result = result
         self.calls: list[dict] = []
 
-    def forecast(self, dates, values, horizon, interval_width, interval):
+    def forecast(self, dates, values, horizon, interval_width, interval, timezone="UTC"):
         self.calls.append(
             {
                 "dates": dates,
@@ -49,13 +61,14 @@ class StubEngine:
                 "horizon": horizon,
                 "interval_width": interval_width,
                 "interval": interval,
+                "timezone": timezone,
             }
         )
         return self._result
 
 
 class ConfigurationErrorEngine:
-    def forecast(self, dates, values, horizon, interval_width, interval):
+    def forecast(self, dates, values, horizon, interval_width, interval, timezone="UTC"):
         raise ForecastConfigurationError("invalid engine input")
 
 
@@ -299,6 +312,39 @@ class TestTargetDateIndex:
             _target_projection(_forecast(["2026-04-06"], [90.0]), config)
 
 
+class TestTargetHorizonContract:
+    @parameterized.expand(
+        [
+            ("daily", IntervalType.DAY, "2026-10-07", datetime.date(2026, 9, 6), 31),
+            ("weekly stops before a midweek target", IntervalType.WEEK, "2026-11-04", datetime.date(2026, 8, 31), 9),
+            (
+                "weekly reaches a target on a bucket start",
+                IntervalType.WEEK,
+                "2026-11-09",
+                datetime.date(2026, 8, 31),
+                10,
+            ),
+            ("monthly counts calendar months", IntervalType.MONTH, "2026-11-04", datetime.date(2026, 8, 1), 3),
+        ]
+    )
+    def test_the_horizon_stops_at_the_last_bucket_on_or_before_the_target(
+        self, _name: str, interval: IntervalType, target_date: str, anchor: datetime.date, expected: int
+    ) -> None:
+        config = {
+            "type": "ForecastConfig",
+            "engine": "prophet",
+            "condition": "target_by_date",
+            "target": 100,
+            "target_direction": "at_least",
+            "target_date": target_date,
+        }
+        now = datetime.datetime(2026, 9, 7, 12, 0, tzinfo=datetime.UTC)
+
+        horizon, reference_date = _forecast_extraction_contract(config, interval, now, week_start_day=1)
+
+        assert (horizon, reference_date) == (expected, anchor)
+
+
 class TestHistoryRequirements:
     @parameterized.expand(
         [
@@ -416,13 +462,101 @@ class TestHistoryRequirements:
         assert evaluation.is_inconclusive is False
         assert engine.calls[0]["horizon"] == 31
 
+    @parameterized.expand([("scheduled check", False), ("preview", True)])
+    def test_a_null_interval_asks_for_daily_history(self, _name: str, is_preview: bool) -> None:
+        forecast_config = {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": 7}
+        team = SimpleNamespace(timezone="UTC", week_start_day=1, base_currency="USD")
+        query = {
+            "kind": "TrendsQuery",
+            "interval": None,
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+
+        with (
+            freeze_time("2026-09-07T12:00:00Z"),
+            patch(
+                "products.alerts.backend.evaluation.forecast.extract_trends_series", return_value=_series()
+            ) as extract,
+        ):
+            if is_preview:
+                context = SimulationContext(team=cast(Team, team), extractor_config=forecast_config)
+                TrendsForecastExtractor().simulate(cast(Insight, SimpleNamespace()), query, context)
+            else:
+                alert = SimpleNamespace(
+                    forecast_config=forecast_config,
+                    config={"series_index": 0},
+                    team=team,
+                    created_by=None,
+                )
+                TrendsForecastExtractor().extract(
+                    cast(AlertConfiguration, alert),
+                    cast(Insight, SimpleNamespace()),
+                    query,
+                    ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                )
+
+        requested_query, min_samples = extract.call_args.args[2], extract.call_args.args[3]
+        assert _date_range_override_for_detector(requested_query, min_samples) == {"date_from": "-28d"}
+
+    @parameterized.expand(
+        [
+            (
+                "target pins a bucket, so it needs fresh data",
+                {
+                    "condition": "target_by_date",
+                    "target": 100,
+                    "target_direction": "at_least",
+                    "target_date": "2026-10-07",
+                },
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "breach keeps the shared cached mode",
+                {"condition": "future_breach", "horizon": 7},
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+        ]
+    )
+    def test_the_execution_mode_reaching_the_query(
+        self, _name: str, condition: dict, expected_mode: ExecutionMode
+    ) -> None:
+        forecast_config = {"type": "ForecastConfig", "engine": "prophet", **condition}
+        alert = SimpleNamespace(
+            forecast_config=forecast_config,
+            config={"series_index": 0},
+            team=SimpleNamespace(timezone="UTC", week_start_day=1, base_currency="USD"),
+            created_by=None,
+        )
+        query = {
+            "kind": "TrendsQuery",
+            "interval": "day",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+
+        with (
+            freeze_time("2026-09-07T12:00:00Z"),
+            patch(
+                "products.alerts.backend.evaluation.forecast.extract_trends_series",
+                return_value=_series(n=124, start=datetime.date(2026, 5, 6)),
+            ) as extract,
+        ):
+            TrendsForecastExtractor().extract(
+                cast(AlertConfiguration, alert),
+                cast(Insight, SimpleNamespace()),
+                query,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            )
+
+        assert extract.call_args.args[4] == expected_mode
+
 
 @contextmanager
 def _unavailable_forecast_slot(*, team_id: int):
-    yield False
+    raise ForecastEvaluationCapacityExceeded
+    yield
 
 
-def test_scheduled_forecast_capacity_is_inconclusive_without_extracting() -> None:
+def test_scheduled_forecast_capacity_is_deferred_without_extracting() -> None:
     alert = cast(
         AlertConfiguration,
         SimpleNamespace(
@@ -442,12 +576,88 @@ def test_scheduled_forecast_capacity_is_inconclusive_without_extracting() -> Non
     with (
         patch("products.alerts.backend.evaluation.dispatcher.forecast_evaluation_slot", _unavailable_forecast_slot),
         patch("products.alerts.backend.evaluation.dispatcher.FORECAST_EXTRACTORS", {"TrendsQuery": extractor}),
+        pytest.raises(ForecastEvaluationCapacityExceeded),
     ):
-        result = check_forecast_alert(alert, cast(Insight, SimpleNamespace()), query)
+        check_forecast_alert(alert, cast(Insight, SimpleNamespace()), query)
 
-    assert result.is_inconclusive is True
-    assert result.triggered_metadata == {"forecast": {"status": "inconclusive", "reason": "capacity"}}
     extractor.extract.assert_not_called()
+
+
+def test_forecast_extraction_disables_comparison_in_the_execution_query() -> None:
+    query = TrendsQuery.model_validate(
+        {
+            "kind": "TrendsQuery",
+            "interval": "day",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            "compareFilter": {"compare": True},
+        }
+    )
+    calculation = SimpleNamespace(result=[])
+
+    with patch(
+        "products.alerts.backend.evaluation.detector.calculate_for_query_based_insight", return_value=calculation
+    ) as calculate:
+        extract_trends_series(
+            cast(Insight, SimpleNamespace(id=1)),
+            SimpleNamespace(),
+            query,
+            min_samples=14,
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        )
+
+    execution_query = calculate.call_args.kwargs["query_override"]
+    assert execution_query["compareFilter"]["compare"] is False
+
+
+def test_forecast_simulation_rejects_smoothed_trends_before_extraction() -> None:
+    insight = cast(
+        Insight,
+        SimpleNamespace(
+            query={
+                "kind": "TrendsQuery",
+                "interval": "day",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "trendsFilter": {"display": "ActionsLineGraph", "smoothingIntervals": 3},
+            }
+        ),
+    )
+    team = cast(Team, SimpleNamespace(timezone="UTC", base_currency="USD"))
+
+    with (
+        patch("products.alerts.backend.evaluation.forecast.extract_trends_series") as extract,
+        pytest.raises(ValueError, match="smoothed trends"),
+    ):
+        simulate_forecast_on_insight(
+            insight,
+            team,
+            {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": 1},
+        )
+
+    extract.assert_not_called()
+
+
+def test_forecast_validation_rejects_smoothed_trends() -> None:
+    query = {
+        "kind": "TrendsQuery",
+        "interval": "day",
+        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        "trendsFilter": {"display": "ActionsLineGraph", "smoothingIntervals": 3},
+    }
+
+    with pytest.raises(ValueError, match="smoothed trends"):
+        validate_alert_config(
+            query=query,
+            condition={"type": "absolute_value"},
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+            threshold_config={"type": "absolute", "bounds": {"upper": 100}},
+            calculation_interval="daily",
+            forecast_config={
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "future_breach",
+                "horizon": 7,
+            },
+        )
 
 
 @parameterized.expand(
@@ -472,6 +682,27 @@ def test_scheduled_forecast_capacity_is_inconclusive_without_extracting() -> Non
             "ActionsLineGraphCumulative",
             {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
             "cumulative",
+        ),
+        (
+            "calendar heatmap",
+            "day",
+            "CalendarHeatmap",
+            {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+            "calendar heatmap, box plot, or slope graph",
+        ),
+        (
+            "box plot",
+            "day",
+            "BoxPlot",
+            {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+            "calendar heatmap, box plot, or slope graph",
+        ),
+        (
+            "slope graph",
+            "day",
+            "SlopeGraph",
+            {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+            "calendar heatmap, box plot, or slope graph",
         ),
     ]
 )
@@ -563,3 +794,31 @@ class TestForecastSimulationLookback:
             TrendsForecastExtractor().simulate(cast(Insight, SimpleNamespace()), query, context)
 
         extract.assert_not_called()
+
+
+@parameterized.expand([("calendar heatmap", "CalendarHeatmap"), ("box plot", "BoxPlot"), ("slope graph", "SlopeGraph")])
+def test_forecast_simulation_rejects_specialized_runner_displays(_name: str, display: str) -> None:
+    insight = cast(
+        Insight,
+        SimpleNamespace(
+            query={
+                "kind": "TrendsQuery",
+                "interval": "day",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "trendsFilter": {"display": display},
+            }
+        ),
+    )
+    team = cast(Team, SimpleNamespace(timezone="UTC", base_currency="USD"))
+
+    with (
+        patch("products.alerts.backend.evaluation.forecast.extract_trends_series") as extract,
+        pytest.raises(ValueError, match="calendar heatmap, box plot, or slope graph"),
+    ):
+        simulate_forecast_on_insight(
+            insight,
+            team,
+            {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": 1},
+        )
+
+    extract.assert_not_called()

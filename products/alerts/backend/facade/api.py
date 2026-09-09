@@ -35,7 +35,11 @@ from products.alerts.backend.destinations import (
     soft_delete_all_alert_destinations,
 )
 from products.alerts.backend.email_notifications import send_alert_email
-from products.alerts.backend.forecasting.capacity import ForecastSimulationCapacityExceeded, forecast_simulation_slot
+from products.alerts.backend.forecasting.capacity import (
+    ForecastCapacityUnavailable,
+    ForecastSimulationCapacityExceeded,
+    forecast_simulation_slot,
+)
 from products.alerts.backend.forecasting.engine import ForecastExecutionError, validate_forecast_horizon
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -237,6 +241,7 @@ __all__ = [
     "AlertDestinationValidationError",
     "AlertScheduleRestriction",
     "DestinationType",
+    "ForecastCapacityUnavailable",
     "ForecastExecutionError",
     "ForecastSimulationCapacityExceeded",
     "SLACK_SNOOZE_MAX_DAYS",

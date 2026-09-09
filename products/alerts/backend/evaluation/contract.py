@@ -64,6 +64,9 @@ class ExtractionResult:
     # longer horizon after the ongoing bucket is removed.
     forecast_horizon: int | None = None
     forecast_last_completed_bucket: str | None = None
+    # Hourly forecasts step through real UTC hours and convert their output back to this timezone,
+    # so spring-forward does not invent a local bucket that never existed.
+    forecast_timezone: str = "UTC"
 
 
 def zero_sentinel_series() -> ComparableSeries:

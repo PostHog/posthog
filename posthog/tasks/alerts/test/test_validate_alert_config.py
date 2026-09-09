@@ -240,6 +240,35 @@ class TestValidateAlertConfig:
                 r"series_index 2 is out of range \(query has 2 series\)",
             ),
             (
+                "series_index_out_of_range_with_legacy_formula",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "EventsNode", "event": "$autocapture"},
+                    ],
+                    "trendsFilter": {"display": "BoldNumber", "formula": "A+B"},
+                },
+                _base_condition(),
+                _base_config(series_index=1),
+                None,
+                "daily",
+                r"series_index 1 is out of range \(query has 1 series\)",
+            ),
+            (
+                "series_index_valid_with_legacy_formulas",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "trendsFilter": {"display": "BoldNumber", "formulas": ["A", "A*2"]},
+                },
+                _base_condition(),
+                _base_config(series_index=1),
+                _base_threshold(),
+                "daily",
+                None,
+            ),
+            (
                 "valid_calculation_interval",
                 _base_query(),
                 _base_condition(),
@@ -795,9 +824,9 @@ class TestForecastConfigValidation:
             },
         )
 
-    def test_target_by_date_rejects_more_than_250_hourly_points(self) -> None:
+    def test_target_by_date_rejects_hourly_insights_before_counting_output_points(self) -> None:
         target_date = (datetime.now(UTC).date() + timedelta(days=11)).isoformat()
-        with pytest.raises(ValueError, match="250"):
+        with pytest.raises(ValueError, match="don't support hourly insights"):
             validate_alert_config(
                 {**TRENDS_QUERY, "interval": "hour"},
                 {"type": "absolute_value"},

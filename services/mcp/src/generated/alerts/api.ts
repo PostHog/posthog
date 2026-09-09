@@ -1292,7 +1292,7 @@ export const AlertsCreateBody = () => zod.object({
                     }),
                 ])
                 .describe(
-                    'Configuration for forecast alerts. Requires a time-series trends insight without breakdowns.'
+                    'Configuration for forecast alerts. Requires a time-series trends insight without breakdowns. The `target_by_date` condition also needs a daily, weekly, or monthly interval.'
                 ),
             zod.null(),
         ])
@@ -2686,7 +2686,7 @@ export const AlertsPartialUpdateBody = () => zod.object({
                     }),
                 ])
                 .describe(
-                    'Configuration for forecast alerts. Requires a time-series trends insight without breakdowns.'
+                    'Configuration for forecast alerts. Requires a time-series trends insight without breakdowns. The `target_by_date` condition also needs a daily, weekly, or monthly interval.'
                 ),
             zod.null(),
         ])

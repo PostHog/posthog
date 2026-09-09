@@ -2,7 +2,7 @@ from datetime import date
 from math import ceil, floor
 from typing import Protocol
 
-from posthog.schema import DateRange, ForecastConfig, FutureBreachForecastConfig, IntervalType
+from posthog.schema import ChartDisplayType, DateRange, ForecastConfig, FutureBreachForecastConfig, IntervalType
 
 from posthog.dataclasses import frozen
 
@@ -28,6 +28,13 @@ FORECAST_TOTAL_TIMEOUT_SECONDS = 70
 
 
 SUPPORTED_FORECAST_INTERVALS = frozenset({IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH})
+
+# Displays that a TrendsQuery hands to a runner of its own (see get_query_runner). None of them
+# returns the dense per-bucket series a forecast fits: the calendar heatmap returns no data array,
+# the box plot returns quartile rows, and the slope graph returns only the two range endpoints.
+SPECIALIZED_RUNNER_DISPLAY_TYPES = frozenset(
+    {ChartDisplayType.CALENDAR_HEATMAP, ChartDisplayType.BOX_PLOT, ChartDisplayType.SLOPE_GRAPH}
+)
 
 
 def bounded_training_points(requested: int, interval: IntervalType | None) -> int:
@@ -69,8 +76,16 @@ def horizon_for_target_date(target_date: date, interval: IntervalType | None, to
 
 
 def intervals_between(start: date, end: date, interval: IntervalType | None) -> int:
+    """Count forecast buckets from ``start`` to the last one at or before ``end``.
+
+    Steps the way the engine steps: a fixed width for hour, day, and week, and calendar month
+    starts for month. Rounding up would ask for a bucket past the target. The target evaluation
+    ignores that bucket, but the history the alert must hold still grows with it.
+    """
+    if interval == IntervalType.MONTH:
+        return max(1, (end.year - start.year) * 12 + (end.month - start.month))
     days = (end - start).days
-    return max(1, ceil(days / _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)))
+    return max(1, floor(days / _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)))
 
 
 def max_evaluable_horizon(interval: IntervalType | None) -> int:
@@ -121,6 +136,21 @@ def validate_forecast_days_of_week(date_range: DateRange | None, interval: Inter
         )
 
 
+def validate_forecast_smoothing(smoothing_intervals: int | None) -> None:
+    if smoothing_intervals is not None and smoothing_intervals > 1:
+        raise ValueError(
+            "Forecast alerts don't support smoothed trends yet. Turn smoothing off before creating the alert."
+        )
+
+
+def validate_forecast_display(display: ChartDisplayType | None) -> None:
+    if display in SPECIALIZED_RUNNER_DISPLAY_TYPES:
+        raise ValueError(
+            "Forecast alerts don't support calendar heatmap, box plot, or slope graph insights. "
+            "Use a line, bar, or area chart."
+        )
+
+
 def validate_forecast_interval(interval: IntervalType | None) -> None:
     if interval is not None and interval not in SUPPORTED_FORECAST_INTERVALS:
         raise ValueError(
@@ -157,6 +187,7 @@ class ForecastEngine(Protocol):
         horizon: int,
         interval_width: float,
         interval: IntervalType | None,
+        timezone: str = "UTC",
     ) -> ForecastResult: ...
 
 

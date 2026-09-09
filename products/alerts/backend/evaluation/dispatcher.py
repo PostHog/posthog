@@ -74,17 +74,7 @@ def check_forecast_alert(alert: AlertConfiguration, insight: Insight, query: obj
     if extractor is None:
         raise NotImplementedError(f"AlertCheckError: Forecast alerts for {kind} are not supported yet")
     threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
-    with forecast_evaluation_slot(team_id=alert.team_id) as capacity_available:
-        if not capacity_available:
-            raw_interval = get_from_dict_or_attr(query, "interval")
-            interval = IntervalType(raw_interval) if raw_interval is not None else None
-            return AlertEvaluationResult(
-                value=None,
-                breaches=[],
-                is_inconclusive=True,
-                interval=interval.value if interval else None,
-                triggered_metadata={"forecast": {"status": "inconclusive", "reason": "capacity"}},
-            )
+    with forecast_evaluation_slot(team_id=alert.team_id):
         result = extractor.extract(alert, insight, query, _resolve_execution_mode(alert, kind, query))
         return evaluate_with_forecast(result, forecast_config, threshold)
 

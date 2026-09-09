@@ -46,8 +46,10 @@ from products.alerts.backend.forecasting.engine import (
     intervals_between,
     min_forecast_points,
     validate_forecast_days_of_week,
+    validate_forecast_display,
     validate_forecast_horizon,
     validate_forecast_interval,
+    validate_forecast_smoothing,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -140,6 +142,18 @@ def _forecast_extraction_contract(
 
 def _forecast_min_samples(horizon: int, interval: IntervalType | None = None) -> int:
     return bounded_training_points(_required_history_points(horizon, interval), interval)
+
+
+def _with_resolved_interval(query: TrendsQuery) -> TrendsQuery:
+    """The query extraction runs, with a null interval resolved to the daily default.
+
+    A stored query can hold an explicit null interval. The trends runner and every forecast helper
+    read that as daily, but the shared history-range picker reads it as hourly. The alert would then
+    ask for hours of history to fill daily buckets and never hold enough points to evaluate.
+    """
+    if query.interval is not None:
+        return query
+    return query.model_copy(update={"interval": IntervalType.DAY})
 
 
 def _bounded_simulation_date_from(
@@ -358,6 +372,7 @@ def evaluate_with_forecast(
             horizon,
             DEFAULT_INTERVAL_WIDTH,
             result.interval_type,
+            timezone=result.forecast_timezone,
         )
     except ForecastConfigurationError as error:
         raise AlertExtractionError(str(error)) from error
@@ -377,12 +392,17 @@ class TrendsForecastExtractor:
         forecast_config = alert.forecast_config
         if not forecast_config:
             raise ValueError("TrendsForecastExtractor requires forecast_config")
-        trends_query = TrendsQuery.model_validate(query)
+        trends_query = _with_resolved_interval(TrendsQuery.model_validate(query))
         series_index = (alert.config or {}).get("series_index", 0)
         now = datetime.now(ZoneInfo(alert.team.timezone))
         horizon, reference_date = _forecast_extraction_contract(
             forecast_config, trends_query.interval, now, getattr(alert.team, "week_start_day", None)
         )
+        if reference_date is not None:
+            # A pinned target bucket has to come from data computed under this check's clock. A
+            # cached result from before the bucket boundary lost that bucket with the ongoing
+            # interval, and the evaluation would read the gap as stale source data.
+            execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
         result = extract_trends_series(
             insight,
             alert.team,
@@ -393,12 +413,13 @@ class TrendsForecastExtractor:
             user=alert.created_by,
         )
         result.value_formatter = make_trends_value_formatter(trends_query.trendsFilter, alert.team.base_currency)
+        result.forecast_timezone = alert.team.timezone
         result.forecast_horizon = horizon
         result.forecast_last_completed_bucket = reference_date.isoformat() if reference_date is not None else None
         return result
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
-        trends_query = TrendsQuery.model_validate(query)
+        trends_query = _with_resolved_interval(TrendsQuery.model_validate(query))
         team_timezone = ZoneInfo(ctx.team.timezone)
         now = datetime.now(team_timezone)
         today = now.date()
@@ -416,6 +437,7 @@ class TrendsForecastExtractor:
             user=ctx.user,
         )
         result.value_formatter = make_trends_value_formatter(trends_query.trendsFilter, ctx.team.base_currency)
+        result.forecast_timezone = ctx.team.timezone
         result.forecast_horizon = horizon
         result.forecast_last_completed_bucket = reference_date.isoformat() if reference_date is not None else None
         interval_value = trends_query.interval.value if trends_query.interval else None
@@ -476,6 +498,8 @@ def simulate_forecast_on_insight(
     trends_query = TrendsQuery.model_validate(query)
     if is_non_time_series_trend(trends_query):
         raise ValueError("Forecast alerts require a time series trends insight")
+    validate_forecast_display(trends_query.trendsFilter.display if trends_query.trendsFilter else None)
+    validate_forecast_smoothing(trends_query.trendsFilter.smoothingIntervals if trends_query.trendsFilter else None)
     if _has_breakdown(trends_query):
         raise ValueError("Forecast alerts don't support breakdowns yet")
     if (
@@ -538,6 +562,7 @@ def simulate_forecast_on_insight(
         horizon,
         DEFAULT_INTERVAL_WIDTH,
         result.interval_type,
+        timezone=result.forecast_timezone,
     )
     return {
         "data": values,

@@ -67,6 +67,7 @@ class ProphetEngine:
         horizon: int,
         interval_width: float,
         interval: IntervalType | None,
+        timezone: str = "UTC",
     ) -> ForecastResult:
         import pandas as pd  # noqa: PLC0415 — keeps the heavy dep off the django.setup() path
         from prophet import Prophet  # noqa: PLC0415 — keeps the heavy dep off the django.setup() path
@@ -86,7 +87,23 @@ class ProphetEngine:
         if not 0 < interval_width < 1:
             raise ForecastConfigurationError("Forecast interval width must be between 0 and 1.")
 
-        df = pd.DataFrame({"ds": pd.to_datetime(dates), "y": values})
+        if interval == IntervalType.HOUR:
+            # Prophet requires timezone-naive values. Fit hourly observations as UTC instants so a
+            # fixed one-hour step follows elapsed time across DST, then convert output labels back
+            # to the project's timezone. Naive source labels are project-local wall times.
+            utc_dates = []
+            for raw_date in dates:
+                timestamp = pd.Timestamp(raw_date)
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.tz_localize(timezone, ambiguous=False, nonexistent="shift_forward")
+                else:
+                    timestamp = timestamp.tz_convert(timezone)
+                utc_dates.append(timestamp.tz_convert("UTC").tz_localize(None))
+            parsed_dates = pd.DatetimeIndex(utc_dates)
+        else:
+            parsed_dates = pd.to_datetime(dates)
+
+        df = pd.DataFrame({"ds": parsed_dates, "y": values})
         model = Prophet(interval_width=interval_width, mcmc_samples=0, uncertainty_samples=0)
 
         start = time.monotonic()
@@ -122,8 +139,11 @@ class ProphetEngine:
         z_score = NormalDist().inv_cdf((1 + interval_width) / 2)
         margins = [z_score * residual_stddev * math.sqrt(1 + step / len(values)) for step in range(1, horizon + 1)]
         point_forecast = [float(value) for value in forecast["yhat"]]
+        forecast_dates = list(forecast["ds"])
+        if interval == IntervalType.HOUR:
+            forecast_dates = [ts.tz_localize("UTC").tz_convert(timezone) for ts in forecast_dates]
         return ForecastResult(
-            dates=[ts.isoformat() for ts in forecast["ds"]],
+            dates=[ts.isoformat() for ts in forecast_dates],
             yhat=point_forecast,
             lower=[value - margin for value, margin in zip(point_forecast, margins, strict=True)],
             upper=[value + margin for value, margin in zip(point_forecast, margins, strict=True)],

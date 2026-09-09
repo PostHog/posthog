@@ -1207,7 +1207,9 @@ export const AlertsSimulateForecastCreateBody = /* @__PURE__ */ zod.object({
                     .default(alertsSimulateForecastCreateBodyForecastConfigOneTwoTypeDefault),
             }),
         ])
-        .describe('Configuration for forecast alerts. Requires a time-series trends insight without breakdowns.')
+        .describe(
+            'Configuration for forecast alerts. Requires a time-series trends insight without breakdowns. The `target_by_date` condition also needs a daily, weekly, or monthly interval.'
+        )
         .describe('Forecast configuration to simulate.'),
     series_index: zod
         .number()
