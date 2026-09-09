@@ -3247,7 +3247,8 @@ class TestPrinter(BaseTest):
         # The printer reads a subquery column's nullability from its resolved type. Both directions matter: a
         # genuinely nullable projection must KEEP its ifNull comparison guard (erasing it would change NULL semantics
         # outside filter position), and a non-nullable projection prints bare (wrapping it hides the column from
-        # join-key detection and skip indexes).
+        # join-key detection and skip indexes). A column that no resolved type describes counts as nullable, so its
+        # comparison keeps the guard.
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
         context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
             name="nullable_field", nullable=True
@@ -3264,6 +3265,13 @@ class TestPrinter(BaseTest):
         )
         assert "equals(sub.x, %(hogql_val_0)s) AS matches" in printed_non_nullable, printed_non_nullable
         assert "ifNull" not in printed_non_nullable.split("FROM")[0], printed_non_nullable
+
+        # An unaliased scalar subquery as a CTE column exports no named column, so the CTE field carries no type.
+        printed_unknown_type = self._select(
+            "WITH c AS (SELECT (SELECT count() / 2 FROM events) AS v FROM events) SELECT v = 3 AS matches FROM c",
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database()),
+        )
+        assert "ifNull(equals(c.v, 3), 0) AS matches" in printed_unknown_type, printed_unknown_type
 
     def test_field_nullable_not_in(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())

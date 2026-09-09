@@ -433,7 +433,9 @@ def _recursively_resolve_column(
         inner = next(iter(_exported_columns(column).values()), None)
         if inner is None:
             # An unaliased scalar subquery exports no named column, so nothing describes its type.
-            fields[name] = UnknownDatabaseField(name=name)
+            # Unknown nullability must stay nullable, because the printer drops the `ifNull` guard
+            # from a comparison on a non-nullable column, which then discards the NULL rows.
+            fields[name] = UnknownDatabaseField(name=name, nullable=True)
             return
         return _recursively_resolve_column(name, inner, fields, context)
     else:
