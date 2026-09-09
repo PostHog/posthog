@@ -389,8 +389,8 @@ export function filterToMetricSource(
             name: data_warehouse[0].name,
             table_name: data_warehouse[0].id,
             timestamp_field: data_warehouse[0].timestamp_field,
-            events_join_key: data_warehouse[0].events_join_key,
-            data_warehouse_join_key: data_warehouse[0].data_warehouse_join_key,
+            events_join_key: data_warehouse[0].events_join_key ?? data_warehouse[0].aggregation_target_field,
+            data_warehouse_join_key: data_warehouse[0].data_warehouse_join_key ?? data_warehouse[0].id_field,
             math: data_warehouse[0].math || ExperimentMetricMathType.TotalCount,
             math_property: data_warehouse[0].math_property,
             math_hogql: data_warehouse[0].math_hogql,
@@ -414,7 +414,7 @@ export function filterToMetricConfig(
 ): ExperimentMetricTypeProps | undefined {
     return match(metricType)
         .with(ExperimentMetricType.FUNNEL, () => {
-            // Combine events and actions and sort by order
+            // Combine all supported source types and sort by order
             const eventSteps =
                 events?.map(
                     (event) =>
@@ -439,7 +439,25 @@ export function filterToMetricConfig(
                         }) as ActionsNode & { order: number }
                 ) || []
 
-            const combinedSteps = [...eventSteps, ...actionSteps].sort((a, b) => a.order - b.order)
+            const dataWarehouseSteps =
+                data_warehouse?.map(
+                    (dataWarehouse) =>
+                        ({
+                            kind: NodeKind.ExperimentDataWarehouseNode,
+                            table_name: dataWarehouse.table_name || dataWarehouse.id,
+                            name: dataWarehouse.name,
+                            timestamp_field: dataWarehouse.timestamp_field,
+                            events_join_key: dataWarehouse.events_join_key ?? dataWarehouse.aggregation_target_field,
+                            data_warehouse_join_key: dataWarehouse.data_warehouse_join_key ?? dataWarehouse.id_field,
+                            custom_name: dataWarehouse.custom_name,
+                            properties: dataWarehouse.properties,
+                            order: dataWarehouse.order,
+                        }) as ExperimentDataWarehouseNode & { order: number }
+                ) || []
+
+            const combinedSteps = [...eventSteps, ...actionSteps, ...dataWarehouseSteps].sort(
+                (a, b) => a.order - b.order
+            )
 
             // Remove the temporary order field
             const series = combinedSteps.map(({ order, ...step }) => step as ExperimentFunnelMetricStep)

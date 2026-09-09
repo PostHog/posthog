@@ -106,14 +106,14 @@ const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
         description: 'The column in your data warehouse table that contains the timestamp of each row',
     },
     {
-        key: 'data_warehouse_join_key',
+        key: 'id_field',
         label: 'Data Warehouse Join Key',
         description:
             'The column in your data warehouse table that identifies which user each row belongs to (e.g. user_id, email)',
         allowHogQL: true,
     },
     {
-        key: 'events_join_key',
+        key: 'aggregation_target_field',
         label: 'Events Join Key',
         description: 'The field on PostHog events to match against the data warehouse join key (usually distinct_id)',
         allowHogQL: true,
