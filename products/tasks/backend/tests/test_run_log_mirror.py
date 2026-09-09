@@ -285,7 +285,7 @@ class TestAppendLogMirroring(TestCase):
         [
             (Task.OriginProduct.SIGNALS_SCOUT, True),
             (Task.OriginProduct.USER_CREATED, True),
-            (Task.OriginProduct.AUTOMATION, False),
+            (Task.OriginProduct.LOOP, False),
         ]
     )
     @patch("products.tasks.backend.logic.services.run_log_mirror.logger")

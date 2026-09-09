@@ -12,6 +12,7 @@ from posthog.schema import MaxBillingContext
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.tasks.usage_report import (
     AI_BILLING_EXCLUDED_TOOLS,
     AI_COST_MARKUP_PERCENT,
@@ -328,7 +329,7 @@ def _parse_period_datetime(value: object) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class BillingPeriod:
     start: datetime
     end: datetime

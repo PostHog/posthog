@@ -1,0 +1,153 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "credential": {
+            "description": "Send only `access_key` and `access_secret`, the credentials for the bucket in `url_pattern`. The other fields are set by PostHog and are ignored on create.",
+            "properties": {
+                "access_key": {
+                    "description": "Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).",
+                    "maxLength": 500,
+                    "type": "string"
+                },
+                "access_secret": {
+                    "description": "Secret for the access key. Stored encrypted and never returned by the API.",
+                    "maxLength": 500,
+                    "type": "string"
+                },
+                "created_at": {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "type": "string"
+                },
+                "created_by": {
+                    "properties": {
+                        "distinct_id": {
+                            "anyOf": [
+                                {
+                                    "maxLength": 200,
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "email": {
+                            "format": "email",
+                            "maxLength": 254,
+                            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                            "type": "string"
+                        },
+                        "first_name": {
+                            "maxLength": 150,
+                            "type": "string"
+                        },
+                        "hedgehog_config": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": {},
+                                    "propertyNames": {
+                                        "type": "string"
+                                    },
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "id": {
+                            "type": "number"
+                        },
+                        "is_email_verified": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "last_name": {
+                            "maxLength": 150,
+                            "type": "string"
+                        },
+                        "role_at_organization": {
+                            "anyOf": [
+                                {
+                                    "description": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `student` - Student\n* `other` - Other",
+                                    "enum": [
+                                        "engineering",
+                                        "data",
+                                        "product",
+                                        "founder",
+                                        "leadership",
+                                        "marketing",
+                                        "sales",
+                                        "student",
+                                        "other"
+                                    ],
+                                    "type": "string"
+                                },
+                                {
+                                    "enum": [""],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "uuid": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["email"],
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                }
+            },
+            "required": ["access_key", "access_secret"],
+            "type": "object"
+        },
+        "deleted": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether the table is soft-deleted and hidden from queries."
+        },
+        "format": {
+            "description": "File format of the objects the pattern matches, one of CSV, CSVWithNames (a CSV whose first row is a header), Parquet, JSONEachRow (newline-delimited JSON), or Delta. Do not pass DeltaS3Wrapper, which PostHog uses for its own materialized views.",
+            "enum": ["CSV", "CSVWithNames", "Parquet", "JSONEachRow", "Delta", "DeltaS3Wrapper"],
+            "type": "string"
+        },
+        "name": {
+            "description": "Name the agent and the user will query this table by in HogQL. Pick a short snake_case name that describes the data (e.g. `orders`, `stripe_payouts`). It must be unique across the project's tables and views.",
+            "maxLength": 128,
+            "type": "string"
+        },
+        "options": {
+            "additionalProperties": {},
+            "description": "Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "url_pattern": {
+            "description": "HTTPS URL of the files to read, with `*` matching any part of a path segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage.",
+            "maxLength": 500,
+            "type": "string"
+        }
+    },
+    "required": ["name", "format", "url_pattern", "credential"],
+    "type": "object"
+}

@@ -5,7 +5,7 @@ from posthog.test.activity_log_utils import ActivityLogTestHelper
 
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestAnnotationActivityLogging(ActivityLogTestHelper):

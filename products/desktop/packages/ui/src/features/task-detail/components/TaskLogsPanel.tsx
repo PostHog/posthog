@@ -64,7 +64,6 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     promptStartedAt,
     isInitializing,
     cloudBranch,
-    cloudStatus,
     errorTitle,
     errorMessage,
     errorRetryable,
@@ -190,7 +189,6 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               onNewSession={isCloud ? undefined : handleNewSession}
               isInitializing={isInitializing}
               isCloud={isCloud}
-              cloudStatus={cloudStatus}
               slackThreadUrl={slackThreadUrl}
             />
           </ErrorBoundary>

@@ -19,9 +19,34 @@ export class ProjectApiError extends Error {
   }
 }
 
-/** The status code of a ProjectApiError, or null for a non-API error. */
-export function apiErrorStatus(error: unknown): number | null {
-  return error instanceof ProjectApiError ? error.status : null;
+// A DRF error body carries the actual cause ("detail", plus canvas validation
+// "diagnostics"); without it a 400 is undiagnosable from the client. Cap the
+// diagnostics so one broken layout doesn't produce a screen-length message.
+const MAX_ERROR_DIAGNOSTICS = 5;
+
+async function errorBodyDetail(res: Response): Promise<string> {
+  try {
+    const body: unknown = await res.json();
+    if (typeof body !== "object" || body === null) return "";
+    const parts: string[] = [];
+    const { detail, diagnostics } = body as {
+      detail?: unknown;
+      diagnostics?: unknown;
+    };
+    if (typeof detail === "string" && detail) parts.push(detail);
+    if (Array.isArray(diagnostics)) {
+      for (const diagnostic of diagnostics.slice(0, MAX_ERROR_DIAGNOSTICS)) {
+        const message = (diagnostic as { message?: unknown } | null)?.message;
+        if (typeof message === "string" && message) parts.push(message);
+      }
+      if (diagnostics.length > MAX_ERROR_DIAGNOSTICS) {
+        parts.push(`(+${diagnostics.length - MAX_ERROR_DIAGNOSTICS} more)`);
+      }
+    }
+    return parts.length > 0 ? `: ${parts.join(" ")}` : "";
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -54,7 +79,7 @@ export class ProjectApiClient {
     const res = await this.fetch(path, init);
     if (!res.ok)
       throw new ProjectApiError(
-        `Failed to ${errorLabel} (${res.status})`,
+        `Failed to ${errorLabel} (${res.status})${await errorBodyDetail(res)}`,
         res.status,
       );
     return (await res.json()) as T;

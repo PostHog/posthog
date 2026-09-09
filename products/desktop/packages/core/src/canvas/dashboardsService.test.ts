@@ -9,12 +9,16 @@ function apiCanvas(overrides: Record<string, unknown> = {}) {
     name: "Revenue board",
     channel: "chan-1",
     template_id: "freeform",
-    context: "",
     generation_task_id: null,
     pinned_at: null,
     current_version_id: "v1",
     published_build_id: null,
-    created_by: { first_name: "Ada", last_name: "L", email: "ada@x.com" },
+    created_by: {
+      uuid: "ada-uuid",
+      first_name: "Ada",
+      last_name: "L",
+      email: "ada@example.com",
+    },
     created_at: "2026-07-01T00:00:00Z",
     updated_at: "2026-07-02T00:00:00Z",
     ...overrides,
@@ -68,6 +72,7 @@ describe("DashboardsService.list", () => {
       channelId: "chan-1",
       name: "Revenue board",
       createdBy: "Ada L",
+      createdByUser: apiCanvas().created_by,
       currentVersionId: "v1",
     });
     expect(rows[0].createdAt).toBe(Date.parse("2026-07-01T00:00:00Z"));
@@ -102,5 +107,22 @@ describe("DashboardsService.getBuilds", () => {
     expect(lifecycle.publishedBuildId).toBe("b1");
     expect(lifecycle.currentVersionId).toBe("v1");
     expect(lifecycle.builds[0].buildStatus).toBe("ready");
+  });
+});
+
+describe("DashboardsService.file", () => {
+  it("patches the canvas channel", async () => {
+    const { api, calls } = fakeApi({
+      "canvases/c1/": apiCanvas({ channel: "chan-2" }),
+    });
+    const service = new DashboardsService(api);
+
+    const canvas = await service.file({ id: "c1", channelId: "chan-2" });
+
+    expect(canvas.channelId).toBe("chan-2");
+    expect(calls[0]).toMatchObject({ path: "canvases/c1/" });
+    expect(JSON.parse(calls[0].init?.body as string)).toEqual({
+      channel_id: "chan-2",
+    });
   });
 });

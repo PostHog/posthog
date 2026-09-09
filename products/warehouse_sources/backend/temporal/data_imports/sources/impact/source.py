@@ -24,9 +24,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.impact.imp
     validate_credentials as validate_impact_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact.settings import (
+    DEFAULT_API_VERSION,
     ENDPOINTS,
     IMPACT_ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SUPPORTED_API_VERSIONS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -35,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class ImpactSource(ResumableSource[ImpactSourceConfig, ImpactResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://integrations.impact.com/brand-api-reference/readme/introduction"
+
+    supported_versions = SUPPORTED_API_VERSIONS
+    default_version = DEFAULT_API_VERSION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -89,6 +94,16 @@ Find these in impact.com under **Settings > Technical > API**. Create a Read-Onl
             "403 Client Error: Forbidden for url: https://api.impact.com": "Your Impact.com token does not have access to this data. Check the token's permissions, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch` reads over the tracked session, whose `DEFAULT_RETRY` adapter already retries a
+        # 429 or 5xx three times. A response that still reaches us is an exhausted upstream blip —
+        # transient, not a PostHog bug — and Temporal retries the whole activity, so the sync
+        # self-recovers. `DEFAULT_RETRY.status_forcelist` classes 429 as transient too, so match it
+        # here as well or an exhausted rate limit still pages the team. `raise_for_status` derives
+        # the "429 Client Error"/"Server Error" prefixes from the status code alone, so they are
+        # stable to match on (see mailchimp/app_store_connect for the same pattern).
+        return {"429 Client Error", "Server Error"}
+
     def get_schemas(
         self,
         config: ImpactSourceConfig,
@@ -122,7 +137,7 @@ Find these in impact.com under **Settings > Technical > API**. Create a Read-Onl
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_impact_credentials(config.account_sid, config.auth_token):
+        if validate_impact_credentials(config.account_sid, config.auth_token, self.resolve_api_version(api_version)):
             return True, None
 
         return False, "Invalid Impact.com Account SID or Auth Token"
@@ -146,4 +161,5 @@ Find these in impact.com under **Settings > Technical > API**. Create a Read-Onl
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

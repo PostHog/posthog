@@ -1,9 +1,15 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
-import { findBreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
+import {
+    BreakdownColorConfig,
+    computeTileFallbackTokens,
+    findBreakdownColorConfig,
+    getBreakdownPropertyKey,
+} from 'scenes/dashboard/dashboardBreakdownColors'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -15,6 +21,7 @@ import {
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
     getTrendDatasetKey,
+    getTrendDatasetPosition,
     getTrendResultCustomization,
     getTrendResultCustomizationColorToken,
     getTrendResultCustomizationKey,
@@ -191,7 +198,6 @@ export interface trendsDataLogicValues {
         | undefined
     results: TrendResult[]
     showConfidenceIntervals: boolean
-    showLegendIsolateSeriesItem: boolean
     showMovingAverage: boolean
     showTrendLines: boolean
 }
@@ -247,6 +253,9 @@ export interface trendsDataLogicActions {
     }
     setHoveredDatasetIndex: (index: number | null) => {
         index: number | null
+    }
+    setResultsHidden: (hiddenIds: string[]) => {
+        hiddenIds: string[]
     }
     toggleAllResultsHidden: (
         datasets: IndexedTrendResult[],
@@ -381,7 +390,7 @@ export interface trendsDataLogicMeta {
                 | Record<string, ResultCustomizationByValue>
                 | Record<number, ResultCustomizationByPosition>
                 | undefined,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
             breakdownFilter: BreakdownFilter | null | undefined,
             querySource:
                 | FunnelsQuery
@@ -393,7 +402,8 @@ export interface trendsDataLogicMeta {
                 | TrendsQuery
                 | WebOverviewQuery
                 | WebStatsTableQuery
-                | null
+                | null,
+            indexedResults: IndexedTrendResult[]
         ) => (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null]
         getTrendsColor: (
             getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null]
@@ -406,10 +416,6 @@ export interface trendsDataLogicMeta {
                 | undefined
         ) => (dataset: IndexedTrendResult) => boolean
         areAllSeriesVisible: (
-            indexedResults: IndexedTrendResult[],
-            getTrendsHidden: (dataset: IndexedTrendResult) => boolean
-        ) => boolean
-        showLegendIsolateSeriesItem: (
             indexedResults: IndexedTrendResult[],
             getTrendsHidden: (dataset: IndexedTrendResult) => boolean
         ) => boolean
@@ -490,6 +496,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         toggleResultHidden: (dataset: IndexedTrendResult) => ({ dataset }),
         toggleAllResultsHidden: (datasets: IndexedTrendResult[], hidden: boolean) => ({ datasets, hidden }),
         toggleOtherSeriesHidden: (dataset: IndexedTrendResult) => ({ dataset }),
+        setResultsHidden: (hiddenIds: string[]) => ({ hiddenIds }),
         setHoveredDatasetIndex: (index: number | null) => ({ index }),
     }),
 
@@ -605,7 +612,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     })
                 } else if (
                     display &&
-                    (display === ChartDisplayType.ActionsBarValue || display === ChartDisplayType.ActionsPie)
+                    (display === ChartDisplayType.ActionsBarValue || PIE_DISPLAY_TYPES.includes(display))
                 ) {
                     indexedResults.sort((a, b) => {
                         const aValue =
@@ -860,7 +867,14 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
 
         getTrendsColorToken: [
-            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
+            (s) => [
+                s.resultCustomizationBy,
+                s.resultCustomizations,
+                s.getTheme,
+                s.breakdownFilter,
+                s.querySource,
+                s.indexedResults,
+            ],
             (
                 resultCustomizationBy: ResultCustomizationBy,
                 resultCustomizations:
@@ -878,8 +892,50 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     | import('~/queries/schema/schema-general').RetentionQuery
                     | import('~/queries/schema/schema-general').StickinessQuery
                     | import('~/queries/schema/schema-general').WebOverviewQuery
-                    | import('~/queries/schema/schema-general').WebStatsTableQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery,
+                indexedResults: IndexedTrendResult[]
             ) => {
+                const breakdownPropertyKey = getBreakdownPropertyKey(breakdownFilter)
+                // The dashboard's colors live in another logic and are read at call time, so the
+                // per-tile fallback map is memoized here on the identity of what it derives from.
+                let fallbackSource: { overrides: BreakdownColorConfig[]; theme: DataColorTheme } | null = null
+                let fallbackTokens = new Map<number, DataColorToken>()
+                const tileFallbackToken = (
+                    overrides: BreakdownColorConfig[],
+                    theme: DataColorTheme,
+                    dataset: IndexedTrendResult
+                ): DataColorToken | undefined => {
+                    if (fallbackSource?.overrides !== overrides || fallbackSource?.theme !== theme) {
+                        fallbackSource = { overrides, theme }
+                        // Completion only activates when a dashboard override actually sits on this
+                        // tile; a series customization alone must not shift its neighbors' colors.
+                        // Once active, customized series claim their slots like overrides do.
+                        let hasDashboardOverride = false
+                        const series = indexedResults.map((result) => {
+                            const overrideToken =
+                                findBreakdownColorConfig(
+                                    overrides,
+                                    JSON.parse(getTrendDatasetKey(result))['breakdown_value'],
+                                    breakdownFilter?.breakdown_type,
+                                    breakdownPropertyKey
+                                )?.colorToken ?? null
+                            hasDashboardOverride = hasDashboardOverride || !!overrideToken
+                            return {
+                                position: getTrendDatasetPosition(result),
+                                overrideToken:
+                                    overrideToken ??
+                                    getTrendResultCustomization(resultCustomizationBy, result, resultCustomizations)
+                                        ?.color ??
+                                    null,
+                            }
+                        })
+                        fallbackTokens = hasDashboardOverride
+                            ? computeTileFallbackTokens(series, Object.keys(theme).length)
+                            : new Map<number, DataColorToken>()
+                    }
+                    return fallbackTokens.get(getTrendDatasetPosition(dataset))
+                }
+
                 return (dataset: IndexedTrendResult): [DataColorTheme | null, DataColorToken | null] => {
                     const breakdownValue = JSON.parse(getTrendDatasetKey(dataset))['breakdown_value']
 
@@ -888,7 +944,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     const colorOverride = findBreakdownColorConfig(
                         logic?.values.effectiveBreakdownColors,
                         breakdownValue,
-                        breakdownFilter?.breakdown_type
+                        breakdownFilter?.breakdown_type,
+                        breakdownPropertyKey
                     )
 
                     if (colorOverride?.colorToken) {
@@ -901,6 +958,24 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     const theme = logic?.values.dataColorTheme || getTheme(querySource?.dataColorTheme)
                     if (!theme) {
                         return [null, null]
+                    }
+
+                    // On dashboards with auto colors, series without a value override fill the
+                    // palette slots the tile's overrides don't use, because the plain
+                    // position-based fallback can land on the same slot as an override shown on
+                    // this very chart. An explicit per-series customization still wins below.
+                    if (logic?.values.autoBreakdownColorsEnabled) {
+                        const customizationColor = getTrendResultCustomization(
+                            resultCustomizationBy,
+                            dataset,
+                            resultCustomizations
+                        )?.color
+                        const fallbackToken = customizationColor
+                            ? undefined
+                            : tileFallbackToken(logic.values.effectiveBreakdownColors, theme, dataset)
+                        if (fallbackToken) {
+                            return [theme, fallbackToken]
+                        }
                     }
 
                     return [
@@ -950,14 +1025,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 indexedResults: IndexedTrendResult[],
                 getTrendsHidden: (dataset: IndexedTrendResult) => boolean
             ): boolean => indexedResults.every((d) => !getTrendsHidden(d)),
-        ],
-
-        showLegendIsolateSeriesItem: [
-            (s) => [s.indexedResults, s.getTrendsHidden],
-            (
-                indexedResults: IndexedTrendResult[],
-                getTrendsHidden: (dataset: IndexedTrendResult) => boolean
-            ): boolean => indexedResults.length > 0 && !indexedResults.every((d) => getTrendsHidden(d)),
         ],
 
         legendSeriesIsolationMenuEligible: [
@@ -1029,6 +1096,31 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             actions.updateInsightFilter({
                 resultCustomizations,
             } as Partial<TrendsFilter>)
+        },
+        setResultsHidden: ({ hiddenIds }) => {
+            const { indexedResults, resultCustomizationBy, resultCustomizations } = values
+            const hidden = new Set(hiddenIds)
+            // Customizations are keyed per series identity, which several results can share when
+            // assigning by value. Resolve visibility per key — a key stays visible while any of its
+            // results is — so isolating one of a pair doesn't hide the other out from under it.
+            const visibleKeys = new Set(
+                indexedResults
+                    .filter((r) => !hidden.has(String(r.id)))
+                    .map((r) => getTrendResultCustomizationKey(resultCustomizationBy, r))
+            )
+
+            const next: Record<string, ResultCustomization> = { ...resultCustomizations }
+            for (const result of indexedResults) {
+                const key = getTrendResultCustomizationKey(resultCustomizationBy, result)
+                const existing = getTrendResultCustomization(resultCustomizationBy, result, resultCustomizations)
+                next[key] = {
+                    ...existing,
+                    assignmentBy: resultCustomizationBy,
+                    hidden: !visibleKeys.has(key),
+                }
+            }
+
+            actions.updateInsightFilter({ resultCustomizations: next } as Partial<TrendsFilter>)
         },
         toggleOtherSeriesHidden: ({ dataset }) => {
             const { indexedResults, resultCustomizationBy, resultCustomizations, getTrendsHidden } = values

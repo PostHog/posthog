@@ -2,7 +2,6 @@ import type { AvailableCommand } from "@agentclientprotocol/sdk";
 import type { SlashCommand } from "@anthropic-ai/claude-agent-sdk";
 
 const UNSUPPORTED_COMMANDS = [
-  "clear",
   "context",
   "cost",
   "keybindings-help",
@@ -16,7 +15,7 @@ const UNSUPPORTED_COMMANDS = [
 export function getAvailableSlashCommands(
   commands: SlashCommand[],
 ): AvailableCommand[] {
-  return commands
+  const available = commands
     .map((command) => {
       const input =
         command.argumentHint != null
@@ -40,4 +39,14 @@ export function getAvailableSlashCommands(
       (command: AvailableCommand) =>
         !UNSUPPORTED_COMMANDS.includes(command.name),
     );
+  // /clear is implemented by the adapter (clearConversation), not forwarded
+  // to the SDK — advertise it even when the SDK doesn't list it.
+  if (!available.some((command) => command.name === "clear")) {
+    available.push({
+      name: "clear",
+      description: "Clear conversation history and free up context",
+      input: null,
+    });
+  }
+  return available;
 }

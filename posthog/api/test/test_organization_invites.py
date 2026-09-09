@@ -24,8 +24,8 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from ee.models import Role, RoleMembership
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
@@ -58,7 +58,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         for i in range(0, count):
             payload.append(
                 {
-                    "target_email": f"test+{random.randint(1000000, 9999999)}@posthog.com",
+                    "target_email": f"test-{random.randint(1000000, 9999999)}@posthog.com",
                     "first_name": NAME_SEEDS[i % len(NAME_SEEDS)],
                 }
             )
@@ -543,6 +543,15 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
 
+        self.assertEqual(OrganizationInvite.objects.count(), count)
+
+    def test_invite_creation_disallowed_with_plus_addressed_email(self):
+        count = OrganizationInvite.objects.count()
+        response = self.client.post(
+            "/api/organizations/@current/invites/", {"target_email": "newperson+alias@posthog.com"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "plus_addressing_not_allowed")
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
     @parameterized.expand(
@@ -1444,6 +1453,19 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Check that the user was assigned to the default role
         assert RoleMembership.objects.filter(role=role, user=new_user, organization_member=membership).exists()
 
+    @patch("posthog.models.user.capture_exception")
+    def test_user_join_does_not_assign_default_role_from_another_organization(self, mock_capture_exception):
+        other_organization = Organization.objects.create(name="Other organization")
+        role = Role.objects.create(name="Other organization role", organization=other_organization)
+        self.organization.default_role = role
+        self.organization.save()
+        new_user = User.objects.create(email="test@example.com", first_name="Test")
+
+        new_user.join(organization=self.organization)
+
+        assert not RoleMembership.objects.filter(role=role, user=new_user).exists()
+        mock_capture_exception.assert_called_once()
+
     def test_user_join_without_default_role(self):
         """Test that new users don't get assigned any role when no default is set"""
         # Create a new user and have them join the organization
@@ -1605,6 +1627,12 @@ class TestOnboardingDelegationInviteAPI(APIBaseTest):
     def test_delegate_rejects_malformed_email(self):
         response = self.client.post(self._delegate_url(), {"target_email": "not-an-email"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delegate_rejects_plus_addressed_email(self):
+        response = self.client.post(self._delegate_url(), {"target_email": "engineer+alias@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "plus_addressing_not_allowed")
+        self.assertFalse(OrganizationInvite.objects.filter(target_email="engineer+alias@example.com").exists())
 
     def test_delegate_rejects_self_delegation(self):
         response = self.client.post(self._delegate_url(), {"target_email": self.user.email})
@@ -1840,7 +1868,7 @@ class TestOnboardingDelegationStateTransitionTable(APIBaseTest):
         self._assert_user_state(**expected)
 
     def _run_delegate_only(self) -> None:
-        self._last_delegate_email = f"engineer+{random.randint(100000, 999999)}@example.com"
+        self._last_delegate_email = f"engineer-{random.randint(100000, 999999)}@example.com"
         response = self.client.post(self._delegate_url(), {"target_email": self._last_delegate_email})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
 
@@ -1896,7 +1924,7 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
         cache.clear()
 
     def _payload(self, count: int, seed: str = "burst") -> list[dict]:
-        return [{"target_email": f"test+{seed}_{i}@posthog.com"} for i in range(count)]
+        return [{"target_email": f"test-{seed}_{i}@posthog.com"} for i in range(count)]
 
     @patch("posthog.rate_limit.OrganizationInviteBurstThrottle.rate", new="3/hour")
     def test_burst_limit_rejects_single_invites_over_cap(self, _rate_limit_enabled_mock, _time_sensitive_mock):

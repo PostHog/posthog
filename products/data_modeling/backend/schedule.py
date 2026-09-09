@@ -17,7 +17,13 @@ from collections.abc import Collection
 from datetime import timedelta
 
 from asgiref.sync import async_to_sync
-from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow, ScheduleRange, ScheduleSpec
+from temporalio.client import (
+    ScheduleCalendarSpec,
+    ScheduleIntervalSpec,
+    ScheduleListActionStartWorkflow,
+    ScheduleRange,
+    ScheduleSpec,
+)
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
 from posthog.temporal.common.client import async_connect
@@ -30,12 +36,10 @@ from posthog.temporal.common.search_attributes import (
 
 from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
 
-# v2 (DAG-based) schedules run this workflow; their schedule id is the bare DAG id, or
-# "{dag_id}:{interval_seconds}" for a per-cadence-tier schedule. The v1 backend
-# (`data-modeling-run`, one schedule per saved query) is frozen and being migrated away from.
+# A schedule id is the bare DAG id, or "{dag_id}:{interval_seconds}" for a per-cadence-tier
+# schedule, optionally followed by ":{anchor}". Parsers must handle all three shapes.
 DATA_MODELING_EXECUTE_DAG_WORKFLOW = "data-modeling-execute-dag"
 
 
@@ -143,26 +147,6 @@ def get_v2_saved_query_ids(
     return set(nodes.values_list("saved_query_id", flat=True))
 
 
-def partition_saved_queries_by_v2_schedule(
-    saved_queries: list[DataWarehouseSavedQuery],
-) -> tuple[list[DataWarehouseSavedQuery], list[DataWarehouseSavedQuery]]:
-    """Split saved queries into (v1_eligible, on_v2).
-
-    A saved query is "on v2" when any DAG it belongs to already has a `data-modeling-execute-dag`
-    schedule. v1 schedule commands should skip the on_v2 list so they do not undo migration progress.
-    """
-    if not saved_queries:
-        return [], []
-
-    v2_ids = get_v2_saved_query_ids([sq.id for sq in saved_queries])
-    if not v2_ids:
-        return list(saved_queries), []
-
-    eligible = [sq for sq in saved_queries if sq.id not in v2_ids]
-    on_v2 = [sq for sq in saved_queries if sq.id in v2_ids]
-    return eligible, on_v2
-
-
 def _deterministic_int(entity_id: uuid.UUID, salt: str) -> int:
     """SHA-256 based deterministic integer from entity_id + salt."""
     digest = hashlib.sha256(f"{entity_id}-{salt}".encode()).hexdigest()
@@ -256,13 +240,16 @@ def _monthly_spec(entity_id: uuid.UUID, timezone: str) -> ScheduleSpec:
     )
 
 
-def _anchored_spec(entity_id: uuid.UUID, interval: timedelta, anchor_minutes: int) -> ScheduleSpec:
+def _anchored_spec(interval: timedelta, anchor_minutes: int) -> ScheduleSpec:
     """Pinned-phase spec: fires at times t ≡ anchor (mod interval), t counted from Monday 00:00 UTC.
 
     Always UTC (a fixed instant that does not shift with DST) and 1min jitter — an operator
     pinning 00:00 means 00:00, not the hash paths' up-to-1hr spread. Every sub-weekly bucket
     divides the day, so only the time-of-day part of the anchor matters there; weekly reads the
-    full value for its day. Monthly keeps its hash-picked day-of-month with the time pinned.
+    full value for its day. Monthly reads only the time of day too, and fires on the 30-day
+    epoch grid rather than a day of the month.
+
+    Nothing here depends on the entity: an anchored cohort shares one phase by definition.
     """
     time_of_day = anchor_minutes % (24 * 60)
     anchor_hour, anchor_min = divmod(time_of_day, 60)
@@ -296,12 +283,15 @@ def _anchored_spec(entity_id: uuid.UUID, interval: timedelta, anchor_minutes: in
             minute=[ScheduleRange(start=anchor_min, end=anchor_min)],
         )
     else:
-        day_of_month = (_deterministic_int(entity_id, "day") % 28) + 1
-        calendar = ScheduleCalendarSpec(
-            comment=f"Anchored: monthly (hash-picked day {day_of_month}) at {anchor_hour:02d}:{anchor_min:02d}",
-            day_of_month=[ScheduleRange(start=day_of_month, end=day_of_month)],
-            hour=[ScheduleRange(start=anchor_hour, end=anchor_hour)],
-            minute=[ScheduleRange(start=anchor_min, end=anchor_min)],
+        # Calendar months are 28-31 days, so no day_of_month holds a 30-day cycle. Warehouse
+        # sources run epoch-anchored interval schedules whose offset is a time of day, so a
+        # 30-day source always syncs on a day where days_since_epoch % 30 == 0. Sharing that
+        # grid is what lets an anchored model read the sync it was meant to read; a calendar
+        # day drifts against the grid and leaves the model a whole cycle in arrears.
+        return ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=interval, offset=timedelta(minutes=time_of_day))],
+            jitter=timedelta(minutes=1),
+            time_zone_name="UTC",
         )
 
     return ScheduleSpec(calendars=[calendar], jitter=timedelta(minutes=1), time_zone_name="UTC")
@@ -326,7 +316,7 @@ def build_schedule_spec(
         A ScheduleSpec ready to be used with Temporal's Schedule API.
     """
     if anchor_minutes is not None:
-        return _anchored_spec(entity_id, interval, anchor_minutes)
+        return _anchored_spec(interval, anchor_minutes)
 
     total_hours = interval.total_seconds() / 3600
 

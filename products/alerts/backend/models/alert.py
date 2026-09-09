@@ -163,16 +163,18 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     schedule_restriction = models.JSONField(null=True, blank=True, default=None)
 
-    # When enabled and the alert transitions to FIRING, an investigation agent runs
-    # and writes its findings to a linked Notebook. Only effective for detector-based
-    # (anomaly) alerts. See posthog/temporal/alerts/workflows.py for the trigger logic.
+    # When enabled, an investigation agent runs on each firing check, up to three per
+    # firing episode, and writes its findings to a linked Notebook. Only effective for
+    # detector-based (anomaly) alerts. See posthog/temporal/alerts/investigation.py for
+    # the trigger logic.
     investigation_agent_enabled = models.BooleanField(default=False)
 
-    # When enabled (and investigation_agent_enabled is on), notification dispatch is
-    # held until the investigation agent produces a verdict — and suppressed if the
-    # verdict is false_positive. A safety-net Temporal workflow force-notifies after a
-    # grace period if the investigation stalls, so users can never silently miss a
-    # real fire. See posthog/temporal/alerts/workflows.py (RunInvestigationSafetyNetWorkflow).
+    # When enabled (and investigation_agent_enabled is on), the episode's first fire is
+    # held until the investigation agent produces a verdict, and suppressed if the
+    # verdict is false_positive. Later fires of the episode notify without waiting. A
+    # safety-net Temporal workflow force-notifies after a grace period if the
+    # investigation stalls, so users can never silently miss a real fire.
+    # See posthog/temporal/alerts/workflows.py (RunInvestigationSafetyNetWorkflow).
     investigation_gates_notifications = models.BooleanField(default=False)
 
     # What to do with an "inconclusive" verdict when notifications are gated.
@@ -256,6 +258,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "calculation_interval": self.calculation_interval,
             "is_high_frequency_interval": self.is_high_frequency_interval,
             "enabled": self.enabled,
+            "investigation_agent_enabled": self.investigation_agent_enabled,
             "skip_weekend": bool(self.skip_weekend),
             "has_schedule_restriction": has_schedule_restriction,
             "has_threshold": has_threshold,
@@ -433,6 +436,8 @@ class AlertCheck(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     calculated_value = models.FloatField(null=True, blank=True)
     condition = models.JSONField(default=dict)  # Snapshot of the condition at the time of the check
+    # {} = no delivery. For legacy reasons "users" holds email addresses only;
+    # "destinations" holds the other channels' receipts (see AlertDelivery).
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
@@ -478,6 +483,12 @@ class AlertCheck(UUIDTModel):
 
     def __str__(self) -> str:
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"
+
+    @property
+    def has_delivery_receipts(self) -> bool:
+        """True when this row was written by record_alert_delivery (which always sets
+        the "destinations" key); legacy rows only carry configured recipients."""
+        return "destinations" in (self.targets_notified or {})
 
     @classmethod
     def clean_up_old_checks(cls) -> int:

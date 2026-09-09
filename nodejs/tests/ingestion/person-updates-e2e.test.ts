@@ -12,22 +12,21 @@
  * which flag combination is used, catching regressions early.
  */
 import { DateTime } from 'luxon'
-import { Message } from 'node-rdkafka'
-import { v4 } from 'uuid'
 
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { UUIDT } from '~/common/utils/utils'
 import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
-import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
+import {
+    EventBuilder,
+    createKafkaMessages,
+    createTestWithTeamIngester,
+    ensureIngestionE2EInfraReady,
+    waitForKafkaMessages,
+} from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { createUserTeamAndOrganization, resetTestDatabase } from '~/tests/helpers/sql'
-import { PipelineEvent, ProjectId, Team } from '~/types'
 
 jest.mock('~/common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
@@ -39,106 +38,6 @@ jest.mock('~/common/utils/token-bucket', () => {
 })
 
 jest.mock('~/common/utils/logger')
-
-const DEFAULT_TEAM: Team = {
-    id: 1,
-    project_id: 1 as ProjectId,
-    uuid: 'team-uuid',
-    organization_id: 'org-id',
-    name: 'Test Team',
-    anonymize_ips: false,
-    api_token: 'test-token',
-    secret_api_token: null,
-    session_recording_opt_in: false,
-    heatmaps_opt_in: null,
-    ingested_event: true,
-    person_display_name_properties: [],
-    minimal_flag_called_events: false,
-    person_processing_opt_out: null,
-    test_account_filters: [],
-    timezone: 'UTC',
-    cookieless_server_hash_mode: null,
-    available_features: [],
-    drop_events_older_than_seconds: null,
-    extra_settings: { person_last_seen_at_enabled: true },
-}
-
-class EventBuilder {
-    private event: Partial<PipelineEvent> = {}
-
-    constructor(team: Team, distinctId: string = new UUIDT().toString()) {
-        this.event = {
-            event: 'custom event',
-            properties: {},
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
-            ip: null,
-            site_url: 'https://example.com',
-            uuid: new UUIDT().toString(),
-        }
-        this.event.distinct_id = distinctId
-        this.event.team_id = team.id
-    }
-
-    withEvent(event: string) {
-        this.event.event = event
-        return this
-    }
-
-    withProperties(properties: Record<string, any>) {
-        this.event.properties = properties
-        return this
-    }
-
-    withTimestamp(timestamp: number) {
-        const date = DateTime.fromMillis(timestamp)
-        this.event.timestamp = date.toString()
-        this.event.now = date.toString()
-        return this
-    }
-
-    build(): PipelineEvent {
-        return this.event as PipelineEvent
-    }
-}
-
-let offsetIncrementer = 0
-let currentToken: string
-
-const createKafkaMessage = (event: PipelineEvent, timestamp: number = Date.now()): Message => {
-    const token = currentToken
-    // TRICKY: This is the slightly different format that capture sends
-    const captureEvent = {
-        uuid: event.uuid,
-        distinct_id: event.distinct_id,
-        ip: event.ip,
-        now: event.now,
-        token,
-        data: JSON.stringify(event),
-    }
-    const headers: { [key: string]: Buffer }[] = [
-        { token: Buffer.from(token) },
-        { distinct_id: Buffer.from(event.distinct_id!) },
-    ]
-    return {
-        key: `${token}:${event.distinct_id}`,
-        value: Buffer.from(JSON.stringify(captureEvent)),
-        size: 1,
-        topic: 'test',
-        offset: offsetIncrementer++,
-        timestamp: timestamp + offsetIncrementer,
-        partition: 1,
-        headers,
-    }
-}
-
-const createKafkaMessages = (events: PipelineEvent[]): Message[] => {
-    return events.map(createKafkaMessage)
-}
-
-const waitForKafkaMessages = async (kafkaProducer: KafkaProducerWrapper) => {
-    await kafkaProducer.flush()
-}
 
 // All possible values for each flag
 const DB_WRITE_MODES: PersonBatchWritingDbWriteMode[] = ['NO_ASSERT', 'ASSERT_VERSION']
@@ -171,65 +70,9 @@ const formatConfigName = (config: PersonUpdateConfig): string => {
 
 describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
     const configName = formatConfigName(config)
-    let clickhouse: Clickhouse
-    let infra: IngestionTestInfra
-    let kafkaProducer: KafkaProducerWrapper
-    let ingester: IngestionConsumer
-    let team: Team
-
-    beforeAll(async () => {
-        clickhouse = Clickhouse.create()
-        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
-    })
-
-    afterAll(async () => {
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
-        clickhouse.close()
-    })
-
-    beforeEach(async () => {
-        infra = await createIngestionTestInfra({
-            ...config,
-        })
-        kafkaProducer = await KafkaProducerWrapper.create(infra.config.KAFKA_CLIENT_RACK)
-
-        const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
-        const userId = teamId
-        const organizationId = new UUIDT().toString()
-        const userUuid = new UUIDT().toString()
-        const organizationMembershipId = new UUIDT().toString()
-
-        team = {
-            ...DEFAULT_TEAM,
-            id: teamId,
-            project_id: teamId as ProjectId,
-            organization_id: organizationId,
-            uuid: v4(),
-            name: teamId.toString(),
-        }
-
-        await createUserTeamAndOrganization(
-            infra.postgres,
-            team.id,
-            userId,
-            userUuid,
-            team.organization_id,
-            organizationMembershipId,
-            { extra_settings: { person_last_seen_at_enabled: true } }
-        )
-
-        const fetchedTeam = await infra.teamManager.getTeam(team.id)
-        if (!fetchedTeam) {
-            throw new Error(`Failed to fetch team ${team.id} from database`)
-        }
-        team = fetchedTeam
-        currentToken = team.api_token
-
+    const testWithTeamIngester = createTestWithTeamIngester(config, (infra, kafkaProducer) => {
         const outputs = createTestIngestionOutputs(kafkaProducer)
-        ingester = new IngestionConsumer(infra.config, {
+        return new IngestionConsumer(infra.config, {
             postgres: infra.postgres,
             redisPool: infra.redisPool,
             teamManager: infra.teamManager,
@@ -248,525 +91,595 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             outputs,
             clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
         })
-        ingester['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(),
-        } as any
-
-        await ingester.start()
     })
+    const lastSeenAtEnabled = { teamOverrides: { extra_settings: { person_last_seen_at_enabled: true } } }
 
-    afterEach(async () => {
-        await ingester.stop()
-        await kafkaProducer.disconnect()
-        await infra.close()
+    beforeAll(async () => {
+        await ensureIngestionE2EInfraReady()
     })
 
     describe(configName, () => {
-        it('should create a new person on first event', async () => {
-            const distinctId = new UUIDT().toString()
+        testWithTeamIngester(
+            'should create a new person on first event',
+            lastSeenAtEnabled,
+            async ({ infra, team, kafkaProducer, ingester, token }) => {
+                const distinctId = new UUIDT().toString()
 
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([new EventBuilder(team, distinctId).withEvent('test_event').build()])
-            )
-
-            await waitForKafkaMessages(kafkaProducer)
-
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.team_id).toBe(team.id)
-                // last_seen_at should be set to an hour-rounded timestamp
-                expect(person!.last_seen_at).toBeDefined()
-                expect(person!.last_seen_at!.minute).toBe(0)
-                expect(person!.last_seen_at!.second).toBe(0)
-                expect(person!.last_seen_at!.millisecond).toBe(0)
-            })
-        })
-
-        it('should set person properties with $identify and $set', async () => {
-            const distinctId = new UUIDT().toString()
-            const timestamp = DateTime.now().toMillis()
-            const expectedLastSeenAt = DateTime.fromMillis(timestamp).startOf('hour')
-
-            // Create person with initial properties
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({
-                            $set: { name: 'Initial Name', email: 'test@example.com' },
-                        })
-                        .withTimestamp(timestamp)
-                        .build(),
-                ])
-            )
-
-            await waitForKafkaMessages(kafkaProducer)
-
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.properties).toEqual(
-                    expect.objectContaining({
-                        name: 'Initial Name',
-                        email: 'test@example.com',
-                    })
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages([new EventBuilder(team, distinctId).withEvent('test_event').build()], token)
                 )
-                // last_seen_at should be set to the hour-rounded event timestamp
-                expect(person!.last_seen_at).toBeDefined()
-                expect(person!.last_seen_at!.toMillis()).toBe(expectedLastSeenAt.toMillis())
-            })
-        })
 
-        it('should update person properties across multiple events in same batch', async () => {
-            const distinctId = new UUIDT().toString()
-            const timestamp = DateTime.now().toMillis()
+                await waitForKafkaMessages(kafkaProducer)
 
-            // Send multiple events in a single batch
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({
-                            $set: { prop1: 'value1' },
-                        })
-                        .withTimestamp(timestamp)
-                        .build(),
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({
-                            $set: { prop2: 'value2' },
-                        })
-                        .withTimestamp(timestamp + 1)
-                        .build(),
-                ])
-            )
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.team_id).toBe(team.id)
+                    // last_seen_at should be set to an hour-rounded timestamp
+                    expect(person!.last_seen_at).toBeDefined()
+                    expect(person!.last_seen_at!.minute).toBe(0)
+                    expect(person!.last_seen_at!.second).toBe(0)
+                    expect(person!.last_seen_at!.millisecond).toBe(0)
+                })
+            }
+        )
 
-            await waitForKafkaMessages(kafkaProducer)
+        testWithTeamIngester(
+            'should set person properties with $identify and $set',
+            lastSeenAtEnabled,
+            async ({ infra, team, kafkaProducer, ingester, token }) => {
+                const distinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
+                const expectedLastSeenAt = DateTime.fromMillis(timestamp).startOf('hour')
 
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.properties).toEqual(
-                    expect.objectContaining({
-                        prop1: 'value1',
-                        prop2: 'value2',
-                    })
+                // Create person with initial properties
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({
+                                    $set: { name: 'Initial Name', email: 'test@example.com' },
+                                })
+                                .withTimestamp(timestamp)
+                                .build(),
+                        ],
+                        token
+                    )
                 )
-            })
-        })
 
-        it('should update person properties across multiple batches', async () => {
-            const distinctId = new UUIDT().toString()
-            const timestamp = DateTime.now().toMillis()
+                await waitForKafkaMessages(kafkaProducer)
 
-            // First batch: create person
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({
-                            $set: { initial_prop: 'initial_value' },
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            name: 'Initial Name',
+                            email: 'test@example.com',
                         })
-                        .withTimestamp(timestamp)
-                        .build(),
-                ])
-            )
+                    )
+                    // last_seen_at should be set to the hour-rounded event timestamp
+                    expect(person!.last_seen_at).toBeDefined()
+                    expect(person!.last_seen_at!.toMillis()).toBe(expectedLastSeenAt.toMillis())
+                })
+            }
+        )
 
-            await waitForKafkaMessages(kafkaProducer)
+        testWithTeamIngester(
+            'should update person properties across multiple events in same batch',
+            lastSeenAtEnabled,
+            async ({ infra, team, kafkaProducer, ingester, token }) => {
+                const distinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
 
-            // Wait for person to be created
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.properties).toEqual(
-                    expect.objectContaining({
-                        initial_prop: 'initial_value',
-                    })
+                // Send multiple events in a single batch
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({
+                                    $set: { prop1: 'value1' },
+                                })
+                                .withTimestamp(timestamp)
+                                .build(),
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({
+                                    $set: { prop2: 'value2' },
+                                })
+                                .withTimestamp(timestamp + 1)
+                                .build(),
+                        ],
+                        token
+                    )
                 )
-            })
 
-            // Second batch: update person
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({
-                            $set: { new_prop: 'new_value', updated_prop: 'updated' },
+                await waitForKafkaMessages(kafkaProducer)
+
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            prop1: 'value1',
+                            prop2: 'value2',
                         })
-                        .withTimestamp(timestamp + 1000)
-                        .build(),
-                ])
-            )
+                    )
+                })
+            }
+        )
 
-            await waitForKafkaMessages(kafkaProducer)
+        testWithTeamIngester(
+            'should update person properties across multiple batches',
+            lastSeenAtEnabled,
+            async ({ infra, team, kafkaProducer, ingester, token }) => {
+                const distinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
 
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.properties).toEqual(
-                    expect.objectContaining({
-                        initial_prop: 'initial_value',
-                        new_prop: 'new_value',
-                        updated_prop: 'updated',
-                    })
+                // First batch: create person
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({
+                                    $set: { initial_prop: 'initial_value' },
+                                })
+                                .withTimestamp(timestamp)
+                                .build(),
+                        ],
+                        token
+                    )
                 )
-            })
-        })
 
-        it('should handle $set_once correctly', async () => {
-            const distinctId = new UUIDT().toString()
-            const timestamp = DateTime.now().toMillis()
+                await waitForKafkaMessages(kafkaProducer)
 
-            // First event sets initial value
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({
-                            $set_once: { first_seen: 'original_value' },
+                // Wait for person to be created
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            initial_prop: 'initial_value',
                         })
-                        .withTimestamp(timestamp)
-                        .build(),
-                ])
-            )
+                    )
+                })
 
-            await waitForKafkaMessages(kafkaProducer)
-
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.properties).toEqual(
-                    expect.objectContaining({
-                        first_seen: 'original_value',
-                    })
+                // Second batch: update person
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({
+                                    $set: { new_prop: 'new_value', updated_prop: 'updated' },
+                                })
+                                .withTimestamp(timestamp + 1000)
+                                .build(),
+                        ],
+                        token
+                    )
                 )
-            })
 
-            // Second event tries to overwrite with $set_once - should be ignored
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({
-                            $set_once: { first_seen: 'should_be_ignored' },
+                await waitForKafkaMessages(kafkaProducer)
+
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            initial_prop: 'initial_value',
+                            new_prop: 'new_value',
+                            updated_prop: 'updated',
                         })
-                        .withTimestamp(timestamp + 1000)
-                        .build(),
-                ])
-            )
+                    )
+                })
+            }
+        )
 
-            await waitForKafkaMessages(kafkaProducer)
+        testWithTeamIngester(
+            'should handle $set_once correctly',
+            lastSeenAtEnabled,
+            async ({ infra, team, kafkaProducer, ingester, token }) => {
+                const distinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
 
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                // Value should remain unchanged
-                expect(person!.properties.first_seen).toBe('original_value')
-            })
-        })
-
-        it('should handle $unset correctly', async () => {
-            const distinctId = new UUIDT().toString()
-            const timestamp = DateTime.now().toMillis()
-
-            // Create person with properties
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({
-                            $set: { keep_prop: 'keep', remove_prop: 'remove' },
-                        })
-                        .withTimestamp(timestamp)
-                        .build(),
-                ])
-            )
-
-            await waitForKafkaMessages(kafkaProducer)
-
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.properties).toHaveProperty('remove_prop')
-            })
-
-            // Unset a property
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({
-                            $unset: ['remove_prop'],
-                        })
-                        .withTimestamp(timestamp + 1000)
-                        .build(),
-                ])
-            )
-
-            await waitForKafkaMessages(kafkaProducer)
-
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.properties).toEqual(
-                    expect.objectContaining({
-                        keep_prop: 'keep',
-                    })
+                // First event sets initial value
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({
+                                    $set_once: { first_seen: 'original_value' },
+                                })
+                                .withTimestamp(timestamp)
+                                .build(),
+                        ],
+                        token
+                    )
                 )
-                expect(person!.properties).not.toHaveProperty('remove_prop')
-            })
-        })
 
-        it('should handle combined $set and $unset in same event', async () => {
-            const distinctId = new UUIDT().toString()
-            const timestamp = DateTime.now().toMillis()
+                await waitForKafkaMessages(kafkaProducer)
 
-            // Create person with initial properties
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({
-                            $set: { prop1: 'value1', prop2: 'value2', prop3: 'value3' },
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            first_seen: 'original_value',
                         })
-                        .withTimestamp(timestamp)
-                        .build(),
-                ])
-            )
+                    )
+                })
 
-            await waitForKafkaMessages(kafkaProducer)
-
-            // Update with combined $set and $unset
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({
-                            $set: { prop1: 'updated_value1', prop4: 'value4' },
-                            $unset: ['prop2'],
-                        })
-                        .withTimestamp(timestamp + 1000)
-                        .build(),
-                ])
-            )
-
-            await waitForKafkaMessages(kafkaProducer)
-
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.properties).toEqual(
-                    expect.objectContaining({
-                        prop1: 'updated_value1',
-                        prop3: 'value3',
-                        prop4: 'value4',
-                    })
+                // Second event tries to overwrite with $set_once - should be ignored
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({
+                                    $set_once: { first_seen: 'should_be_ignored' },
+                                })
+                                .withTimestamp(timestamp + 1000)
+                                .build(),
+                        ],
+                        token
+                    )
                 )
-                expect(person!.properties).not.toHaveProperty('prop2')
-            })
-        })
 
-        it('should update last_seen_at when event timestamp is in a newer hour', async () => {
-            const distinctId = new UUIDT().toString()
-            // Start at the beginning of an hour to make assertions clearer
-            const baseTime = DateTime.now().startOf('hour')
-            const firstTimestamp = baseTime.toMillis()
-            const secondTimestamp = baseTime.plus({ hours: 2 }).toMillis()
+                await waitForKafkaMessages(kafkaProducer)
 
-            // First event creates the person
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({ $set: { initial: true } })
-                        .withTimestamp(firstTimestamp)
-                        .build(),
-                ])
-            )
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    // Value should remain unchanged
+                    expect(person!.properties.first_seen).toBe('original_value')
+                })
+            }
+        )
 
-            await waitForKafkaMessages(kafkaProducer)
+        testWithTeamIngester(
+            'should handle $unset correctly',
+            lastSeenAtEnabled,
+            async ({ infra, team, kafkaProducer, ingester, token }) => {
+                const distinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
 
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.last_seen_at).toBeDefined()
-                expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
-            })
+                // Create person with properties
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({
+                                    $set: { keep_prop: 'keep', remove_prop: 'remove' },
+                                })
+                                .withTimestamp(timestamp)
+                                .build(),
+                        ],
+                        token
+                    )
+                )
 
-            // Second event 2 hours later should update last_seen_at
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId).withEvent('pageview').withTimestamp(secondTimestamp).build(),
-                ])
-            )
+                await waitForKafkaMessages(kafkaProducer)
 
-            await waitForKafkaMessages(kafkaProducer)
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toHaveProperty('remove_prop')
+                })
 
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.last_seen_at).toBeDefined()
-                expect(person!.last_seen_at!.toMillis()).toBe(baseTime.plus({ hours: 2 }).toMillis())
-            })
-        })
+                // Unset a property
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({
+                                    $unset: ['remove_prop'],
+                                })
+                                .withTimestamp(timestamp + 1000)
+                                .build(),
+                        ],
+                        token
+                    )
+                )
 
-        it('should not update last_seen_at when $update_person_last_seen_at is false', async () => {
-            const distinctId = new UUIDT().toString()
-            const baseTime = DateTime.now().startOf('hour')
-            const firstTimestamp = baseTime.toMillis()
-            const secondTimestamp = baseTime.plus({ hours: 2 }).toMillis()
+                await waitForKafkaMessages(kafkaProducer)
 
-            // First event creates the person
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({ $set: { initial: true } })
-                        .withTimestamp(firstTimestamp)
-                        .build(),
-                ])
-            )
-
-            await waitForKafkaMessages(kafkaProducer)
-
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
-            })
-
-            // Second event 2 hours later with $update_person_last_seen_at=false should NOT update last_seen_at
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('pageview')
-                        .withProperties({ $update_person_last_seen_at: false })
-                        .withTimestamp(secondTimestamp)
-                        .build(),
-                ])
-            )
-
-            await waitForKafkaMessages(kafkaProducer)
-
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                // last_seen_at should remain unchanged
-                expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
-            })
-        })
-
-        it('should set is_identified to true when merging via $identify with $anon_distinct_id', async () => {
-            const anonDistinctId = new UUIDT().toString()
-            const identifiedDistinctId = new UUIDT().toString()
-            const timestamp = DateTime.now().toMillis()
-
-            // First, create an anonymous person
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, anonDistinctId).withEvent('pageview').withTimestamp(timestamp).build(),
-                ])
-            )
-
-            await waitForKafkaMessages(kafkaProducer)
-
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, anonDistinctId)
-                expect(person).toBeDefined()
-                expect(person!.is_identified).toBe(false)
-            })
-
-            // Then identify and merge via $anon_distinct_id
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, identifiedDistinctId)
-                        .withEvent('$identify')
-                        .withProperties({
-                            $anon_distinct_id: anonDistinctId,
-                            $set: { email: 'user@example.com' },
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            keep_prop: 'keep',
                         })
-                        .withTimestamp(timestamp + 1000)
-                        .build(),
-                ])
-            )
+                    )
+                    expect(person!.properties).not.toHaveProperty('remove_prop')
+                })
+            }
+        )
 
-            await waitForKafkaMessages(kafkaProducer)
+        testWithTeamIngester(
+            'should handle combined $set and $unset in same event',
+            lastSeenAtEnabled,
+            async ({ infra, team, kafkaProducer, ingester, token }) => {
+                const distinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
 
-            await waitForExpect(async () => {
-                // After merge, the person should be identified and accessible via the identified distinct ID
-                const person = await infra.personRepository.fetchPerson(team.id, identifiedDistinctId)
-                expect(person).toBeDefined()
-                expect(person!.is_identified).toBe(true)
-            })
-        })
+                // Create person with initial properties
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({
+                                    $set: { prop1: 'value1', prop2: 'value2', prop3: 'value3' },
+                                })
+                                .withTimestamp(timestamp)
+                                .build(),
+                        ],
+                        token
+                    )
+                )
+
+                await waitForKafkaMessages(kafkaProducer)
+
+                // Update with combined $set and $unset
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({
+                                    $set: { prop1: 'updated_value1', prop4: 'value4' },
+                                    $unset: ['prop2'],
+                                })
+                                .withTimestamp(timestamp + 1000)
+                                .build(),
+                        ],
+                        token
+                    )
+                )
+
+                await waitForKafkaMessages(kafkaProducer)
+
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.properties).toEqual(
+                        expect.objectContaining({
+                            prop1: 'updated_value1',
+                            prop3: 'value3',
+                            prop4: 'value4',
+                        })
+                    )
+                    expect(person!.properties).not.toHaveProperty('prop2')
+                })
+            }
+        )
+
+        testWithTeamIngester(
+            'should update last_seen_at when event timestamp is in a newer hour',
+            lastSeenAtEnabled,
+            async ({ infra, team, kafkaProducer, ingester, token }) => {
+                const distinctId = new UUIDT().toString()
+                // Start at the beginning of an hour to make assertions clearer
+                const baseTime = DateTime.now().startOf('hour')
+                const firstTimestamp = baseTime.toMillis()
+                const secondTimestamp = baseTime.plus({ hours: 2 }).toMillis()
+
+                // First event creates the person
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({ $set: { initial: true } })
+                                .withTimestamp(firstTimestamp)
+                                .build(),
+                        ],
+                        token
+                    )
+                )
+
+                await waitForKafkaMessages(kafkaProducer)
+
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.last_seen_at).toBeDefined()
+                    expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
+                })
+
+                // Second event 2 hours later should update last_seen_at
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('pageview')
+                                .withTimestamp(secondTimestamp)
+                                .build(),
+                        ],
+                        token
+                    )
+                )
+
+                await waitForKafkaMessages(kafkaProducer)
+
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.last_seen_at).toBeDefined()
+                    expect(person!.last_seen_at!.toMillis()).toBe(baseTime.plus({ hours: 2 }).toMillis())
+                })
+            }
+        )
+
+        testWithTeamIngester(
+            'should not update last_seen_at when $update_person_last_seen_at is false',
+            lastSeenAtEnabled,
+            async ({ infra, team, kafkaProducer, ingester, token }) => {
+                const distinctId = new UUIDT().toString()
+                const baseTime = DateTime.now().startOf('hour')
+                const firstTimestamp = baseTime.toMillis()
+                const secondTimestamp = baseTime.plus({ hours: 2 }).toMillis()
+
+                // First event creates the person
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({ $set: { initial: true } })
+                                .withTimestamp(firstTimestamp)
+                                .build(),
+                        ],
+                        token
+                    )
+                )
+
+                await waitForKafkaMessages(kafkaProducer)
+
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
+                })
+
+                // Second event 2 hours later with $update_person_last_seen_at=false should NOT update last_seen_at
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('pageview')
+                                .withProperties({ $update_person_last_seen_at: false })
+                                .withTimestamp(secondTimestamp)
+                                .build(),
+                        ],
+                        token
+                    )
+                )
+
+                await waitForKafkaMessages(kafkaProducer)
+
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    // last_seen_at should remain unchanged
+                    expect(person!.last_seen_at!.toMillis()).toBe(baseTime.toMillis())
+                })
+            }
+        )
+
+        testWithTeamIngester(
+            'should set is_identified to true when merging via $identify with $anon_distinct_id',
+            lastSeenAtEnabled,
+            async ({ infra, team, kafkaProducer, ingester, token }) => {
+                const anonDistinctId = new UUIDT().toString()
+                const identifiedDistinctId = new UUIDT().toString()
+                const timestamp = DateTime.now().toMillis()
+
+                // First, create an anonymous person
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [new EventBuilder(team, anonDistinctId).withEvent('pageview').withTimestamp(timestamp).build()],
+                        token
+                    )
+                )
+
+                await waitForKafkaMessages(kafkaProducer)
+
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, anonDistinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.is_identified).toBe(false)
+                })
+
+                // Then identify and merge via $anon_distinct_id
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, identifiedDistinctId)
+                                .withEvent('$identify')
+                                .withProperties({
+                                    $anon_distinct_id: anonDistinctId,
+                                    $set: { email: 'user@example.com' },
+                                })
+                                .withTimestamp(timestamp + 1000)
+                                .build(),
+                        ],
+                        token
+                    )
+                )
+
+                await waitForKafkaMessages(kafkaProducer)
+
+                await waitForExpect(async () => {
+                    // After merge, the person should be identified and accessible via the identified distinct ID
+                    const person = await infra.personRepository.fetchPerson(team.id, identifiedDistinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.is_identified).toBe(true)
+                })
+            }
+        )
     })
 
     describe(`${configName} - person_last_seen_at_enabled disabled`, () => {
-        beforeEach(async () => {
-            const disabledTeamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
-            const disabledUserId = disabledTeamId
-            const disabledUserUuid = new UUIDT().toString()
-            const disabledOrgId = new UUIDT().toString()
-            const disabledOrgMembershipId = new UUIDT().toString()
+        testWithTeamIngester(
+            'should not update last_seen_at when person_last_seen_at_enabled is not set',
+            {},
+            async ({ infra, team, kafkaProducer, ingester, token }) => {
+                const distinctId = new UUIDT().toString()
+                const baseTime = DateTime.now().startOf('hour')
+                const firstTimestamp = baseTime.toMillis()
+                const secondTimestamp = baseTime.plus({ hours: 2 }).toMillis()
 
-            await createUserTeamAndOrganization(
-                infra.postgres,
-                disabledTeamId,
-                disabledUserId,
-                disabledUserUuid,
-                disabledOrgId,
-                disabledOrgMembershipId
-            )
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({ $set: { initial: true } })
+                                .withTimestamp(firstTimestamp)
+                                .build(),
+                        ],
+                        token
+                    )
+                )
 
-            const fetchedTeam = await infra.teamManager.getTeam(disabledTeamId)
-            if (!fetchedTeam) {
-                throw new Error(`Failed to fetch team ${disabledTeamId} from database`)
+                await waitForKafkaMessages(kafkaProducer)
+
+                let initialLastSeenAt: number | undefined
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    initialLastSeenAt = person!.last_seen_at?.toMillis()
+                })
+
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('pageview')
+                                .withTimestamp(secondTimestamp)
+                                .build(),
+                        ],
+                        token
+                    )
+                )
+
+                await waitForKafkaMessages(kafkaProducer)
+
+                await waitForExpect(async () => {
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
+                    expect(person).toBeDefined()
+                    expect(person!.last_seen_at?.toMillis()).toBe(initialLastSeenAt)
+                })
             }
-            team = fetchedTeam
-            currentToken = team.api_token
-        })
-
-        it('should not update last_seen_at when person_last_seen_at_enabled is not set', async () => {
-            const distinctId = new UUIDT().toString()
-            const baseTime = DateTime.now().startOf('hour')
-            const firstTimestamp = baseTime.toMillis()
-            const secondTimestamp = baseTime.plus({ hours: 2 }).toMillis()
-
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$identify')
-                        .withProperties({ $set: { initial: true } })
-                        .withTimestamp(firstTimestamp)
-                        .build(),
-                ])
-            )
-
-            await waitForKafkaMessages(kafkaProducer)
-
-            let initialLastSeenAt: number | undefined
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                initialLastSeenAt = person!.last_seen_at?.toMillis()
-            })
-
-            await ingester.handleKafkaBatch(
-                createKafkaMessages([
-                    new EventBuilder(team, distinctId).withEvent('pageview').withTimestamp(secondTimestamp).build(),
-                ])
-            )
-
-            await waitForKafkaMessages(kafkaProducer)
-
-            await waitForExpect(async () => {
-                const person = await infra.personRepository.fetchPerson(team.id, distinctId)
-                expect(person).toBeDefined()
-                expect(person!.last_seen_at?.toMillis()).toBe(initialLastSeenAt)
-            })
-        })
+        )
     })
 })

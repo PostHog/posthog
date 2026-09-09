@@ -1,4 +1,8 @@
-import { groupRunArtifactVersions } from "@posthog/core/canvas/runArtifactSchemas";
+import {
+  getPostHogObjectArtifactMetadata,
+  groupRunArtifactVersions,
+  type PostHogObjectArtifactMetadata,
+} from "@posthog/core/canvas/runArtifactSchemas";
 import type { SessionService } from "@posthog/core/sessions/sessionService";
 import type { TaskRunArtifact } from "@posthog/shared";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
@@ -10,7 +14,11 @@ const MARKDOWN_EXTENSIONS = new Set(["md", "mdx", "markdown"]);
 const HTML_EXTENSIONS = new Set(["html", "htm"]);
 
 export type HtmlPreview = { kind: "html"; html: string };
-export type PreviewData = string | Blob | HtmlPreview;
+export type PostHogObjectPreview = {
+  kind: "posthog-object";
+  metadata: PostHogObjectArtifactMetadata;
+};
+export type PreviewData = string | Blob | HtmlPreview | PostHogObjectPreview;
 export type EditableArtifactKind = "html" | "markdown" | "plain-text";
 
 export interface ArtifactPreviewResult {
@@ -89,12 +97,23 @@ export function useArtifactPreviewData({
   previewUrl: string | null;
   isLoading: boolean;
   isError: boolean;
+  isPlaceholderData: boolean;
 } {
-  const { data, isLoading, isError } = useQuery<
+  const { data, isLoading, isError, isPlaceholderData } = useQuery<
     PreviewData | ArtifactPreviewResult
   >({
-    queryKey: ["artifactPreview", authIdentity, taskId, runId, artifactId],
+    queryKey: [
+      "artifactPreview",
+      authIdentity,
+      taskId,
+      name,
+      runId,
+      artifactId,
+    ],
     queryFn: async () => {
+      // The parallel pair shares one in-flight manifest read; a reference
+      // artifact resolves to a null URL there without a presign, so checking
+      // its metadata after the pair costs no extra request.
       const [artifacts, url] = await Promise.all([
         sessionService.getCloudRunArtifacts(taskId, runId),
         sessionService.getCloudAttachmentPreviewUrl(taskId, runId, artifactId),
@@ -103,6 +122,14 @@ export function useArtifactPreviewData({
         (candidate) => candidate.id === artifactId,
       );
       if (!artifact) throw new Error("Artifact is unavailable");
+      const reference = getPostHogObjectArtifactMetadata(artifact);
+      if (reference) {
+        return {
+          artifact,
+          artifacts,
+          preview: { kind: "posthog-object", metadata: reference },
+        };
+      }
       if (!url) throw new Error("Artifact is unavailable");
       const response = await fetch(url);
       if (!response.ok) throw new Error("Artifact preview failed");
@@ -135,6 +162,12 @@ export function useArtifactPreviewData({
     },
     enabled: authIdentity !== null,
     staleTime: Infinity,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === authIdentity &&
+      previousQuery.queryKey[2] === taskId &&
+      previousQuery.queryKey[3] === name
+        ? previousData
+        : undefined,
     retry: false,
     meta: AUTH_SCOPED_QUERY_META,
   });
@@ -154,5 +187,12 @@ export function useArtifactPreviewData({
     return () => URL.revokeObjectURL(objectUrl);
   }, [previewData]);
 
-  return { artifactResult, previewData, previewUrl, isLoading, isError };
+  return {
+    artifactResult,
+    previewData,
+    previewUrl,
+    isLoading,
+    isError,
+    isPlaceholderData,
+  };
 }

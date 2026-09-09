@@ -11,22 +11,25 @@ metric. The analysis counts per person over the whole run window, while a record
 session of one person, so copy built on this must stay session-scoped ("in this session") and
 must never claim the analysis counted or discounted anyone.
 
-The population is the same session-scoped exposure evidence the tab's own list is built from —
-an event matching the experiment's exposure criteria, carrying one of the flag's defined
-variants. Not the exposure query's `exposure_session_id`, which is the person's *first*
-exposure session only: the playlist ANDs these ids with its own exposure filter, so ids it
-would reject are wasted slots out of the cap, and the later sessions `exposure_session_id`
-omits are exactly where drop-off and conversion happen. `exposure_session_id` is the right
-source for a future person-scoped bucket, not for a session-scoped one. The default exposure
-event goes through the same `resolve_default_exposure_event` rollout resolution the analysis
-queries apply, so an experiment whose results count `$experiment_exposure` is bucketed on it too.
+The population is session-scoped exposure evidence: an event matching the experiment's
+exposure criteria, carrying one of the flag's defined variants, inside the session. That is a
+deliberate choice, kept even though the tab's own list is person-scoped
+(`RecordingsQuery.experiment_exposure`): every bucket asks what happened *in the session*, and
+"fired none of these metrics" only means something over sessions that demonstrably saw the
+experiment, whereas over all of an exposed person's sessions it would surface their unrelated
+browsing. The playlist ANDs the returned ids with its person-scoped filter, so a bucket session
+whose person the analysis excludes (multiple variants, for example) drops out there rather than
+widening the shown set; ids spent on such sessions are wasted slots out of the cap, which is
+the price of staying session-scoped. The default exposure event goes through the same
+`resolve_default_exposure_event` rollout resolution the analysis queries apply, so an
+experiment whose results count `$experiment_exposure` is bucketed on it too.
 
 Whether an event can match sessions at all is decided here, from the same `EventProperty` fact
 the taxonomy `seen_together` endpoint serves the tab: an event never ingested with a
 `$session_id` (backend-fired exposure, server-side metrics) can only ever match zero sessions.
 For the default exposure event the population falls back to the stamped `$feature/<flag_key>`
-property — the same fallback the tab's list uses — flagged in the response as
-`used_exposure_fallback`. Custom criteria get no such stand-in: they assert that something
+property — the same fallback the per-variant "View recordings" links use — flagged in the
+response as `used_exposure_fallback`. Custom criteria get no such stand-in: they assert that something
 specific happened, which the stamped property doesn't imply, so a custom exposure event that
 can't be matched is refused with a reason rather than answered over a wider population.
 Metrics whose every source is such an event are excluded with a reason instead of silently
@@ -60,7 +63,9 @@ from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.utils import get_safe_cache, safe_cache_set
 
-from products.access_control.backend.property_access_control import get_restricted_properties_for_team
+from products.access_control.backend.property_access_control import (
+    get_restricted_properties_with_group_type_index_for_team,
+)
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
@@ -350,7 +355,21 @@ def _cache_key(
             default_exposure_event,
             # Property restrictions are compiled into the SQL, so unlike recording access they
             # can't be re-filtered on read; a restriction change has to miss the cache instead.
-            sorted(get_restricted_properties_for_team(user=user, team=team)),
+            [
+                {
+                    "name": restriction.name,
+                    "property_type": restriction.property_type,
+                    "group_type_index": restriction.group_type_index,
+                }
+                for restriction in sorted(
+                    get_restricted_properties_with_group_type_index_for_team(user=user, team=team),
+                    key=lambda restriction: (
+                        restriction.name,
+                        restriction.property_type,
+                        restriction.group_type_index if restriction.group_type_index is not None else -1,
+                    ),
+                )
+            ],
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]

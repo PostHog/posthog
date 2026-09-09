@@ -1,5 +1,9 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
 
 from products.customer_analytics.backend.logic import calendar_sync
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
@@ -50,7 +54,7 @@ class TestCalendarSync(BaseTest):
     ) -> calendar_sync.CalendarSyncCounts:
         with (
             patch.object(calendar_sync, "_person_uuids_by_email", return_value=person_uuids or {}),
-            patch.object(calendar_sync.requests, "get", side_effect=responses),
+            patch.object(calendar_sync, "google_workspace_request", side_effect=responses),
         ):
             return calendar_sync.sync_calendar_integration(self.integration.id, self.team.id)
 
@@ -136,6 +140,50 @@ class TestCalendarSync(BaseTest):
         self.integration.refresh_from_db()
         assert self.integration.config["calendar_sync_token"] == "fresh"
 
+    def test_backfill_uses_the_date_range_without_changing_the_incremental_cursor(self) -> None:
+        self.integration.config["calendar_sync_token"] = "existing"
+        self.integration.save(update_fields=["config"])
+        start_at = datetime(2026, 7, 1, tzinfo=UTC)
+        end_at = datetime(2026, 8, 1, tzinfo=UTC)
+
+        first_page = _pages_response([_event()])
+        first_page.json.return_value = {"items": [_event()], "nextPageToken": "page-2"}
+        with (
+            patch.object(calendar_sync, "_person_uuids_by_email", return_value={}),
+            patch.object(
+                calendar_sync,
+                "google_workspace_request",
+                side_effect=[first_page, _pages_response([])],
+            ) as mock_get,
+        ):
+            result = calendar_sync.sync_calendar_integration_backfill_page(
+                self.integration.id,
+                self.team.id,
+                start_at=start_at,
+                end_at=end_at,
+                page_token=None,
+            )
+            final_result = calendar_sync.sync_calendar_integration_backfill_page(
+                self.integration.id,
+                self.team.id,
+                start_at=start_at,
+                end_at=end_at,
+                page_token=result.next_page_token,
+            )
+
+        assert result.counts.upserted == 1
+        assert result.next_page_token == "page-2"
+        assert final_result.next_page_token is None
+        first_params = mock_get.call_args_list[0].kwargs["params"]
+        second_params = mock_get.call_args_list[1].kwargs["params"]
+        assert first_params["timeMin"] == start_at.isoformat()
+        assert first_params["timeMax"] == end_at.isoformat()
+        assert "syncToken" not in first_params
+        assert second_params["pageToken"] == "page-2"
+        self.integration.refresh_from_db()
+        assert self.integration.config["calendar_sync_token"] == "existing"
+        assert "calendar_last_synced_at" not in self.integration.config
+
     def test_known_email_matches_account_on_personal_domain(self):
         account = Account.objects.for_team(self.team.id).create(team=self.team, name="Kwak Bros", external_id="kwak")
         account.properties = {"known_emails": ["hector032716@gmail.com"]}
@@ -150,22 +198,16 @@ class TestCalendarSync(BaseTest):
         self._sync([_pages_response([event])])
         assert Meeting.objects.for_team(self.team.id).get().account_id == account.id
 
-    def test_matches_account_via_person_group(self) -> None:
+    @patch(
+        "products.customer_analytics.backend.logic.email_account_matching.resolve_group_keys_by_email",
+        return_value={"jane@acme.com": "acme"},
+    )
+    def test_matches_account_via_person_group(self, _mock_group_keys: MagicMock) -> None:
         self.team.customer_analytics_config.account_group_type_index = 0
         self.team.customer_analytics_config.save()
         account = Account.objects.for_team(self.team.id).create(team=self.team, name="Acme", external_id="acme")
-        person_uuid = "0198b6f3-0000-0000-0000-000000000001"
-        person = MagicMock(uuid=person_uuid, distinct_ids=["person-distinct-id"])
-        group_query_response = MagicMock(results=[["person-distinct-id", "acme"]])
 
-        with (
-            patch.object(calendar_sync, "get_persons_by_uuids", return_value=[person]),
-            patch("posthog.hogql.query.execute_hogql_query", return_value=group_query_response),
-        ):
-            counts = self._sync(
-                [_pages_response([_event()])],
-                person_uuids={"jane@acme.com": person_uuid},
-            )
+        counts = self._sync([_pages_response([_event()])])
 
         assert Meeting.objects.for_team(self.team.id).get().account_id == account.id
         assert counts.matched == 1
@@ -202,3 +244,28 @@ class TestCalendarSync(BaseTest):
 
         self._sync([_pages_response([_event()])])
         assert Meeting.objects.for_team(self.team.id).get().account_id is None
+
+    @parameterized.expand(
+        [
+            ("known_email", {"known_emails": [" Jane@Acme.com "]}),
+            ("email_domain", {"email_domains": ["@Acme.com"]}),
+        ]
+    )
+    def test_rematches_unassigned_meeting_after_account_matching_changes(
+        self, _name: str, properties: dict[str, list[str]]
+    ) -> None:
+        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Acme", external_id="acme")
+        meeting = Meeting.objects.for_team(self.team.id).create(
+            team=self.team,
+            ical_uid=f"unassigned-{_name}",
+            start_time="2026-08-04T15:00:00Z",
+        )
+        MeetingParticipant.objects.for_team(self.team.id).create(team=self.team, meeting=meeting, email="jane@acme.com")
+        account.properties = properties
+        account.save()
+
+        updated = calendar_sync.rematch_account_meetings(self.team.id, str(account.id))
+
+        meeting.refresh_from_db()
+        assert updated == 1
+        assert meeting.account_id == account.id

@@ -80,13 +80,15 @@ describe("findSkillDirPrefix", () => {
 });
 
 describe("collectSkillFiles", () => {
-  it("drops entries that would escape the install directory", () => {
+  it("drops entries that would escape the install directory or are ignored", () => {
     const prefix = "repo-HEAD/skills/commit/";
     const entries = {
       [`${prefix}SKILL.md`]: strToU8("ok"),
       [`${prefix}../evil.md`]: strToU8("bad"),
       [`${prefix}nested/../../evil2.md`]: strToU8("bad"),
       [`${prefix}back\\slash.md`]: strToU8("bad"),
+      [`${prefix}.venv/lib/mod.py`]: strToU8("junk"),
+      [`${prefix}node_modules/pkg/i.js`]: strToU8("junk"),
     };
 
     const files = collectSkillFiles(entries, prefix);

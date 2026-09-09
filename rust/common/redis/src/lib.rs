@@ -201,6 +201,17 @@ pub trait Client: Send + Sync {
         max: String,
     ) -> Result<Vec<String>, CustomRedisError>;
 
+    /// `ZRANGEBYSCORE ... LIMIT offset count`: one page of a sorted set, so a
+    /// large set can be read without one reply that holds every member.
+    async fn zrangebyscore_limit(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<String>, CustomRedisError>;
+
     /// Add a single (member, score) pair to a sorted set.
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError>;
 
@@ -290,6 +301,14 @@ pub trait Client: Send + Sync {
         &self,
         commands: Vec<PipelineCommand>,
     ) -> Result<Vec<Result<PipelineResult, CustomRedisError>>, CustomRedisError>;
+
+    /// Attempt to repair a dead underlying connection.
+    ///
+    /// Callers that see `CustomRedisError::is_unrecoverable_error()` may call
+    /// this; implementations that self-heal (or have nothing to heal) keep the
+    /// default no-op. Must be cheap to call repeatedly -- implementations own
+    /// their own cooldown.
+    async fn heal(&self) {}
 }
 
 /// Extension trait providing the `.pipeline()` builder method.
@@ -329,7 +348,7 @@ mod pipeline;
 mod read_write;
 
 // Re-export public APIs
-pub use client::RedisClient;
+pub use client::{RedisClient, ScriptRunner};
 pub use mock::{MockRedisCall, MockRedisClient, MockRedisValue};
 pub use read_write::{ReadWriteClient, ReadWriteClientConfig};
 

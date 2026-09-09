@@ -4,8 +4,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.management import CommandError, call_command
-from django.test import override_settings
 
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
@@ -21,8 +21,11 @@ def _window() -> dict[str, str]:
     }
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True)
 class TestBackfillSignupEnrichment(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.enterContext(override_instance_config("GROWTH_SIGNUP_ENRICHMENT_ENABLED", True))
+
     def _org(
         self,
         *,
@@ -64,7 +67,25 @@ class TestBackfillSignupEnrichment(BaseTest):
         assert inputs.distinct_id == target.memberships.get().user.distinct_id
 
     def test_refuses_when_kill_switch_off(self):
-        with override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=False):
+        with override_instance_config("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False):
+            with self.assertRaises(CommandError):
+                call_command("backfill_signup_enrichment", **_window())
+
+    def test_dispatches_in_eu(self):
+        target = self._org(email="a@stripe.com")
+
+        with (
+            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="EU"),
+            patch(f"{_COMMAND_MODULE}.dispatch_signup_enrichment") as dispatch,
+        ):
+            call_command("backfill_signup_enrichment", "--delay=0", **_window())
+
+        assert dispatch.call_count == 1
+        assert dispatch.call_args.args[0].organization_id == str(target.id)
+
+    def test_refuses_outside_us_and_eu(self):
+        self._org(email="a@stripe.com")
+        with patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="DEV"):
             with self.assertRaises(CommandError):
                 call_command("backfill_signup_enrichment", **_window())
 

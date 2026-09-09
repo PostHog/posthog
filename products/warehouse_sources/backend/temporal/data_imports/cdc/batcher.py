@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 
 import pyarrow as pa
 
@@ -11,6 +12,19 @@ CDC_OP_COLUMN = "_ph_cdc_op"
 CDC_TIMESTAMP_COLUMN = "_ph_cdc_timestamp"
 DELETED_COLUMN = "_ph_deleted"
 DELETED_AT_COLUMN = "_ph_deleted_at"
+# Engine-neutral monotonic position per row (Postgres: the commit LSN as an
+# integer), converted from ChangeEvent.position_serialized by the engine
+# adapter. int64 rather than uint64 because Delta has no unsigned types and
+# real positions never approach 2^63. Names the buffer files' position range
+# and (in Phase B) drives the merge's monotonicity guard.
+CDC_SEQ_COLUMN = "_ph_cdc_seq"
+# Marks CDC_SEQ_COLUMN as engine-produced, so readers can tell it from a source column of the same
+# name (see the collision skip in _events_to_table).
+CDC_SEQ_PROVENANCE = {b"posthog_cdc": b"engine_position"}
+
+# Suffix of the SCD2 companion table's resource name ({schema.name}_cdc). Shared
+# so lane classification (validate_cdc_buffer) can never drift from the writers.
+CDC_COMPANION_SUFFIX = "_cdc"
 # Per-row list of source columns the change stream omitted because they are
 # unchanged from the previous row version (Postgres: unchanged TOAST values).
 # Consumed by enrich_toast_omitted_rows; the load processor drops it before
@@ -27,6 +41,7 @@ _CDC_METADATA_COLUMNS: frozenset[str] = frozenset(
     {
         CDC_OP_COLUMN,
         CDC_TIMESTAMP_COLUMN,
+        CDC_SEQ_COLUMN,
         DELETED_COLUMN,
         DELETED_AT_COLUMN,
         TOAST_OMITTED_COLUMN,
@@ -59,11 +74,15 @@ class ChangeEventBatcher:
         self,
         max_events: int = CDC_FLUSH_MAX_EVENTS,
         max_bytes: int = CDC_FLUSH_MAX_BYTES,
+        position_to_seq: Callable[[str], int] | None = None,
     ) -> None:
         self._events: defaultdict[str, list[ChangeEvent]] = defaultdict(list)
         self._estimated_bytes: int = 0
         self._max_events = max_events
         self._max_bytes = max_bytes
+        # Engine adapter's position_serialized → int converter. When set, flushed
+        # tables carry CDC_SEQ_COLUMN; when None the column is absent entirely.
+        self._position_to_seq = position_to_seq
 
     def add(self, event: ChangeEvent) -> None:
         self._events[event.table_name].append(event)
@@ -84,7 +103,7 @@ class ChangeEventBatcher:
         for table_name, events in self._events.items():
             if not events:
                 continue
-            result[table_name] = _events_to_table(events)
+            result[table_name] = _events_to_table(events, position_to_seq=self._position_to_seq)
 
         self._events.clear()
         self._estimated_bytes = 0
@@ -445,7 +464,7 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
     )
 
 
-def _events_to_table(events: list[ChangeEvent]) -> pa.Table:
+def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str], int] | None = None) -> pa.Table:
     """Convert a list of ChangeEvents (same table) to a PyArrow table with CDC metadata."""
     # Collect all column names across all events (order-preserving). Omitted
     # (unchanged-TOAST) columns are included so the batch table always carries a
@@ -524,6 +543,14 @@ def _events_to_table(events: list[ChangeEvent]) -> pa.Table:
     if any(omitted_lists):
         arrays.append(pa.array(omitted_lists, type=pa.list_(pa.string())))
         fields.append(pa.field(TOAST_OMITTED_COLUMN, pa.list_(pa.string())))
+
+    # Skip on collision: a source column literally named _ph_cdc_seq must pass
+    # through to the legacy lane untouched. The batch then carries no engine seq
+    # and the shadow writer skips it.
+    if position_to_seq is not None and CDC_SEQ_COLUMN not in column_names:
+        seq_values = [position_to_seq(event.position_serialized) for event in events]
+        arrays.append(pa.array(seq_values, type=pa.int64()))
+        fields.append(pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE))
 
     schema = pa.schema(fields)
     return pa.table(arrays, schema=schema)

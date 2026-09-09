@@ -7,6 +7,9 @@ export const QUOTA_WARN_THRESHOLD = 0.85
 
 export const IMMINENT_CAP_DAYS = 3
 
+/** Scanner estimates are a rate per 30 days (backend `ESTIMATE_WINDOW_DAYS`), not per billing period. */
+export const ESTIMATE_MONTH_DAYS = 30
+
 export type QuotaStatus = 'safe' | 'warning' | 'danger'
 
 export const QUOTA_STATUS_STYLES: Record<QuotaStatus, { bar: string; text: string }> = {
@@ -19,10 +22,8 @@ export interface QuotaProjection {
     status: QuotaStatus
     exhausted: boolean
     capReachDate: dayjs.Dayjs | null
-    /** Projected period-end spend as a rounded percentage of the limit; exceeds 100 on overshoot. */
-    percentLabel: number
     resetsOn: string | null
-    /** Actual spend as a percentage of the limit; `QuotaMeterBar` clamps for display. */
+    /** Actual spend as a percentage of the limit; `QuotaMeterBar` rescales past 100 for display. */
     usedPct: number
     /** The slice of `usedPct` covered by non-billable credits, so the meter can shade it separately. */
     usedFreePct: number
@@ -34,7 +35,6 @@ const EMPTY: QuotaProjection = {
     status: 'safe',
     exhausted: false,
     capReachDate: null,
-    percentLabel: 0,
     resetsOn: null,
     usedPct: 0,
     usedFreePct: 0,
@@ -71,45 +71,49 @@ export function isFreeAllocationOnly(quota: VisionQuotaApi | null): boolean {
     return billableCredits(quota.credit_limit, quota.free_monthly_credits) === 0
 }
 
-/**
- * Project credit spend to period end from the enabled fleet's summed per-scanner estimates.
- * `scannerProjectedMonthlyCreditsDelta` adjusts the fleet sum for a scanner being edited:
- * its proposed monthly credit estimate minus the stored contribution already in the sum.
- */
-export function projectQuota(
-    quota: VisionQuotaApi | null,
-    scannerProjectedMonthlyCreditsDelta: number = 0
-): QuotaProjection {
+export interface ProjectionInputs {
+    /** Fleet rate in credits per 30 days; defaults to the quota's stored `scanners_monthly_credits`. */
+    monthlyRateCredits?: number
+    /** Charged once (backfills), so they count toward the cap-reach date but not the rate. */
+    oneOffCredits?: number
+}
+
+/** Credits the period ends on: spend so far, the rate pro-rated over the days left, and the one-offs. Unclamped. */
+export function projectDemandCredits(quota: VisionQuotaApi, inputs: ProjectionInputs = {}): number {
+    const daysRemaining = Math.max(dayjs.utc(quota.period_end).diff(dayjs(), 'day', true), 0)
+    const rate = Math.max(inputs.monthlyRateCredits ?? quota.scanners_monthly_credits, 0) / ESTIMATE_MONTH_DAYS
+    return quota.credits_used + rate * daysRemaining + Math.max(inputs.oneOffCredits ?? 0, 0)
+}
+
+/** Project credit spend to period end from a fleet rate and the one-offs already committed. */
+export function projectQuota(quota: VisionQuotaApi | null, inputs: ProjectionInputs = {}): QuotaProjection {
     if (!hasCreditLimit(quota)) {
         return EMPTY
     }
     const now = dayjs()
     const used = quota.credits_used
     const cap = quota.credit_limit
+    const periodEnd = dayjs.utc(quota.period_end)
+    const resetsOn = periodEnd.format('MMMM D')
     if (cap === 0) {
         // A $0 spend limit blocks everything; there is no ratio to project against.
-        return {
-            ...EMPTY,
-            status: 'danger',
-            exhausted: quota.exhausted,
-            percentLabel: 100,
-            usedPct: 100,
-            resetsOn: quota.period_end ? dayjs(quota.period_end).format('MMMM D') : null,
-        }
+        return { ...EMPTY, status: 'danger', exhausted: quota.exhausted, usedPct: 100, resetsOn }
     }
-    const periodStart = quota.period_start ? dayjs(quota.period_start) : null
-    const periodEnd = quota.period_end ? dayjs(quota.period_end) : null
-    const periodLengthDays = periodStart && periodEnd ? Math.max(periodEnd.diff(periodStart, 'day', true), 1) : 30
-    const daysRemaining = periodEnd ? Math.max(periodEnd.diff(now, 'day', true), 0) : 0
-    const resetsOn = periodEnd ? periodEnd.format('MMMM D') : null
-
-    const projectedMonthly = Math.max(quota.projected_monthly_credits + scannerProjectedMonthlyCreditsDelta, 0)
-    const combinedDailyRate = projectedMonthly / periodLengthDays
-    const projectedAdditional = combinedDailyRate * daysRemaining
+    const oneOffCredits = Math.max(inputs.oneOffCredits ?? 0, 0)
+    const combinedDailyRate =
+        Math.max(inputs.monthlyRateCredits ?? quota.scanners_monthly_credits, 0) / ESTIMATE_MONTH_DAYS
+    const projectedAdditional = projectDemandCredits(quota, inputs) - used
 
     const projectedPeriodEndRatio = (used + projectedAdditional) / cap
-    const capReachDate = combinedDailyRate > 0 && used < cap ? now.add((cap - used) / combinedDailyRate, 'day') : null
-    const capReachInPeriod = !!(capReachDate && periodEnd && capReachDate.isBefore(periodEnd))
+    const committed = used + oneOffCredits
+    // One-offs are charged as soon as they run, so they eat headroom before the rate does.
+    const capReachDate =
+        used < cap && committed >= cap
+            ? now
+            : combinedDailyRate > 0 && committed < cap
+              ? now.add((cap - committed) / combinedDailyRate, 'day')
+              : null
+    const capReachInPeriod = !!capReachDate && !capReachDate.isAfter(periodEnd)
 
     // `used >= cap` without `exhausted`: a display clamp (startup cap) lowered the limit below spend,
     // so the backend isn't blocking yet. Being over the limit must not read quieter than approaching it.
@@ -124,7 +128,6 @@ export function projectQuota(
         status,
         exhausted: quota.exhausted,
         capReachDate,
-        percentLabel: Math.round(projectedPeriodEndRatio * 100),
         resetsOn,
         usedPct: (used / cap) * 100,
         usedFreePct: (Math.min(used, quota.free_monthly_credits) / cap) * 100,
@@ -141,18 +144,6 @@ export function daysUntilCapReached(projection: QuotaProjection): number | null 
     return days <= IMMINENT_CAP_DAYS ? days : null
 }
 
-/** Apportion a projected percentage between this scanner and the rest of the fleet by monthly credit volume. */
-export function splitProjectedPct(
-    projectedPct: number,
-    thisScannerMonthly: number,
-    othersMonthly: number
-): { thisScannerPct: number; othersPct: number } {
-    const combined = thisScannerMonthly + othersMonthly
-    const thisScannerPct = combined > 0 ? (projectedPct * thisScannerMonthly) / combined : 0
-    // Exact complement so the two segments always sum to the full projection.
-    return { thisScannerPct, othersPct: projectedPct - thisScannerPct }
-}
-
 /**
  * Disabled-reason / tooltip for scan triggers based on the monthly credit limit.
  * Assumes block-only overage policy; revisit when `usage_based` lands so we don't disable on metered orgs.
@@ -166,11 +157,11 @@ export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string
         return {
             disabledReason: isFreeAllocationOnly(quota)
                 ? `You've used all your free Replay vision credits. Resets ${state.resetsOn}.`
-                : `Monthly Replay vision spend limit reached. Resets ${state.resetsOn}.`,
+                : `Replay vision spend limit reached. Resets ${state.resetsOn}.`,
         }
     }
     return {
-        tooltip: `${formatCreditCount(state.quota.remaining ?? 0)} left this month (resets ${state.resetsOn})`,
+        tooltip: `${formatCreditCount(state.quota.remaining ?? 0)} left this billing period (resets ${state.resetsOn})`,
     }
 }
 
@@ -181,7 +172,7 @@ export function quotaBannerState(
     if (!hasCreditLimit(quota)) {
         return { kind: null }
     }
-    const resetsOn = dayjs(quota.period_end).format('MMMM D')
+    const resetsOn = dayjs.utc(quota.period_end).format('MMMM D')
     if (quota.exhausted) {
         return { kind: 'exhausted', resetsOn, quota }
     }
@@ -189,27 +180,4 @@ export function quotaBannerState(
         return { kind: 'warning', resetsOn, quota }
     }
     return { kind: null }
-}
-
-/** "You'll hit your limit around Jul 24": null when uncapped, unused, exhausted, or safely within budget. */
-export function exhaustionForecast(
-    creditsUsed: number,
-    creditLimit: number | null,
-    periodStart: string,
-    periodEnd: string
-): string | null {
-    if (creditLimit === null || creditsUsed <= 0 || creditsUsed >= creditLimit) {
-        return null
-    }
-    const elapsedMs = Date.now() - dayjs(periodStart).valueOf()
-    if (elapsedMs <= 0) {
-        return null
-    }
-    const burnPerMs = creditsUsed / elapsedMs
-    const msToLimit = (creditLimit - creditsUsed) / burnPerMs
-    const exhaustAt = dayjs(Date.now() + msToLimit)
-    if (exhaustAt.isAfter(dayjs(periodEnd))) {
-        return null
-    }
-    return exhaustAt.format('MMM D')
 }

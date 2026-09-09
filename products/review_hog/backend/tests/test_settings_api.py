@@ -3,11 +3,10 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 
 from posthog.models import Team, User
-from posthog.models.scoping import team_scope
 
 from products.review_hog.backend.models import ReviewUserSettings
 from products.skills.backend.models.skills import LLMSkill
-from products.stamphog.backend.models import StamphogRepoConfig
+from products.stamphog.backend.facade.testing import seed_repo_config
 
 
 class TestReviewUserSettingsAPI(APIBaseTest):
@@ -28,15 +27,20 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             "review_inbox_prs": False,
             "stamphog_review_inbox_prs": False,  # opt-in: a real approval must never be a default
             "review_labeled_prs": True,
+            "resolve_comments": True,
             "urgency_threshold": "consider",
-            "can_trigger_reviews": False,  # REVIEWHOG_TEAM_ID is unset in tests
+            "can_trigger_reviews": False,  # REVIEWHOG_TEAM_IDS is empty in tests
             "stamphog_connected": False,  # no synced+enabled repo config in this project
         }
         assert ReviewUserSettings.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == 1
 
     def test_patch_updates_only_the_provided_fields(self) -> None:
+        # resolve_comments rides along: it's the UI toggle's only write path, so a serializer that
+        # stops accepting it (e.g. marked read-only) would silently no-op the switch.
         res = self.client.patch(
-            self.url, {"urgency_threshold": "must_fix", "stamphog_review_inbox_prs": True}, format="json"
+            self.url,
+            {"urgency_threshold": "must_fix", "stamphog_review_inbox_prs": True, "resolve_comments": False},
+            format="json",
         )
 
         assert res.status_code == 200
@@ -44,6 +48,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
         assert row.urgency_threshold == "must_fix"
         assert row.stamphog_review_inbox_prs is True
+        assert row.resolve_comments is False
         assert row.review_labeled_prs is True  # untouched field keeps its default
 
     @parameterized.expand(
@@ -60,14 +65,13 @@ class TestReviewUserSettingsAPI(APIBaseTest):
     def test_stamphog_connected_requires_a_synced_enabled_repo_config(
         self, _name, enabled, installation_id, connected_by_user_id, expected
     ) -> None:
-        with team_scope(self.team.id):
-            StamphogRepoConfig.objects.create(
-                team_id=self.team.id,
-                repository="posthog/posthog",
-                enabled=enabled,
-                installation_id=installation_id,
-                connected_by_user_id=connected_by_user_id,
-            )
+        seed_repo_config(
+            team_id=self.team.id,
+            repository="posthog/posthog",
+            enabled=enabled,
+            installation_id=installation_id,
+            connected_by_user_id=connected_by_user_id,
+        )
 
         res = self.client.get(self.url)
 

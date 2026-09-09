@@ -29,6 +29,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'members_can_create_projects'
         | 'members_can_use_personal_api_keys'
         | 'members_can_see_org_members'
+        | 'read_only_mcp_access'
         | 'is_ai_data_processing_approved'
         | 'is_ai_training_opted_in'
         | 'default_experiment_stats_method'
@@ -234,8 +235,16 @@ export const organizationLogic = kea<organizationLogicType>([
                     }
                     try {
                         return await api.get('api/organizations/@current')
-                    } catch {
-                        return null
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status && error.status < 500) {
+                            // The organization is gone or out of reach, so let the
+                            // unavailable-organization screen take over.
+                            return null
+                        }
+                        // A transient failure keeps the organization we already have. Dropping it leaves
+                        // every reader of `currentOrganization.teams` with nothing for the rest of the
+                        // session, which is why the project switcher then lists one project.
+                        return values.currentOrganization
                     }
                 },
                 createOrganization: async (name: string) => {

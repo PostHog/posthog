@@ -10,7 +10,7 @@ import {
     ConversionGoalFilter,
     DatabaseSchemaDataWarehouseTable,
     HogQLQueryResponse,
-    MARKETING_CAMPAIGN_TABLE_PATTERNS,
+    MARKETING_INTEGRATION_CONFIGS,
     MARKETING_INTEGRATION_FIELD_MAP,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConfig,
@@ -29,7 +29,7 @@ import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { ProductIntentProperties } from '../../../../../../lib/utils/product-intents'
 import type { TeamPublicType, TeamType } from '../../../../../../types'
 import { IntegrationSettingsTab } from '../components/settings/IntegrationSettingsModal'
-import { DEFAULT_ATTRIBUTION_WINDOW_DAYS, generateUniqueName } from './utils'
+import { DEFAULT_ATTRIBUTION_WINDOW_DAYS, extractSchemaName, generateUniqueName } from './utils'
 
 export interface IntegrationSettingsModalState {
     isOpen: boolean
@@ -52,6 +52,7 @@ const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     conversion_goals: [],
     attribution_window_days: DEFAULT_ATTRIBUTION_WINDOW_DAYS,
     attribution_mode: AttributionMode.LastTouch,
+    filter_test_accounts: false,
     campaign_name_mappings: {},
     custom_source_mappings: {},
     campaign_field_preferences: {},
@@ -69,6 +70,7 @@ export interface marketingAnalyticsSettingsLogicValues {
     attribution_mode: AttributionMode
     attribution_window_days: number
     conversion_goals: ConversionGoalFilter[]
+    filter_test_accounts: boolean
     integrationCampaignTables: Record<string, string>
     integrationCampaigns: Record<
         string,
@@ -181,6 +183,9 @@ export interface marketingAnalyticsSettingsLogicActions {
     updateCustomSourceMappings: (customSourceMappings: Record<string, string[]>) => {
         customSourceMappings: Record<string, string[]>
     }
+    updateFilterTestAccounts: (filterTestAccounts: boolean) => {
+        filterTestAccounts: boolean
+    }
     updateSourceMapping: (
         tableId: string,
         fieldName: MarketingAnalyticsColumnsSchemaNames,
@@ -199,6 +204,7 @@ export interface marketingAnalyticsSettingsLogicMeta {
         conversion_goals: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => ConversionGoalFilter[]
         attribution_window_days: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => number
         attribution_mode: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => AttributionMode
+        filter_test_accounts: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => boolean
         integrationCampaignTables: (
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
@@ -248,6 +254,9 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         }),
         updateAttributionMode: (mode: AttributionMode) => ({
             mode,
+        }),
+        updateFilterTestAccounts: (filterTestAccounts: boolean) => ({
+            filterTestAccounts,
         }),
         updateCampaignNameMappings: (campaignNameMappings: Record<string, Record<string, string[]>>) => ({
             campaignNameMappings,
@@ -362,6 +371,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                         return { ...createEmptyConfig(), attribution_mode: mode }
                     }
                     return { ...state, attribution_mode: mode }
+                },
+                updateFilterTestAccounts: (state: MarketingAnalyticsConfig | null, { filterTestAccounts }) => {
+                    if (!state) {
+                        return { ...createEmptyConfig(), filter_test_accounts: filterTestAccounts }
+                    }
+                    return { ...state, filter_test_accounts: filterTestAccounts }
                 },
                 updateCampaignNameMappings: (state: MarketingAnalyticsConfig | null, { campaignNameMappings }) => {
                     if (!state) {
@@ -481,6 +496,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 return marketingAnalyticsConfig?.attribution_mode ?? AttributionMode.LastTouch
             },
         ],
+        filter_test_accounts: [
+            (s) => [s.marketingAnalyticsConfig],
+            (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => {
+                return marketingAnalyticsConfig?.filter_test_accounts ?? false
+            },
+        ],
         integrationCampaignTables: [
             (s) => [s.dataWarehouseTables, s.dataWarehouseSources],
             (
@@ -496,8 +517,8 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     if (!isNativeMarketingSource(sourceType)) {
                         continue
                     }
-                    const patterns = MARKETING_CAMPAIGN_TABLE_PATTERNS[sourceType]
-                    if (!patterns) {
+                    const campaignTableName = MARKETING_INTEGRATION_CONFIGS[sourceType]?.campaignTableName
+                    if (!campaignTableName) {
                         continue
                     }
 
@@ -506,14 +527,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                         (table) => table.source?.source_type === sourceType
                     )
 
-                    // Find the campaign table using the same pattern matching as the backend
+                    // Match the declared schema name exactly, like the backend factory does.
+                    // Keyword matching also claimed unrelated schemas that merely contain the
+                    // keyword — Google Ads `campaign_budget` — and then every query against
+                    // the resolved table failed on the missing campaign columns.
                     for (const table of sourceTables) {
-                        const tableSuffix = table.name.split('.').pop()?.toLowerCase() || ''
-
-                        const matchesKeyword = patterns.keywords.some((kw: string) => tableSuffix.includes(kw))
-                        const matchesExclusion = patterns.exclusions.some((ex: string) => tableSuffix.includes(ex))
-
-                        if (matchesKeyword && !matchesExclusion) {
+                        if (extractSchemaName(table.name, sourceType) === campaignTableName) {
                             result[sourceType] = table.name
                             break
                         }
@@ -555,6 +574,8 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             removeConversionGoal: trackSettingsUpdated,
             updateAttributionWindowDays: trackSettingsUpdated,
             updateAttributionMode: trackSettingsUpdated,
+            // Persist only: this one is a dashboard filter, not a trip to the settings screen.
+            updateFilterTestAccounts: () => updateCurrentTeam(),
             updateCampaignNameMappings: trackSettingsUpdated,
             updateCustomSourceMappings: trackSettingsUpdated,
             updateCampaignFieldPreferences: trackSettingsUpdated,

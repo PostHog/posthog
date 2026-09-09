@@ -39,6 +39,15 @@ class FindPlaceholders(TraversingVisitor):
             # The column-bound form {filters(expr AS key, ...)} is resolved by replace_filters;
             # classifying it as a generic expression placeholder would send it to the Hog VM instead.
             self.has_filters = True
+        elif (
+            isinstance(node.expr, ast.ExprCall)
+            and isinstance(node.expr.expr, ast.Field)
+            and node.expr.expr.chain
+            and node.expr.expr.chain[0] == "filters"
+        ):
+            # Dotted call forms like {filters.interval('week')} and {filters.breakdown(...)} are
+            # resolved by replace_filters too.
+            self.has_filters = True
         else:
             self.placeholder_expressions.append(node.expr)
 

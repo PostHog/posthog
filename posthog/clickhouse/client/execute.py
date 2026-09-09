@@ -19,6 +19,7 @@ from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
 
+from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
     ClickHouseUser,
     Workload,
@@ -38,7 +39,9 @@ from posthog.clickhouse.query_tagging import (
     get_query_tags,
     is_api_key_access_method,
 )
+from posthog.dataclasses import frozen
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
 
@@ -132,10 +135,10 @@ def get_team_kill_switch_level(team_id: int) -> KillSwitchLevel:
     else OFF. This is independent of the global `CLICKHOUSE_KILL_SWITCH` — callers
     that want the combined effect should take the more severe of the two levels.
     """
-    full_teams, light_teams = _get_kill_switch_team_sets(round(time.time() / 60))
-    if team_id in full_teams:
+    team_sets = _get_kill_switch_team_sets(round(time.time() / 60))
+    if team_id in team_sets.full_teams:
         return KillSwitchLevel.FULL
-    if team_id in light_teams:
+    if team_id in team_sets.light_teams:
         return KillSwitchLevel.LIGHT
     return KillSwitchLevel.OFF
 
@@ -166,8 +169,14 @@ def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
         return KillSwitchLevel.OFF
 
 
+@frozen
+class KillSwitchTeamSets:
+    full_teams: frozenset[int]
+    light_teams: frozenset[int]
+
+
 @lru_cache(maxsize=1)
-def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int]]:
+def _get_kill_switch_team_sets(_ttl: int) -> KillSwitchTeamSets:
     from posthog.models.instance_setting import get_instance_setting
 
     try:
@@ -184,7 +193,7 @@ def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int
     except Exception:
         logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS; per-team kill switch disabled for light")
         light_teams = frozenset()
-    return full_teams, light_teams
+    return KillSwitchTeamSets(full_teams=full_teams, light_teams=light_teams)
 
 
 def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
@@ -205,6 +214,48 @@ def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
     if _KILL_SWITCH_SEVERITY[team_level] > _KILL_SWITCH_SEVERITY[level]:
         return team_level
     return level
+
+
+def _meter_chargeable_query(team_id: str, query_info: Any) -> None:
+    # Runs after the pooled connection is released, and must never raise: a metering failure
+    # is an error counter, not a failed query.
+    try:
+        bytes_read = int(query_info.progress.bytes or 0)
+        remaining = debit(team_id, bytes_read)
+        record_request_query_cost(QueryCost(bytes_read=bytes_read, remaining_bytes=remaining))
+    except Exception as e:
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="meter").inc()
+        capture_exception(e)
+
+
+def _chargeable_query_info(client: Any, query_info_before: Any) -> Optional[Any]:
+    """The query info to meter for the query that just ran on `client`, or None.
+
+    The driver only creates a new query info once the connection is established, so the identity
+    check keeps a pooled client's previous query from being re-metered when connecting fails.
+    The driver also clears `last_query` when it disconnects after a server-side error, so a query
+    the server killed is not metered.
+    """
+    query_info = getattr(client, "last_query", None)
+    if query_info is None or query_info is query_info_before or not query_info.progress:
+        return None
+    return query_info
+
+
+def kill_switch_overrides(team_id: Optional[int], ch_user: ClickHouseUser = ClickHouseUser.DEFAULT) -> dict[str, int]:
+    """The ClickHouse setting ceilings the kill switch imposes right now, empty when it is off.
+
+    Public because not every path to ClickHouse goes through `sync_execute` — the notebook frame
+    materializer streams over raw HTTP and has to apply these itself. Merge with `min()` against
+    your own settings, and treat an unset setting as taking the ceiling: the kill switch only
+    ever tightens.
+    """
+    if TEST:
+        return {}
+    level = resolve_kill_switch_level(team_id)
+    if level == KillSwitchLevel.OFF or ch_user in _KILL_SWITCH_EXEMPT_USERS:
+        return {}
+    return dict(_KILL_SWITCH_SETTINGS[level])
 
 
 @lru_cache(maxsize=1)
@@ -387,8 +438,8 @@ def sync_execute(
     }
 
     kill_switch_level = KillSwitchLevel.OFF if TEST else resolve_kill_switch_level(team_id)
-    if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
-        overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
+    overrides = kill_switch_overrides(team_id, ch_user)
+    if overrides:
         core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})
         tags.kill_switch = kill_switch_level.value
 
@@ -483,6 +534,7 @@ def sync_execute(
         else:
             settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
+    chargeable_query_info: Optional[Any] = None
 
     try:
         QUERY_STARTED_COUNTER.labels(
@@ -494,14 +546,22 @@ def sync_execute(
             _llm_analytics_concurrency_slot(ch_user, team_id),
             sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
         ):
-            result = client.execute(
-                prepared_sql,
-                params=prepared_args,
-                settings=settings,
-                with_column_types=with_column_types,
-                query_id=query_id,
-                external_tables=external_tables,
-            )
+            query_info_before = getattr(client, "last_query", None)
+            try:
+                result = client.execute(
+                    prepared_sql,
+                    params=prepared_args,
+                    settings=settings,
+                    with_column_types=with_column_types,
+                    query_id=query_id,
+                    external_tables=external_tables,
+                )
+            finally:
+                # A query killed mid-scan (timeout, memory limit) has already cost the read, so
+                # keep the progress the server reported before it died. The Redis write happens
+                # in the outer finally, once the connection is back in the pool.
+                if tags.chargeable and tags.team_id:
+                    chargeable_query_info = _chargeable_query_info(client, query_info_before)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")
@@ -520,6 +580,8 @@ def sync_execute(
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
+        if chargeable_query_info is not None:
+            _meter_chargeable_query(str(tags.team_id), chargeable_query_info)
 
         QUERY_FINISHED_COUNTER.labels(
             team_id=str(team_id or ""),
@@ -542,6 +604,7 @@ def query_with_columns(
     columns_to_remove: Optional[Sequence[str]] = None,
     columns_to_rename: Optional[dict[str, str]] = None,
     *,
+    column_types_to_remove: Optional[Sequence[str]] = None,
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
     settings: Optional[dict[str, Any]] = None,
@@ -550,6 +613,8 @@ def query_with_columns(
         columns_to_remove = []
     if columns_to_rename is None:
         columns_to_rename = {}
+    if column_types_to_remove is None:
+        column_types_to_remove = []
     metrics, types = sync_execute(
         query,
         args,
@@ -558,14 +623,19 @@ def query_with_columns(
         workload=workload,
         team_id=team_id,
     )
-    type_names = [key for key, _type in types]
+    column_names = [key for key, _type in types]
+    # A `SELECT *` over a system table gains columns as ClickHouse versions land, so a caller
+    # that must exclude a whole class of column matches on the type instead of naming each one.
+    dropped = set(columns_to_remove) | {
+        name for name, type_name in types if any(unwanted in str(type_name) for unwanted in column_types_to_remove)
+    }
 
     rows = []
     for row in metrics:
         result = {}
-        for type_name, value in zip(type_names, row):
-            if type_name not in columns_to_remove:
-                result[columns_to_rename.get(type_name, type_name)] = value
+        for column_name, value in zip(column_names, row):
+            if column_name not in dropped:
+                result[columns_to_rename.get(column_name, column_name)] = value
 
         rows.append(result)
 

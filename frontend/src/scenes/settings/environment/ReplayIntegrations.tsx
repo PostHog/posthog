@@ -17,7 +17,7 @@ export function ReplayIntegrations(): JSX.Element {
             </div>
             <div>
                 <h3>GitHub</h3>
-                <GithubIntegration next={NEXT_URL} />
+                <GithubIntegration next={NEXT_URL} connectSurface="settings" />
             </div>
             <div>
                 <h3>GitLab</h3>

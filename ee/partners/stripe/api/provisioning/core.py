@@ -28,8 +28,9 @@ from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, mask_key_value
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.tasks.email import send_provisioning_welcome
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.partners.stripe.api.provisioning.analytics import capture_provisioning_event
@@ -688,7 +689,7 @@ def region_to_host(region: str) -> str:
     elif region_lower == "us":
         return "https://us.posthog.com"
     elif region_lower == "dev":
-        return "https://app.dev.posthog.com"
+        return "https://app.dev.posthog.dev"
     return settings.SITE_URL
 
 

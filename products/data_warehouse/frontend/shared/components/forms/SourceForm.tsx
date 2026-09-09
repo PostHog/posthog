@@ -7,6 +7,7 @@ import {
     LemonDivider,
     LemonFileInput,
     LemonInput,
+    LemonInputSelect,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -37,7 +38,7 @@ import { CDC_SOURCE_TYPES } from '../../cdc'
 import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
-import { IntegrationAccountSelector } from './IntegrationAccountSelector'
+import { IntegrationAccountSelector, findOauthBranch } from './IntegrationAccountSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 import { supportsDirectQuery } from './schemaGroupingUtils'
@@ -160,35 +161,59 @@ export const sourceFieldToElement = (
         return (
             <React.Fragment key={field.name}>
                 <LemonField name={field.name} label={field.label}>
-                    {({ onChange }) => (
-                        <LemonInput
-                            key={field.name}
-                            className="ph-connection-string"
-                            data-attr={field.name}
-                            placeholder={field.placeholder}
-                            type="text"
-                            onChange={(updatedConnectionString) => {
-                                onChange(updatedConnectionString)
-                                const { isValid, fields } = parseConnectionStringForSource(
-                                    sourceConfig.name,
-                                    updatedConnectionString
-                                )
+                    {({ value, onChange }) => {
+                        const typed = String(value ?? '')
+                        // A half-typed string parses as garbage, so only report a failure once the
+                        // value carries a scheme and reads as a whole connection string.
+                        const looksLikeConnectionString = typed.includes('://')
+                        const unparsed =
+                            looksLikeConnectionString &&
+                            !parseConnectionStringForSource(sourceConfig.name, typed).isValid
+                        return (
+                            <>
+                                <LemonInput
+                                    key={field.name}
+                                    className="ph-connection-string"
+                                    data-attr={field.name}
+                                    placeholder={field.placeholder}
+                                    type="text"
+                                    onChange={(updatedConnectionString) => {
+                                        onChange(updatedConnectionString)
+                                        const { isValid, fields } = parseConnectionStringForSource(
+                                            sourceConfig.name,
+                                            updatedConnectionString
+                                        )
 
-                                if (isValid) {
-                                    for (const { path, value } of fields) {
-                                        if (setSourceConnectionDetailsValue) {
-                                            setSourceConnectionDetailsValue(['payload', ...path], value)
-                                        } else {
-                                            sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                                ['payload', ...path],
-                                                value
-                                            )
+                                        if (isValid) {
+                                            for (const { path, value } of fields) {
+                                                if (setSourceConnectionDetailsValue) {
+                                                    setSourceConnectionDetailsValue(['payload', ...path], value)
+                                                } else {
+                                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
+                                                        ['payload', ...path],
+                                                        value
+                                                    )
+                                                }
+                                            }
                                         }
-                                    }
-                                }
-                            }}
-                        />
-                    )}
+                                    }}
+                                />
+                                {unparsed && (
+                                    <p className="m-0 mt-1 text-xs text-warning">
+                                        Couldn't read that connection string, so the fields below are still empty.{' '}
+                                        {field.placeholder ? (
+                                            <>
+                                                Check it looks like <code>{field.placeholder}</code>, or fill them in
+                                                yourself.
+                                            </>
+                                        ) : (
+                                            'Fill them in yourself instead.'
+                                        )}
+                                    </p>
+                                )}
+                            </>
+                        )
+                    }}
                 </LemonField>
                 <LemonDivider />
             </React.Fragment>
@@ -226,6 +251,31 @@ export const sourceFieldToElement = (
                         </>
                     )
                 }}
+            </LemonField>
+        )
+    }
+
+    if (field.type === 'select' && field.multiple) {
+        // A config saved before the field became multiple still holds a bare string.
+        const toArray = (value: any): string[] => (Array.isArray(value) ? value : value ? [value] : [])
+
+        return (
+            <LemonField
+                key={field.name}
+                name={field.name}
+                label={field.label}
+                help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
+            >
+                {({ value, onChange }) => (
+                    <LemonInputSelect
+                        mode="multiple"
+                        data-attr={field.name}
+                        placeholder={`Select ${field.label.toLowerCase()}`}
+                        options={field.options.map((option) => ({ key: option.value, label: option.label }))}
+                        value={toArray(value === undefined || value === null ? lastValue?.[field.name] : value)}
+                        onChange={onChange}
+                    />
+                )}
             </LemonField>
         )
     }
@@ -342,6 +392,7 @@ export const sourceFieldToElement = (
                 caption={field.caption}
                 multiple={field.multiple}
                 legacySingleField={legacySingleField}
+                oauthBranch={findOauthBranch(sourceConfig.fields, field.integrationField)}
             />
         )
     }

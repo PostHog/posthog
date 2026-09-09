@@ -157,7 +157,7 @@ class TestAccessControlGuard(BaseTest):
         from posthog.clickhouse.client.escape import substitute_params_for_display
         from posthog.constants import AvailableFeature
 
-        from ee.models import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -213,7 +213,7 @@ class TestAccessControlGuard(BaseTest):
 
         from posthog.constants import AvailableFeature
 
-        from ee.models import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -286,7 +286,7 @@ class TestAccessControlGuard(BaseTest):
 
         from posthog.constants import AvailableFeature
 
-        from ee.models import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -329,7 +329,7 @@ class TestAccessControlGuard(BaseTest):
 
         from posthog.constants import AvailableFeature
 
-        from ee.models import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -362,6 +362,112 @@ class TestAccessControlGuard(BaseTest):
             assert f"notIn(toString(system__{table}.account_id), %({deny_keys[0]})s)" in sql, table
 
 
+class TestRestParityForObjectGrants(BaseTest):
+    """HogQL object-level filtering must resolve the same rows REST's
+    `filter_queryset_by_access_level` does: resource-level "none" plus an object grant serves the
+    granted objects (rather than denying the table), and a creator keeps their own objects."""
+
+    def setUp(self):
+        super().setUp()
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+    def _ac(self, **kwargs):
+        from products.access_control.backend.models.access_control import AccessControl
+
+        return AccessControl.objects.create(team=self.team, **kwargs)
+
+    def _compile(self, query: str) -> tuple[str, HogQLContext]:
+        from posthog.hogql.parser import parse_select
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(parse_select(query), context=context, dialect="clickhouse")
+        assert prepared is not None
+        return print_prepared_ast(prepared, context=context, dialect="clickhouse"), context
+
+    def _id_list_placeholders(self, context: HogQLContext) -> dict[str, list]:
+        return {k: v for k, v in context.values.items() if k.endswith("_sensitive") and isinstance(v, list)}
+
+    def test_resource_denial_with_an_object_grant_narrows_instead_of_denying(self):
+        # REST serves the dashboards route on an object grant alone and returns just the granted
+        # dashboard. Removing system.dashboards outright made the granted dashboard unreachable.
+        self._ac(resource="dashboard", access_level="none")
+        self._ac(
+            resource="dashboard",
+            resource_id="dash-granted",
+            access_level="viewer",
+            organization_member=self.membership,
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        assert "system.dashboards" not in database._denied_tables
+
+        sql, context = self._compile("SELECT id FROM system.dashboards")
+        placeholders = self._id_list_placeholders(context)
+        assert list(placeholders.values()) == [["dash-granted"]]
+        allow_key = next(iter(placeholders))
+        assert f"in(toString(system__dashboards.id), %({allow_key})s)" in sql
+
+    def test_object_grant_reaches_child_rows_of_the_granted_object(self):
+        # The narrowing keys off the parent id on child tables, so a grant on one dashboard exposes
+        # that dashboard's tiles and nothing else.
+        self._ac(resource="dashboard", access_level="none")
+        self._ac(
+            resource="dashboard",
+            resource_id="dash-granted",
+            access_level="viewer",
+            organization_member=self.membership,
+        )
+
+        sql, context = self._compile("SELECT id FROM system.dashboard_tiles")
+        allow_key = next(iter(self._id_list_placeholders(context)))
+        assert f"in(toString(system__dashboard_tiles.dashboard_id), %({allow_key})s)" in sql
+
+    def test_resource_denial_still_denies_a_table_the_grant_cannot_narrow(self):
+        # message_categories is team-level data under the "hog_flow" scope, so a per-flow grant says
+        # nothing about which rows are readable. It has to keep failing closed.
+        self._ac(resource="hog_flow", access_level="none")
+        self._ac(
+            resource="hog_flow",
+            resource_id="flow-granted",
+            access_level="viewer",
+            organization_member=self.membership,
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        assert "system.message_categories" in database._denied_tables
+
+    @parameterized.expand(
+        [
+            ("resource_denied", "none", "in(toString(system__dashboards.id)"),
+            ("resource_granted", "editor", "notIn(toString(system__dashboards.id)"),
+        ]
+    )
+    def test_creator_keeps_their_own_denied_object(self, _name, resource_level, expected_id_guard):
+        # REST exempts the creator from object-level denial on both branches of the filter, so a
+        # dashboard's creator must not lose it to HogQL either.
+        self._ac(resource="dashboard", access_level=resource_level)
+        self._ac(
+            resource="dashboard",
+            resource_id="dash-mine",
+            access_level="none" if resource_level == "editor" else "viewer",
+            organization_member=self.membership,
+        )
+
+        sql, _context = self._compile("SELECT id FROM system.dashboards")
+        assert expected_id_guard in sql
+        assert f"ifNull(equals(system__dashboards.created_by_id, {self.user.pk}), 0)" in sql
+        assert sql.count("or(") == 1
+
+
 class TestDeniedTableError(BaseTest):
     """Test that denied tables show a helpful error message."""
 
@@ -369,7 +475,7 @@ class TestDeniedTableError(BaseTest):
         """When a table is denied, error should say 'no access' not 'unknown'."""
         from posthog.constants import AvailableFeature
 
-        from ee.models import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Enable access control feature
         self.organization.available_product_features = [
@@ -515,7 +621,7 @@ class TestWarehouseTableAccessControl(BaseTest):
         )
 
     def _create_ac(self, *, resource, access_level, resource_id=None, role=None, member=None):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         return AccessControl.objects.create(
             team=self.team,
@@ -707,7 +813,7 @@ class TestWarehouseTableAccessControlFlagOff(BaseTest):
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
     def test_warehouse_table_acl_off_keeps_all_tables(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Even an explicit deny row should be ignored when the FF is off.
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -759,7 +865,7 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
     def test_execute_hogql_query_raises_on_denied_warehouse_table(self):
         from posthog.hogql.query import execute_hogql_query
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         AccessControl.objects.create(
             team=self.team,
@@ -788,9 +894,8 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         the denial surfaces as "Field not found", indistinguishable from a typo."""
         from posthog.hogql.query import execute_hogql_query
 
+        from products.access_control.backend.models.access_control import AccessControl
         from products.data_tools.backend.models.join import DataWarehouseJoin
-
-        from ee.models.rbac.access_control import AccessControl
 
         DataWarehouseJoin.objects.create(
             team=self.team,
@@ -823,7 +928,7 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         from posthog.hogql.context import HogQLContext
         from posthog.hogql.query import execute_hogql_query
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         AccessControl.objects.create(
             team=self.team,
@@ -885,7 +990,7 @@ class TestWarehouseViewAccessControl(BaseTest):
         )
 
     def _create_ac(self, *, resource, access_level, resource_id=None, role=None, member=None):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         return AccessControl.objects.create(
             team=self.team,

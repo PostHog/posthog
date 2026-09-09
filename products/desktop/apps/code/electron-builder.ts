@@ -8,6 +8,14 @@ const require = createRequire(import.meta.url);
 const skipNotarize =
   process.env.SKIP_NOTARIZE === "1" || !process.env.APPLE_TEAM_ID;
 
+// A test build installs beside a release build, so it must not claim the
+// release deep-link scheme: the OS would route one of the two builds'
+// callbacks to the wrong app.
+const isTestChannelBuild = process.env.VITE_POSTHOG_BUILD_CHANNEL === "test";
+const deeplinkSchemes = isTestChannelBuild
+  ? ["posthog-code-test"]
+  : ["posthog-code"];
+
 const config: Configuration = {
   // Original release bundle id; changing it breaks existing installs' data dir and Keychain entries.
   appId: "com.posthog.array",
@@ -49,8 +57,10 @@ const config: Configuration = {
     ".vite/build/plugins/posthog/**",
     ".vite/build/codex-acp/**",
     ".vite/build/grammars/**",
+    ".vite/build/product-engineer/**",
     ".vite/build/rpc-host.js",
     ".vite/build/rpc-host.js.map",
+    ".vite/build/adapters/codex-app-server/local-tools-mcp-server.js",
     ...asarUnpackGlobs,
   ],
 
@@ -62,14 +72,14 @@ const config: Configuration = {
   protocols: [
     {
       name: "PostHog",
-      schemes: ["posthog-code"],
+      schemes: deeplinkSchemes,
     },
   ],
 
   mac: {
     target: ["dmg", "zip"],
     // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
-    artifactName: "PostHog-Code-${version}-${arch}-mac.${ext}",
+    artifactName: "PostHog-Desktop-${version}-${arch}-mac.${ext}",
     icon: "build/app-icon.icns",
     category: "public.app-category.productivity",
     hardenedRuntime: true,
@@ -102,7 +112,7 @@ const config: Configuration = {
   win: {
     target: ["nsis"],
     // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
-    artifactName: "PostHog-Code-${version}-${arch}-win.${ext}",
+    artifactName: "PostHog-Desktop-${version}-${arch}-win.${ext}",
     // electron-builder generates the multi-size .ico from this 1024px PNG; a real
     // .ico must be >=256px and the committed app-icon.ico is only 32px.
     icon: "build/app-icon.png",
@@ -116,7 +126,7 @@ const config: Configuration = {
   linux: {
     target: ["AppImage", "deb", "rpm"],
     // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
-    artifactName: "PostHog-Code-${version}-${arch}-linux.${ext}",
+    artifactName: "PostHog-Desktop-${version}-${arch}-linux.${ext}",
     icon: "build/app-icon.png",
     category: "Development",
     mimeTypes: ["x-scheme-handler/posthog-code"],

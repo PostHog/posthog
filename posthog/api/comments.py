@@ -1,6 +1,6 @@
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
-from uuid import UUID
 
 from django.core import exceptions as django_exceptions
 from django.db import transaction
@@ -21,6 +21,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.comment.access import task_comment_target_is_accessible
 from posthog.event_usage import groups
 from posthog.exceptions import Conflict
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
@@ -28,9 +29,14 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment import Comment, CommentSlackThread
-from posthog.models.comment.comment import TICKET_COMMENT_SCOPES, activity_log_scope_for
+from posthog.models.comment.comment import (
+    COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API,
+    TICKET_COMMENT_SCOPES,
+    activity_log_scope_for,
+)
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.comment.utils import (
+    DESKTOP_COMMENT_SCOPES,
     build_comment_item_url,
     comment_scope_display_name,
     produce_discussion_mention_events,
@@ -43,7 +49,7 @@ from posthog.tasks.email import send_discussions_mentioned
 from products.conversations.backend import reply_dedupe
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 
@@ -123,11 +129,7 @@ class CommentSlackThreadRefSerializer(serializers.Serializer):
 
 
 def _capture_task_comment_action(comment: Comment, mentions: list[int], team: Team) -> None:
-    if (
-        comment.scope not in {"task", "task_artifact", "desktop_canvas"}
-        or not comment.created_by
-        or not comment.created_by.distinct_id
-    ):
+    if comment.scope not in DESKTOP_COMMENT_SCOPES or not comment.created_by or not comment.created_by.distinct_id:
         return
 
     context = comment.item_context if isinstance(comment.item_context, dict) else {}
@@ -184,7 +186,7 @@ def _record_task_comment_activity(
     activity_at: datetime | None = None,
     include_relationship_recipients: bool = True,
 ) -> None:
-    if comment.scope not in {"task", "task_artifact", "desktop_canvas"}:
+    if comment.scope not in DESKTOP_COMMENT_SCOPES:
         return
 
     owner_id = None
@@ -228,7 +230,7 @@ def _record_task_comment_activity(
 def _mentions_allowed_for_comment_target(
     *, team_id: int, scope: str, item_id: str | None, item_context: dict | None
 ) -> bool:
-    if scope not in {"task", "task_artifact", "desktop_canvas"}:
+    if scope not in DESKTOP_COMMENT_SCOPES:
         return True
     task_id = item_id if scope == "task" else (item_context or {}).get("taskId")
     if not task_id:
@@ -236,44 +238,6 @@ def _mentions_allowed_for_comment_target(
     from products.tasks.backend.facade.api import task_comment_mentions_allowed  # noqa: PLC0415
 
     return task_comment_mentions_allowed(team_id=team_id, task_id=task_id)
-
-
-def _task_comment_target_is_accessible(
-    *, team_id: int, user_id: int | None, task_id: str, scope: str, item_id: str | None
-) -> bool:
-    from products.tasks.backend.facade.api import task_comment_target_is_accessible  # noqa: PLC0415
-
-    if scope != "desktop_canvas":
-        return task_comment_target_is_accessible(
-            team_id=team_id,
-            user_id=user_id,
-            task_id=task_id,
-            scope=scope,
-            item_id=item_id,
-        )
-    if not task_comment_target_is_accessible(
-        team_id=team_id,
-        user_id=user_id,
-        task_id=task_id,
-        scope="task",
-        item_id=task_id,
-    ):
-        return False
-
-    from products.canvas.backend.comment_access import canvas_belongs_to_task  # noqa: PLC0415
-
-    try:
-        parsed_task_id = UUID(task_id)
-    except ValueError:
-        return False
-    if not item_id:
-        return False
-    return canvas_belongs_to_task(
-        team_id=team_id,
-        user_id=user_id,
-        canvas_id=item_id,
-        task_id=parsed_task_id,
-    )
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -395,6 +359,9 @@ class CommentSerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError({"scope": ErrorDetail("This field is required.", code="required")})
         scope = data["scope"] if "scope" in data else getattr(instance, "scope", None)
         item_id = data["item_id"] if "item_id" in data else getattr(instance, "item_id", None)
+        candidate_scopes = {scope, getattr(instance, "scope", None), getattr(source_comment, "scope", None)}
+        if candidate_scopes & COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API:
+            raise exceptions.PermissionDenied("Email thread messages cannot be managed through the comments API")
         if source_comment is not None:
             if source_comment.team_id != self.context["team_id"]:
                 raise exceptions.ValidationError({"source_comment": "Comment not found."})
@@ -456,7 +423,7 @@ class CommentSerializer(serializers.ModelSerializer):
         target_context = data.get("item_context", instance.item_context if instance else None) or {}
         if target_scope in {"task", "task_artifact", "desktop_canvas"}:
             task_id = target_item_id if target_scope == "task" else target_context.get("taskId")
-            if not _task_comment_target_is_accessible(
+            if not task_comment_target_is_accessible(
                 team_id=self.context["get_team"]().id,
                 user_id=request.user.id,
                 task_id=task_id or "",
@@ -519,10 +486,14 @@ class CommentSerializer(serializers.ModelSerializer):
         ):
             mentions = []
 
-        comment = super().create(validated_data)
+        # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
+        persist_ctx = transaction.atomic() if validated_data["scope"] == "conversations_ticket" else nullcontext()
+        with persist_ctx:
+            comment = super().create(validated_data)
 
         if mentions:
-            send_discussions_mentioned.delay(comment.id, mentions, slug)
+            if comment.scope not in DESKTOP_COMMENT_SCOPES:
+                send_discussions_mentioned.delay(comment.id, mentions, slug)
             produce_discussion_mention_events(comment, mentions, slug)
             send_mention_notifications(comment, mentions, slug)
         _record_task_comment_activity(comment, mentions)
@@ -562,7 +533,8 @@ class CommentSerializer(serializers.ModelSerializer):
                 updated_instance = super().update(locked_instance, validated_data)
 
         if mentions:
-            send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
+            if updated_instance.scope not in DESKTOP_COMMENT_SCOPES:
+                send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
             produce_discussion_mention_events(updated_instance, mentions, slug)
             send_mention_notifications(updated_instance, mentions, slug)
             _record_task_comment_activity(
@@ -881,7 +853,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             return
         item_context = comment.item_context if isinstance(comment.item_context, dict) else {}
         task_id = comment.item_id if comment.scope == "task" else item_context.get("taskId")
-        if not _task_comment_target_is_accessible(
+        if not task_comment_target_is_accessible(
             team_id=self.team_id,
             user_id=self.request.user.id,
             task_id=task_id or "",
@@ -896,7 +868,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         comment = get_object_or_404(queryset, **{self.lookup_field: lookup_value})
         if comment.scope in {"task", "task_artifact", "desktop_canvas"}:
             task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
-            if not _task_comment_target_is_accessible(
+            if not task_comment_target_is_accessible(
                 team_id=self.team_id,
                 user_id=self.request.user.id,
                 task_id=task_id or "",
@@ -922,9 +894,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 return queryset.none()
             return queryset
 
-        # filter_queryset_by_access_level trusts the view to have enforced resource-level access
-        # already, and this view is authorized as `comment` — so a caller denied the ticket resource
-        # would otherwise get the unfiltered ticket queryset back here.
+        # Stricter than filter_queryset_by_access_level's fail-closed baseline: a caller denied
+        # the ticket resource sees no ticket comments at all, not even on tickets they created.
         if not self.user_access_control.check_access_level_for_resource(
             "ticket", "viewer"
         ) and not self.user_access_control.has_any_specific_access_for_resource("ticket", "viewer"):
@@ -937,6 +908,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         params = self.request.GET.dict()
+        queryset = queryset.exclude(scope__in=COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API)
 
         if params.get("user"):
             queryset = queryset.filter(user=params.get("user"))
@@ -952,7 +924,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             elif scope in {"task", "task_artifact", "desktop_canvas"}:
                 task_id = params.get("task_id")
                 item_id = params.get("item_id")
-                if not _task_comment_target_is_accessible(
+                if not task_comment_target_is_accessible(
                     team_id=self.team_id,
                     user_id=self.request.user.id,
                     task_id=task_id or "",

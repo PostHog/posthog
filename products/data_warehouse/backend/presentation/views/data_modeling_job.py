@@ -18,6 +18,15 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="When the job row last changed. For finished jobs this is when the run reached its terminal status.",
     )
+    run_mode = serializers.ChoiceField(
+        choices=DataModelingJob.RunMode.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="What this run wrote: full_refresh rebuilt the whole table, so rows_materialized "
+        "is the table's size; incremental wrote only its window, so rows_materialized counts just "
+        "the rows synced. Null for runs from before modes were recorded, or that failed before "
+        "the plan resolved.",
+    )
 
     class Meta:
         model = DataModelingJob
@@ -25,6 +34,7 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
             "id",
             "saved_query_id",
             "status",
+            "run_mode",
             "rows_materialized",
             "error",
             "created_at",

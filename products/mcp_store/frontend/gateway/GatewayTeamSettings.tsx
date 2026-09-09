@@ -110,7 +110,7 @@ export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps =
 
             <div className="flex flex-col gap-2">
                 <h3 className="mb-0">Custom servers</h3>
-                <div className="border rounded p-3 flex items-center justify-between gap-3">
+                <div className="border rounded p-3 flex items-center justify-between gap-3 bg-surface-primary">
                     <div>
                         <div className="font-semibold">Allow custom servers</div>
                         <div className="text-sm text-secondary">
@@ -133,7 +133,7 @@ export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps =
 
             <div className="flex flex-col gap-2">
                 <h3 className="mb-0">Agent access</h3>
-                <div className="border rounded p-3 flex items-center justify-between gap-3">
+                <div className="border rounded p-3 flex items-center justify-between gap-3 bg-surface-primary">
                     <div>
                         <div className="font-semibold">Allow members to manage agent access</div>
                         <div className="text-sm text-secondary">
@@ -212,7 +212,7 @@ export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps =
                     </div>
                 </div>
 
-                <div className="border rounded divide-y overflow-hidden">
+                <div className="border rounded divide-y overflow-hidden bg-surface-primary">
                     {displayedServers.map((server) => (
                         <GatewayServerAccessRow key={server.id} server={server} onOpenServer={onOpenServer} />
                     ))}

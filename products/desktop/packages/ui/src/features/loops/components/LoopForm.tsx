@@ -4,11 +4,16 @@ import {
   CaretRight,
   Check,
 } from "@phosphor-icons/react";
+import { requestErrorStatus } from "@posthog/api-client/fetcher";
+import { hogFlowRequestDetail } from "@posthog/api-client/hogFlowLoops";
 import { type LoopSchemas, LoopsApiError } from "@posthog/api-client/loops";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useBluebirdFlag } from "@posthog/ui/features/feature-flags/useBluebirdFlag";
+import { useLoopsHogFlowsEnabled } from "@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
+import { useSandboxEnvironments } from "@posthog/ui/features/settings/sections/environments/useSandboxEnvironments";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Button } from "@posthog/ui/primitives/Button";
@@ -19,12 +24,15 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Text, TextArea, TextField } from "@radix-ui/themes";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthStateValue } from "../../auth/store";
+import { useLoopHogFlow } from "../hooks/useLoop";
 import {
   useCreateLoop,
+  useCreateLoopHogFlow,
   useDeleteLoop,
   useUpdateLoop,
+  useUpdateLoopHogFlow,
 } from "../hooks/useLoopMutations";
 import {
   useBundleLocalSkill,
@@ -38,14 +46,26 @@ import {
   formValuesToLoopWrite,
   isAutoFixEnabled,
   isLoopFormValid,
-  isTriggerDraftValid,
+  isTriggerListValid,
+  LOOPS_API_RULES,
   type LoopContextTargetDraft,
   type LoopFormValues,
   loopToFormValues,
   normalizeLoopFormValues,
+  WORKFLOW_RULES,
 } from "../loopFormTypes";
+import {
+  hogFlowTeamSkills,
+  isLoopShapedHogFlow,
+  UnsupportedLoopShapeError,
+} from "../loopHogFlowMapping";
+import {
+  LoopForeignWorkflowError,
+  LoopScheduleSaveError,
+} from "../loopHogFlowWrites";
 import { formatLoopModel } from "../loopModels";
 import { buildSkillInstructions, loopSkillBundles } from "../loopSkill";
+import { WORKFLOW_TRIGGER_LIMITS } from "../loopTriggerLimits";
 import { LoopBehaviorFields } from "./LoopBehaviorFields";
 import { LoopContextFields } from "./LoopContextFields";
 import { Field } from "./LoopFormPrimitives";
@@ -56,6 +76,7 @@ import { LoopRepositoryPicker } from "./LoopRepositoryPicker";
 import { LoopInstructionsFields } from "./LoopSkillFields";
 import { LoopSpaceBreadcrumb } from "./LoopSpaceBreadcrumb";
 import { LoopTriggerEditor } from "./LoopTriggerEditor";
+import { LoopWorkflowPromptFields } from "./LoopWorkflowPromptFields";
 
 const VISIBILITY_OPTIONS: {
   value: LoopSchemas.LoopVisibilityEnum;
@@ -79,8 +100,14 @@ type LoopFormBaseline = {
   serialized: string;
 };
 
-function buildLoopFormBaseline(loop: LoopSchemas.Loop): LoopFormBaseline {
-  const values = normalizeLoopFormValues(loopToFormValues(loop));
+function buildLoopFormBaseline(
+  loop: LoopSchemas.Loop,
+  teamSkills: string[],
+): LoopFormBaseline {
+  const values = normalizeLoopFormValues({
+    ...loopToFormValues(loop),
+    teamSkills,
+  });
   return {
     loopId: loop.id,
     updatedAt: loop.updated_at,
@@ -108,22 +135,52 @@ export function LoopForm({
   const isEdit = !!loop;
   const isEmbedded = variant === "embedded";
   const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const workflowBacked = useLoopsHogFlowsEnabled();
+  // The loop prop is a projection of this same cached workflow, so it is
+  // already loaded whenever `loop` is; the raw flow carries the team skills
+  // and the schedule row the save needs to reconcile.
+  const { data: hogFlow } = useLoopHogFlow(
+    workflowBacked ? loop?.id : undefined,
+  );
+  const teamSkills = useMemo(
+    () => (hogFlow ? hogFlowTeamSkills(hogFlow) : []),
+    [hogFlow],
+  );
+  const rules = workflowBacked ? WORKFLOW_RULES : LOOPS_API_RULES;
+  // One-shot prefill from the landing prompt, a template, or a space; merged
+  // over the blank defaults. Read (not consumed) here, then cleared in the
+  // effect below so the manual "New loop" button always opens a blank form.
+  const [prefill] = useState(() =>
+    loop ? null : useLoopDraftStore.getState().prefill,
+  );
+  // A workflow has nowhere to keep a space attachment, so a loop started from
+  // a space opens detached and the form says so instead of dropping it quietly.
+  const detachedSpace = workflowBacked
+    ? (prefill?.contextTarget ?? null)
+    : null;
   const [values, setValues] = useState<LoopFormValues>(() => {
-    if (loop) return normalizeLoopFormValues(loopToFormValues(loop));
-    // One-shot prefill from the landing prompt or a template; merged over the
-    // blank defaults. Read (not consumed) here, then cleared in the effect
-    // below so the manual "New loop" button always opens a blank form.
-    const prefill = useLoopDraftStore.getState().prefill;
+    if (loop) {
+      return normalizeLoopFormValues({
+        ...loopToFormValues(loop),
+        teamSkills,
+      });
+    }
     return normalizeLoopFormValues({
       ...emptyLoopFormValues(),
       ...(prefill ?? {}),
+      ...(workflowBacked ? { contextTarget: null } : {}),
     });
   });
   const [step, setStep] = useState(0);
   const [baseline, setBaseline] = useState<LoopFormBaseline | null>(() =>
-    loop ? buildLoopFormBaseline(loop) : null,
+    loop ? buildLoopFormBaseline(loop, teamSkills) : null,
   );
   const [hasRemoteUpdate, setHasRemoteUpdate] = useState(false);
+  // `updated_at` of a write this form made. When the loop with that stamp
+  // arrives, the baseline moves onto it without treating it as someone
+  // else's change, so a partial save (graph stuck, schedule did not) can be
+  // saved again.
+  const ownWriteUpdatedAtRef = useRef<string | null>(null);
   // Open when editing a loop that already pins a model, so the pinned value
   // is visible without hunting for it.
   const [showAdvanced, setShowAdvanced] = useState(
@@ -138,7 +195,7 @@ export function LoopForm({
   useEffect(() => {
     if (!loop) return;
 
-    const nextBaseline = buildLoopFormBaseline(loop);
+    const nextBaseline = buildLoopFormBaseline(loop, teamSkills);
     if (!baseline || baseline.loopId !== loop.id) {
       setBaseline(nextBaseline);
       setValues(nextBaseline.values);
@@ -146,7 +203,20 @@ export function LoopForm({
       return;
     }
 
-    if (nextBaseline.updatedAt === baseline.updatedAt) return;
+    // A schedule row edit moves only the row's own `updated_at`, so the
+    // cadence is compared through the serialized values as well.
+    if (
+      nextBaseline.updatedAt === baseline.updatedAt &&
+      nextBaseline.serialized === baseline.serialized
+    ) {
+      return;
+    }
+
+    if (nextBaseline.updatedAt === ownWriteUpdatedAtRef.current) {
+      ownWriteUpdatedAtRef.current = null;
+      setBaseline(nextBaseline);
+      return;
+    }
 
     if (isDirty) {
       setHasRemoteUpdate(true);
@@ -156,7 +226,7 @@ export function LoopForm({
     setBaseline(nextBaseline);
     setValues(nextBaseline.values);
     setHasRemoteUpdate(false);
-  }, [loop, baseline, isDirty]);
+  }, [loop, teamSkills, baseline, isDirty]);
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -168,36 +238,65 @@ export function LoopForm({
   const bluebirdEnabled = useBluebirdFlag();
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
-  const showContextField = channelsEnabled || !!values.contextTarget;
+  const showContextField =
+    !workflowBacked && (channelsEnabled || !!values.contextTarget);
+  const { environments, isLoading: environmentsLoading } =
+    useSandboxEnvironments();
+  const sandboxEnvironmentOptions = useMemo(() => {
+    const options = [
+      { value: "", label: "Default environment" },
+      ...environments.map((environment) => ({
+        value: environment.id,
+        label: environment.name,
+      })),
+    ];
+    if (
+      values.sandboxEnvironmentId &&
+      !environments.some(
+        (environment) => environment.id === values.sandboxEnvironmentId,
+      )
+    ) {
+      options.push({
+        value: values.sandboxEnvironmentId,
+        label: "Unavailable environment",
+      });
+    }
+    return options;
+  }, [environments, values.sandboxEnvironmentId]);
 
   const createLoop = useCreateLoop();
   const updateLoop = useUpdateLoop(loop?.id ?? "");
+  const createHogFlowLoop = useCreateLoopHogFlow();
+  const updateHogFlowLoop = useUpdateLoopHogFlow(loop?.id ?? "");
   const deleteLoop = useDeleteLoop();
   const bundleSkill = useBundleLocalSkill();
   const replaceSkillBundles = useReplaceLoopSkillBundles();
   const isSubmitting =
     (isEdit ? updateLoop.isPending : createLoop.isPending) ||
+    createHogFlowLoop.isPending ||
+    updateHogFlowLoop.isPending ||
     bundleSkill.isPending ||
     replaceSkillBundles.isPending ||
     deleteLoop.isPending;
   const canSubmit =
-    isLoopFormValid(values) && !isSubmitting && !hasRemoteUpdate;
+    isLoopFormValid(values, rules) && !isSubmitting && !hasRemoteUpdate;
 
   // Per-step gate for the Next button. The final Create button is gated on the
   // whole form being valid, so jumping between steps can't submit a bad loop.
   const stepComplete = [
     !!values.name.trim() &&
       (values.skill !== null || !!values.instructions.trim()),
-    values.triggers.every(isTriggerDraftValid),
+    isTriggerListValid(values.triggers, rules),
     true,
-    isLoopFormValid(values),
+    isLoopFormValid(values, rules),
   ];
   const isLastStep = step === STEPS.length - 1;
 
-  // Building a loop for a space keeps a way back to it; without one the header
-  // still names the scene, it just has no parent to offer.
+  // Building a loop for a space keeps a way back to it, attached or not;
+  // without one the header still names the scene, it just has no parent to
+  // offer.
   const spacesLayout = useChannelsLayout();
-  const contextTarget = values.contextTarget;
+  const contextTarget = values.contextTarget ?? detachedSpace;
   const headerLeaf = isEdit ? loop.name : "New loop";
   useSetHeaderContent(
     useMemo(
@@ -235,6 +334,79 @@ export function LoopForm({
     }
   };
 
+  const reportForeignWorkflow = () => {
+    toast.error("This loop was changed in the workflow editor", {
+      description:
+        "Open it in PostHog to change it. Saving here would replace those changes.",
+    });
+  };
+
+  const submitWorkflowLoop = async () => {
+    if (isEdit && !hogFlow) {
+      toast.error("Loop is still loading", {
+        description: "Wait a moment and save again.",
+      });
+      return;
+    }
+    // The detail page checks the shape when it renders; a reshaped flow can
+    // still arrive while the form is open, or the form can open by URL.
+    if (isEdit && hogFlow && !isLoopShapedHogFlow(hogFlow)) {
+      reportForeignWorkflow();
+      return;
+    }
+    try {
+      const saved =
+        isEdit && hogFlow
+          ? await updateHogFlowLoop.mutateAsync({ values, existing: hogFlow })
+          : await createHogFlowLoop.mutateAsync({ values, enabled: true });
+      ownWriteUpdatedAtRef.current = saved.updated_at;
+      track(
+        isEdit ? ANALYTICS_EVENTS.LOOP_UPDATED : ANALYTICS_EVENTS.LOOP_CREATED,
+        buildLoopSavedProps(saved),
+      );
+      if (onSaved) {
+        onSaved(saved);
+      } else {
+        navigateToLoopDetail(saved.id);
+      }
+    } catch (error) {
+      if (error instanceof LoopScheduleSaveError) {
+        // Keep the form open with its state intact: saving again retries the
+        // schedule write against the graph that already stuck.
+        ownWriteUpdatedAtRef.current = error.flow.updated_at;
+        toast.error("Loop saved, but its schedule didn't update", {
+          description: [
+            hogFlowRequestDetail(error.cause),
+            "Save again to retry.",
+          ]
+            .filter(Boolean)
+            .join(" "),
+        });
+        return;
+      }
+      if (error instanceof LoopForeignWorkflowError) {
+        reportForeignWorkflow();
+        return;
+      }
+      if (requestErrorStatus(error) === 409) {
+        // The server refused a write based on an older version of the loop.
+        setHasRemoteUpdate(true);
+        toast.error("Loop changed elsewhere", {
+          description:
+            "Cancel and reopen editing to see the latest version before saving.",
+        });
+        return;
+      }
+      toast.error(isEdit ? "Failed to save loop" : "Failed to create loop", {
+        description:
+          error instanceof UnsupportedLoopShapeError
+            ? error.message
+            : (hogFlowRequestDetail(error) ??
+              (error instanceof Error ? error.message : undefined)),
+      });
+    }
+  };
+
   const handleSubmit = async () => {
     if (hasRemoteUpdate) {
       toast.error("Loop changed elsewhere", {
@@ -243,6 +415,10 @@ export function LoopForm({
       return;
     }
     if (!canSubmit) return;
+    if (workflowBacked) {
+      await submitWorkflowLoop();
+      return;
+    }
     const body = formValuesToLoopWrite(values);
 
     // Bundling runs before anything is persisted: a missing or broken local
@@ -264,6 +440,7 @@ export function LoopForm({
       const saved = isEdit
         ? await updateLoop.mutateAsync(body)
         : await createLoop.mutateAsync(body);
+      ownWriteUpdatedAtRef.current = saved.updated_at;
       track(
         isEdit ? ANALYTICS_EVENTS.LOOP_UPDATED : ANALYTICS_EVENTS.LOOP_CREATED,
         buildLoopSavedProps(saved),
@@ -343,6 +520,10 @@ export function LoopForm({
         gap="4"
         className="rounded-(--radius-2) border border-border bg-(--gray-1) p-4"
       >
+        {detachedSpace ? (
+          <DetachedSpaceNotice spaceName={detachedSpace.name} />
+        ) : null}
+
         <Step
           title="Prompt"
           description="Name it and write the prompt the agent runs each time."
@@ -365,23 +546,36 @@ export function LoopForm({
               onChange={(e) => patch({ description: e.target.value })}
             />
           </Field>
-          <LoopInstructionsFields
-            values={values}
-            disabled={isSubmitting}
-            onPatch={patch}
-          />
+          {workflowBacked ? (
+            <LoopWorkflowPromptFields
+              values={values}
+              disabled={isSubmitting}
+              onPatch={patch}
+            />
+          ) : (
+            <LoopInstructionsFields
+              values={values}
+              disabled={isSubmitting}
+              onPatch={patch}
+            />
+          )}
         </Step>
 
         <Divider />
 
         <Step
           title="When"
-          description="Add automatic triggers, or leave this manual-only."
+          description={
+            workflowBacked
+              ? "Pick a schedule or a GitHub event. Every loop has one trigger."
+              : "Add automatic triggers, or leave this manual-only."
+          }
         >
           <LoopTriggerEditor
             triggers={values.triggers}
             triggerEndpointPath={triggerEndpointPath}
             disabled={isSubmitting}
+            limits={workflowBacked ? WORKFLOW_TRIGGER_LIMITS : undefined}
             onChange={(triggers) => patch({ triggers })}
           />
         </Step>
@@ -390,30 +584,36 @@ export function LoopForm({
 
         <Step
           title="Options"
-          description="Visibility, working context, and notifications."
+          description={
+            workflowBacked
+              ? "The repository the agent works in."
+              : "Visibility, working context, and notifications."
+          }
         >
           <div className="grid gap-4 md:grid-cols-2">
-            <Field
-              label="Visibility"
-              hint={
-                values.contextTarget
-                  ? "Channel loops are team-visible."
-                  : undefined
-              }
-            >
-              <SettingsOptionSelect
-                value={values.visibility}
-                options={VISIBILITY_OPTIONS}
-                disabled={isSubmitting || !!values.contextTarget}
-                size="lg"
-                ariaLabel="Visibility"
-                onValueChange={(value) =>
-                  patch({
-                    visibility: value as LoopSchemas.LoopVisibilityEnum,
-                  })
+            {!workflowBacked ? (
+              <Field
+                label="Visibility"
+                hint={
+                  values.contextTarget
+                    ? "Channel loops are team-visible."
+                    : undefined
                 }
-              />
-            </Field>
+              >
+                <SettingsOptionSelect
+                  value={values.visibility}
+                  options={VISIBILITY_OPTIONS}
+                  disabled={isSubmitting || !!values.contextTarget}
+                  size="lg"
+                  ariaLabel="Visibility"
+                  onValueChange={(value) =>
+                    patch({
+                      visibility: value as LoopSchemas.LoopVisibilityEnum,
+                    })
+                  }
+                />
+              </Field>
+            ) : null}
 
             <Field
               label="Base repository"
@@ -436,6 +636,27 @@ export function LoopForm({
                 }
               />
             </Field>
+
+            {!workflowBacked ? (
+              <Field
+                label="Sandbox environment"
+                hint="Applies its environment variables, network access, and image to every run."
+              >
+                <SettingsOptionSelect
+                  value={values.sandboxEnvironmentId ?? ""}
+                  options={sandboxEnvironmentOptions}
+                  disabled={isSubmitting || environmentsLoading}
+                  size="lg"
+                  ariaLabel="Sandbox environment"
+                  placeholder={
+                    environmentsLoading ? "Loading environments…" : undefined
+                  }
+                  onValueChange={(value) =>
+                    patch({ sandboxEnvironmentId: value || null })
+                  }
+                />
+              </Field>
+            ) : null}
           </div>
 
           {showContextField ? (
@@ -454,30 +675,42 @@ export function LoopForm({
             </Field>
           ) : null}
 
-          <Field label="Notifications">
-            <LoopNotificationsFields
-              notifications={values.notifications}
-              disabled={isSubmitting}
-              onChange={(notifications) => patch({ notifications })}
-            />
-          </Field>
+          {!workflowBacked ? (
+            <Field label="Notifications">
+              <LoopNotificationsFields
+                notifications={values.notifications}
+                disabled={isSubmitting}
+                onChange={(notifications) => patch({ notifications })}
+              />
+            </Field>
+          ) : null}
         </Step>
 
         <Divider />
 
-        <Step title="Advanced" description="Behavior, model, and reasoning.">
-          <Field label="Behavior">
-            <LoopBehaviorFields
-              behaviors={values.behaviors}
-              disabled={isSubmitting}
-              onChange={(behaviors) => patch({ behaviors })}
-            />
-          </Field>
+        <Step
+          title="Advanced"
+          description={
+            workflowBacked
+              ? "Model and reasoning."
+              : "Behavior, model, and reasoning."
+          }
+        >
+          {!workflowBacked ? (
+            <Field label="Behavior">
+              <LoopBehaviorFields
+                behaviors={values.behaviors}
+                disabled={isSubmitting}
+                onChange={(behaviors) => patch({ behaviors })}
+              />
+            </Field>
+          ) : null}
           <LoopModelFields
             adapter={values.runtimeAdapter}
             model={values.model}
             reasoningEffort={values.reasoningEffort}
             disabled={isSubmitting}
+            adapterEditable={!workflowBacked}
             onAdapterChange={(runtimeAdapter) => patch({ runtimeAdapter })}
             onModelChange={(model) => patch({ model })}
             onReasoningEffortChange={(reasoningEffort) =>
@@ -542,6 +775,12 @@ export function LoopForm({
         </Box>
 
         <Box className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+          {detachedSpace ? (
+            <div className="mb-4">
+              <DetachedSpaceNotice spaceName={detachedSpace.name} />
+            </div>
+          ) : null}
+
           {step === 0 ? (
             <Step
               title="What should this loop do?"
@@ -566,23 +805,36 @@ export function LoopForm({
                   onChange={(e) => patch({ description: e.target.value })}
                 />
               </Field>
-              <LoopInstructionsFields
-                values={values}
-                disabled={isSubmitting}
-                onPatch={patch}
-              />
+              {workflowBacked ? (
+                <LoopWorkflowPromptFields
+                  values={values}
+                  disabled={isSubmitting}
+                  onPatch={patch}
+                />
+              ) : (
+                <LoopInstructionsFields
+                  values={values}
+                  disabled={isSubmitting}
+                  onPatch={patch}
+                />
+              )}
             </Step>
           ) : null}
 
           {step === 1 ? (
             <Step
               title="When should it run?"
-              description="A loop can have several triggers, and any one of them starts a run. With no triggers, you run it yourself from the loop's page."
+              description={
+                workflowBacked
+                  ? "Pick a schedule or a GitHub event. Every loop has one trigger, and you can also run a scheduled loop from its page."
+                  : "A loop can have several triggers, and any one of them starts a run. With no triggers, you run it yourself from the loop's page."
+              }
             >
               <LoopTriggerEditor
                 triggers={values.triggers}
                 triggerEndpointPath={triggerEndpointPath}
                 disabled={isSubmitting}
+                limits={workflowBacked ? WORKFLOW_TRIGGER_LIMITS : undefined}
                 onChange={(triggers) => patch({ triggers })}
               />
             </Step>
@@ -591,32 +843,40 @@ export function LoopForm({
           {step === 2 ? (
             <Step
               title="Options"
-              description="Who can see it and how you hear about runs."
+              description={
+                workflowBacked
+                  ? "The repository the agent works in."
+                  : "Who can see it and how you hear about runs."
+              }
             >
-              <Field
-                label="Visibility"
-                className="max-w-[340px]"
-                hint={
-                  values.contextTarget
-                    ? "Loops attached to a channel post runs to its shared feed, so they're visible to everyone on the project."
-                    : undefined
-                }
-              >
-                <SettingsOptionSelect
-                  value={values.visibility}
-                  options={VISIBILITY_OPTIONS}
-                  disabled={isSubmitting || !!values.contextTarget}
-                  size="lg"
-                  ariaLabel="Visibility"
-                  onValueChange={(value) =>
-                    patch({
-                      visibility: value as LoopSchemas.LoopVisibilityEnum,
-                    })
-                  }
-                />
-              </Field>
+              {!workflowBacked ? (
+                <>
+                  <Field
+                    label="Visibility"
+                    className="max-w-[340px]"
+                    hint={
+                      values.contextTarget
+                        ? "Loops attached to a channel post runs to its shared feed, so they're visible to everyone on the project."
+                        : undefined
+                    }
+                  >
+                    <SettingsOptionSelect
+                      value={values.visibility}
+                      options={VISIBILITY_OPTIONS}
+                      disabled={isSubmitting || !!values.contextTarget}
+                      size="lg"
+                      ariaLabel="Visibility"
+                      onValueChange={(value) =>
+                        patch({
+                          visibility: value as LoopSchemas.LoopVisibilityEnum,
+                        })
+                      }
+                    />
+                  </Field>
 
-              <Divider />
+                  <Divider />
+                </>
+              ) : null}
 
               {showContextField ? (
                 <>
@@ -669,15 +929,19 @@ export function LoopForm({
 
               <Divider />
 
-              <Field label="Notifications">
-                <LoopNotificationsFields
-                  notifications={values.notifications}
-                  disabled={isSubmitting}
-                  onChange={(notifications) => patch({ notifications })}
-                />
-              </Field>
+              {!workflowBacked ? (
+                <>
+                  <Field label="Notifications">
+                    <LoopNotificationsFields
+                      notifications={values.notifications}
+                      disabled={isSubmitting}
+                      onChange={(notifications) => patch({ notifications })}
+                    />
+                  </Field>
 
-              <Divider />
+                  <Divider />
+                </>
+              ) : null}
 
               <Flex direction="column" gap="4">
                 <button
@@ -695,23 +959,28 @@ export function LoopForm({
                     Advanced
                   </Text>
                   <Text className="text-[11.5px] text-gray-9">
-                    Behavior, model and reasoning
+                    {workflowBacked
+                      ? "Model and reasoning"
+                      : "Behavior, model and reasoning"}
                   </Text>
                 </button>
                 {showAdvanced ? (
                   <Flex direction="column" gap="4">
-                    <Field label="Behavior">
-                      <LoopBehaviorFields
-                        behaviors={values.behaviors}
-                        disabled={isSubmitting}
-                        onChange={(behaviors) => patch({ behaviors })}
-                      />
-                    </Field>
+                    {!workflowBacked ? (
+                      <Field label="Behavior">
+                        <LoopBehaviorFields
+                          behaviors={values.behaviors}
+                          disabled={isSubmitting}
+                          onChange={(behaviors) => patch({ behaviors })}
+                        />
+                      </Field>
+                    ) : null}
                     <LoopModelFields
                       adapter={values.runtimeAdapter}
                       model={values.model}
                       reasoningEffort={values.reasoningEffort}
                       disabled={isSubmitting}
+                      adapterEditable={!workflowBacked}
                       onAdapterChange={(runtimeAdapter) =>
                         patch({ runtimeAdapter })
                       }
@@ -731,7 +1000,11 @@ export function LoopForm({
               title="Review"
               description="Check everything before you create the loop."
             >
-              <ReviewList values={values} showContext={showContextField} />
+              <ReviewList
+                values={values}
+                showContext={showContextField}
+                workflowBacked={workflowBacked}
+              />
             </Step>
           ) : null}
         </Box>
@@ -879,12 +1152,28 @@ function Divider() {
   return <Box className="h-px bg-(--gray-4)" />;
 }
 
+function DetachedSpaceNotice({ spaceName }: { spaceName: string }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) px-3 py-2">
+      <span className="font-medium text-(--amber-12) text-[12.5px]">
+        This loop won't be attached to {channelDisplayLabel(spaceName)}
+      </span>
+      <span className="text-(--amber-11) text-[12px] leading-snug">
+        Attaching loops to a space isn't available yet. You'll find it in the
+        Loops list instead.
+      </span>
+    </div>
+  );
+}
+
 function ReviewList({
   values,
   showContext,
+  workflowBacked,
 }: {
   values: LoopFormValues;
   showContext: boolean;
+  workflowBacked: boolean;
 }) {
   const reasoning = values.reasoningEffort ?? "auto";
   const channels = (["push", "email", "slack"] as const).filter(
@@ -897,10 +1186,12 @@ function ReviewList({
       className="divide-y divide-(--gray-4) rounded-(--radius-3) border border-border"
     >
       <ReviewRow label="Name" value={values.name || "Not set"} />
-      <ReviewRow
-        label="Visibility"
-        value={values.visibility === "team" ? "Team" : "Personal"}
-      />
+      {!workflowBacked ? (
+        <ReviewRow
+          label="Visibility"
+          value={values.visibility === "team" ? "Team" : "Personal"}
+        />
+      ) : null}
       <ReviewRow
         label="Prompt"
         value={
@@ -910,12 +1201,23 @@ function ReviewList({
         }
         multiline
       />
+      {workflowBacked ? (
+        <ReviewRow
+          label="Skills"
+          value={
+            values.teamSkills.length > 0 ? values.teamSkills.join(", ") : "None"
+          }
+        />
+      ) : null}
       <ReviewRow
         label="Model"
-        value={`${ADAPTER_LABELS[values.runtimeAdapter]} · ${formatLoopModel(
-          values.runtimeAdapter,
-          values.model,
-        )} · ${reasoning} reasoning`}
+        value={[
+          workflowBacked ? null : ADAPTER_LABELS[values.runtimeAdapter],
+          formatLoopModel(values.runtimeAdapter, values.model),
+          `${reasoning} reasoning`,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
       />
       {showContext ? (
         <ReviewRow
@@ -939,14 +1241,18 @@ function ReviewList({
             : values.triggers.map(summarizeTrigger).join(", ")
         }
       />
-      <ReviewRow
-        label="Auto-fix PRs"
-        value={isAutoFixEnabled(values.behaviors) ? "On" : "Off"}
-      />
-      <ReviewRow
-        label="Notifications"
-        value={channels.length === 0 ? "None" : channels.join(", ")}
-      />
+      {!workflowBacked ? (
+        <>
+          <ReviewRow
+            label="Auto-fix PRs"
+            value={isAutoFixEnabled(values.behaviors) ? "On" : "Off"}
+          />
+          <ReviewRow
+            label="Notifications"
+            value={channels.length === 0 ? "None" : channels.join(", ")}
+          />
+        </>
+      ) : null}
     </Flex>
   );
 }
@@ -980,7 +1286,8 @@ function describeContext(target: LoopContextTargetDraft | null): string {
   if (target.outputs.post_to_feed) outputs.push("feed");
   if (target.outputs.update_context) outputs.push("context.md");
   if (target.outputs.canvas_id) outputs.push("canvas");
+  const targetLabel = channelDisplayLabel(target.name);
   return outputs.length > 0
-    ? `#${target.name} (${outputs.join(", ")})`
-    : `#${target.name}`;
+    ? `${targetLabel} (${outputs.join(", ")})`
+    : targetLabel;
 }

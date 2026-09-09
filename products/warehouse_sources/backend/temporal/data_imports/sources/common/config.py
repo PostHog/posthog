@@ -136,6 +136,15 @@ class UndecryptedConfigError(ValueError):
     """
 
 
+class ConfigValueError(ValueError):
+    """Raised when a config field's value can't be converted to its declared type.
+
+    A converter (e.g. ``int``) failing on user-supplied input would otherwise crash with an
+    opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
+    We name the field but never its value, so nothing a user typed reaches logs or error tracking.
+    """
+
+
 def _convert_value(
     convert: typing.Callable[[typing.Any], typing.Any], value: typing.Any, field_name: str
 ) -> typing.Any:
@@ -143,7 +152,10 @@ def _convert_value(
         raise UndecryptedConfigError(
             f"Config field '{field_name}' is still encrypted; the stored credentials could not be decrypted"
         )
-    return convert(value)
+    try:
+        return convert(value)
+    except (ValueError, TypeError) as e:
+        raise ConfigValueError(f"Config field '{field_name}' has a value that could not be parsed") from e
 
 
 @dataclasses.dataclass
@@ -210,6 +222,21 @@ def validate_config(
                         if not is_valid:
                             errors.extend(nested_errors)
 
+        elif field_meta and field_meta.converter != _noop_convert:
+            # Scalar field with a converter: presence is checked above, but a value that can't be
+            # converted to the declared type (e.g. `port: "lakjsd"`) would otherwise slip through and
+            # crash later in `to_config`. Run the converter now so it surfaces as a validation error.
+            if field_flat_key in d:
+                field_key = field_flat_key
+            elif field_nested_key in d:
+                field_key = field_nested_key
+            else:
+                field_key = field.name
+            try:
+                _convert_value(field_meta.converter, d[field_key], field.name)
+            except (ValueError, TypeError):
+                errors.append(f"Field '{field.name}' has an invalid value")
+
     return len(errors) == 0, errors
 
 
@@ -217,6 +244,7 @@ def to_config(
     config_cls: type[ConfigProtocol],
     d: dict[str, typing.Any],
     prefixes: tuple[str, ...] | None = None,
+    reserved_keys: frozenset[str] = frozenset(),
 ) -> ConfigProtocol:
     """Initialize a class from dict.
 
@@ -227,6 +255,9 @@ def to_config(
         d: The dictionary we are using to initialize the class.
         prefixes: Used in recursive call, should be left empty by top level
             callers.
+        reserved_keys: Bare (unprefixed) key names that belong to a sibling field one level up
+            and must not be read by this class's own fields. Used in recursive calls, should be
+            left empty by top level callers. See its use below for why it exists.
 
     Raises:
         TypeError: If called with a class not decorated with @config.
@@ -241,6 +272,7 @@ def to_config(
 
     fields = dataclasses.fields(config_cls)
     module_path = config_cls.__module__
+    sibling_names = frozenset(f.name for f in fields)
 
     for field in fields:
         field_type = _resolve_field_type(field, module_path=module_path)
@@ -251,10 +283,15 @@ def to_config(
 
         if field_flat_key in d:
             field_key = field_flat_key
-        elif field_nested_key in d:
+        elif field_nested_key in d and field_nested_key not in reserved_keys:
             field_key = field_nested_key
-        else:
+        elif field.name not in reserved_keys:
             field_key = field.name
+        else:
+            # Every bare-name spelling of this key is reserved for a sibling field one level up
+            # (see the call site below), so it must not be read here even though it is present in
+            # `d`. `None` never collides with a real dict key, so the lookups below simply miss.
+            field_key = None
 
         if field_meta and field_meta.converter != _noop_convert:
             convert = field_meta.converter
@@ -277,6 +314,8 @@ def to_config(
                         # dict, leaving a typed field holding an untyped dict and crashing
                         # downstream (e.g. `config.ssh_tunnel.enabled`). Skip so the field
                         # falls back to its default instead.
+                        continue
+                    if field_key is None:
                         continue
                     try:
                         value = d[field_key]
@@ -308,20 +347,31 @@ def to_config(
                         break
 
                 else:
-                    # Assuming a flat structure
+                    # Assuming a flat structure. The nested config is built from the very same
+                    # mapping as its enclosing config, matched by bare (unprefixed) field name —
+                    # see `_get_nested_key`. Left unchecked, that lets a nested config's field
+                    # steal a sibling field's value purely by sharing its name (e.g. an SSH
+                    # tunnel's own `host` reading the database's `host`). Reserve this config's
+                    # other field names so the nested config can't read them by bare name; it can
+                    # still be built from its own prefixed keys or its own defaults. Union with
+                    # the reserved names inherited from callers above us, so a field several
+                    # levels down (e.g. an SSH tunnel's `auth.password`) can't reach past its
+                    # immediate parent and read a grandparent's bare key either (e.g. the
+                    # database's own `password`, two levels up from `ssh_tunnel.auth`).
                     field_prefixes = _resolve_field_prefixes(
                         config_type, field_type_meta, field_meta, top_level_prefixes
                     )
+                    child_reserved_keys = reserved_keys | (sibling_names - {field.name})
 
                     try:
-                        value = to_config(config_type, d, field_prefixes)
+                        value = to_config(config_type, d, field_prefixes, reserved_keys=child_reserved_keys)
                     except TypeError:
                         # We want to try all possible config types
                         continue
                     else:
                         inputs[field.name] = convert(value)
                         break
-        else:
+        elif field_key is not None:
             try:
                 value = d[field_key]
             except KeyError:
@@ -712,7 +762,7 @@ def str_to_optional_list(s: str | list[typing.Any] | None) -> list[str] | None:
         return None
     if isinstance(s, list):
         values = [str(item).strip() for item in s]
-    else:
+    elif isinstance(s, str):
         stripped = s.strip()
         if stripped == "":
             return None
@@ -727,6 +777,11 @@ def str_to_optional_list(s: str | list[typing.Any] | None) -> list[str] | None:
                 values = [stripped]
         else:
             values = [item.strip() for item in stripped.split(",")]
+    else:
+        # A non-str/list value (e.g. a dict submitted for a multi-select field) has no list
+        # interpretation. Raise so `_convert_value` surfaces it as a clean validation error
+        # instead of an unhandled `AttributeError` from calling `.strip()` on it.
+        raise TypeError(f"expected a string, list, or None, got {type(s).__name__}")
     values = [value for value in values if value]
     return values or None
 

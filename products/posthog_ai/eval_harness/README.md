@@ -3,6 +3,9 @@
 These evals run the real coding agent inside a real sandbox against a seeded Hedgebox project, then score what it did.
 Each eval case gets its own isolated org/team/user, so cases never see each other's state.
 
+The harness builds product skills from the current checkout and uses native bundled skills by default.
+`--skill-delivery exec` instead packages those skills for MCP distribution, enables the exec skill prompt, and removes native skills from every sandbox so the two paths cannot satisfy the same case.
+
 Unlike `ee/hogai/eval/ci/`, this tree does **not** run under pytest.
 It runs on a standalone harness that boots the shared infrastructure once (test database, Django live server, LLM gateway, MCP server, Temporal) and then runs every selected suite concurrently.
 See [`harness/README.md`](harness/README.md) for how that works internally.
@@ -60,32 +63,46 @@ python -m products.posthog_ai.eval_harness.harness --provider modal
 python -m products.posthog_ai.eval_harness.harness --list
 ```
 
-| Flag                             | Meaning                                                                          |
-| -------------------------------- | -------------------------------------------------------------------------------- |
-| `--eval <substr>`                | Only run cases whose name contains the substring.                                |
-| `--provider {docker,modal}`      | Where sandboxes run. Default `docker`.                                           |
-| `--max-sandboxes N`              | Cap concurrently live sandboxes across all suites.                               |
-| `--agent-model <model>`          | Model the sandboxed agent runs against, pinned for stable cross-run comparison.  |
-| `--agent-runtime {claude,codex}` | Agent runtime serving the model. Default `claude`.                               |
-| `--reasoning-effort <effort>`    | Agent reasoning effort; valid values depend on runtime+model.                    |
-| `--keep-sandbox-containers`      | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.  |
-| `--rebuild-sandbox-image`        | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only. |
-| `--create-db`                    | Rebuild the eval test database instead of reusing it.                            |
-| `--case-timeout <seconds>`       | Agent-run budget (minimum 1 second), started after the case's team setup.        |
-| `--trials N`                     | Run every case N times (Braintrust trials), for variance on stochastic agents.   |
-| `--fail-under <fraction>`        | Exit nonzero when the mean score across all experiments falls below this (0-1).  |
-| `--list`                         | Print the discovered suite ids (with their kinds) and exit.                      |
+| Flag                              | Meaning                                                                          |
+| --------------------------------- | -------------------------------------------------------------------------------- |
+| `--eval <substr>`                 | Only run cases whose name contains the substring.                                |
+| `--provider {docker,modal}`       | Where sandboxes run. Default `docker`.                                           |
+| `--max-sandboxes N`               | Cap concurrently live sandboxes across all suites.                               |
+| `--agent-model <model>`           | Model the sandboxed agent runs against, pinned for stable cross-run comparison.  |
+| `--agent-runtime {claude,codex}`  | Agent runtime serving the model. Default `claude`.                               |
+| `--skill-delivery {bundled,exec}` | Skill delivery path. Default `bundled`; `exec` removes native sandbox skills.    |
+| `--reasoning-effort <effort>`     | Agent reasoning effort; valid values depend on runtime+model.                    |
+| `--keep-sandbox-containers`       | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.  |
+| `--rebuild-sandbox-image`         | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only. |
+| `--create-db`                     | Rebuild the eval test database instead of reusing it.                            |
+| `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.        |
+| `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.   |
+| `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).  |
+| `--list`                          | Print the discovered suite ids (with their kinds) and exit.                      |
 
-Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
+Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
 
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
+
+### Comparing skill delivery
+
+MCP instructions are configured once for the whole harness process, so bundled and exec skill delivery must run separately.
+Use the same suite, model, runtime, provider, case filter, and trial count in both commands:
+
+```bash
+hogli evals eval_skill_distribution --skill-delivery bundled --agent-runtime claude --agent-model claude-opus-4-8 --trials 3
+hogli evals eval_skill_distribution --skill-delivery exec --agent-runtime claude --agent-model claude-opus-4-8 --trials 3
+```
+
+Both runs use the same six prompts and Braintrust history key.
+The experiment metadata records `skill_delivery`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
 
 ### Codex runtime
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-5.5`.
 It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's LLM gateway uses to proxy the agent's OpenAI calls.
-Experiment names don't change with the runtime — each Braintrust experiment records `agent_runtime` and `agent_model` in its metadata instead — so compare cross-run scores within one runtime.
+Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment records `agent_runtime`, `agent_model`, and `skill_delivery` in its metadata, so compare cross-run scores within one runtime and delivery mode.
 
 ## Providers
 
@@ -95,6 +112,7 @@ Use Docker for small smoke tests or when remote access is unavailable.
 
 **docker** (default) runs sandboxes as local containers, so a Docker daemon must be reachable.
 Each container defaults to 16 GB, so host RAM is what bounds concurrency: the default cap is 4, and raising `--max-sandboxes` needs a big host.
+A case running notebook python or duckdb cells holds a second container on top of that (see [Notebook kernel sandboxes](#notebook-kernel-sandboxes)), which the sandbox cap does not count.
 
 Every docker run verifies the `posthog-sandbox-base` image is fresh before any case starts: it rebuilds when `@posthog/agent` has published a newer version than the one baked into the image, or when the Dockerfile changed since the image was built.
 An unchanged image passes the check in under a second, and even a rebuild is mostly layer-cached — only the npm install layer onward re-runs when the agent version moved.
@@ -120,6 +138,25 @@ Sandboxes are unbounded by default on modal, meaning every case can hold one at 
 Each case waits for its workflow to terminate the sandbox, then runs a tag-scoped Modal sweep as a safety net.
 When the whole run ends, the harness sweeps the Modal app again for its own leftover sandboxes, so a crashed or interrupted run doesn't leave sandboxes billing until their TTL.
 The sweep is scoped to this run's own tasks (matched by the `task_id` sandbox tag), so a second eval run sharing the same Modal app keeps its sandboxes.
+
+## Notebook kernel sandboxes
+
+A notebook SQL cell whose refs are all HogQL runs on the direct lane — the async query manager, no sandbox — and needs nothing beyond the live server.
+A python or duckdb cell instead dispatches the notebook Temporal workflow, which provisions a **second** sandbox for the case: the notebook kernel, ~2 GB alongside the agent's 16 GB.
+
+The harness supports that lane on **docker only**.
+The notebook kernel resolves its backend straight from `SANDBOX_PROVIDER`, and the modal provider sets that to `MODAL_EVALS`, which is not one of `KernelRuntime.Backend`'s values — the port map and liveness checks both miss, and the kernel never comes up.
+Run suites with python or duckdb cells as `--provider docker`; SQL-only suites are unaffected and run anywhere.
+
+Three things make the lane work, all automatic:
+
+- The eval Temporal worker registers the notebook workflows next to the tasks ones, and `GENERAL_PURPOSE_TASK_QUEUE` (where notebook runs dispatch) points at the same per-process queue, so one worker serves both.
+- `SANDBOX_API_URL` already points the sandbox at the Django live server, which is where the kernel posts its result callback and reads the data plane.
+- The docker provider builds the notebook image during startup. Left to first use it would build inside a Temporal activity with a five-minute budget, and a cold build overruns it.
+
+Kernel sandboxes are reclaimed by the harness, not by a TTL — the docker backend ignores `SandboxConfig.ttl_seconds`.
+Each case destroys its own before releasing its sandbox slot, and the run sweeps the eval database for stragglers at both ends.
+`--keep-sandbox-containers` preserves kernel containers the same way it preserves agent ones.
 
 ## Concurrency
 

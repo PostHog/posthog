@@ -6,8 +6,7 @@
   "type": "module",
   "exports": {
     "./*": [
-      "./src/*.ts",
-      "./src/*.tsx"
+      "./src/*.ts"
     ]
   },
   "scripts": {

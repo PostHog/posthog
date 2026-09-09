@@ -26,6 +26,8 @@ UA_CHANGE_CTX = Context(latitude=40.7, longitude=-74.0, country_code="US", ua_si
 STABLE_CTX = Context(latitude=40.7, longitude=-74.0, country_code="US", ua_signature="chrome|mac os x|pc")
 NEARBY_CTX = Context(latitude=41.0, longitude=-74.5, country_code="US", ua_signature="chrome|mac os x|pc")
 NO_GEO_CTX = Context(latitude=None, longitude=None, country_code=None, ua_signature="chrome|mac os x|pc")
+# Same location as the baseline, but the request carried no user-agent header at all.
+MISSING_UA_CTX = Context(latitude=40.7, longitude=-74.0, country_code="US", ua_signature=None)
 
 
 class TestEvaluateSessionRisk(BaseTest):
@@ -104,6 +106,39 @@ class TestEvaluateSessionRisk(BaseTest):
         self.assertIn("tier", props)
         for forbidden in ("ip", "session_key", "latitude", "longitude"):
             self.assertNotIn(forbidden, props)
+
+    @parameterized.expand(
+        [
+            ("device_changed", UA_CHANGE_CTX, "chrome|mac os x|pc", "firefox|mac os x|pc"),
+            ("no_user_agent_sent", MISSING_UA_CTX, "chrome|mac os x|pc", "missing"),
+        ]
+    )
+    def test_device_change_records_the_transition(self, _name, ctx, expected_from, expected_to):
+        # Without the transition, a spike in device changes can't be attributed to a cause, and an
+        # absent header has to be distinguishable from a real signature or it vanishes in a breakdown.
+        request = self._authed_request_with_baseline(self._make_user())
+        with (
+            patch("posthog.session.risk.current_request_context", return_value=ctx),
+            patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, False)),
+            patch("posthog.session.risk.posthoganalytics.capture") as mock_capture,
+        ):
+            evaluate_session_risk(request)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        self.assertEqual(props["ua_from"], expected_from)
+        self.assertEqual(props["ua_to"], expected_to)
+
+    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.posthoganalytics.capture")
+    @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, False))
+    def test_transition_omitted_when_the_device_did_not_change(self, _flags, mock_capture, _ctx):
+        request = self._authed_request_with_baseline(self._make_user())
+
+        evaluate_session_risk(request)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        self.assertNotIn("ua_from", props)
+        self.assertNotIn("ua_to", props)
 
     @patch("posthog.session.risk.current_request_context", return_value=UA_CHANGE_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")

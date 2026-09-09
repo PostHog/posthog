@@ -44,6 +44,7 @@ from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
+from products.alerts.backend.facade.api import redact_urls_in_name
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.business_knowledge.backend.models.constants import SourceStatus
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
@@ -64,7 +65,8 @@ from products.signals.backend.scout_harness.config_registry import live_scout_sk
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)
@@ -72,8 +74,9 @@ logger = logging.getLogger(__name__)
 # Bumps when the inventory schema changes meaningfully — `get_project_profile` invalidates
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
-# and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v12"
+# and new shapes in the cache. A redaction change bumps it too, so rows built before the
+# redaction stop being served.
+INVENTORY_SOURCE_VERSION = "v13"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -246,7 +249,7 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
     rows = (
         ExternalDataSource.objects.filter(team=team, deleted=False)
         .annotate(
-            last_run_at=Max("jobs__created_at", filter=Q(jobs__status=ExternalDataJob.Status.COMPLETED)),
+            last_run_at=Max("jobs__created_at", filter=Q(jobs__status=ExternalDataJobStatus.COMPLETED)),
             latest_error=latest_error,
         )
         .order_by("source_type", "id")
@@ -580,7 +583,7 @@ def _recent_alerts(team: Team) -> dict[str, Any]:
         "recent": [
             {
                 "id": str(row["id"]),
-                "name": row["name"] or "",
+                "name": redact_urls_in_name(row["name"] or ""),
                 "enabled": row["enabled"],
                 "state": row["state"],
                 "calculation_interval": row["calculation_interval"],
@@ -598,6 +601,10 @@ def _recent_hog_functions(team: Team) -> dict[str, Any]:
     `type` discriminates destinations vs transformations vs site apps — the agent
     pattern-matches on it to decide whether activity is "data plumbing" or "user
     surface" work.
+
+    An alert destination is a hog function whose name embeds the full webhook URL, so a
+    name can carry a live channel credential in its path or query. The profile goes into
+    an agent context, so each name keeps only its host.
     """
     qs = HogFunction.objects.filter(team=team, deleted=False)
     total = qs.count()
@@ -611,7 +618,7 @@ def _recent_hog_functions(team: Team) -> dict[str, Any]:
         "recent": [
             {
                 "id": str(row["id"]),
-                "name": row["name"] or "",
+                "name": redact_urls_in_name(row["name"] or ""),
                 "type": row["type"],
                 "kind": row["kind"],
                 "enabled": row["enabled"],
@@ -725,11 +732,11 @@ def _business_knowledge(team: Team) -> dict[str, Any]:
     """Business knowledge orientation — total + ready count, aggregate doc/chunk volume,
     plus the 5 most recently updated sources.
 
-    Tells the scout whether the team has a curated knowledge base worth searching via
-    `business-knowledge-documents-search`. The profile does NOT evaluate the
-    `product-business-knowledge` feature flag — it reads only authoritative tables so
-    cached profiles stay valid across flag flips; the base prompt conditions on "tool
-    present AND ready_count > 0" instead.
+    Inventory for a scout that already knows the knowledge base exists: which sources are there,
+    how much is searchable, what changed recently. The profile does NOT evaluate the
+    `product-business-knowledge` feature flag — it reads only authoritative tables so cached
+    profiles stay valid across flag flips. Whether the run is told about the base at all is the
+    prompt's call, gated per run on flag + a maintained base (`prompt._BUSINESS_KNOWLEDGE`).
     """
     qs = KnowledgeSource.objects.for_team(team.id)
     total = qs.count()

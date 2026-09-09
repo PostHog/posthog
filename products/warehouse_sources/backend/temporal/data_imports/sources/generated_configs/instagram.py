@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class InstagramSourceConfig(config.Config):
-    pass
+    instagram_account_id: str
+    instagram_integration_id: int = config.value(converter=config.str_to_int)
+    start_date: str | None = None

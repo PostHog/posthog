@@ -1,19 +1,46 @@
-import type { AccountCustomPropertyFilter } from '~/types'
-
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { ACCOUNTS_HOGQL_DEFAULT_SELECT, AccountColumnDisplayState } from './accountsColumnConfigLogic'
+import { ACCOUNTS_DEFAULT_COLUMNS, AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import type { AccountSortOrder, RoleFilterValue } from './accountsLogic'
 import type { AccountsOverviewTile, TileFilter } from './accountsOverviewTilesLogic'
+import type { AccountFilter } from './accountsPropertyFilters'
 import { DEFAULT_TILES } from './constants'
+
+// The single canonical assignment filter state. `all` shows every account (assigned
+// and unassigned) and omits the assignment query filter; `assigned` narrows to accounts
+// with an active assignment (optionally to specific users); `unassigned` shows only
+// accounts with no assignment.
+export type AssignmentStatus = 'all' | 'assigned' | 'unassigned'
+
+export const ASSIGNMENT_STATUS_VALUES: readonly AssignmentStatus[] = ['all', 'assigned', 'unassigned']
+
+export function isAssignmentStatus(value: unknown): value is AssignmentStatus {
+    return typeof value === 'string' && (ASSIGNMENT_STATUS_VALUES as readonly string[]).includes(value)
+}
 
 export interface AccountsViewFilters {
     search: string
-    tags: string[]
-    unassigned: boolean
+    assignmentStatus: AssignmentStatus
     assignedTo: RoleFilterValue
+    tags: string[]
     tileFilter: TileFilter | null
-    customProperties: AccountCustomPropertyFilter[]
+    customProperties: AccountFilter[]
+}
+
+// A raw persisted filter object may predate `assignmentStatus` and carry only the legacy
+// `unassigned` boolean. Read both so restoring an old view can resolve a status.
+interface AccountsViewFiltersRaw extends Partial<AccountsViewFilters> {
+    /** @deprecated Legacy field, superseded by `assignmentStatus`. Read for back-compat. */
+    unassigned?: boolean
+}
+
+// A saved view or shared link created before `assignmentStatus` existed defaulted to
+// assigned-only. Resolve legacy filters to that status so they never silently broaden.
+function assignmentStatusFromRaw(raw: AccountsViewFiltersRaw): AssignmentStatus {
+    if (isAssignmentStatus(raw.assignmentStatus)) {
+        return raw.assignmentStatus
+    }
+    return raw.unassigned ? 'unassigned' : 'assigned'
 }
 
 export interface AccountsViewProperties {
@@ -44,9 +71,8 @@ export function normalizeRoleFilter(value: unknown): RoleFilterValue {
     return typeof value === 'number' ? [value] : []
 }
 
-// Sort persists as a single `["<column> <ASC|DESC>"]` entry using the LOGICAL
-// column name (e.g. `csm`) — HogQL resolves it against the SELECT alias at
-// query-build time.
+// Sort persists under the logical column name so saved views do not depend on
+// the typed query's relationship or custom-property references.
 export function sortOrderToOrderBy(sortOrder: AccountSortOrder): string[] {
     if (!sortOrder) {
         return []
@@ -74,10 +100,10 @@ export function serializeAccountsView(state: AccountsViewState): AccountsViewPay
     if (state.filters.tags.length > 0) {
         filters.tags = state.filters.tags
     }
-    if (state.filters.unassigned) {
-        filters.unassigned = true
-    }
-    if (state.filters.assignedTo.length > 0) {
+    // Always store the status so a new "all" view is distinct from a legacy view with no
+    // field (which restores as assigned-only). Assigned-to only narrows the assigned status.
+    filters.assignmentStatus = state.filters.assignmentStatus
+    if (state.filters.assignmentStatus === 'assigned' && state.filters.assignedTo.length > 0) {
         filters.assignedTo = state.filters.assignedTo
     }
     if (state.filters.tileFilter) {
@@ -100,21 +126,19 @@ export function serializeAccountsView(state: AccountsViewState): AccountsViewPay
 
 export function deserializeAccountsView(view: Partial<ColumnConfigurationApi>): AccountsViewState {
     // The backend normalizes empty filters to `[]`; treat any non-object as empty.
-    const rawFilters = (
-        view.filters && !Array.isArray(view.filters) ? view.filters : {}
-    ) as Partial<AccountsViewFilters>
+    const rawFilters = (view.filters && !Array.isArray(view.filters) ? view.filters : {}) as AccountsViewFiltersRaw
     const rawProperties = (
         view.properties && typeof view.properties === 'object' ? view.properties : {}
     ) as AccountsViewProperties
 
     return {
-        columns: view.columns && view.columns.length > 0 ? view.columns : [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
+        columns: view.columns && view.columns.length > 0 ? view.columns : [...ACCOUNTS_DEFAULT_COLUMNS],
         sortOrder: orderByToSortOrder(view.order_by),
         filters: {
             search: rawFilters.search ?? '',
-            tags: rawFilters.tags ?? [],
-            unassigned: rawFilters.unassigned ?? false,
+            assignmentStatus: assignmentStatusFromRaw(rawFilters),
             assignedTo: normalizeRoleFilter(rawFilters.assignedTo),
+            tags: rawFilters.tags ?? [],
             tileFilter: rawFilters.tileFilter ?? null,
             customProperties: Array.isArray(rawFilters.customProperties) ? rawFilters.customProperties : [],
         },

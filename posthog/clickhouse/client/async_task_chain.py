@@ -76,14 +76,16 @@ def execute_task_chain() -> None:
     """
     task_chain = get_task_chain()
     if task_chain:
-        chained_tasks = chain(*[args[0] for args in task_chain])
-        result = chained_tasks.apply_async()
+        task_signatures: list[Signature] = []
+        for task_signature, manager, query_status in task_chain:
+            task_id = str(uuid.uuid4())
+            task_signature.set(task_id=task_id)
+            query_status.task_id = task_id
+            query_status.labels = ["chained", *(query_status.labels or [])]
+            manager.store_query_status(query_status)
+            task_signatures.append(task_signature)
 
-        for args in task_chain:
-            args[2].task_id = result.id
-            args[2].labels = ["chained", *(args[2].labels or [])]
-            args[1].store_query_status(args[2])
-
+        chain(*task_signatures).apply_async()
         _thread_locals.task_chain = []
 
 

@@ -117,9 +117,7 @@ describe('InsightDisplayConfig', () => {
     }
 
     describe('Options menu sections per insight/chart type', () => {
-        // For each type: the section headers in the Options menu, and the toggles inside the "Display"
-        // section. Empty `displayItems` means the Display header renders with no options under it.
-        const cases: [string, InsightQueryNode, { sections: string[]; displayItems: string[] }][] = [
+        const cases: [string, InsightQueryNode, { sections: string[]; displayItems?: string[] }][] = [
             [
                 'trends line graph',
                 makeTrendsQuery(ChartDisplayType.ActionsLineGraph),
@@ -129,6 +127,7 @@ describe('InsightDisplayConfig', () => {
                         'Color customization by',
                         'Y-axis unit',
                         'Y-axis scale',
+                        'Y-axis range',
                         'Line style',
                         'Statistical analysis',
                         'Axis labels',
@@ -167,6 +166,7 @@ describe('InsightDisplayConfig', () => {
                         'Display',
                         'Y-axis unit',
                         'Y-axis scale',
+                        'Y-axis range',
                         'Line style',
                         'Statistical analysis',
                         'Axis labels',
@@ -182,11 +182,7 @@ describe('InsightDisplayConfig', () => {
                     ],
                 },
             ],
-            [
-                'trends number',
-                makeTrendsQuery(ChartDisplayType.BoldNumber),
-                { sections: ['Display', 'Unit'], displayItems: [] },
-            ],
+            ['trends number', makeTrendsQuery(ChartDisplayType.BoldNumber), { sections: ['Unit'] }],
             [
                 'trends pie',
                 makeTrendsQuery(ChartDisplayType.ActionsPie),
@@ -195,6 +191,7 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
+                        'Show names on slices',
                         'Show total below chart',
                         // In-chart legend toggle + position select ("Bottom" is the prospective default)
                         'Show legendBottom',
@@ -202,20 +199,26 @@ describe('InsightDisplayConfig', () => {
                 },
             ],
             [
-                'trends table',
-                makeTrendsQuery(ChartDisplayType.ActionsTable),
-                { sections: ['Display', 'Unit'], displayItems: [] },
+                'trends donut',
+                makeTrendsQuery(ChartDisplayType.ActionsDonut),
+                {
+                    sections: ['Display', 'Unit'],
+                    displayItems: [
+                        'Show values on series',
+                        'Show as % of total',
+                        'Show names on slices',
+                        'Show total in center',
+                        'Show legendBottom',
+                    ],
+                },
             ],
+            ['trends table', makeTrendsQuery(ChartDisplayType.ActionsTable), { sections: ['Unit'] }],
             [
                 'trends bar value (horizontal)',
                 makeTrendsQuery(ChartDisplayType.ActionsBarValue),
                 { sections: ['Display', 'X-axis unit', 'Axis labels'], displayItems: ['Show values on series'] },
             ],
-            [
-                'trends world map',
-                makeTrendsQuery(ChartDisplayType.WorldMap),
-                { sections: ['Display', 'Unit'], displayItems: [] },
-            ],
+            ['trends world map', makeTrendsQuery(ChartDisplayType.WorldMap), { sections: ['Unit'] }],
             [
                 'box plot',
                 makeTrendsQuery(ChartDisplayType.BoxPlot),
@@ -242,6 +245,7 @@ describe('InsightDisplayConfig', () => {
                     displayItems: ['Show values on series', 'Show multiple Y-axes', 'Show legendBottom'],
                 },
             ],
+            ['stickiness table', makeStickinessQuery(ChartDisplayType.ActionsTable), { sections: [] }],
             [
                 'lifecycle',
                 makeLifecycleQuery(),
@@ -259,10 +263,20 @@ describe('InsightDisplayConfig', () => {
 
         it.each(cases)('%s shows the expected sections and display options', async (_name, query, expected) => {
             setupAndRender(query)
+
+            if (expected.sections.length === 0) {
+                expect(screen.queryByLabelText('Options')).not.toBeInTheDocument()
+                return
+            }
+
             await openOptionsMenu()
 
             expect(getSectionTitles()).toEqual(expected.sections)
-            expect(getDisplaySectionItems()).toEqual(expected.displayItems)
+            if (!expected.displayItems) {
+                expect(screen.queryByTestId('options-display-section')).not.toBeInTheDocument()
+            } else {
+                expect(getDisplaySectionItems()).toEqual(expected.displayItems)
+            }
         })
     })
 

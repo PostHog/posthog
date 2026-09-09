@@ -11,6 +11,10 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannelTask: vi.fn(),
 }));
 
+vi.mock("@posthog/ui/utils/urls", () => ({
+  getPostHogUrl: (path: string) => `https://us.posthog.com${path}`,
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
 });

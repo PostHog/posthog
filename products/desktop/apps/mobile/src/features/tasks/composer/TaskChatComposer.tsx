@@ -7,7 +7,6 @@ import {
   DEFAULT_GATEWAY_MODEL,
   DEFAULT_REASONING_EFFORT,
   type ExecutionMode,
-  KIMI_MODEL_FLAG,
   type SupportedReasoningEffort,
 } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
@@ -20,8 +19,8 @@ import {
   Stack,
   Stop,
 } from "phosphor-react-native";
-import { useFeatureFlag } from "posthog-react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -51,7 +50,6 @@ import {
 import type { PendingAttachment } from "./attachments/types";
 import {
   type ContextWindow,
-  filterKimiModelConfigOptions,
   getModelConfigOption,
   resolveComposerPrimaryAction,
 } from "./options";
@@ -96,6 +94,8 @@ interface TaskChatComposerProps {
   /** True while editing a queued message in place; the next send saves it. */
   editing?: boolean;
   onCancelEdit?: () => void;
+  /** Run artifacts trigger, rendered in the composer toolbar row. */
+  artifactsSlot?: ReactNode;
 }
 
 export function TaskChatComposer({
@@ -124,15 +124,11 @@ export function TaskChatComposer({
   restoredDraft,
   editing = false,
   onCancelEdit,
+  artifactsSlot,
 }: TaskChatComposerProps) {
   const themeColors = useThemeColors();
-  const { configOptions: liveConfigOptions, hasLiveConfig } =
-    useCloudTaskConfigOptions(adapter);
-  const kimiEnabled = !!useFeatureFlag(KIMI_MODEL_FLAG);
-  const configOptions = useMemo(
-    () => filterKimiModelConfigOptions(liveConfigOptions, kimiEnabled),
-    [liveConfigOptions, kimiEnabled],
-  );
+  const { configOptions, modelGroups, hasLiveConfig } =
+    useCloudTaskConfigOptions(adapter, model);
   const modelConfigOption = getModelConfigOption(configOptions);
   const [message, setMessage] = useState(() => initialMessage ?? "");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
@@ -398,6 +394,8 @@ export function TaskChatComposer({
                 />
               </Pressable>
 
+              {artifactsSlot}
+
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -417,6 +415,7 @@ export function TaskChatComposer({
                   contextWindow={contextWindow}
                   fastMode={fastMode}
                   configOptions={configOptions}
+                  modelGroups={modelGroups}
                   onAdapterChange={onAdapterChange}
                   onModeChange={onModeChange}
                   onModelChange={onModelChange}

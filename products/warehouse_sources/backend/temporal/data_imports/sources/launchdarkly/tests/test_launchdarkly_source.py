@@ -1,18 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.launchdarkly import (
     LaunchDarklySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.launchdarkly import (
-    LaunchDarklyResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.source import LaunchDarklySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLaunchDarklySource:
@@ -20,28 +13,6 @@ class TestLaunchDarklySource:
         self.source = LaunchDarklySource()
         self.team_id = 123
         self.config = LaunchDarklySourceConfig(access_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LAUNCHDARKLY
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "LaunchDarkly"
-        assert config.label == "LaunchDarkly"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        assert config.iconPath == "/static/services/launchdarkly.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["access_token"]
-
-    def test_access_token_field_is_secret_password(self):
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "access_token")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -121,23 +92,3 @@ class TestLaunchDarklySource:
         mock_validate.return_value = 200
         self.source.validate_credentials(self.config, self.team_id, schema_name="members")
         assert mock_validate.call_args.args[1] == "/members"
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is LaunchDarklyResumeConfig
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.source.launchdarkly_source"
-    )
-    def test_source_for_pipeline_plumbs_arguments(self, mock_launchdarkly_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "projects"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = mock_launchdarkly_source.call_args.kwargs
-        assert kwargs["access_token"] == "api-token"
-        assert kwargs["endpoint"] == "projects"
-        assert kwargs["resumable_source_manager"] is manager

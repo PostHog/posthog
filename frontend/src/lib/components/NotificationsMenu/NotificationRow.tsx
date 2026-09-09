@@ -37,6 +37,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Pipeline failures',
         description: 'When a data pipeline or batch export fails',
     },
+    materialization_failure: {
+        label: 'Materialized view failures',
+        description: 'When a materialized view in your project fails to refresh',
+    },
     issue_assigned: {
         label: 'Issues assigned',
         description: 'When an error tracking issue is assigned to you',
@@ -68,6 +72,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
     subscription_nudge: {
         label: 'Subscription suggestions',
         description: 'When PostHog suggests subscribing to a dashboard you keep coming back to',
+    },
+    data_quality_check_failure: {
+        label: 'Data quality check failures',
+        description: 'When a data quality check on a warehouse table or view starts failing',
     },
 }
 
@@ -133,7 +141,7 @@ export function NotificationRow({
     onNavigate?: () => void
     readOnly?: boolean
 }): JSX.Element {
-    const { navigateToNotification, toggleRead, markAsRead, archiveNotification } =
+    const { navigateToNotification, notificationClicked, toggleRead, markAsRead, archiveNotification } =
         useActions(sidePanelNotificationsLogic)
     const { projectNameForNotification, sourcePathForNotification, manuallyToggledIds, archivingEnabled } =
         useValues(sidePanelNotificationsLogic)
@@ -150,6 +158,9 @@ export function NotificationRow({
 
     const hasNavigationTarget = !!sourcePathForNotification(notification)
     const handleOpen = (): void => {
+        // Sits outside the navigation guard below: a click on a notification with no target
+        // is still engagement
+        notificationClicked(notification)
         // Clicking the card marks it read and navigates to its source
         if (!notification.read) {
             toggleRead(notification.id)

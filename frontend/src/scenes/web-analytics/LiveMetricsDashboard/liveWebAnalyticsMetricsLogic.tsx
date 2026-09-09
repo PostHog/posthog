@@ -5,6 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { createStreamConnection } from 'lib/api-stream'
+import { applyPathCleaning } from 'lib/components/PathCleanFilters/pathCleaningUtils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -31,7 +32,7 @@ import {
     TrendsQueryResponse,
     WebAnalyticsPropertyFilter,
 } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, BaseMathType, LiveEvent, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, BaseMathType, LiveEvent, PathCleaningFilter, PropertyOperator } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
@@ -60,8 +61,8 @@ import {
 } from './recentUsersByLastSeen'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
-const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
 const PARTIAL_FAILURE_TOAST_ID = 'live-pageviews-partial-failure'
+const BOT_QUERY_LABEL = 'bot traffic'
 const BUCKET_WINDOW_MINUTES = 30
 const FLUSH_INTERVAL_MS = 300
 const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
@@ -73,7 +74,10 @@ const LIVE_QUERY_CONCURRENCY = 4
 const LIVE_QUERY_MAX_ATTEMPTS = 3
 const LIVE_QUERY_RETRY_DELAY_MS = 250
 const RELOAD_DEBOUNCE_MS = 300
+const PAUSE_GRACE_MS = 2000
 const TRANSIENT_QUERY_STATUSES = new Set([502, 503, 504])
+
+type BotQueryStatus = 'idle' | 'loading' | 'loaded' | 'error'
 
 // Bound live-dashboard query fan-out to protect ClickHouse capacity.
 const liveQueryConcurrency = new ConcurrencyController(LIVE_QUERY_CONCURRENCY)
@@ -129,9 +133,11 @@ export interface liveWebAnalyticsMetricsLogicValues {
     rawLiveFilters: WebAnalyticsPropertyFilter[] // webAnalyticsFilterLogic
     rawLiveStreamFilters: WebAnalyticsPropertyFilter[] // webAnalyticsFilterLogic
     rawSelectedHost: string | null // webAnalyticsFilterLogic
+    isPathCleaningEnabled: boolean // webAnalyticsLogic
     productTab: ProductTab // webAnalyticsLogic
     shouldFilterTestAccounts: boolean // webAnalyticsLogic
     botBreakdown: BotBreakdownItem[]
+    botQueryStatus: BotQueryStatus
     browserBreakdown: BrowserBreakdownItem[]
     chartData: ChartDataPoint[]
     cityBreakdown: CityBreakdownItem[]
@@ -140,12 +146,17 @@ export interface liveWebAnalyticsMetricsLogicValues {
     eventsVersion: number
     geoVersion: number
     hasActiveFilters: boolean
+    hasBotQueryError: boolean
+    isBotLoading: boolean
     isLoading: boolean
+    isRefreshing: boolean
     liveFilters: WebAnalyticsPropertyFilter[]
     liveUserCount: number
+    pathCleaningFilters: PathCleaningFilter[]
     recentEvents: LiveEvent[]
     recentUsersByLastSeen: Map<string, number>
     selectedHost: string | null
+    shouldLoadBots: boolean
     slidingWindow: LiveMetricsSlidingWindow
     streamFilters: AnyPropertyFilter[]
     testAccountFilters: AnyPropertyFilter[]
@@ -165,10 +176,12 @@ export interface liveWebAnalyticsMetricsLogicValues {
 export interface liveWebAnalyticsMetricsLogicActions {
     addEvents: (
         events: LiveEvent[],
-        newerThan: Date
+        newerThan: Date,
+        pathCleaningFilters?: PathCleaningFilter[]
     ) => {
         events: LiveEvent[]
         newerThan: Date
+        pathCleaningFilters: PathCleaningFilter[]
     }
     addGeoEvents: (events: LiveGeoEvent[]) => {
         events: LiveGeoEvent[]
@@ -179,8 +192,8 @@ export interface liveWebAnalyticsMetricsLogicActions {
     clearRecentEvents: () => {
         value: true
     }
-    loadInitialData: () => {
-        value: true
+    loadInitialData: (isBackground?: boolean) => {
+        isBackground: boolean
     }
     pauseStream: () => {
         value: true
@@ -190,6 +203,20 @@ export interface liveWebAnalyticsMetricsLogicActions {
     }
     scheduleReload: () => {
         value: true
+    }
+    setBotData: (
+        buckets: {
+            bucket: SlidingWindowBucket
+            timestamp: number
+        }[]
+    ) => {
+        buckets: {
+            bucket: SlidingWindowBucket
+            timestamp: number
+        }[]
+    }
+    setBotQueryStatus: (status: BotQueryStatus) => {
+        status: BotQueryStatus
     }
     setInitialData: (
         buckets: {
@@ -206,6 +233,9 @@ export interface liveWebAnalyticsMetricsLogicActions {
     }
     setIsLoading: (loading: boolean) => {
         loading: boolean
+    }
+    setIsRefreshing: (refreshing: boolean) => {
+        refreshing: boolean
     }
     tickCurrentMinute: () => {
         value: true
@@ -242,6 +272,10 @@ export interface liveWebAnalyticsMetricsLogicMeta {
         liveUserCount: (recentUsersByLastSeen: Map<string, number>) => number
         selectedHost: (rawSelectedHost: string | null, productTab: ProductTab) => string | null
         liveFilters: (rawLiveFilters: WebAnalyticsPropertyFilter[]) => WebAnalyticsPropertyFilter[]
+        pathCleaningFilters: (
+            currentTeam: TeamPublicType | TeamType | null,
+            isPathCleaningEnabled: boolean
+        ) => PathCleaningFilter[]
         testAccountFilters: (
             currentTeam: TeamPublicType | TeamType | null,
             shouldFilterTestAccounts: boolean
@@ -252,6 +286,9 @@ export interface liveWebAnalyticsMetricsLogicMeta {
         ) => AnyPropertyFilter[]
         unstreamableTestAccountFilterCount: (testAccountFilters: AnyPropertyFilter[]) => number
         hasActiveFilters: (liveFilters: WebAnalyticsPropertyFilter[], shouldFilterTestAccounts: boolean) => boolean
+        hasBotQueryError: (botQueryStatus: BotQueryStatus) => boolean
+        isBotLoading: (botQueryStatus: BotQueryStatus) => boolean
+        shouldLoadBots: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
 
@@ -277,18 +314,25 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 'liveStreamFilters as rawLiveStreamFilters',
             ],
             webAnalyticsLogic,
-            ['productTab', 'shouldFilterTestAccounts'],
+            ['productTab', 'shouldFilterTestAccounts', 'isPathCleaningEnabled'],
         ],
     })),
     actions(() => ({
-        addEvents: (events: LiveEvent[], newerThan: Date) => ({ events, newerThan }),
+        addEvents: (events: LiveEvent[], newerThan: Date, pathCleaningFilters: PathCleaningFilter[] = []) => ({
+            events,
+            newerThan,
+            pathCleaningFilters,
+        }),
         addGeoEvents: (events: LiveGeoEvent[]) => ({ events }),
         setInitialData: (
             buckets: { timestamp: number; bucket: SlidingWindowBucket }[],
             recentUsersByLastSeen: [string, number][]
         ) => ({ buckets, recentUsersByLastSeen }),
+        setBotData: (buckets: { timestamp: number; bucket: SlidingWindowBucket }[]) => ({ buckets }),
+        setBotQueryStatus: (status: BotQueryStatus) => ({ status }),
         setIsLoading: (loading: boolean) => ({ loading }),
-        loadInitialData: true,
+        setIsRefreshing: (refreshing: boolean) => ({ refreshing }),
+        loadInitialData: (isBackground: boolean = false) => ({ isBackground }),
         scheduleReload: true,
         updateConnection: true,
         updateGeoConnection: true,
@@ -311,13 +355,30 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     freshWindow.prune()
                     return freshWindow
                 },
-                addEvents: (window, { events, newerThan }) => {
+                setBotData: (window, { buckets }) => {
+                    for (const { timestamp, bucket } of buckets) {
+                        window.extendBucketData(timestamp / 1000, bucket)
+                    }
+                    window.prune()
+                    return window
+                },
+                addEvents: (window, { events, newerThan, pathCleaningFilters }) => {
                     for (const event of events) {
                         const eventTs = new Date(event.timestamp).getTime() / 1000
                         const newerThanTs = newerThan.getTime() / 1000
 
                         if (eventTs > newerThanTs) {
-                            const pathname = event.properties?.$pathname
+                            // Prefer the livestream service's RE2-cleaned pathname — it matches the
+                            // backfill query exactly. The client-side mirror stays as a fallback for
+                            // livestream deploys that don't send it yet.
+                            const rawPathname = event.properties?.$pathname
+                            const serverCleanedPathname = event.properties?.$virt_cleaned_pathname
+                            const pathname =
+                                typeof serverCleanedPathname === 'string'
+                                    ? serverCleanedPathname
+                                    : typeof rawPathname === 'string'
+                                      ? applyPathCleaning(rawPathname, pathCleaningFilters)
+                                      : rawPathname
                             const deviceType = event.properties?.$device_type
                             const deviceId = event.properties?.$device_id
                             const browser = event.properties?.$browser
@@ -400,6 +461,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             0,
             {
                 setInitialData: (v) => v + 1,
+                setBotData: (v) => v + 1,
                 addEvents: (v) => v + 1,
                 tickCurrentMinute: (v) => v + 1,
             },
@@ -425,6 +487,18 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             true,
             {
                 setIsLoading: (_, { loading }) => loading,
+            },
+        ],
+        isRefreshing: [
+            false,
+            {
+                setIsRefreshing: (_, { refreshing }) => refreshing,
+            },
+        ],
+        botQueryStatus: [
+            'idle' as BotQueryStatus,
+            {
+                setBotQueryStatus: (_, { status }) => status,
             },
         ],
         recentEvents: [
@@ -564,6 +638,16 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (s) => [s.rawLiveFilters],
             (rawLiveFilters: WebAnalyticsPropertyFilter[]): WebAnalyticsPropertyFilter[] => rawLiveFilters,
         ],
+        pathCleaningFilters: [
+            (s) => [s.currentTeam, s.isPathCleaningEnabled],
+            (currentTeam: TeamPublicType | TeamType | null, isPathCleaningEnabled: boolean): PathCleaningFilter[] => {
+                if (!isPathCleaningEnabled || !currentTeam || !('path_cleaning_filters' in currentTeam)) {
+                    return []
+                }
+                return currentTeam.path_cleaning_filters ?? []
+            },
+            { resultEqualityCheck: equal },
+        ],
         testAccountFilters: [
             (s) => [s.currentTeam, s.shouldFilterTestAccounts],
             (currentTeam: TeamPublicType | TeamType | null, shouldFilterTestAccounts: boolean): AnyPropertyFilter[] =>
@@ -588,37 +672,63 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (liveFilters: WebAnalyticsPropertyFilter[], shouldFilterTestAccounts: boolean): boolean =>
                 liveFilters.length > 0 || shouldFilterTestAccounts,
         ],
+        hasBotQueryError: [
+            (s) => [s.botQueryStatus],
+            (botQueryStatus: BotQueryStatus): boolean => botQueryStatus === 'error',
+        ],
+        isBotLoading: [
+            (s) => [s.botQueryStatus],
+            (botQueryStatus: BotQueryStatus): boolean => botQueryStatus === 'loading',
+        ],
+        shouldLoadBots: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS],
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         pauseStream: () => {
             cache.isPaused = true
-            cache.loadAbortController?.abort()
-            cache.eventsConnection?.abort()
-            cache.geoConnection?.abort()
-            cache.batch = []
-            cache.geoBatch = []
-            stopFlushInterval(cache as FlushCache)
-            cache.disposables.dispose('liveUserCountInterval')
+            cache.disposables.add(
+                () => {
+                    const timeoutId = setTimeout(() => {
+                        cache.loadAbortController?.abort()
+                        cache.eventsConnection?.abort()
+                        cache.geoConnection?.abort()
+                        cache.batch = []
+                        cache.geoBatch = []
+                        stopFlushInterval(cache as FlushCache)
+                        cache.disposables.dispose('liveUserCountInterval')
+                        cache.isTornDown = true
+                    }, PAUSE_GRACE_MS)
+                    return () => clearTimeout(timeoutId)
+                },
+                'pauseGrace',
+                { pauseOnPageHidden: false }
+            )
         },
         resumeStream: () => {
             cache.isPaused = false
-            if (cache.hasInitialized) {
-                lemonToast.info('Refreshing live data...', {
-                    toastId: RECONNECT_TOAST_ID,
-                    autoClose: 2000,
-                })
+            cache.disposables.dispose('pauseGrace')
+            if (!cache.isTornDown) {
+                return
             }
+            cache.isTornDown = false
             startFlushInterval(cache as FlushCache, actions as FlushActions)
             startLiveUserCountInterval(cache as FlushCache, actions as FlushActions)
-            actions.loadInitialData()
+            actions.loadInitialData(true)
         },
-        loadInitialData: async () => {
+        loadInitialData: async ({ isBackground }) => {
             cache.loadAbortController?.abort()
             const abortController = new AbortController()
             cache.loadAbortController = abortController
             const { signal } = abortController
 
-            actions.setIsLoading(true)
+            const isColdLoad = !cache.hasLoadedData || !isBackground
+            if (isColdLoad) {
+                actions.setIsLoading(true)
+            } else {
+                actions.setIsRefreshing(true)
+            }
 
             try {
                 const now = Date.now()
@@ -639,6 +749,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     filterTestAccounts: values.shouldFilterTestAccounts,
                     includeCity: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN],
                     filtersEnabled: true,
+                    doPathCleaning: values.pathCleaningFilters.length > 0,
                     abortController,
                 })
 
@@ -660,15 +771,48 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addReferrerDataToBuckets(data.referrer, bucketMap)
                 addGeoDataToBuckets(data.geo, bucketMap)
                 addCityDataToBuckets(data.city, bucketMap)
-                addBotDataToBuckets(data.bot, bucketMap)
 
                 actions.setInitialData(
                     [...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })),
                     data.recentUsers ? getRecentUsersByLastSeenEntries(data.recentUsers) : []
                 )
+                cache.hasLoadedData = true
 
-                if (data.failedQueries.length > 0) {
-                    lemonToast.warning(`Some live metrics failed to load: ${data.failedQueries.join(', ')}`, {
+                if (values.shouldLoadBots) {
+                    actions.setBotQueryStatus('loading')
+                }
+                actions.setIsLoading(false)
+                actions.setIsRefreshing(false)
+
+                const failedQueries = [...data.failedQueries]
+
+                if (values.shouldLoadBots) {
+                    const botResponse = await loadBotQueryData({
+                        dateFrom,
+                        dateTo: handoff,
+                        filters: values.liveFilters,
+                        filterTestAccounts: values.shouldFilterTestAccounts,
+                        filtersEnabled: true,
+                        abortController,
+                    })
+                    if (signal.aborted) {
+                        return
+                    }
+                    if (botResponse) {
+                        const botBucketMap = new Map<number, SlidingWindowBucket>()
+                        addBotDataToBuckets(botResponse, botBucketMap)
+                        actions.setBotData(
+                            [...botBucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket }))
+                        )
+                        actions.setBotQueryStatus('loaded')
+                    } else {
+                        failedQueries.push(BOT_QUERY_LABEL)
+                        actions.setBotQueryStatus('error')
+                    }
+                }
+
+                if (failedQueries.length > 0) {
+                    lemonToast.warning(`Some live metrics failed to load: ${failedQueries.join(', ')}`, {
                         toastId: PARTIAL_FAILURE_TOAST_ID,
                     })
                 }
@@ -683,8 +827,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 }
                 if (!signal.aborted) {
                     actions.setIsLoading(false)
+                    actions.setIsRefreshing(false)
                 }
                 cache.hasInitialized = true
+                // A filter change that arrived mid-load was queued rather than dropped:
+                // this load captured the old filters, so run one more with the new ones.
+                if (!signal.aborted && cache.reloadQueuedDuringInit) {
+                    cache.reloadQueuedDuringInit = false
+                    resetStreamStateAndReload(cache as FlushCache, actions)
+                }
             }
         },
         scheduleReload: async (_, breakpoint) => {
@@ -692,7 +843,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             if (cache.isPaused) {
                 return
             }
-            actions.loadInitialData()
+            actions.loadInitialData(true)
         },
         updateConnection: () => {
             cache.eventsConnection?.abort()
@@ -716,6 +867,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const recordingColumn = values.currentTeam?.session_recording_opt_in ? ',$session_id' : ''
             url.searchParams.append('columns', `${baseColumns}${cityColumns}${recordingColumn}`)
             appendFilterParams(url, values.streamFilters)
+            if (values.pathCleaningFilters.length > 0) {
+                // The livestream service cleans server-side with RE2 (the engine the backfill
+                // query uses) and returns $virt_cleaned_pathname alongside the raw value.
+                url.searchParams.append('pathCleaning', JSON.stringify(values.pathCleaningFilters))
+            }
 
             cache.batch = cache.batch ?? ([] as LiveEvent[])
 
@@ -786,23 +942,23 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     subscriptions(({ actions, cache }) => {
         const reloadForFilterChange = (): void => {
             if (!cache.hasInitialized) {
+                cache.reloadQueuedDuringInit = true
                 return
             }
-            cache.batch = []
-            cache.geoBatch = []
-            actions.clearRecentEvents()
-            actions.clearFilteredLiveUsers()
-            actions.scheduleReload()
+            resetStreamStateAndReload(cache as FlushCache, actions)
         }
         return {
             liveFilters: reloadForFilterChange,
             shouldFilterTestAccounts: reloadForFilterChange,
+            // The window holds already-cleaned paths, so new rules only apply once it's rebuilt.
+            pathCleaningFilters: reloadForFilterChange,
         }
     }),
-    events(({ actions, cache }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
             cache.batch = [] as LiveEvent[]
             cache.geoBatch = [] as LiveGeoEvent[]
+            cache.getPathCleaningFilters = () => values.pathCleaningFilters
 
             actions.loadInitialData()
             startFlushInterval(cache as FlushCache, actions as FlushActions)
@@ -825,6 +981,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             startLiveUserCountInterval(cache as FlushCache, actions as FlushActions)
         },
         beforeUnmount: () => {
+            cache.disposables.dispose('pauseGrace')
             cache.loadAbortController?.abort()
             cache.eventsConnection?.abort()
             cache.geoConnection?.abort()
@@ -836,17 +993,35 @@ interface FlushCache {
     batch: LiveEvent[]
     geoBatch: LiveGeoEvent[]
     newerThan: Date
+    // Read at flush time rather than captured, so a rule change reaches the next batch.
+    getPathCleaningFilters: () => PathCleaningFilter[]
     disposables: DisposablesManager
 }
 
 interface FlushActions {
-    addEvents: (events: LiveEvent[], newerThan: Date) => void
+    addEvents: (events: LiveEvent[], newerThan: Date, pathCleaningFilters: PathCleaningFilter[]) => void
     addGeoEvents: (events: LiveGeoEvent[]) => void
     tickLiveUserCount: () => void
 }
 
 const stopFlushInterval = (cache: FlushCache): void => {
     cache.disposables.dispose('flushInterval')
+}
+
+interface ReloadActions {
+    clearRecentEvents: () => void
+    clearFilteredLiveUsers: () => void
+    scheduleReload: () => void
+}
+
+// Drops buffered stream state and schedules a fresh backfill; the window is
+// rebuilt from scratch whenever the filters feeding it change.
+const resetStreamStateAndReload = (cache: Pick<FlushCache, 'batch' | 'geoBatch'>, actions: ReloadActions): void => {
+    cache.batch = []
+    cache.geoBatch = []
+    actions.clearRecentEvents()
+    actions.clearFilteredLiveUsers()
+    actions.scheduleReload()
 }
 
 // Drives the "Users online" count so users drop off within ~5s of leaving the 60s window
@@ -889,7 +1064,7 @@ const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
     cache.disposables.add(() => {
         const intervalId = setInterval(() => {
             if (cache.batch.length > 0) {
-                actions.addEvents(cache.batch, cache.newerThan)
+                actions.addEvents(cache.batch, cache.newerThan, cache.getPathCleaningFilters())
                 cache.batch = []
             }
             if (cache.geoBatch.length > 0) {
@@ -909,7 +1084,6 @@ interface LiveQueryData {
     referrer: HogQLQueryResponse | null
     geo: HogQLQueryResponse | null
     recentUsers: HogQLQueryResponse | null
-    bot: HogQLQueryResponse | null
     city: HogQLQueryResponse | null
     allFailed: boolean
     failedQueries: string[]
@@ -925,28 +1099,28 @@ const LIVE_QUERY_LABELS: Record<LiveQueryKey, string> = {
     referrer: 'referrers',
     geo: 'locations',
     recentUsers: 'recent visitors',
-    bot: 'bot traffic',
     city: 'cities',
 }
 
-const loadQueryData = async ({
-    dateFrom,
-    dateTo,
-    filters,
-    filterTestAccounts,
-    includeCity,
-    filtersEnabled,
-    abortController,
-}: {
+interface LiveQueryContextParams {
     dateFrom: Date
     dateTo: Date
     filters: WebAnalyticsPropertyFilter[]
     filterTestAccounts: boolean
-    includeCity: boolean
     filtersEnabled: boolean
-    abortController: AbortController
-}): Promise<LiveQueryData> => {
-    const { signal } = abortController
+}
+
+const buildLiveQueryContext = ({
+    dateFrom,
+    dateTo,
+    filters,
+    filterTestAccounts,
+    filtersEnabled,
+}: LiveQueryContextParams): {
+    whereClause: string
+    queryParams: Pick<HogQLQuery, 'values' | 'filters'>
+    botEligibleEventsTuple: string
+} => {
     const whereClause = filtersEnabled
         ? '{filters}'
         : 'timestamp >= toDateTime({dateFrom}) AND timestamp <= toDateTime({dateTo})'
@@ -959,8 +1133,37 @@ const loadQueryData = async ({
               },
           }
         : { values: { dateFrom: dateFrom.toISOString(), dateTo: dateTo.toISOString() } }
-
     const botEligibleEventsTuple = `(${BOT_ELIGIBLE_EVENTS.map((e) => `'${e}'`).join(', ')})`
+    return { whereClause, queryParams, botEligibleEventsTuple }
+}
+
+const loadQueryData = async ({
+    dateFrom,
+    dateTo,
+    filters,
+    filterTestAccounts,
+    includeCity,
+    filtersEnabled,
+    doPathCleaning,
+    abortController,
+}: {
+    dateFrom: Date
+    dateTo: Date
+    filters: WebAnalyticsPropertyFilter[]
+    filterTestAccounts: boolean
+    includeCity: boolean
+    filtersEnabled: boolean
+    doPathCleaning: boolean
+    abortController: AbortController
+}): Promise<LiveQueryData> => {
+    const { signal } = abortController
+    const { whereClause, queryParams, botEligibleEventsTuple } = buildLiveQueryContext({
+        dateFrom,
+        dateTo,
+        filters,
+        filterTestAccounts,
+        filtersEnabled,
+    })
 
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
@@ -1030,6 +1233,9 @@ const loadQueryData = async ({
             breakdown: '$pathname',
             breakdown_limit: 10,
             breakdown_hide_other_aggregation: true,
+            // Cleaning runs before the breakdown is ranked, so a path that only reaches the top
+            // once its ids collapse still makes the list.
+            breakdown_path_cleaning: doPathCleaning,
         },
         dateRange: {
             date_from: dateFrom.toISOString(),
@@ -1080,42 +1286,6 @@ const loadQueryData = async ({
                 GROUP BY minute_bucket
                 ORDER BY minute_bucket ASC`,
         tags: liveQueryTags('live_geo'),
-        ...queryParams,
-    }
-
-    // Aggregate per-minute first then re-group so the response is bounded by the
-    // number of minutes in the window (not by the bot-name cardinality). Without this
-    // the default HogQL row cap (100) silently truncates high-traffic projects.
-    const botQuery: HogQLQuery = {
-        kind: NodeKind.HogQLQuery,
-        query: `SELECT
-                    minute_bucket,
-                    mapFromArrays(
-                        groupArray(bot_key),
-                        groupArray(event_count)
-                    ) AS counts_by_bot
-                FROM
-                (
-                    SELECT
-                        toStartOfMinute(timestamp) AS minute_bucket,
-                        concat(
-                            \`$virt_bot_name\`,
-                            '${BOT_KEY_SEPARATOR}',
-                            ifNull(\`$virt_traffic_category\`, '')
-                        ) AS bot_key,
-                        count() AS event_count
-                    FROM events
-                    WHERE ${whereClause}
-                        AND \`$virt_is_bot\` = true
-                        AND \`$virt_bot_name\` != ''
-                        AND event IN ${botEligibleEventsTuple}
-                    GROUP BY
-                        minute_bucket,
-                        bot_key
-                )
-                GROUP BY minute_bucket
-                ORDER BY minute_bucket ASC`,
-        tags: liveQueryTags('live_bots'),
         ...queryParams,
     }
 
@@ -1184,7 +1354,6 @@ const loadQueryData = async ({
         { key: 'paths', query: pathsQuery },
         { key: 'referrer', query: referrerQuery },
         { key: 'geo', query: geoQuery },
-        { key: 'bot', query: botQuery },
     ]
     if (recentUsersQuery) {
         jobs.push({ key: 'recentUsers', query: recentUsersQuery })
@@ -1211,7 +1380,6 @@ const loadQueryData = async ({
         referrer: null,
         geo: null,
         recentUsers: null,
-        bot: null,
         city: null,
         allFailed: false,
         failedQueries: [],
@@ -1233,6 +1401,70 @@ const loadQueryData = async ({
 
     data.allFailed = jobs.length > 0 && data.failedQueries.length === jobs.length
     return data
+}
+
+const loadBotQueryData = async ({
+    dateFrom,
+    dateTo,
+    filters,
+    filterTestAccounts,
+    filtersEnabled,
+    abortController,
+}: LiveQueryContextParams & { abortController: AbortController }): Promise<HogQLQueryResponse | null> => {
+    const { signal } = abortController
+    const { whereClause, queryParams, botEligibleEventsTuple } = buildLiveQueryContext({
+        dateFrom,
+        dateTo,
+        filters,
+        filterTestAccounts,
+        filtersEnabled,
+    })
+
+    const botQuery: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query: `SELECT
+                    minute_bucket,
+                    mapFromArrays(
+                        groupArray(bot_key),
+                        groupArray(event_count)
+                    ) AS counts_by_bot
+                FROM
+                (
+                    SELECT
+                        toStartOfMinute(timestamp) AS minute_bucket,
+                        concat(
+                            \`$virt_bot_name\`,
+                            '${BOT_KEY_SEPARATOR}',
+                            ifNull(\`$virt_traffic_category\`, '')
+                        ) AS bot_key,
+                        count() AS event_count
+                    FROM events
+                    WHERE ${whereClause}
+                        AND \`$virt_is_bot\` = true
+                        AND \`$virt_bot_name\` != ''
+                        AND event IN ${botEligibleEventsTuple}
+                    GROUP BY
+                        minute_bucket,
+                        bot_key
+                )
+                GROUP BY minute_bucket
+                ORDER BY minute_bucket ASC`,
+        tags: liveQueryTags('live_bots'),
+        ...queryParams,
+    }
+
+    try {
+        return await liveQueryConcurrency.run({
+            fn: () => performLiveQuery(botQuery, signal),
+            abortController,
+            debugTag: 'bot',
+        })
+    } catch (error) {
+        if (!isAbortedRequest(error)) {
+            console.error('Live query "live_bots" failed:', error)
+        }
+        return null
+    }
 }
 
 const getRecentUsersByLastSeenEntries = (response: HogQLQueryResponse): [string, number][] => {

@@ -57,7 +57,7 @@ function LegacyChannelHeader({ channelId }: { channelId: string }) {
   const { channels } = useChannels();
   const channelName = channels.find((c) => c.id === channelId)?.name;
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const isHome = pathname === `/website/${channelId}`;
+  const isHome = pathname === `/spaces/${channelId}`;
 
   return (
     <div className="flex min-w-0 items-center gap-2">
@@ -65,7 +65,7 @@ function LegacyChannelHeader({ channelId }: { channelId: string }) {
         type="button"
         data-selected={isHome || undefined}
         onClick={() =>
-          void navigate({ to: "/website/$channelId", params: { channelId } })
+          void navigate({ to: "/spaces/$channelId", params: { channelId } })
         }
         size="sm"
         className={cn("min-w-0", isHome ? "bg-fill-selected" : "")}

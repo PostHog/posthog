@@ -23,6 +23,7 @@ export interface PosthogProviderOptions {
   region?: CloudRegion;
   apiKey?: string;
   baseUrl?: string;
+  headers?: Record<string, string>;
 }
 
 export type PosthogOAuthCredentials = Pick<
@@ -30,6 +31,9 @@ export type PosthogOAuthCredentials = Pick<
   "access" | "refresh" | "expires"
 > & {
   region: CloudRegion;
+  /** Set for a custom region, so a refresh can verify the issuing instance. */
+  customCloudUrl?: string;
+  customOauthClientId?: string;
 };
 
 export function parsePosthogOAuthCredentials(
@@ -84,6 +88,7 @@ export function buildPosthogProvider(
   const baseUrl = options.baseUrl ?? getLlmGatewayUrl(region);
   const routedModels = models.map((model) => ({
     ...model,
+    headers: options.headers,
     baseUrl: gatewayBaseUrlForApi(
       model.api ?? "anthropic-messages",
       region,
@@ -95,10 +100,12 @@ export function buildPosthogProvider(
     baseUrl,
     api: "anthropic-messages",
     models: routedModels,
+    headers: options.headers,
     oauth: {
       name: "PostHog",
       login: (callbacks) => loginPosthog(callbacks, explicitRegion),
-      refreshToken: (credentials) => refreshPosthog(region, credentials),
+      refreshToken: (credentials, signal) =>
+        refreshPosthog(region, credentials, signal),
       getApiKey: (credentials) => String(credentials.access),
       modifyModels: (models, credentials) =>
         remapModelsToCredentialRegion(

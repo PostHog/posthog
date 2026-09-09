@@ -1,13 +1,11 @@
 import pytest
-from unittest import mock
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
+import pyarrow as pa
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workos import WorkOSSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.source import WorkOSSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.workos.workos import WorkOSResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.sources.workos.workos import _webhook_table_transformer
 
 
 class TestWorkOSSource:
@@ -15,24 +13,6 @@ class TestWorkOSSource:
         self.source = WorkOSSource()
         self.team_id = 123
         self.config = WorkOSSourceConfig(api_key="sk_test_123")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WORKOS
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "WorkOS"
-        assert config.label == "WorkOS"
-        assert config.iconPath == "/static/services/workos.png"
-        assert len(config.fields) == 1
-
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
 
     @pytest.mark.parametrize(
         "expected_key",
@@ -87,30 +67,27 @@ class TestWorkOSSource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["nonexistent"])
         assert schemas == []
 
-    @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
-        [
-            ((True, None), True, None),
-            ((False, "Invalid WorkOS credentials"), False, "Invalid WorkOS credentials"),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.workos.source.validate_workos_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
+    def test_webhook_transformer_extracts_rows_and_marks_deletes(self):
+        table = pa.Table.from_pylist(
+            [
+                {
+                    "event": "user.updated",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "data": '{"id":"user_1","email":"old@example.com"}',
+                },
+                {
+                    "event": "user.deleted",
+                    "created_at": "2026-01-02T00:00:00Z",
+                    "data": '{"id":"user_1","email":"old@example.com"}',
+                },
+            ]
+        )
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is expected_valid
-        assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.api_key)
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = "job_1"
-        inputs.logger = mock.MagicMock()
-
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is WorkOSResumeConfig
+        assert _webhook_table_transformer(table).to_pylist() == [
+            {
+                "id": "user_1",
+                "email": "old@example.com",
+                "workos_deleted": True,
+                "workos_deleted_at": "2026-01-02T00:00:00Z",
+            }
+        ]

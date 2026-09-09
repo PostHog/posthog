@@ -152,6 +152,9 @@ export interface snapshotDataLogicActions {
     resetPollingInterval: () => {
         value: true
     }
+    retrySnapshotLoading: () => {
+        value: true
+    }
     setPlayerActive: (active: boolean) => {
         active: boolean
     }
@@ -250,6 +253,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         // per-attempt loadSnapshotsForSourceFailure so the player can show an error even when other
         // sources already loaded (otherwise seeks into the missing range buffer forever).
         snapshotSourceLoadExhausted: true,
+        // Re-arm loading after a terminal failure: clears the exhausted retry budget and restarts the
+        // load chain, so the user can recover from a transient fetch failure without reloading the page.
+        retrySnapshotLoading: true,
         loadSnapshotSources: (breakpointLength?: number) => ({ breakpointLength }),
         loadNextSnapshotSource: true,
         loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
@@ -493,6 +499,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             if (!values.snapshotSourcesLoading) {
                 actions.loadSnapshotSources()
             }
+        },
+
+        retrySnapshotLoading: () => {
+            // The failure count is what tips a source into snapshotSourceLoadExhausted, so reset it
+            // before restarting — otherwise the very next attempt is already over the cap.
+            cache.loadFailureCount = 0
+            // Re-fetch the source list, which on success re-triggers loadNextSnapshotSource. This
+            // recovers both a failed source listing and a failed per-source fetch.
+            actions.loadSnapshots()
         },
 
         loadSnapshotSourcesSuccess: ({ snapshotSources }) => {

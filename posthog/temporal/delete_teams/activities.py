@@ -38,14 +38,6 @@ async def delete_misc_small_tables_activity(inputs: TeamDataActivityInputs) -> N
 
 
 @temporalio.activity.defn
-async def delete_personless_distinct_ids_activity(inputs: TeamDataActivityInputs) -> None:
-    async with Heartbeater():
-        from posthog.models.team.util import _delete_personless_distinct_ids_for_teams
-
-        await database_sync_to_async_pool(_delete_personless_distinct_ids_for_teams)(inputs.team_ids)
-
-
-@temporalio.activity.defn
 async def delete_cohort_members_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_cohort_members_for_all_teams
@@ -80,10 +72,14 @@ async def delete_batch_exports_activity(inputs: TeamDataActivityInputs) -> None:
 
 @temporalio.activity.defn
 async def delete_data_modeling_schedules_activity(inputs: TeamDataActivityInputs) -> None:
+    """Tear down data modeling's Temporal Schedules for the teams. CASCADE removes the saved query
+    and DAG rows but never talks to Temporal, so without this the Schedules keep firing forever into
+    a team that no longer exists."""
     async with Heartbeater():
-        from posthog.models.team.util import delete_data_modeling_schedules
+        from products.data_modeling.backend.facade.api import delete_team_data_modeling_schedules
 
-        await database_sync_to_async_pool(delete_data_modeling_schedules)(inputs.team_ids)
+        for team_id in inputs.team_ids:
+            await database_sync_to_async_pool(delete_team_data_modeling_schedules)(team_id)
 
 
 @temporalio.activity.defn

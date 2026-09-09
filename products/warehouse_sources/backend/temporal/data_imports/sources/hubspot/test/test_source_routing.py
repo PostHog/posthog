@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -123,12 +124,9 @@ class TestShouldUseSearchPath:
     def test_false_when_endpoint_has_no_cursor(self) -> None:
         src = HubspotSource()
         inputs = _make_inputs(schema_name="deals")
-        original = HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field
-        HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = None
-        try:
+        no_cursor = replace(HUBSPOT_ENDPOINTS["deals"], cursor_filter_property_field=None)
+        with patch.dict(HUBSPOT_ENDPOINTS, {"deals": no_cursor}):
             assert src._should_use_search_path(inputs) is False
-        finally:
-            HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = original
 
     def test_false_when_initial_sync_not_complete(self) -> None:
         src = HubspotSource()
@@ -398,7 +396,11 @@ class TestApiVersion:
 @pytest.mark.parametrize(
     "error_msg",
     [
-        # Raised by fetch_data when a token refresh succeeds but the retried request is still rejected
+        # helpers._get exhausted all 5 tenacity retries on a 401 — token refresh succeeded each
+        # time but HubSpot kept rejecting the request, indicating broken OAuth credentials.
+        "Hubspot API 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/properties/tickets",
+        "Hubspot API 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/properties/contacts",
+        # raise_for_status() 401/403 from other fetch paths
         "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/companies",
         "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/deals",
         "403 Client Error: Forbidden for url: https://api.hubapi.com/crm/v3/objects/contacts",

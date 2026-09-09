@@ -6,14 +6,19 @@ import time
 import uuid
 import asyncio
 import logging
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from temporalio.client import WorkflowFailureError
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.client import async_connect
 
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext, create_task_and_trigger, poll_for_turn
+from products.tasks.backend.facade.agents import (
+    CustomPromptSandboxContext,
+    MultiTurnSession,
+    create_task_and_trigger,
+    poll_for_turn,
+)
 from products.tasks.backend.facade.temporal import ProcessTaskWorkflow
 
 from .config import AgentArtifacts, SandboxedEvalCase
@@ -21,6 +26,8 @@ from .harness.providers import SandboxProviderStrategy
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
+
+    from products.tasks.backend.models import Task
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +43,32 @@ WORKFLOW_COMPLETION_GRACE_SECONDS = 60
 WORKFLOW_CANCELLATION_GRACE_SECONDS = 30
 
 
+class AgentNeverRanError(RuntimeError):
+    """The agent failed before it did any work, so the case has no outcome to score.
+
+    Raised so the engine records the case as an error and drops it from the aggregates. Scoring it
+    instead would put a zero on every outcome scorer while ``exit_code_zero`` stayed at one, which
+    reads as a model regression rather than the infrastructure failure it is.
+    """
+
+
 class WorkflowCleanupError(RuntimeError):
     pass
+
+
+def agent_never_ran(artifacts: AgentArtifacts) -> bool:
+    """Did the run fail before the agent did anything at all?
+
+    An agent that errored after making tool calls has a partial outcome worth scoring. One that
+    errored with no tool call behind it produced nothing, so its zeros describe the infrastructure
+    rather than the model.
+
+    Keyed off ``exit_code`` rather than ``stderr`` because both terminal failure channels set a
+    non-zero exit code, but only a ``session/update`` error also fills ``stderr``. A terminal
+    ``_posthog/error`` (the channel a provider 403 lands on) leaves ``stderr`` empty, so a
+    ``stderr`` check would score it instead of excluding it.
+    """
+    return artifacts.exit_code != 0 and artifacts.tool_call_count == 0
 
 
 async def _wait_for_workflow_terminal(handle: WorkflowHandle, timeout_seconds: int) -> bool:
@@ -75,11 +106,17 @@ async def _finish_workflow(handle: WorkflowHandle, *, status: str, reason: str |
     return await _wait_for_workflow_terminal(handle, WORKFLOW_CANCELLATION_GRACE_SECONDS)
 
 
-@dataclass
+@frozen
 class EvalCaseResult:
     artifacts: AgentArtifacts
     trace_id: str = ""
     raw_log: str = ""
+    turn_logs: list[str] | None = None
+    """One cumulative-log slice per completed turn, when the case ran multi-turn.
+
+    Slice ``i`` covers turn ``i + 1`` — that turn's prompt, tool calls, and
+    ``end_turn``. ``None`` for single-turn cases and for any case whose log
+    lines could not be split (malformed lines); scorers self-skip on it."""
 
 
 async def run_eval_case(
@@ -98,40 +135,34 @@ async def run_eval_case(
     trace_id = str(uuid.uuid4())
     logger.info("Starting eval case '%s' (trace=%s) with prompt: %.100s...", case.name, trace_id, case.prompt)
     start = time.monotonic()
-    task = None
-    handle: WorkflowHandle | None = None
+    # The helpers mutate this in place as they provision, so the except/finally
+    # blocks can finish the workflow and clean up the task even when a turn
+    # raises before the helpers return.
+    state = _CaseRunState()
     completion_task: asyncio.Task[bool] | None = None
     try:
         # Eval is a test harness — direct use of internals (instead of MTS) is intentional:
         # the agent isn't asked for structured JSON, and we need full_log for artifact parsing.
-        task, task_run = await create_task_and_trigger(case.prompt, context, step_name=case.name)
+        if case.followups:
+            full_log, turn_logs = await _run_multi_turn_case(case, context, state)
+        else:
+            full_log, turn_logs = await _run_single_turn_case(case, context, state)
+        # Both helpers set task and handle before their first poll, so a clean
+        # return guarantees they are populated.
+        assert state.task is not None and state.handle is not None
         # Register the task so the end-of-run sweep stays scoped to this run's sandboxes.
-        provider.register_task(str(task.id))
-        # Handle to the case's workflow so a timeout/error can shut the agent down.
-        workflow_id = task_run.get_workflow_id(task.id, task_run.id)
-        client = await async_connect()
-        handle = client.get_workflow_handle(workflow_id)
-        last_message, full_log_opt, _, _ = await poll_for_turn(
-            task_run, verbose=True, output_fn=lambda msg: logger.info("agent: %s", msg)
-        )
-        full_log = full_log_opt or ""
+        provider.register_task(str(state.task.id))
 
         duration = time.monotonic() - start
-        logger.info(
-            "Eval case '%s' completed in %.1fs, log size=%d, last_message=%.200s",
-            case.name,
-            duration,
-            len(full_log),
-            last_message or "(none)",
-        )
+        logger.info("Eval case '%s' completed in %.1fs, log size=%d", case.name, duration, len(full_log))
         artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
-        completion_task = asyncio.create_task(_finish_workflow(handle, status="completed", reason=None))
+        completion_task = asyncio.create_task(_finish_workflow(state.handle, status="completed", reason=None))
         cleanup_confirmed = await asyncio.shield(completion_task)
         if not cleanup_confirmed:
             raise WorkflowCleanupError(
                 f"Eval case '{case.name}' finished, but its workflow cleanup could not be confirmed"
             )
-        return EvalCaseResult(artifacts=artifacts, trace_id=trace_id, raw_log=full_log)
+        return EvalCaseResult(artifacts=artifacts, trace_id=trace_id, raw_log=full_log, turn_logs=turn_logs)
     except (Exception, asyncio.CancelledError) as e:
         # CancelledError is how the caller's asyncio.wait_for timeout reaches this
         # coroutine; catch it explicitly so we can stop the workflow, then re-raise.
@@ -143,24 +174,112 @@ async def run_eval_case(
             # already running. Let that bounded task settle instead of sending a
             # conflicting failed completion signal.
             cleanup_confirmed = await asyncio.shield(completion_task)
-        elif handle is not None and not isinstance(e, WorkflowCleanupError):
+        elif state.handle is not None and not isinstance(e, WorkflowCleanupError):
             cleanup_confirmed = await asyncio.shield(
-                _finish_workflow(handle, status="failed", reason=f"eval case '{case.name}' failed: {e}")
+                _finish_workflow(state.handle, status="failed", reason=f"eval case '{case.name}' failed: {e}")
             )
-        if handle is not None and not cleanup_confirmed:
+        if state.handle is not None and not cleanup_confirmed:
             logger.warning("Eval workflow cleanup could not be confirmed for case '%s'", case.name)
         raise
     finally:
-        if task is not None:
+        if state.task is not None:
             try:
-                await asyncio.to_thread(provider.cleanup_case, str(task.id))
+                await asyncio.to_thread(provider.cleanup_case, str(state.task.id))
             except Exception:
-                logger.warning("Provider cleanup failed for eval task %s", task.id, exc_info=True)
+                logger.warning("Provider cleanup failed for eval task %s", state.task.id, exc_info=True)
+
+
+@frozen(frozen=False)
+class _CaseRunState:
+    """Provisioning state a turn helper fills in before it can raise.
+
+    ``run_eval_case`` owns this and reads it in its cleanup paths, so a turn
+    that raises mid-poll still has its task and workflow handle reachable for
+    the failure signal and provider sweep.
+    """
+
+    task: Task | None = None
+    handle: WorkflowHandle | None = None
+
+
+async def _run_single_turn_case(
+    case: SandboxedEvalCase, context: CustomPromptSandboxContext, state: _CaseRunState
+) -> tuple[str, list[str] | None]:
+    """The historical one-prompt path: create, poll once, return the full log."""
+    task, task_run = await create_task_and_trigger(case.prompt, context, step_name=case.name)
+    state.task = task
+    # Handle to the case's workflow so a timeout/error can shut the agent down.
+    workflow_id = task_run.get_workflow_id(task.id, task_run.id)
+    client = await async_connect()
+    state.handle = client.get_workflow_handle(workflow_id)
+    turn = await poll_for_turn(task_run, verbose=True, output_fn=lambda msg: logger.info("agent: %s", msg))
+    logger.info("Eval case '%s' turn 1/1: last_message=%.200s", case.name, turn.last_message or "(none)")
+    return turn.full_log or "", None
+
+
+async def _run_multi_turn_case(
+    case: SandboxedEvalCase, context: CustomPromptSandboxContext, state: _CaseRunState
+) -> tuple[str, list[str] | None]:
+    """Run ``case.prompt`` plus every follow-up in one agent session.
+
+    ``session.end()`` only signals completion, so the caller still finishes the
+    workflow through ``_finish_workflow`` like any other case.
+    """
+    session, _ = await MultiTurnSession.start_raw(
+        prompt=case.prompt,
+        context=context,
+        step_name=case.name,
+        verbose=True,
+        output_fn=lambda msg: logger.info("agent: %s", msg),
+    )
+    state.task = session.task
+    state.handle = session.workflow_handle
+    # One entry per completed turn: the line count of the cumulative log at that
+    # turn's end. Turn 1 starts at line 0; turn i's lines sit between marks[i-1]
+    # and marks[i].
+    line_marks = [session.log_lines_seen]
+    for followup in case.followups:
+        await session.send_followup_raw(followup, label=f"{case.name} followup")
+        line_marks.append(session.log_lines_seen)
+    return session.last_full_log, _slice_turn_logs(session.last_full_log, line_marks)
+
+
+def _slice_turn_logs(full_log: str, line_marks: list[int]) -> list[str] | None:
+    """Split a cumulative JSONL session log into one slice per turn.
+
+    ``line_marks[i]`` is the total line count when turn ``i + 1`` ended, so turn
+    ``i + 1``'s slice is the lines between ``marks[i - 1]`` and ``marks[i]``
+    (turn 1 starts at line 0). The session log cursor counts only non-blank,
+    JSON-parseable lines, so a file that splits differently would produce wrong
+    slices; return ``None`` and let turn scorers skip rather than grade a
+    misaligned slice.
+    """
+    lines: list[str] = []
+    for raw_line in full_log.strip().split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            json.loads(line)
+        except json.JSONDecodeError:
+            logger.warning("Multi-turn eval log holds a malformed line; turn slicing unavailable")
+            return None
+        lines.append(line)
+    if not line_marks or line_marks[-1] > len(lines):
+        logger.warning(
+            "Multi-turn eval log line marks (%s) exceed the parsed line count (%d); turn slicing unavailable",
+            line_marks,
+            len(lines),
+        )
+        return None
+    bounds = [0, *line_marks]
+    return ["\n".join(lines[bounds[i] : bounds[i + 1]]) for i in range(len(line_marks))]
 
 
 def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_finished: bool) -> AgentArtifacts:
     """Extract scoring artifacts from JSONL agent logs."""
     tool_outputs: list[dict] = []
+    agent_errors: list[str] = []
     has_error = False
 
     for line in log_content.strip().split("\n"):
@@ -191,6 +310,12 @@ def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_f
         session_update = update.get("sessionUpdate")
         if session_update in {"tool_call", "tool_call_update"}:
             tool_outputs.append(update)
+        # The agent-server reports its own failures here, and every `errorType` it emits means the
+        # run failed rather than the model answering badly. Without this the case looks clean:
+        # the workflow still finishes, so `exit_code` stays 0 and only the outcome scorers move.
+        if session_update == "error":
+            has_error = True
+            agent_errors.append(str(update.get("message") or update.get("errorType") or "agent error"))
 
     # Extract git diff, file changes, test results from tool outputs
     git_diff = ""
@@ -242,12 +367,13 @@ def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_f
     return AgentArtifacts(
         exit_code=0 if agent_finished and not has_error else 1,
         stdout=agent_output[:10000],
-        stderr="",
+        stderr="\n".join(agent_errors)[:5000],
         git_diff=git_diff,
         files_changed=files_changed,
         test_exit_code=test_exit_code,
         test_output=test_output[:5000],
         lint_exit_code=lint_exit_code,
         lint_output=lint_output[:5000],
+        tool_call_count=len(tool_outputs),
         duration_seconds=duration_seconds,
     )

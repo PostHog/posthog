@@ -21,7 +21,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     schedulable_nodes,
     set_declared_anchor,
 )
-from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules, tiered_schedules_enabled
+from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
@@ -52,7 +52,7 @@ class Command(BaseCommand):
             "--at",
             type=str,
             default=None,
-            help="UTC time to anchor to, HH:MM (e.g. 00:00). Monthly-cadence nodes keep their hash-picked day of month",
+            help="UTC time to anchor to, HH:MM (e.g. 00:00). Monthly-cadence nodes run every 30 days at this time, on the same 30-day grid their sources sync on",
         )
         parser.add_argument(
             "--on",
@@ -82,10 +82,6 @@ class Command(BaseCommand):
             raise CommandError("Pass exactly one of --at or --clear")
         if options["clear"] and options["on"]:
             raise CommandError("--on has no effect with --clear")
-        if not tiered_schedules_enabled(team):
-            raise CommandError(
-                f"Team {team.pk} is not on the tiered-schedules flag; anchors only apply to cadence-tier schedules"
-            )
 
         anchor = None if options["clear"] else self._parse_anchor(options["at"], options["on"])
         nodes_by_dag = self._resolve_target_nodes(team, options)

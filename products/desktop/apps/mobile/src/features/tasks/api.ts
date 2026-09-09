@@ -4,11 +4,11 @@ import type {
   StoredLogEntry,
   Task,
   TaskRun,
+  TaskRunArtifact,
 } from "@posthog/shared";
 import { fetch } from "expo/fetch";
 import {
   authedFetch,
-  createTimeoutSignal,
   getAccessToken,
   getBaseUrl,
   getProjectId,
@@ -175,6 +175,36 @@ export async function presignTaskRunArtifact(
   return data.url;
 }
 
+/** Hides or restores every version of a file on the run, returning the updated manifest. */
+export async function dismissTaskRunArtifacts(
+  taskId: string,
+  runId: string,
+  artifactIds: string[],
+  dismissed: boolean,
+): Promise<TaskRunArtifact[]> {
+  const baseUrl = getBaseUrl();
+  const projectId = getProjectId();
+
+  const response = await authedFetch(
+    `${baseUrl}/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/artifacts/dismiss/`,
+    {
+      method: "POST",
+      body: JSON.stringify({ artifact_ids: artifactIds, dismissed }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new HttpError(
+      response.status,
+      response.statusText,
+      "Failed to update artifact",
+    );
+  }
+
+  const data = (await response.json()) as { artifacts?: TaskRunArtifact[] };
+  return data.artifacts ?? [];
+}
+
 export async function cancelRun(
   taskId: string,
   runId: string,
@@ -332,49 +362,6 @@ export async function sendCloudCommand(
     );
   }
   return data?.result;
-}
-
-export interface SessionLogsPage {
-  entries: StoredLogEntry[];
-  hasMore: boolean;
-}
-
-export async function fetchSessionLogs(
-  taskId: string,
-  runId: string,
-  options: { limit?: number; offset?: number } = {},
-): Promise<SessionLogsPage> {
-  return withRetry(
-    async () => {
-      const baseUrl = getBaseUrl();
-      const projectId = getProjectId();
-
-      const params = new URLSearchParams({
-        limit: String(options.limit ?? 5000),
-        offset: String(options.offset ?? 0),
-      });
-
-      const response = await authedFetch(
-        `${baseUrl}/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/session_logs/?${params}`,
-        { signal: createTimeoutSignal(10_000) },
-      );
-
-      if (!response.ok) {
-        throw new HttpError(
-          response.status,
-          response.statusText,
-          "Failed to fetch session logs",
-        );
-      }
-
-      const entries = (await response.json()) as StoredLogEntry[];
-      return {
-        entries,
-        hasMore: response.headers.get("X-Has-More") === "true",
-      };
-    },
-    { shouldRetry: isRetryableError },
-  );
 }
 
 export interface StreamCloudTaskOptions {

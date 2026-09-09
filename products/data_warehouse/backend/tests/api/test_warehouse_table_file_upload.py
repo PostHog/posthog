@@ -1,4 +1,5 @@
 import io
+import ipaddress
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -228,8 +229,36 @@ class TestCreateTableFromUpload(APIBaseTest):
             == f"https://warehouse.posthog.test/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"
         )
         assert table.columns == FAKE_COLUMNS
+        assert table.created_via == DataWarehouseTable.CreatedVia.WEB
         # No pipeline source is created — this is the whole point of the self-managed shape.
         assert ExternalDataSource.objects.count() == 0
+
+    def test_an_uploaded_table_cannot_be_repointed_at_another_location(self) -> None:
+        # An uploaded table carries no credential, so it is read with the ClickHouse node's own role
+        # rather than a key the team supplied. That only holds while PostHog owns the URL, so a hosted
+        # table must not be movable. The target below is an ordinary customer bucket that nothing else
+        # in the request would object to, so what this pins is the hosted-table rule itself.
+        upload_id = self._upload()
+        created = self._create(upload_id=upload_id, filename="orders.csv", file_format="csv", table_name="orders")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        table = DataWarehouseTable.objects.get(id=created.json()["id"])
+        original_url_pattern = table.url_pattern
+
+        with (
+            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
+            patch(
+                "posthog.security.url_validation.resolve_host_ips",
+                return_value={ipaddress.ip_address("93.184.216.34")},
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/warehouse_tables/{table.id}",
+                {"url_pattern": "https://acme-exports.s3.amazonaws.com/exports/*.csv"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        table.refresh_from_db()
+        assert table.url_pattern == original_url_pattern
 
     @parameterized.expand(
         [

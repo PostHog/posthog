@@ -1,4 +1,16 @@
+import { formatRelativeTimeLong } from "@posthog/shared";
 import { z } from "zod";
+
+export const postHogObjectArtifactMetadataSchema = z.object({
+  reference_type: z.literal("posthog_object"),
+  object_kind: z.string().min(1),
+  object_id: z.string().min(1),
+  source_message_ids: z.array(z.string()),
+  occurrence_count: z.number().int().positive(),
+});
+export type PostHogObjectArtifactMetadata = z.infer<
+  typeof postHogObjectArtifactMetadataSchema
+>;
 
 export const runArtifactSchema = z.object({
   id: z.string().optional(),
@@ -6,6 +18,7 @@ export const runArtifactSchema = z.object({
   type: z.string().optional(),
   size: z.number().optional(),
   content_type: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   storage_path: z.string().optional(),
   uploaded_at: z.string().optional(),
   uploaded_by: z.enum(["agent", "user"]).optional(),
@@ -13,6 +26,17 @@ export const runArtifactSchema = z.object({
   dismissed_at: z.string().nullish(),
 });
 export type RunArtifact = z.infer<typeof runArtifactSchema>;
+
+export function getPostHogObjectArtifactMetadata(artifact: {
+  type?: string;
+  metadata?: unknown;
+}): PostHogObjectArtifactMetadata | null {
+  if (artifact.type !== "reference") return null;
+  const parsed = postHogObjectArtifactMetadataSchema.safeParse(
+    artifact.metadata,
+  );
+  return parsed.success ? parsed.data : null;
+}
 
 /** Artifacts the agent hands back as deliverables, via the `upload_artifact` tool. */
 export const OUTPUT_ARTIFACT_TYPES = ["output"] as const;
@@ -35,9 +59,52 @@ export function parseRunArtifacts(
   });
 }
 
-/** Names a version by its position in a newest-first group. */
-export function runArtifactVersionLabel(index: number, total: number): string {
-  return index === 0 ? "Latest" : `Version ${total - index}`;
+/** Compact one-based version label: v1 is the oldest upload, v{total} the newest. */
+export function runArtifactVersionShortLabel(
+  index: number,
+  total: number,
+): string {
+  return `v${total - index}`;
+}
+
+export interface RunArtifactUploader {
+  id?: number;
+  first_name?: string | null;
+}
+
+/** Who uploaded a version: the current user's name (or "You"), a teammate, or the agent. */
+export function runArtifactUploaderLabel(
+  artifact: { uploaded_by?: "agent" | "user"; uploaded_by_user_id?: number },
+  currentUser: RunArtifactUploader | undefined,
+): string {
+  if (artifact.uploaded_by !== "user") return "Agent";
+  if (
+    currentUser?.id !== undefined &&
+    artifact.uploaded_by_user_id === currentUser.id
+  ) {
+    return currentUser.first_name?.trim() || "You";
+  }
+  return "Teammate";
+}
+
+/** A version's picker line: "v{n} · <uploader> · <uploaded time>". */
+export function runArtifactVersionMetaLabel(
+  artifact: {
+    uploaded_by?: "agent" | "user";
+    uploaded_by_user_id?: number;
+    uploaded_at?: string;
+  },
+  index: number,
+  total: number,
+  currentUser: RunArtifactUploader | undefined,
+): string {
+  return [
+    runArtifactVersionShortLabel(index, total),
+    runArtifactUploaderLabel(artifact, currentUser),
+    artifact.uploaded_at ? formatRelativeTimeLong(artifact.uploaded_at) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /**

@@ -2,13 +2,16 @@ from typing import Any
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
+from django.http import Http404
 
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -27,12 +30,16 @@ from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError,
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 from posthog.temporal.ai_observability.run_session_evaluation import run_hog_eval_over_recent_sessions
 from posthog.temporal.ai_observability.run_trace_evaluation import run_hog_eval_over_recent_traces
+
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
@@ -94,7 +101,7 @@ logger = structlog.get_logger(__name__)
                 "properties": {
                     "source": {
                         "type": "string",
-                        "description": "Hog source code. Must return true (pass), false (fail), or null for N/A.",
+                        "description": "Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.",
                         "minLength": 1,
                     }
                 },
@@ -107,7 +114,11 @@ logger = structlog.get_logger(__name__)
                     "source": {
                         "type": "string",
                         "enum": ["user_messages"],
-                        "description": "Classify sentiment from user messages in the generation input.",
+                        "description": (
+                            "Classify sentiment from user messages in the generation input. The classifier is "
+                            "trained on English, so labels are unreliable for other languages; use an 'llm_judge' "
+                            "evaluation for multilingual agents."
+                        ),
                         "default": "user_messages",
                     }
                 },
@@ -120,6 +131,8 @@ class _EvaluationConfigField(serializers.JSONField):
     pass
 
 
+# Keep defaults in BooleanOutputConfig: nested schema defaults become explicit MCP PATCH values
+# and overwrite stored settings even when the caller omits them.
 @extend_schema_field(
     {
         "type": "object",
@@ -127,8 +140,15 @@ class _EvaluationConfigField(serializers.JSONField):
             "allows_na": {
                 "type": "boolean",
                 "description": "Whether the evaluation can return N/A for non-applicable generations.",
-                "default": False,
-            }
+            },
+            "true_is_failure": {
+                "type": "boolean",
+                "description": (
+                    "Whether a true result means the evaluation found a problem. False (the default) suits "
+                    "pass/fail evaluations, where a true result satisfied the criteria. Set it to true for "
+                    "detector-style evaluations, so a true result is counted and labeled as a fail."
+                ),
+            },
         },
         "additionalProperties": False,
     }
@@ -264,7 +284,9 @@ class EvaluationConditionSerializer(serializers.Serializer):
     )
 
 
-class EvaluationSerializer(serializers.ModelSerializer):
+class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """An evaluation that scores LLM generations, traces, or sessions."""
+
     created_by = UserBasicSerializer(
         read_only=True,
         allow_null=True,
@@ -305,7 +327,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
     )
     output_config = _OutputConfigField(
         required=False,
-        help_text="Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+        help_text=(
+            "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and "
+            "{true_is_failure} to declare that a true result means the evaluation found a problem."
+        ),
     )
     target_config = _TargetConfigField(
         required=False,
@@ -350,6 +375,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
             "deleted",
+            "user_access_level",
         ]
         # status / status_reason are server-managed (coerced from enabled on user writes, set directly by
         # system transitions). Clients toggle `enabled`; the model's save() keeps the status fields consistent.
@@ -369,7 +395,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "evaluation_type": {
                 "help_text": (
                     "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; "
-                    "'sentiment' classifies user-message sentiment."
+                    "'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for "
+                    "multilingual agents)."
                 )
             },
             "output_type": {
@@ -434,6 +461,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 "output_config",
                 getattr(self.instance, "output_config", {}) if self.instance else {},
             )
+            if self.partial and self.instance is not None and "output_config" in data:
+                output_config = {**self.instance.output_config, **output_config}
             try:
                 data["evaluation_config"], data["output_config"] = validate_evaluation_configs(
                     evaluation_type, output_type, evaluation_config, output_config
@@ -744,7 +773,10 @@ class TestHogRequestSerializer(serializers.Serializer):
     source = serializers.CharField(
         required=True,
         min_length=1,
-        help_text="Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
+        help_text=(
+            "Hog source code to test. Must return true or false, or null for N/A. "
+            "Output settings determine which boolean counts as a failure."
+        ),
     )  # type: ignore[assignment]
     sample_count = serializers.IntegerField(
         required=False,
@@ -795,7 +827,9 @@ class TestHogResultItemSerializer(serializers.Serializer):
     trace_id = serializers.CharField(allow_null=True, help_text="Trace ID if available.")
     input_preview = serializers.CharField(help_text="First 200 characters of input from the sampled unit.")
     output_preview = serializers.CharField(help_text="First 200 characters of output from the sampled unit.")
-    result = serializers.BooleanField(allow_null=True, help_text="True = pass, False = fail, null = N/A or error.")
+    result = serializers.BooleanField(
+        allow_null=True, help_text="Raw boolean result, or null when the evaluation returns N/A or raises an error."
+    )
     reasoning = serializers.CharField(allow_null=True, help_text="Hog evaluation reasoning string, if any.")
     error = serializers.CharField(allow_null=True, help_text="Error message if the Hog code raised an exception.")
 
@@ -870,6 +904,7 @@ def _test_hog_over_sessions(
             "condition_count": len(conditions),
         },
         team=team,
+        request=request,
     )
 
     if not results:
@@ -985,6 +1020,20 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         if not self.action.endswith("update"):
             queryset = queryset.filter(deleted=False)
         return queryset
+
+    def safely_get_object(self, queryset: QuerySet[Evaluation]) -> Evaluation:
+        evaluation_id = self.kwargs["pk"]
+        try:
+            # Matches what DRF's own get_object() does, including coercing an unparseable pk to a
+            # 404, so only the message differs.
+            return get_object_or_404(queryset, pk=evaluation_id)
+        except Http404:
+            # DRF's bare "Not found." points a caller at nothing it can act on. A name passed where
+            # the id belongs lands here too, since it can't parse as a UUID.
+            raise NotFound(
+                f"No evaluation '{evaluation_id}' in this project. "
+                "List the project's evaluations to look one up by name."
+            )
 
     @staticmethod
     def _get_config_length(instance) -> int:
@@ -1151,6 +1200,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog evaluation code against sample events without saving."""
+        if not self.user_access_control.check_access_level_for_resource("evaluation", "viewer"):
+            raise exceptions.PermissionDenied()
+
         serializer = TestHogRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response({"error": serializer.errors}, status=400)
@@ -1308,9 +1360,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
             result = run_hog_eval(bytecode, event_data, allows_na=allows_na)
 
-            input_raw, output_raw = extract_event_io(event_type, properties)
-            input_preview = extract_text_from_messages(input_raw)[:200]
-            output_preview = extract_text_from_messages(output_raw)[:200]
+            io = extract_event_io(event_type, properties)
+            input_preview = extract_text_from_messages(io.input_raw)[:200]
+            output_preview = extract_text_from_messages(io.output_raw)[:200]
 
             results.append(
                 {

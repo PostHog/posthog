@@ -23,6 +23,14 @@ MAX_RETRIES = 5
 MAX_RETRY_AFTER_SECONDS = 60
 DEFAULT_LOOKBACK_DAYS = 30
 
+# SigNoz's current stable telemetry API generation (Query Builder v5, GA August 2025). SigNoz
+# versions this API in the endpoint path, not via a request header, and this source has always
+# queried the v5 `query_range` endpoint. So the framework's legacy unversioned label and this
+# explicit label resolve to the same requests — new sources are stamped "v5" while existing pins
+# keep syncing byte-for-byte. The management REST endpoints (rules, dashboards, channels) are
+# unversioned v1 and stay hardcoded in settings.py.
+SIGNOZ_API_VERSION_V5 = "v5"
+
 QUERY_RANGE_PATH = "/api/v5/query_range"
 
 HOST_NOT_ALLOWED_ERROR = "SigNoz host is not allowed"

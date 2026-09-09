@@ -23,9 +23,10 @@ GUSTO_HOSTS = {
     "demo": "https://api.gusto-demo.com",
 }
 DEFAULT_ENVIRONMENT = "production"
-# Dated API version pinned via the `X-Gusto-API-Version` header. Everything below is written
-# against this contract; bumping it is a `warehouse-source-new-version` change.
-GUSTO_API_VERSION = "2024-04-01"
+# Dated API versions pinned via the `X-Gusto-API-Version` header. One constant per version so the
+# source's version declaration and the request layer share a single label — never parsed or ordered.
+GUSTO_API_VERSION_2024_04_01 = "2024-04-01"
+GUSTO_API_VERSION_2026_06_15 = "2026-06-15"
 
 REQUEST_TIMEOUT_SECONDS = 60
 # Source creation runs this synchronously, so keep the credential probe snappy.

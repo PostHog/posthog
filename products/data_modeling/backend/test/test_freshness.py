@@ -14,7 +14,9 @@ from products.data_modeling.backend.logic.freshness import (
     all_source_floors,
     clamp_to_source_floor,
     compute_effective_cadences,
+    compute_target_bounds,
     find_invalid_targets,
+    intersect_target_bounds,
     normalize_seed_target,
     validate_declared_target,
 )
@@ -25,6 +27,7 @@ M30 = timedelta(minutes=30)
 M45 = timedelta(minutes=45)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
+H12 = timedelta(hours=12)
 DAY = timedelta(days=1)
 DAY30 = timedelta(days=30)
 DAY45 = timedelta(days=45)
@@ -161,6 +164,35 @@ class TestValidateFrequencyTarget(TestCase):
         assert "or faster" not in message
         assert "or slower" not in message
 
+    def test_crossed_bounds_name_both_sides_and_suggest_no_cadence(self):
+        # 6h source under a 15min endpoint: every cadence is illegal, so a "pick X instead"
+        # here would name a value the picker cannot offer.
+        with self.assertRaises(UnsatisfiableFrequencyError) as raised:
+            validate_declared_target(
+                node_id="a",
+                target=H6,
+                edges=[("src", "a"), ("a", "ep")],
+                declared_targets={"ep": M15},
+                source_intervals={"src": H6},
+                names={"src": "stripe_invoices", "ep": "daily_revenue"},
+            )
+        message = str(raised.exception)
+        self.assertIn("stripe_invoices", message)
+        self.assertIn("daily_revenue", message)
+        self.assertNotIn("Pick ", message)
+
+    # sources sync this fast, model tiers do not run this fast
+    @parameterized.expand([("one_minute", timedelta(minutes=1)), ("five_minutes", M5)])
+    def test_sub_15min_target_is_refused_even_when_the_source_delivers_that_fast(self, _name, target):
+        with self.assertRaises(UnsupportedFrequencyTargetError):
+            validate_declared_target(
+                node_id="a",
+                target=target,
+                edges=[("src", "a")],
+                declared_targets={},
+                source_intervals={"src": target},
+            )
+
     def test_supported_targets_are_canonical_sync_frequency_buckets(self):
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415 - keeps Django off this pure test module's import path
             sync_frequency_interval_to_sync_frequency,
@@ -172,6 +204,94 @@ class TestValidateFrequencyTarget(TestCase):
             self.assertIsNotNone(label, f"{interval} is not a canonical sync-frequency bucket")
             assert label is not None
             self.assertEqual(sync_frequency_to_sync_frequency_interval(label), interval)
+
+
+class TestComputeTargetBounds(TestCase):
+    # src syncs every 6h, and endpoint `ep` downstream refreshes every 12h,
+    # so only 6h and 12h are legal for `a` — every other cadence is withheld by one side or the other.
+    EDGES = [("src", "a"), ("a", "ep")]
+    TARGETS = {"ep": H12}
+    INTERVALS = {"src": H6}
+
+    def _options(self, **overrides):
+        bounds = compute_target_bounds(
+            node_id=overrides.pop("node_id", "a"),
+            edges=overrides.pop("edges", self.EDGES),
+            declared_targets=overrides.pop("declared_targets", self.TARGETS),
+            source_intervals=overrides.pop("source_intervals", self.INTERVALS),
+        )
+        return bounds, {option.value: option for option in bounds.options}
+
+    @parameterized.expand(
+        [
+            ("below_floor", M15, "source", "src"),
+            ("at_floor", H6, None, None),
+            ("at_ceiling", H12, None, None),
+            ("above_ceiling", DAY, "consumer", "ep"),
+        ]
+    )
+    def test_each_option_carries_the_node_that_withholds_it(self, _name, value, blocked_by, blocker):
+        _, options = self._options()
+        option = options[value]
+        self.assertEqual(option.allowed, blocked_by is None)
+        self.assertEqual(option.blocked_by, blocked_by)
+        self.assertEqual(option.blocker, blocker)
+
+    def test_blame_names_the_originating_source_not_the_nearest_parent(self):
+        bounds, _ = self._options(node_id="c", edges=[("src", "a"), ("a", "b"), ("b", "c")], declared_targets={})
+        assert bounds.floor is not None
+        self.assertEqual(bounds.floor.blocker, "src")
+
+    # a 5min source delivers faster than any tier runs, so it blocks nothing and needs no explaining
+    def test_a_source_faster_than_every_cadence_sets_no_visible_floor(self):
+        bounds, options = self._options(declared_targets={}, source_intervals={"src": M5})
+        self.assertIsNone(bounds.floor)
+        self.assertTrue(all(option.allowed for option in options.values()))
+
+    def test_crossed_bounds_leave_nothing_pickable(self):
+        bounds, _ = self._options(declared_targets={"ep": M15})
+        self.assertFalse(bounds.satisfiable)
+
+
+class TestIntersectTargetBounds(TestCase):
+    # the same saved query has a node in two DAGs: one bounded by a 6h source, the other by a
+    # 12h consumer. The save path validates against both, so the picker has to as well.
+    def _fold(self, *per_dag):
+        bounds = intersect_target_bounds(
+            compute_target_bounds(node_id="a", edges=edges, declared_targets=targets, source_intervals=intervals)
+            for edges, targets, intervals in per_dag
+        )
+        return bounds, {option.value: option for option in bounds.options}
+
+    # (edges, declared targets, source intervals) for one DAG the saved query has a node in
+    OneDag = tuple[list[tuple[str, str]], dict[str, timedelta], dict[str, timedelta]]
+
+    SLOW_SOURCE: OneDag = ([("src", "a")], {}, {"src": H6})
+    FAST_CONSUMER: OneDag = ([("a", "ep")], {"ep": H12}, {})
+
+    def test_the_tightest_bound_from_any_dag_wins(self):
+        bounds, options = self._fold(self.SLOW_SOURCE, self.FAST_CONSUMER)
+        self.assertFalse(options[M15].allowed)
+        self.assertFalse(options[DAY].allowed)
+        self.assertEqual([option.value for option in bounds.options if option.allowed], [H6, H12])
+
+    def test_each_side_keeps_the_blame_from_the_dag_that_set_it(self):
+        bounds, _ = self._fold(self.SLOW_SOURCE, self.FAST_CONSUMER)
+        assert bounds.floor is not None and bounds.ceiling is not None
+        self.assertEqual((bounds.floor.blocker, bounds.ceiling.blocker), ("src", "ep"))
+
+    def test_a_dag_that_blocks_nothing_widens_nothing(self):
+        # an unbounded second node must not re-open what the first DAG withholds
+        bounds, options = self._fold(self.SLOW_SOURCE, ([("free", "a")], {}, {"free": STREAMING}))
+        assert bounds.floor is not None
+        self.assertEqual(bounds.floor.blocker, "src")
+        self.assertFalse(options[M15].allowed)
+
+    def test_no_bounds_anywhere_allows_everything(self):
+        bounds, options = self._fold(([("free", "a")], {}, {"free": STREAMING}))
+        self.assertIsNone(bounds.floor)
+        self.assertIsNone(bounds.ceiling)
+        self.assertTrue(all(option.allowed for option in options.values()))
 
 
 class TestFindInvalidTargets(TestCase):
@@ -253,6 +373,8 @@ class TestNormalizeSeedTarget(TestCase):
             ("finer_than_floor_coarsens", M15, H1, H1),
             # non-bucket over a slow source: snap down then coarsen to the floor
             ("snaps_then_coarsens_to_floor", M45, H6, H6),
+            # a v1 seed below the finest tier rounds up, matching migration 0031's coarsening
+            ("sub_15min_seed_rounds_up", M5, M5, M15),
             # already coarser than the floor -> left alone
             ("coarser_than_floor_stays", DAY, H6, DAY),
         ]

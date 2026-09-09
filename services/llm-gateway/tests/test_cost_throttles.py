@@ -2,8 +2,10 @@ import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import get_settings
+from llm_gateway.products.config import resolve_cost_key
 from llm_gateway.rate_limiting.cost_throttles import (
     CostThrottle,
+    SandboxTaskCostThrottle,
     UserCostBurstThrottle,
     UserCostSustainedThrottle,
     _UserCostThrottleBase,
@@ -24,15 +26,22 @@ def make_user(
     )
 
 
+def make_signals_user(interactive: bool, user_id: int = 1) -> AuthenticatedUser:
+    """A Signals sandbox token. `interactive` is the marker a user-started run carries."""
+    user = make_user(user_id=user_id)
+    scopes = ["llm_gateway:read", "internal_run:read"]
+    if interactive:
+        scopes.append("interactive_run:read")
+    user.scopes = scopes
+    return user
+
+
 def make_context(
     user: AuthenticatedUser | None = None,
     product: str = "posthog_code",
     end_user_id: str | None = None,
-    plan_key: str | None = "posthog-code-200-20260301",
-    seat_created_at: str | None = None,
-    seat_missing: bool = False,
     code_usage_billed: bool = False,
-    billing_period_start: str | None = None,
+    sandbox_task_id: str | None = None,
 ) -> ThrottleContext:
     user = user or make_user()
     if end_user_id is None and user.auth_method == "oauth_access_token":
@@ -41,11 +50,8 @@ def make_context(
         user=user,
         product=product,
         end_user_id=end_user_id,
-        plan_key=plan_key,
-        seat_created_at=seat_created_at,
-        seat_missing=seat_missing,
         code_usage_billed=code_usage_billed,
-        billing_period_start=billing_period_start,
+        sandbox_task_id=sandbox_task_id,
     )
 
 
@@ -523,27 +529,6 @@ class TestStaffUnlimitedUsage:
         assert status.used_usd == 0.0
         assert status.exceeded is False
         assert status.limit_usd == float("inf")
-        get_settings.cache_clear()
-
-    @pytest.mark.asyncio
-    async def test_free_plan_staff_still_unlimited(self) -> None:
-        # The case that bit staff before: a staff member on the free plan was
-        # pinned to the (multiplied) free-plan cap rather than treated as unlimited.
-        from datetime import UTC, datetime, timedelta
-
-        get_settings.cache_clear()
-        from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
-
-        throttle = UserCostSustainedThrottle(redis=None)
-        context = make_context(
-            user=make_user(is_staff=True),
-            product="background_agents",
-            plan_key="posthog-code-free-20260301",
-            seat_created_at=(datetime.now(tz=UTC) - timedelta(days=5)).isoformat(),
-        )
-
-        await throttle.record_cost(context, 100_000.0)
-        assert (await throttle.allow_request(context)).allowed is True
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
@@ -1182,7 +1167,7 @@ class TestPostHogCodeUserThrottling:
     @pytest.mark.parametrize("throttle_type", [UserCostBurstThrottle, UserCostSustainedThrottle])
     async def test_posthog_code_has_no_user_cost_limit(self, throttle_type: type[_UserCostThrottleBase]) -> None:
         throttle = throttle_type(redis=None)
-        context = make_context(product="posthog_code", plan_key=None, seat_missing=True)
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 600.0)
 
@@ -1193,11 +1178,11 @@ class TestPostHogCodeUserThrottling:
         assert status.limit_usd == float("inf")
 
     @pytest.mark.asyncio
-    async def test_non_code_product_ignores_plan(self) -> None:
+    async def test_non_code_product_allows_normal_spend(self) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="wizard", plan_key=None)
+        context = make_context(product="wizard")
 
         await throttle.record_cost(context, 50.0)
         result = await throttle.allow_request(context)
@@ -1259,3 +1244,84 @@ class TestCostAccumulatorTTL:
 
         assert accumulator.get_current("user1") == 5.0
         assert accumulator.get_current("user2") == 3.0
+
+
+class TestSignalsInteractiveCostKey:
+    @pytest.mark.parametrize(
+        ("product", "scopes", "expected"),
+        [
+            ("signals", ["llm_gateway:read", "interactive_run:read"], "signals_interactive"),
+            ("signals", ["llm_gateway:read"], "signals"),
+            ("posthog_code", ["llm_gateway:read"], "posthog_code"),
+            ("background_agents", ["llm_gateway:read"], "background_agents"),
+            # The marker alone decides. A run still holding an Array-app token can declare either
+            # of these routes, and honouring the declaration would drop it off the interactive
+            # budget and out of the per-run ceiling, which only `signals_interactive` configures.
+            ("posthog_code", ["llm_gateway:read", "interactive_run:read"], "signals_interactive"),
+            ("background_agents", ["llm_gateway:read", "interactive_run:read"], "signals_interactive"),
+        ],
+    )
+    def test_only_a_marked_token_meters_against_the_interactive_budget(
+        self, product: str, scopes: list[str], expected: str
+    ) -> None:
+        assert resolve_cost_key(product, scopes) == expected
+
+    @pytest.mark.asyncio
+    async def test_marked_and_unmarked_signals_runs_bill_to_separate_user_keys(self) -> None:
+        throttle = UserCostBurstThrottle(redis=None)
+        pipeline = make_context(product="signals", user=make_signals_user(interactive=False))
+        interactive = make_context(product="signals", user=make_signals_user(interactive=True))
+
+        await throttle.record_cost(pipeline, 5.0)
+
+        assert await recorded_cost(throttle, pipeline) == 5.0
+        assert await recorded_cost(throttle, interactive) == 0.0
+
+    @pytest.mark.asyncio
+    async def test_marked_run_declaring_posthog_code_keeps_its_user_budget(self) -> None:
+        # posthog_code is exempt from per-user cost limits because billable credits meter it
+        # instead. Reading that exemption off the declared product would hand it to a marked run
+        # on an Array-app token, which spends against `signals_interactive`.
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(product="posthog_code", user=make_signals_user(interactive=True))
+        limit, _ = throttle._get_limit_and_window(context)
+
+        await throttle.record_cost(context, limit)
+
+        assert await recorded_cost(throttle, context) == limit
+        assert (await throttle.allow_request(context)).allowed is False
+
+
+class TestSandboxTaskCostThrottle:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("product", "sandbox_task_id"),
+        [
+            ("posthog_code", "task-1"),  # product without a configured per-run ceiling
+            ("signals", None),  # not a sandbox token, so there is no run to meter
+        ],
+    )
+    async def test_is_inert_without_a_configured_ceiling_and_a_run_to_charge(
+        self, product: str, sandbox_task_id: str | None
+    ) -> None:
+        throttle = SandboxTaskCostThrottle(redis=None)
+        context = make_context(
+            product=product,
+            user=make_signals_user(interactive=True),
+            sandbox_task_id=sandbox_task_id,
+        )
+
+        assert (await throttle.allow_request(context)).allowed is True
+
+    @pytest.mark.asyncio
+    async def test_denies_the_run_that_exhausts_its_ceiling_and_leaves_its_siblings_alone(self) -> None:
+        throttle = SandboxTaskCostThrottle(redis=None)
+        user = make_signals_user(interactive=True)
+        spent = make_context(product="signals", user=user, sandbox_task_id="task-1")
+        sibling = make_context(product="signals", user=user, sandbox_task_id="task-2")
+        limit, _ = throttle._get_limit_and_window(spent)
+
+        await throttle.record_cost(spent, limit)
+
+        assert (await throttle.allow_request(spent)).allowed is False
+        assert (await throttle.allow_request(sibling)).allowed is True

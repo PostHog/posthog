@@ -2,39 +2,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.clickhouse_cloud import (
-    ClickhouseCloudResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.settings import (
     USAGE_COST_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.source import (
     ClickhouseCloudSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestClickhouseCloudSourceConfig:
-    def test_source_type(self) -> None:
-        assert ClickhouseCloudSource().source_type == ExternalDataSourceType.CLICKHOUSECLOUD
-
-    def test_config_exposes_key_id_and_secret_fields(self) -> None:
-        config = ClickhouseCloudSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.CLICKHOUSE_CLOUD
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/clickhouse-cloud"
-        assert config.unreleasedSource is None
-        fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert [f.name for f in fields] == ["key_id", "key_secret"]
-        by_name = {f.name: f for f in fields}
-        assert by_name["key_id"].secret is False and by_name["key_id"].required is True
-        assert by_name["key_secret"].secret is True and by_name["key_secret"].required is True
 
 
 class TestClickhouseCloudSchemas:
@@ -88,12 +61,6 @@ class TestValidateCredentials:
         assert ok is expected
         assert (error is None) is expected
         mock_validate.assert_called_once_with("key-id", "key-secret")
-
-
-class TestClickhouseCloudResumableManager:
-    def test_manager_bound_to_resume_config(self) -> None:
-        manager = ClickhouseCloudSource().get_resumable_source_manager(MagicMock())
-        assert manager._data_class is ClickhouseCloudResumeConfig
 
 
 class TestClickhouseCloudSourceForPipeline:

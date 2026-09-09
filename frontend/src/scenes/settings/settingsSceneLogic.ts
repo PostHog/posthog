@@ -21,12 +21,22 @@ const WEB_ANALYTICS_SETTINGS_SECTION: SettingSectionId = 'project-web-analytics'
 const WEB_ANALYTICS_AUTHORIZED_URLS_SETTING: SettingId = 'web-analytics-authorized-urls'
 const LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING = 'authorized-urls'
 
-const LEGACY_SETTINGS_SECTIONS: Record<string, SettingSectionId> = {
+// Section ids that should resolve to a different section than the URL asks for. Two kinds live here:
+// sections that were removed or renamed, and ids that were never valid but are the intuitive guess.
+// Both would otherwise render "Setting not found". Applied on every `/settings/:section` navigation,
+// including a cold page load, so a pasted URL or an old bookmark redirects the same way an in-app
+// click does. This is browser routing only; nothing outside the frontend reads this map.
+const SETTINGS_SECTION_ALIASES: Record<string, SettingSectionId> = {
     'environment-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
     'project-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
     // The dedicated Toolbar section was removed; its authorized-URL config now lives under Web analytics.
     'environment-toolbar': WEB_ANALYTICS_SETTINGS_SECTION,
     'project-toolbar': WEB_ANALYTICS_SETTINGS_SECTION,
+    // `project-members` is the never-valid kind: members and invites are organization-level, but a
+    // project-level id is what people reach for, so it turns up in hand-typed URLs and in links the
+    // in-app assistant has suggested. Keep it even once those links age out; it only becomes wrong
+    // if members ever become project-scoped.
+    'project-members': 'organization-members',
 }
 
 // Settings that moved to a different section, keyed by setting id. Deep links to the old
@@ -55,8 +65,8 @@ const sectionForMovedSetting = (section: string, hashParams: Params): SettingSec
 }
 
 const canonicalSettingsSection = (section: string): string => {
-    if (LEGACY_SETTINGS_SECTIONS[section]) {
-        return LEGACY_SETTINGS_SECTIONS[section]
+    if (SETTINGS_SECTION_ALIASES[section]) {
+        return SETTINGS_SECTION_ALIASES[section]
     }
 
     if (section.startsWith('environment') && !section.endsWith('-details') && !section.endsWith('-danger-zone')) {

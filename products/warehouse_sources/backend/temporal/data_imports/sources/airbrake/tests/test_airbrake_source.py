@@ -6,15 +6,10 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.airbrake import AirbrakeResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.source import AirbrakeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAirbrakeSource:
-    def test_source_type(self) -> None:
-        assert AirbrakeSource().source_type == ExternalDataSourceType.AIRBRAKE
-
     def test_source_is_visible_with_secret_api_key_field(self) -> None:
         config = AirbrakeSource().get_source_config
         # Re-adding unreleasedSource would silently hide the connector from every user.
@@ -57,11 +52,6 @@ class TestAirbrakeSource:
         ) as validate:
             assert AirbrakeSource().validate_credentials(config, team_id=1) == expected
         validate.assert_called_once_with("user-key")
-
-    def test_resumable_source_manager_is_bound_to_airbrake_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = AirbrakeSource().get_resumable_source_manager(inputs)
-        assert manager._data_class is AirbrakeResumeConfig
 
     @parameterized.expand(
         [

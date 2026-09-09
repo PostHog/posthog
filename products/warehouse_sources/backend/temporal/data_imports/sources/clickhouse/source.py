@@ -90,7 +90,7 @@ _REDIRECTED = (
 ClickHouseErrors: dict[str, str] = {
     "authentication failed": "Invalid user or password",
     "code: 516": "Invalid user or password",  # AUTHENTICATION_FAILED
-    "code: 81": "Database does not exist",  # UNKNOWN_DATABASE
+    "code: 81": "Database does not exist. Check the database name is correct.",  # UNKNOWN_DATABASE
     "code: 60": "Table does not exist",  # UNKNOWN_TABLE
     "code: 192": "Permission denied on the requested database or table",  # UNKNOWN_USER
     "code: 497": "Permission denied on the requested database or table",  # ACCESS_DENIED
@@ -183,6 +183,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="play.clickhouse.com",
+                        caption=(
+                            "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
+                            "firewall allowlist (see the docs above) and use a public host. `localhost` and private "
+                            "IPs (10.x, 172.16-31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "exposed publicly, enable the SSH tunnel below."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -354,6 +360,16 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # (a slow-to-wake service needs real wall-clock time, not an immediate re-dial);
             # Temporal's activity retry provides that backoff and reopens a fresh connection.
             "Read timed out",
+            # The source server rejected the client-construction probe because it was already
+            # at its concurrent-query limit (Code: 202, TOO_MANY_SIMULTANEOUS_QUERIES).
+            # `_get_client` already backs off and retries this in-process like a 429; this
+            # entry covers the case where the server stays saturated past all in-process
+            # attempts, so Temporal's own retry — with a fresh backoff budget — isn't noise.
+            "TOO_MANY_SIMULTANEOUS_QUERIES",
+            # `_get_client` already retries this in-process (see `_TRANSIENT_CONNECT_DROP_SUBSTRINGS`
+            # in clickhouse.py); this entry covers the case where our own egress proxy stays
+            # unreachable past all in-process attempts, so Temporal's retry isn't noise.
+            "Cannot connect to proxy.', TimeoutError('timed out')",
         }
 
     @contextmanager

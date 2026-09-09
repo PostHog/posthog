@@ -1,12 +1,9 @@
 import { createHash } from 'node:crypto'
 
-import { hash } from '@/lib/utils'
-
 import type { MCPClientContext } from '../mcp-context'
-import { sessionCacheComparisonsTotal, sessionCacheOperationsTotal } from '../metrics'
+import { sessionCacheOperationsTotal } from '../metrics'
 import type { RedisLike } from './RedisCache'
 
-const LEGACY_TTL_SECONDS = 7 * 24 * 60 * 60
 const COMPACT_IDLE_TTL_SECONDS = 24 * 60 * 60
 const SESSION_CONTEXT_KEYS = [
     'mcpClientName',
@@ -18,9 +15,6 @@ const SESSION_CONTEXT_KEYS = [
 
 type SessionContextKey = (typeof SESSION_CONTEXT_KEYS)[number]
 type SessionContext = Pick<MCPClientContext, SessionContextKey>
-type RedisWithEval = RedisLike & {
-    eval(script: string, numberOfKeys: number, ...args: string[]): Promise<unknown>
-}
 
 const MERGE_COMPACT_CONTEXT_SCRIPT = `
 local currentRaw = redis.call('GET', KEYS[1])
@@ -39,68 +33,37 @@ return 1
 `
 
 export class McpSessionRedisStore {
-    private readonly legacyPrefix: string
     private readonly compactKey: string
 
     constructor(
         private readonly redis: RedisLike,
         sessionId: string
     ) {
-        this.legacyPrefix = `mcp:session:${hash(sessionId)}`
         const digest = createHash('sha256').update(sessionId).digest()
         this.compactKey = `mcp:s:${digest.subarray(0, 16).toString('base64url')}:c`
     }
 
-    async resolve(liveContext: MCPClientContext, projectId: string | undefined): Promise<SessionContext> {
-        const [legacyContext, compactContext] = await Promise.all([this.readLegacy(), this.readCompact()])
-        this.recordComparison(legacyContext, compactContext)
+    async resolve(liveContext: MCPClientContext): Promise<SessionContext> {
+        const cachedContext = await this.readCompact()
+        const resolvedContext = mergeContexts(cachedContext ?? {}, liveContext)
 
-        const readCompact = shouldReadCompact(projectId)
-        const storedContext = readCompact && compactContext ? compactContext : legacyContext
-        const resolvedContext = mergeContexts(storedContext, liveContext)
+        await this.refreshCompact(resolvedContext, cachedContext)
 
-        await Promise.all([
-            this.writeMissingLegacyValues(legacyContext, liveContext),
-            this.refreshCompact(resolvedContext, compactContext),
-        ])
-
-        sessionCacheOperationsTotal.inc({ schema: readCompact ? 'compact' : 'legacy', operation: 'read' })
+        sessionCacheOperationsTotal.inc({ schema: 'compact', operation: 'read' })
         return resolvedContext
-    }
-
-    private async readLegacy(): Promise<Partial<SessionContext>> {
-        const entries = await Promise.all(
-            SESSION_CONTEXT_KEYS.map(async (key) => {
-                const raw = await this.redis.get(`${this.legacyPrefix}:${key}`)
-                return [key, raw === null ? undefined : (JSON.parse(raw) as string)] as const
-            })
-        )
-        return Object.fromEntries(entries)
     }
 
     private async readCompact(): Promise<SessionContext | null> {
         try {
             const raw = await this.redis.get(this.compactKey)
             return raw === null ? null : (JSON.parse(raw) as SessionContext)
-        } catch {
+        } catch (err) {
+            // Session context is enrichment, not authorization — a Valkey blip degrades
+            // attribution to whatever this request carries rather than failing the call.
+            console.warn('[McpSessionRedisStore] compact read failed:', err)
             sessionCacheOperationsTotal.inc({ schema: 'compact', operation: 'read_error' })
             return null
         }
-    }
-
-    private async writeMissingLegacyValues(
-        cached: Partial<SessionContext>,
-        liveContext: MCPClientContext
-    ): Promise<void> {
-        await Promise.all(
-            SESSION_CONTEXT_KEYS.flatMap((key) => {
-                const value = liveContext[key]
-                if (cached[key] !== undefined || value === undefined) {
-                    return []
-                }
-                return [this.redis.set(`${this.legacyPrefix}:${key}`, JSON.stringify(value), 'EX', LEGACY_TTL_SECONDS)]
-            })
-        )
     }
 
     private async refreshCompact(context: SessionContext, cached: SessionContext | null): Promise<void> {
@@ -109,7 +72,7 @@ export class McpSessionRedisStore {
                 await this.redis.expire(this.compactKey, COMPACT_IDLE_TTL_SECONDS)
                 sessionCacheOperationsTotal.inc({ schema: 'compact', operation: 'refresh' })
             } else {
-                await (this.redis as RedisWithEval).eval(
+                await this.redis.eval(
                     MERGE_COMPACT_CONTEXT_SCRIPT,
                     1,
                     this.compactKey,
@@ -119,17 +82,12 @@ export class McpSessionRedisStore {
                 )
                 sessionCacheOperationsTotal.inc({ schema: 'compact', operation: 'write' })
             }
-        } catch {
+        } catch (err) {
+            // A lost merge means this session's context stops persisting for the rest of
+            // its life, so the request still succeeds while attribution silently decays.
+            console.warn('[McpSessionRedisStore] compact write failed:', err)
             sessionCacheOperationsTotal.inc({ schema: 'compact', operation: 'write_error' })
         }
-    }
-
-    private recordComparison(legacy: Partial<SessionContext>, compact: SessionContext | null): void {
-        if (compact === null) {
-            sessionCacheComparisonsTotal.inc({ result: 'compact_missing' })
-            return
-        }
-        sessionCacheComparisonsTotal.inc({ result: contextsEqual(legacy, compact) ? 'match' : 'mismatch' })
     }
 }
 
@@ -139,20 +97,4 @@ function mergeContexts(stored: Partial<SessionContext>, live: MCPClientContext):
 
 function contextsEqual(left: Partial<SessionContext>, right: SessionContext): boolean {
     return SESSION_CONTEXT_KEYS.every((key) => left[key] === right[key])
-}
-
-function shouldReadCompact(projectId: string | undefined): boolean {
-    if (process.env.MCP_SESSION_CACHE_V2_READ_ALL === 'true') {
-        return true
-    }
-    if (!projectId) {
-        return false
-    }
-    const projects = new Set(
-        (process.env.MCP_SESSION_CACHE_V2_READ_PROJECT_IDS ?? '')
-            .split(',')
-            .map((value) => value.trim())
-            .filter(Boolean)
-    )
-    return projects.has(projectId)
 }

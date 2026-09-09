@@ -1,33 +1,38 @@
-import { SidebarSimpleIcon, SpinnerGapIcon } from "@phosphor-icons/react";
+import { ChatCircleIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import {
   Button,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
   Tabs,
   TabsList,
   TabsTrigger,
-  Text,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
 import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
-import { CanvasContextEditor } from "@posthog/ui/features/canvas/freeform/ContextEditor";
 import { FreeformGenerateBar } from "@posthog/ui/features/canvas/freeform/FreeformGenerateBar";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useEffect, useRef } from "react";
 
-// The canvas's right-hand dock. While a generation/edit run is in flight it
-// shows that run's live chat (steering/queue included); otherwise it shows the
-// edit composer for the next change. Header carries a minimize control that
-// collapses the panel to a thin rail (handled by the parent).
+// The canvas's right-hand dock. It shows the chat of this person's run on the
+// canvas (steering/queue included) when they have one; otherwise it shows the
+// edit composer, which starts their first run. Header carries a minimize
+// control that collapses the panel to a thin rail (handled by the parent).
 export function CanvasSidePanel({
-  effectiveTaskId,
+  chatTaskId,
   commentTaskId,
+  interactive,
   onMinimize,
   dashboardId,
   channelId,
@@ -41,8 +46,14 @@ export function CanvasSidePanel({
   editorRef,
   onStarted,
 }: {
-  effectiveTaskId: string | null;
+  /** The run whose chat the panel shows: the current person's own run on this
+   * canvas, or null when they have none. Another person's run never shows
+   * here, even while it is in flight. */
+  chatTaskId: string | null;
   commentTaskId: string | null;
+  /** Whether the canvas is being edited. The composer is an edit affordance, so
+   * view mode shows an empty chat when this person has no run. */
+  interactive?: boolean;
   onMinimize: () => void;
   dashboardId: string;
   channelId: string;
@@ -61,14 +72,14 @@ export function CanvasSidePanel({
 }) {
   const tab = useCanvasChatPanelStore((state) => state.tab);
   const setTab = useCanvasChatPanelStore((state) => state.setTab);
-  const previousTaskId = useRef(effectiveTaskId);
+  const previousTaskId = useRef(chatTaskId);
 
   useEffect(() => {
-    if (effectiveTaskId && effectiveTaskId !== previousTaskId.current) {
+    if (chatTaskId && chatTaskId !== previousTaskId.current) {
       setTab("chat");
     }
-    previousTaskId.current = effectiveTaskId;
-  }, [effectiveTaskId, setTab]);
+    previousTaskId.current = chatTaskId;
+  }, [chatTaskId, setTab]);
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
@@ -117,10 +128,23 @@ export function CanvasSidePanel({
             commentVersionLabel={commentVersionLabel}
             onCommentOpen={onCommentOpen}
           />
-        ) : effectiveTaskId ? (
-          <CanvasChatLoader taskId={effectiveTaskId} />
+        ) : chatTaskId ? (
+          <CanvasChatLoader taskId={chatTaskId} />
+        ) : !interactive ? (
+          <Empty className="h-full border-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <ChatCircleIcon size={24} />
+              </EmptyMedia>
+              <EmptyTitle>No run yet</EmptyTitle>
+              <EmptyDescription>
+                Select Edit to start an agent run on this canvas. Its chat shows
+                here.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
-          <div className="flex h-full min-h-0 flex-col gap-3 p-3">
+          <div className="p-3">
             <FreeformGenerateBar
               ref={editorRef}
               sessionId={`canvas:${dashboardId}`}
@@ -132,17 +156,6 @@ export function CanvasSidePanel({
               isEdit={isEdit}
               onStarted={onStarted}
             />
-            {/* The author context (markdown): background the agent reads on
-                every generation. Edits against the saved record, autosaving
-                on blur. */}
-            <div className="flex min-h-0 flex-1 flex-col gap-1">
-              <Text size="xs" variant="muted" className="shrink-0">
-                Context: notes the agent reads on every generation
-              </Text>
-              <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
-                <CanvasContextEditor dashboardId={dashboardId} />
-              </div>
-            </div>
           </div>
         )}
       </div>
@@ -156,11 +169,7 @@ function CanvasChatLoader({ taskId }: { taskId: string }) {
   const { data: task } = useQuery(taskDetailQuery(taskId));
 
   if (!task) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <SpinnerGapIcon size={18} className="animate-spin text-gray-9" />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return <EmbeddedSessionView task={task} />;
@@ -184,11 +193,7 @@ function CanvasCommentsLoader({
   const { data: task } = useQuery(taskDetailQuery(taskId));
 
   if (!task) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <SpinnerGapIcon size={18} className="animate-spin text-gray-9" />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (

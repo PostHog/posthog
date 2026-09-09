@@ -1,4 +1,5 @@
 import { CloudIcon, PlusIcon } from "@phosphor-icons/react";
+import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
@@ -30,21 +31,21 @@ import { defaultLoopContextOutputs } from "../../loops/loopFormTypes";
 import type { LoopTemplate } from "../../loops/loopTemplates";
 import { useChannels } from "../hooks/useChannels";
 import { useOrgMembers } from "../hooks/useOrgMembers";
-import { PERSONAL_CHANNEL_NAME } from "../hooks/useTaskChannels";
 
 function contextQuickStarts(name: string): { label: string; prompt: string }[] {
+  const contextReference = channelDisplayReference(name);
   return [
     {
       label: "Digest to feed",
-      prompt: `On a schedule, post a short digest to #${name}'s feed summarizing `,
+      prompt: `On a schedule, post a short digest to ${contextReference}'s feed summarizing `,
     },
     {
       label: "Keep context.md current",
-      prompt: `On a schedule, update #${name}'s context.md with the latest `,
+      prompt: `On a schedule, update ${contextReference}'s context.md with the latest `,
     },
     {
       label: "Refresh a canvas",
-      prompt: `On a schedule, refresh a canvas in #${name} with `,
+      prompt: `On a schedule, refresh a canvas in ${contextReference} with `,
     },
     {
       label: "Watch and report",
@@ -75,7 +76,7 @@ export function WebsiteChannelLoops({ channelId }: { channelId: string }) {
   // layout. API-created and other unattached loops have no context_target, so
   // rendering the space-scoped list here incorrectly produces the global
   // "Create your first loop" empty state while those loops already exist.
-  if (channel?.name === PERSONAL_CHANNEL_NAME) {
+  if (channel?.channelType === "personal") {
     return <LoopsListView headerContent={headerContent} />;
   }
 
@@ -156,7 +157,8 @@ function SpaceAttachedLoops({
     navigateToNewLoop();
   };
 
-  const title = `Automate #${contextName}`;
+  const contextReference = channelDisplayReference(contextName);
+  const title = `Automate ${contextReference}`;
   const description =
     "Put your work on autopilot. Loops run on a schedule, on an API call, or when something happens on GitHub. You can finally close the laptop!";
   const createButton = (
@@ -272,7 +274,7 @@ function SpaceAttachedLoops({
         >
           <LoopBuilderComposer
             context={{ folderId: channelId, name: contextName }}
-            placeholder={`What should #${contextName} keep an eye on?`}
+            placeholder={`What should ${contextReference} keep an eye on?`}
             quickStarts={contextQuickStarts(contextName)}
             disabledReason={limitReason}
           />

@@ -169,7 +169,7 @@ class TestResolveSlackUserWithLink:
     delegates the lookup to it.
     """
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_off_falls_through_to_email_path_unchanged(
         self, mock_flag, mock_webclient_class, org_team_user, workspace_integration, link_user
@@ -191,7 +191,7 @@ class TestResolveSlackUserWithLink:
         assert mock_client.users_info.called
         assert result.slack_email == "dev@example.com"
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_on_with_link_short_circuits_email_lookup(
         self, mock_flag, mock_webclient_class, org_team_user, workspace_integration, link_user
@@ -217,7 +217,7 @@ class TestResolveSlackUserWithLink:
     # `tests/test_zz_resolve_slack_user_with_link_no_access.py` — see that
     # file's module docstring for why it can't live next to its siblings here.
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.post_link_invite_message")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_on_with_no_link_and_no_membership_posts_invite(
@@ -255,7 +255,7 @@ class TestResolveSlackUserWithLink:
         assert invite_kwargs["slack_email"] == "stranger@example.com"
         assert invite_kwargs["invite_url"].startswith("http")
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.post_link_invite_message")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_off_with_no_membership_does_not_post_invite(
@@ -319,7 +319,7 @@ class TestExchangeCode:
         assert identity.user_access_token == "xoxp-user"
         # userInfo must be asked with the token minted by the code exchange —
         # a bot or stale token would report the wrong (or no) identity.
-        slack_client.assert_any_call(token="xoxp-user")
+        slack_client.assert_any_call(token="xoxp-user", source="slack_user_oauth", app_id="posthog")
 
     def test_token_exchange_api_error_wraps_into_oauth_error(self, slack_client):
         slack_client.return_value.openid_connect_token.side_effect = SlackApiError(

@@ -204,3 +204,9 @@ and all collected data stays in the analysis. Changing the split to be even is a
 been exposed to many users yet. See `configuring-experiment-analytics` for how to change the handling.
 
 See `references/changing-distribution-after-launch.md` for detailed warnings, what to tell the user, and when to recommend alternatives.
+
+## Related skills
+
+- **`configuring-experiment-analytics`** — the analysis side: exposure criteria, metrics, and multivariate handling
+- **`diagnosing-experiment-results`** — when a mid-run split change has already skewed the results
+- **`managing-experiment-lifecycle`** — reset or end-and-restart mechanics when a split change requires them

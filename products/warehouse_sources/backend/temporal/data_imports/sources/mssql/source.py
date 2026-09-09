@@ -61,6 +61,15 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MSSQL
 
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # DB-Lib error 20017 — the SQL Server closed the TCP connection during query
+            # execution (server restart, query timeout, or a brief network interruption).
+            # A fresh connection from the next Temporal retry resolves it; keep it out of
+            # error tracking so it doesn't surface as noise.
+            "Unexpected EOF from the server",
+        }
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             # Azure SQL error 40615 — the server-level firewall rejected PostHog's client IP. This
@@ -173,7 +182,9 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         return SourceConfig(
             name=SchemaExternalDataSourceType.MSSQL,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["sql server", "sql", "mssql"],
+            # This connector is also how you connect Azure SQL Database, but nothing in the label
+            # or name carries "Azure", so a search for it fuzzy-matched unrelated sources instead.
+            keywords=["sql server", "sql", "mssql", "azure", "azure sql", "azure sql database"],
             label="Microsoft SQL Server",
             caption="Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the PostHog Data warehouse.",
             iconPath="/static/services/sql-azure.png",

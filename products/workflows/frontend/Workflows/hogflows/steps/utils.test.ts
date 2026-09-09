@@ -1,6 +1,7 @@
 import {
     cohortPercentagesAddUp,
     getBranchRemovalDisabledReason,
+    isCountableCondition,
     normalizeCohortPercentages,
     parseCohortPercentage,
     removeBranchEdge,
@@ -255,7 +256,7 @@ describe('utils', () => {
     describe('cohortPercentagesAddUp', () => {
         // Both directions of this have bitten: comparing against 100 exactly reports the balance
         // button's own output as unbalanced, while a tolerance wide enough to cover a hundredth of a
-        // percent hides shortfalls the runtime really does reroute to the last cohort.
+        // percent hides totals that really do miss 100.
         it.each([2, 3, 7, 8, 30, 99])('accepts the even split produced for %i cohorts', (count) => {
             expect(cohortPercentagesAddUp(normalizeCohortPercentages(count))).toBe(true)
         })
@@ -390,6 +391,52 @@ describe('utils', () => {
             const result = updateItemWithOptionalName(items, 0, 'Name')
 
             expect(result).toEqual([])
+        })
+    })
+
+    describe('isCountableCondition', () => {
+        it.each([
+            {
+                case: 'person properties only',
+                properties: [{ type: 'person', key: 'plan', value: 'free' }],
+                expected: true,
+            },
+            { case: 'a cohort reference', properties: [{ type: 'cohort', key: 'id', value: 42 }], expected: true },
+            {
+                case: 'person and cohort mixed',
+                properties: [
+                    { type: 'person', key: 'plan' },
+                    { type: 'cohort', key: 'id' },
+                ],
+                expected: true,
+            },
+            // An event property is evaluated against the triggering event, so counting persons would
+            // report a percentage that answers a different question than the one asked.
+            { case: 'an event property', properties: [{ type: 'event', key: '$current_url' }], expected: false },
+            {
+                case: 'a person property alongside an event property',
+                properties: [{ type: 'person' }, { type: 'event' }],
+                expected: false,
+            },
+            {
+                case: 'a group property',
+                properties: [{ type: 'group', key: 'name', group_type_index: 0 }],
+                expected: false,
+            },
+            { case: 'a feature flag property', properties: [{ type: 'feature', key: 'my-flag' }], expected: false },
+            {
+                case: 'a HogQL expression',
+                properties: [{ type: 'hogql', key: "properties.plan = 'free'" }],
+                expected: false,
+            },
+            { case: 'an empty property row', properties: [{}], expected: false },
+            { case: 'no properties', properties: [], expected: false },
+        ])('$case -> $expected', ({ properties, expected }) => {
+            expect(isCountableCondition({ properties })).toBe(expected)
+        })
+
+        it.each([[undefined], [null], [{}]])('returns false for missing filters (%s)', (filters) => {
+            expect(isCountableCondition(filters)).toBe(false)
         })
     })
 })

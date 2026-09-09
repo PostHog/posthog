@@ -129,50 +129,58 @@ describe("TaskRunEventStreamSender", () => {
     vi.unstubAllGlobals();
   });
 
-  it("streams ordered NDJSON events with the run-scoped token", async () => {
-    const requestBodies: string[] = [];
-    const fetchMock = vi.fn(
-      async (_url: string | URL | Request, init?: RequestInit) => {
-        const body = await readRequestBody(init);
-        requestBodies.push(body);
-        return responseForBody(body);
-      },
-    );
-    vi.stubGlobal("fetch", fetchMock);
+  it.each([true, false])(
+    "streams ordered NDJSON events with complete=%s",
+    async (complete) => {
+      const requestBodies: string[] = [];
+      const fetchMock = vi.fn(
+        async (_url: string | URL | Request, init?: RequestInit) => {
+          const body = await readRequestBody(init);
+          requestBodies.push(body);
+          return responseForBody(body);
+        },
+      );
+      vi.stubGlobal("fetch", fetchMock);
 
-    const sender = createSender();
+      const sender = createSender();
 
-    sender.enqueue({ type: "notification", notification: { method: "first" } });
-    sender.enqueue({
-      type: "notification",
-      notification: { method: "second" },
-    });
-    await sender.stop();
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "first" },
+      });
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "second" },
+      });
+      await sender.stop({ complete });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[1][0]).toBe(
-      "http://localhost:8000/api/projects/1/tasks/task-1/runs/run-1/event_stream/",
-    );
-    expect(fetchMock.mock.calls[1][1]?.headers).toEqual({
-      Authorization: "Bearer ingest-token",
-      "Content-Type": "application/x-ndjson",
-    });
-    expect(fetchMock.mock.calls[1][1]?.headers).not.toHaveProperty(
-      "X-PostHog-Event-Stream-Complete",
-    );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1][0]).toBe(
+        "http://localhost:8000/api/projects/1/tasks/task-1/runs/run-1/event_stream/",
+      );
+      expect(fetchMock.mock.calls[1][1]?.headers).toEqual({
+        Authorization: "Bearer ingest-token",
+        "Content-Type": "application/x-ndjson",
+      });
+      expect(fetchMock.mock.calls[1][1]?.headers).not.toHaveProperty(
+        "X-PostHog-Event-Stream-Complete",
+      );
 
-    expect(parseLines(requestBodies[1])).toEqual([
-      {
-        seq: 1,
-        event: { type: "notification", notification: { method: "first" } },
-      },
-      {
-        seq: 2,
-        event: { type: "notification", notification: { method: "second" } },
-      },
-      { type: STREAM_COMPLETE_CONTROL_TYPE, final_seq: 2 },
-    ]);
-  });
+      expect(parseLines(requestBodies[1])).toEqual([
+        {
+          seq: 1,
+          event: { type: "notification", notification: { method: "first" } },
+        },
+        {
+          seq: 2,
+          event: { type: "notification", notification: { method: "second" } },
+        },
+        ...(complete
+          ? [{ type: STREAM_COMPLETE_CONTROL_TYPE, final_seq: 2 }]
+          : []),
+      ]);
+    },
+  );
 
   it("routes the ingest POST to the agent-proxy run-scoped path when eventIngestBaseUrl is set", async () => {
     const fetchMock = vi.fn(
@@ -195,43 +203,50 @@ describe("TaskRunEventStreamSender", () => {
     expect(lastCall[0]).not.toContain("/api/projects/");
   });
 
-  it("closes the ingest upload per drained batch on the proxy path by default", async () => {
-    const requestBodies: string[] = [];
-    let contentUploads = 0;
-    const fetchMock = vi.fn(
-      async (_url: string | URL | Request, init?: RequestInit) => {
-        if (!init?.body || typeof init.body === "string") {
-          return responseForBody(await readRequestBody(init));
-        }
+  it.each([undefined, "http://agent-proxy:8003/"])(
+    "closes each drained batch with ingest base %s",
+    async (eventIngestBaseUrl) => {
+      const requestBodies: string[] = [];
+      let contentUploads = 0;
+      const fetchMock = vi.fn(
+        async (_url: string | URL | Request, init?: RequestInit) => {
+          if (!init?.body || typeof init.body === "string") {
+            return responseForBody(await readRequestBody(init));
+          }
 
-        // Resolves only once the sender closes the upload body.
-        const body = await readRequestBody(init);
-        contentUploads += 1;
-        requestBodies.push(body);
-        return responseForBody(body);
-      },
-    );
-    vi.stubGlobal("fetch", fetchMock);
+          // Resolves only once the sender closes the upload body.
+          const body = await readRequestBody(init);
+          contentUploads += 1;
+          requestBodies.push(body);
+          return responseForBody(body);
+        },
+      );
+      vi.stubGlobal("fetch", fetchMock);
 
-    const sender = createSender({
-      flushDelayMs: 0,
-      eventIngestBaseUrl: "http://agent-proxy:8003/",
-    });
+      const sender = createSender({
+        flushDelayMs: 0,
+        eventIngestBaseUrl,
+        keepProxyStreamOpen: false,
+      });
 
-    sender.enqueue({ type: "notification", notification: { method: "first" } });
-    await vi.waitFor(() => expect(contentUploads).toBe(1));
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "first" },
+      });
+      await vi.waitFor(() => expect(contentUploads).toBe(1));
 
-    sender.enqueue({
-      type: "notification",
-      notification: { method: "second" },
-    });
-    await vi.waitFor(() => expect(contentUploads).toBe(2));
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "second" },
+      });
+      await vi.waitFor(() => expect(contentUploads).toBe(2));
 
-    await sender.stop();
+      await sender.stop();
 
-    expect(eventSequences(requestBodies[0] ?? "")).toEqual([1]);
-    expect(eventSequences(requestBodies[1] ?? "")).toEqual([2]);
-  });
+      expect(eventSequences(requestBodies[0] ?? "")).toEqual([1]);
+      expect(eventSequences(requestBodies[1] ?? "")).toEqual([2]);
+    },
+  );
 
   it("holds one long-lived upload across batches when keepProxyStreamOpen is set", async () => {
     const requestBodies: string[] = [];

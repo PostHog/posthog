@@ -40,10 +40,10 @@ interface KeyEntry {
  * in feed order, so "fed in Kafka offset order per key" is exactly "processed
  * in order per key". Call `check` synchronously immediately before
  * `pipeline.feed()` — the shared event loop then makes check order identical
- * to feed order even with concurrent /ingest requests.
+ * to feed order even with concurrent streams.
  *
  * The Rust consumer stamps each request with its process incarnation
- * (`consumer_id`) and a `replay` flag (HTTP retry or deferred-flush re-route).
+ * (`consumer_id`) and a `replay` flag (a deferred-flush re-route).
  * An offset regression within one incarnation is an ordering violation unless
  * the request is a replay (at-least-once redelivery of un-ACKed messages). A
  * changed incarnation (consumer restart or partition handoff) legitimately
@@ -62,14 +62,12 @@ export class FeedOrderSentinel {
         const result: FeedOrderCheckResult = { outOfOrder: 0, replayed: 0 }
 
         for (const message of messages) {
-            const token = message.headers['token']
-            const distinctId = message.headers['distinct_id']
-            if (!token || !distinctId) {
-                // No routing key: the consumer routes these individually under a
+            if (!message.key) {
+                // Unkeyed: the consumer routes these individually under a
                 // synthetic unique key, so there is no per-key order to check.
                 continue
             }
-            const key = `${message.topic}/${message.partition}/${token}:${distinctId}`
+            const key = `${message.topic}/${message.partition}/${message.key}`
 
             const entry = this.entries.get(key)
             if (entry && entry.consumerId === consumerId) {

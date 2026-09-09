@@ -561,8 +561,8 @@ class TestEmitTraceEvaluationEventActivity:
             "output_tokens": 18,
         }
 
-        with patch("posthog.temporal.ai_observability.run_trace_evaluation.Team.objects.get", return_value=team):
-            with patch("posthog.temporal.ai_observability.run_trace_evaluation.capture_internal") as mock_capture:
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
                 await emit_trace_evaluation_event_activity(
@@ -623,10 +623,8 @@ class TestEmitTraceEvaluationEventActivity:
             start_time=datetime(2024, 1, 1, 12, 0, 0),
         )
 
-        with patch("posthog.temporal.ai_observability.run_trace_evaluation.Team.objects.get", return_value=team):
-            with patch(
-                "posthog.temporal.ai_observability.run_trace_evaluation.capture_internal", return_value=capture_result
-            ):
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal", return_value=capture_result):
                 if should_raise:
                     with pytest.raises(CaptureInternalError):
                         await emit_trace_evaluation_event_activity(inputs)
@@ -659,8 +657,8 @@ class TestEmitSessionEvaluationEvent:
             return response
 
         with (
-            patch("posthog.temporal.ai_observability.run_trace_evaluation.capture_internal", side_effect=_capture),
-            patch("posthog.temporal.ai_observability.run_trace_evaluation.Team.objects.get", return_value=MagicMock()),
+            patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value="phc_test"),
+            patch("posthog.temporal.ai_observability.team_capture.capture_internal", side_effect=_capture),
         ):
             async_to_sync(emit_trace_evaluation_event_activity)(
                 EmitTraceEvaluationEventInputs(
@@ -696,8 +694,8 @@ class TestEmitSessionEvaluationEvent:
             return response
 
         with (
-            patch("posthog.temporal.ai_observability.run_trace_evaluation.capture_internal", side_effect=_capture),
-            patch("posthog.temporal.ai_observability.run_trace_evaluation.Team.objects.get", return_value=MagicMock()),
+            patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value="phc_test"),
+            patch("posthog.temporal.ai_observability.team_capture.capture_internal", side_effect=_capture),
         ):
             async_to_sync(emit_trace_evaluation_event_activity)(
                 EmitTraceEvaluationEventInputs(

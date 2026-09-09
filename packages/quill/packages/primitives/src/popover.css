@@ -22,6 +22,77 @@
         transform: scale(0.97);
     }
 
+    /*
+     * A square rotated onto its corner and half-buried in the popup: the buried half
+     * hides the border segment it stands on, the two exposed edges continue it, and
+     * the other two are dropped. `inherit` is what makes the arrow follow whatever
+     * border and background the popup ends up with, including a consumer's own.
+     */
+    .quill-popover__arrow {
+        width: 0.625rem;
+        height: 0.625rem;
+        background: inherit;
+        border: inherit;
+        rotate: 45deg;
+    }
+
+    /*
+     * Which corner points out is physical, because the rotation is. The logical sides
+     * take their left-to-right meaning here and get remapped under `[dir='rtl']` below
+     * — `:dir()` would read better, but it compiles down to a list of RTL languages,
+     * which misses a page that sets the direction without a matching `lang`.
+     */
+    .quill-popover__arrow[data-side='bottom'] {
+        top: -0.3125rem;
+        border-right: none;
+        border-bottom: none;
+        border-top-left-radius: 2px;
+    }
+
+    .quill-popover__arrow[data-side='top'] {
+        bottom: -0.3125rem;
+        border-top: none;
+        border-left: none;
+        border-bottom-right-radius: 2px;
+    }
+
+    .quill-popover__arrow[data-side='right'],
+    .quill-popover__arrow[data-side='inline-end'] {
+        left: -0.3125rem;
+        border-top: none;
+        border-right: none;
+        border-bottom-left-radius: 2px;
+    }
+
+    .quill-popover__arrow[data-side='left'],
+    .quill-popover__arrow[data-side='inline-start'] {
+        right: -0.3125rem;
+        border-bottom: none;
+        border-left: none;
+        border-top-right-radius: 2px;
+    }
+
+    /* clears the left-to-right mapping so the two rules below can apply the mirror of it */
+    [dir='rtl'] .quill-popover__arrow[data-side^='inline-'] {
+        inset-inline: auto;
+        border: inherit;
+        border-radius: 0;
+    }
+
+    [dir='rtl'] .quill-popover__arrow[data-side='inline-end'] {
+        right: -0.3125rem;
+        border-bottom: none;
+        border-left: none;
+        border-top-right-radius: 2px;
+    }
+
+    [dir='rtl'] .quill-popover__arrow[data-side='inline-start'] {
+        left: -0.3125rem;
+        border-top: none;
+        border-right: none;
+        border-bottom-left-radius: 2px;
+    }
+
     .quill-popover__title {
         font-size: var(--text-sm, 0.875rem);
         font-weight: 500;

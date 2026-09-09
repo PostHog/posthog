@@ -6,6 +6,7 @@ and content blocks. Supports multiple provider formats (OpenAI, Anthropic, etc.)
 with truncation and interactive markers for frontend display.
 """
 
+import re
 import json
 import base64
 from typing import Any, TypedDict
@@ -101,14 +102,16 @@ def reduce_by_uniform_sampling(
     lines = text.split("\n")
     total_lines = len(lines)
 
+    # Sampling drops whole lines, so text that is oversized but has too few lines to sample (one
+    # huge payload on a single line, for example) can only be cut mid-line.
     if total_lines <= preserve_header_lines:
-        return text, False
+        return text[:max_length], True
 
     header_lines = lines[:preserve_header_lines]
     body_lines = lines[preserve_header_lines:]
 
     if not body_lines:
-        return text, False
+        return text[:max_length], True
 
     sample_header_template_size = len(SAMPLED_VIEW_HEADER.format(percent=100, total=total_lines)) + 1
 
@@ -117,13 +120,13 @@ def reduce_by_uniform_sampling(
 
     available_for_body = max_length - header_size
     if available_for_body <= 0:
-        return text, False
+        return text[:max_length], True
 
     avg_line_length = sum(len(line) + 1 for line in body_lines) / len(body_lines)
     target_body_lines = int(available_for_body / avg_line_length)
 
     if target_body_lines >= len(body_lines):
-        return text, False
+        return text[:max_length], True
 
     target_body_lines = max(target_body_lines, 1)
 
@@ -153,6 +156,30 @@ def reduce_by_uniform_sampling(
         result = result[:max_length]
 
     return result, True
+
+
+# UTF-16 surrogate code points. A well-formed pair survives the round trip in
+# `sanitize_surrogates` and becomes the character it encodes; a lone one becomes U+FFFD.
+SURROGATE_REGEX = re.compile("[\ud800-\udfff]")
+
+
+def sanitize_surrogates(text: str) -> str:
+    """Make `text` encodable as UTF-8.
+
+    Trace content arrives as it was captured, and the truncation and sampling above cut on
+    character counts, so either source can leave an unpaired surrogate -- half of an emoji -- in
+    the result. UTF-8 cannot represent one, so `str.encode("utf-8")` raises and the whole text
+    representation is lost: the Redis write in the batch summarization path and the request body of
+    the summarization LLM call both fail that way. Repair at the formatter exits, so every consumer
+    of a text representation gets the same encodable string.
+
+    Unlike `safe_clickhouse_string`, this does not escape the surrogate into literal `\\ud83c`
+    text. Escaping is right where the bytes must round-trip, but a text representation is read as
+    prose by a model, so a replacement character is the better loss.
+    """
+    if not SURROGATE_REGEX.search(text):
+        return text
+    return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
 
 
 def truncate_content(content: str, options: FormatterOptions | None = None) -> tuple[list[str], bool]:
@@ -218,17 +245,26 @@ def format_single_tool_call(name: str, args: Any) -> str:
     return f"{name}()"
 
 
-def format_tool_calls(tool_calls: list[ToolCall]) -> list[str]:
-    """Format tool calls for display."""
+def format_tool_calls(tool_calls: list[Any]) -> list[str]:
+    """Format tool calls for display.
+
+    Typed as `list[Any]` because recorded tool calls do not always match the `ToolCall` shape;
+    some SDKs write a bare string, which the loop handles rather than crashing on `.get`.
+    """
     lines: list[str] = []
     lines.append(f"Tool calls: {len(tool_calls)}")
 
     for tc in tool_calls:
+        if not isinstance(tc, dict):
+            lines.append(f"  - {tc}")
+            continue
+
         # Handle both OpenAI format (function: {name, arguments})
         # and LangChain format (name, args)
-        if tc.get("function"):
-            name = tc["function"].get("name", "unknown")
-            args = tc["function"].get("arguments", "")
+        function = tc.get("function")
+        if isinstance(function, dict):
+            name = function.get("name", "unknown")
+            args = function.get("arguments", "")
         else:
             name = tc.get("name", "unknown")
             args = tc.get("args", "")
@@ -245,15 +281,11 @@ def extract_tool_calls_from_content(content: Any) -> list[ToolCall]:
 
     tool_calls: list[ToolCall] = []
     for block in content:
-        if isinstance(block, dict):
+        match block:
             # Handle tool-call format: { type: "tool-call", function: {...} }
-            if block.get("type") == "tool-call" and "function" in block:
-                if isinstance(block["function"], dict):
-                    tool_calls.append({"function": block["function"]})
-            # Handle Anthropic function format: { type: "function", function: {...} }
-            elif block.get("type") == "function" and "function" in block:
-                if isinstance(block["function"], dict):
-                    tool_calls.append({"function": block["function"]})
+            # and Anthropic function format: { type: "function", function: {...} }
+            case {"type": "tool-call" | "function", "function": dict() as function}:
+                tool_calls.append({"function": function})
 
     return tool_calls
 
@@ -572,7 +604,8 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
         if not isinstance(msg, dict):
             continue
 
-        role = msg.get("role") or msg.get("type") or "unknown"
+        # SDKs record non-string roles, which crash `.upper()`.
+        role = str(msg.get("role") or msg.get("type") or "unknown")
         content = msg.get("content", "")
         tool_calls = msg.get("tool_calls", [])
 

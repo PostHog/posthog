@@ -58,6 +58,10 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
         return {
             "Notion API error (retryable)",
             "Notion rate limited",
+            # A 2xx whose body is empty or non-JSON is a truncated/garbled response, retried in-process
+            # by `_request`. If those retries exhaust, the condition is transient and self-recovering,
+            # so let Temporal retry the activity instead of surfacing it as tracked exception noise.
+            "Notion returned a non-JSON response",
             # `_request`'s tenacity retry also covers `requests.ConnectionError` (which
             # `requests.exceptions.SSLError` subclasses) and `requests.ReadTimeout`. urllib3
             # wraps both as "... Max retries exceeded with url: ..." regardless of the underlying
@@ -78,7 +82,7 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
             name=SchemaExternalDataSourceType.NOTION,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Notion",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Notion internal integration token to pull your Notion data into the PostHog Data warehouse.
 
 Create an internal integration at [notion.so/my-integrations](https://www.notion.so/my-integrations) and copy its token (starts with `ntn_` or `secret_`).

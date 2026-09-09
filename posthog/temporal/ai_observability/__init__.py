@@ -38,6 +38,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
+    run_local_evaluation_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
 )
@@ -97,6 +98,7 @@ EVAL_WORKFLOWS = [
 
 EVAL_ACTIVITIES = [
     fetch_evaluation_activity,
+    run_local_evaluation_activity,
     disable_evaluation_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
@@ -112,7 +114,7 @@ EVAL_ACTIVITIES = [
     emit_evaluation_event_activity,
     emit_trace_evaluation_event_activity,
     emit_internal_telemetry_activity,
-    emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
+    emit_eval_signal_activity,
 ]
 
 TAGGER_WORKFLOWS = [
@@ -181,6 +183,7 @@ ACTIVITIES = [
     emit_evaluation_cluster_events_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
+    run_local_evaluation_activity,
     disable_evaluation_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
@@ -189,5 +192,5 @@ ACTIVITIES = [
     execute_sentiment_eval_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
-    emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
+    emit_eval_signal_activity,
 ]

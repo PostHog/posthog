@@ -17,12 +17,15 @@ from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.constants import AvailableFeature
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value, mask_key_value
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
@@ -63,6 +66,49 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "local_dev_value": None,
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
+
+    @parameterized.expand(
+        [
+            ("no_oauth_access", False, True),
+            ("live_third_party_oauth_access", True, False),
+        ]
+    )
+    def test_first_self_created_key_only_acknowledges_review_without_oauth_access(
+        self, _name: str, with_oauth_access: bool, expected_reviewed: bool
+    ):
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        if with_oauth_access:
+            app = OAuthApplication.objects.create(
+                name="Provisioning partner",
+                client_id="test_pat_stamp_client_id",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            access_token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=app,
+                token="test_pat_stamp_access_token",
+                scope="openid",
+                expires=timezone.now() - timedelta(hours=1),
+            )
+            OAuthRefreshToken.objects.create(
+                user=self.user,
+                application=app,
+                token="test_pat_stamp_refresh_token",
+                access_token=access_token,
+            )
+
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": "My own key", "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+        )
+
+        assert response.status_code == 201
+        assert (User.objects.get(pk=self.user.pk).credentials_reviewed_at is not None) is expected_reviewed
 
     def test_create_personal_api_key_normalizes_blank_description_to_null(self):
         response = self.client.post(
@@ -842,6 +888,34 @@ class TestPersonalAPIKeysWithPersonScope(PersonalAPIKeysBaseTest):
         assert response.json()["detail"] == "API key missing required scope 'person:read'"
 
 
+class TestPersonalAPIKeysWithOrganizationScope(PersonalAPIKeysBaseTest):
+    # `teams/data_freshness` is a custom action, so it only accepts a personal API key while it
+    # declares `required_scopes`. Drop that and APIScopePermission rejects every key, including
+    # one scoped `*`, with "This action does not support personal API key access".
+
+    @parameterized.expand(
+        [
+            ("organization:read", status.HTTP_200_OK, None),
+            ("feature_flag:read", status.HTTP_403_FORBIDDEN, "API key missing required scope 'organization:read'"),
+        ]
+    )
+    @patch("posthog.api.organization.get_organization_data_freshness")
+    def test_data_freshness_requires_organization_read_scope(
+        self, scope, expected_status, expected_detail, mock_freshness
+    ):
+        mock_freshness.return_value = []
+        self.key.scopes = [scope]
+        self.key.save()
+
+        response = self._do_request(f"/api/organizations/{self.organization.id}/teams/data_freshness")
+
+        assert response.status_code == expected_status, response.content
+        # Asserting the reason, not just the 403: an unscoped action also rejects this key, but for
+        # the wrong reason, and that is the regression being guarded.
+        if expected_detail:
+            assert response.json()["detail"] == expected_detail
+
+
 class TestPersonalAPIKeysWithApprovalsScope(PersonalAPIKeysBaseTest):
     def setUp(self):
         super().setUp()
@@ -913,7 +987,7 @@ class TestPersonalAPIKeysWithActivityLogCustomActions(PersonalAPIKeysBaseTest):
         response = self._do_request(f"/api/projects/{self.team.id}/advanced_activity_logs/available_filters/")
         assert response.status_code == status.HTTP_200_OK
 
-    def test_forbids_export_even_with_write_scope(self):
+    def test_allows_export_with_write_scope(self):
         self.key.scopes = ["activity_log:write"]
         self.key.save()
         response = self.client.post(
@@ -922,8 +996,7 @@ class TestPersonalAPIKeysWithActivityLogCustomActions(PersonalAPIKeysBaseTest):
             headers={"authorization": f"Bearer {self.value}"},
             content_type="application/json",
         )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support personal API key access"
+        assert response.status_code == status.HTTP_202_ACCEPTED
 
     def test_denies_available_filters_with_unrelated_scope(self):
         self.key.scopes = ["feature_flag:read"]
@@ -985,6 +1058,19 @@ class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysB
         response = self._do_request(f"/api/projects/{self.team.id}/events/")
         assert response.status_code == status.HTTP_200_OK, response.json()
 
+    @parameterized.expand([("/api/projects/@current/",), ("/api/environments/@current/",)])
+    def test_denies_current_lookup_when_current_project_is_outside_the_scoped_org(self, url: str):
+        # A project transfer between organizations leaves `current_team` pointing at the moved
+        # project while `current_organization` still names the old one. The `@current` lookup must
+        # still scope to the key's organizations, not to that stale pair.
+        self.user.current_team = self.other_team
+        self.user.current_organization = self.organization
+        self.user.save()
+
+        response = self._do_request(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
 
 class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def setUp(self):
@@ -1025,6 +1111,33 @@ class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest)
         # (e.g. in our Zapier integration), hence it's exempt from org/team scoping
         response = self._do_request(f"/api/users/@me/")
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_data_management_activity_ignores_the_users_current_project(self):
+        # The viewset is INTERNAL, so the `*` wildcard does not reach it — the action names its own scope
+        self.key.scopes = ["activity_log:read"]
+        self.key.save()
+        self.user.current_team = self.other_team
+        self.user.current_organization = self.other_organization
+        self.user.save()
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            scope="EventDefinition",
+            activity="created",
+            item_id="in-scope",
+        )
+        ActivityLog.objects.create(
+            team_id=self.other_team.id,
+            organization_id=self.other_organization.id,
+            scope="EventDefinition",
+            activity="created",
+            item_id="out-of-scope",
+        )
+
+        response = self._do_request(f"/api/projects/{self.team.id}/data_management/activity")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["item_id"] for row in response.json()["results"]] == ["in-scope"]
 
 
 class TestPersonalAPIKeyAPIAccess(APIBaseTest):

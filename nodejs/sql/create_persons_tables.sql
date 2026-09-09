@@ -68,15 +68,6 @@ END $$;
 CREATE INDEX IF NOT EXISTS posthog_persondistinctid_person_id_5d655bba
     ON posthog_persondistinctid (person_id);
 
--- Personless distinct IDs (merge queue helpers)
-CREATE TABLE IF NOT EXISTS posthog_personlessdistinctid (
-    team_id INTEGER NOT NULL,
-    distinct_id TEXT NOT NULL,
-    is_merged BOOLEAN NOT NULL DEFAULT false,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (team_id, distinct_id)
-);
-
 -- Cohort membership by person (only person_id is touched by repo)
 CREATE TABLE IF NOT EXISTS posthog_cohortpeople (
     id BIGSERIAL PRIMARY KEY,

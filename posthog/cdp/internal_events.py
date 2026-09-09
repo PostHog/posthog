@@ -1,3 +1,4 @@
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,6 +12,35 @@ from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_CDP_INTERNAL_EVENTS
 
 logger = structlog.get_logger(__name__)
+
+# Single source of truth for the managed-alert event boundary. Also used as a Postgres regex
+# filter (products/cdp hog_function queryset) and mirrored in the Node CDP consumer, so keep it
+# POSIX-compatible (no (?:...) groups).
+MANAGED_ALERT_EVENT_PATTERN = r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled|match)$"
+LEGACY_INSIGHT_ALERT_EVENT = "$insight_alert_firing"
+_MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
+
+
+WORKFLOW_STEP_RESUME_EVENT = "$workflow_step_resume"
+
+# Internal events that only the product which emits them may consume. A user-created
+# destination cannot subscribe to one, because its properties carry that product's data and
+# forwarding them off-platform would bypass the read permission the product enforces on it.
+RESERVED_INTERNAL_EVENTS = frozenset({WORKFLOW_STEP_RESUME_EVENT})
+
+
+def is_reserved_internal_event(event_name: object) -> bool:
+    """Return whether an internal event is closed to user-created destinations."""
+    return isinstance(event_name, str) and event_name in RESERVED_INTERNAL_EVENTS
+
+
+def is_managed_alert_internal_event(event_name: object) -> bool:
+    """Return whether an internal event is reserved for an alert-owned destination."""
+    return (
+        isinstance(event_name, str)
+        and event_name != LEGACY_INSIGHT_ALERT_EVENT
+        and _MANAGED_ALERT_EVENT.fullmatch(event_name) is not None
+    )
 
 
 @dataclass
@@ -71,7 +101,15 @@ def produce_internal_event(
         producer = get_producer(topic=kafka_topic)
         return producer.produce(topic=kafka_topic, data=serialized_data, key=data.event.uuid)
     except Exception as e:
-        logger.exception("Failed to produce internal event", data=serialized_data, error=e)
+        # Identify the event by ids, not payload: properties can carry credentials
+        # (e.g. tokenized delivery URLs) and person data, which must not reach logs.
+        logger.exception(
+            "Failed to produce internal event",
+            team_id=team_id,
+            event_name=data.event.event,
+            event_uuid=data.event.uuid,
+            error=e,
+        )
         raise
 
 

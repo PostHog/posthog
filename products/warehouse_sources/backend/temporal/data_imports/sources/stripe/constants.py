@@ -13,6 +13,7 @@ SUBSCRIPTION_RESOURCE_NAME = "Subscription"
 CREDIT_NOTE_RESOURCE_NAME = "CreditNote"
 CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME = "CustomerBalanceTransaction"
 CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME = "CustomerPaymentMethod"
+CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME = "CustomerPaymentMethodHistory"
 COUPON_RESOURCE_NAME = "Coupon"
 DISCOUNT_RESOURCE_NAME = "Discount"
 PAYMENT_INTENT_RESOURCE_NAME = "PaymentIntent"
@@ -46,6 +47,21 @@ SHIPPING_RATE_RESOURCE_NAME = "ShippingRate"
 # declaration (`StripeSource.supported_versions`) and the request layer share a single label.
 STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
 
+# CustomerPaymentMethodHistory metadata columns. Every row is one observation of a payment
+# method: either a `payment_method.*` webhook event, or a row from the initial attached-payment-
+# methods sweep (a "snapshot"). The event id doubles as the row's primary key, so webhook
+# redeliveries merge into the same row instead of duplicating it.
+HISTORY_EVENT_ID_COLUMN = "history_event_id"
+HISTORY_EVENT_TYPE_COLUMN = "history_event_type"
+HISTORY_CAPTURED_AT_COLUMN = "history_captured_at"
+HISTORY_PREVIOUS_ATTRIBUTES_COLUMN = "history_previous_attributes"
+HISTORY_SNAPSHOT_EVENT_TYPE = "snapshot"
+
+# `schema_mapping` key the webhook HogFunction uses to route `payment_method` events to the
+# history table *in addition to* the CustomerPaymentMethod upsert routed by the bare object
+# type. Stripe object types never contain ":", so this can never collide with a real one.
+PAYMENT_METHOD_HISTORY_MAPPING_KEY = "payment_method:history"
+
 # Maps PostHog resource name -> Stripe API object type (as it appears in webhook data.object.object)
 #
 # This is what the webhook HogFunction routes on: it reads `data.object.object` off the incoming
@@ -54,6 +70,11 @@ STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
 #
 # A resource belongs here only when Stripe actually emits an event carrying that object type. The
 # ones that do not are listed at the bottom of RESOURCE_TO_STRIPE_WEBHOOK_EVENT below.
+#
+# CustomerPaymentMethodHistory is deliberately absent: one object type key can route to only one
+# schema, and "payment_method" already routes to CustomerPaymentMethod. The history table receives
+# the same events through the PAYMENT_METHOD_HISTORY_MAPPING_KEY fan-out in the webhook template
+# (see `StripeSource.webhook_mapping_key`).
 RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
     ACCOUNT_RESOURCE_NAME: "account",
     BALANCE_TRANSACTION_RESOURCE_NAME: "balance_transaction",
@@ -116,6 +137,12 @@ RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
     # `billing.credit_balance_transaction` object), none of which can populate this table. So it's
     # intentionally absent here and stays API-sweep-only.
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: "payment_method",
+    # Same event family as CustomerPaymentMethod (the values here are collapsed to a set when
+    # building the Stripe subscription, so this adds no new subscribed events). What differs is
+    # the write: CustomerPaymentMethod upserts the latest state per payment method, while the
+    # history table appends one row per event so `payment_method.detached` (Stripe's closest
+    # analogue to deletion — no `payment_method.deleted` event exists) is preserved.
+    CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME: "payment_method",
     COUPON_RESOURCE_NAME: "coupon",
     DISCOUNT_RESOURCE_NAME: "customer.discount",
     PAYMENT_INTENT_RESOURCE_NAME: "payment_intent",

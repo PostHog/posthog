@@ -8,6 +8,7 @@
 #
 # The stages are used to:
 #
+# - node-base: shared Node.js base with pnpm already provisioned
 # - frontend-build: build the frontend (static assets)
 # - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
 # - node-scripts-build: build plugin transpiler and other Node.js build artifacts
@@ -24,11 +25,25 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:24.13.0-bookworm-slim AS frontend-build
+FROM node:24.13.0-bookworm-slim AS node-base
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+# corepack fetches the pinned pnpm with a bare fetch() — no timeout, no retries — so a stalled
+# registry connection blocks until the job timeout kills the build. Seeding it here keeps that fetch
+# off every source change: only a root package.json edit re-runs this layer. Then take corepack off
+# the network, so a pin this layer does not cover fails in milliseconds naming the URL it wanted.
+COPY package.json ./
+RUN corepack enable && corepack install
+ENV COREPACK_ENABLE_NETWORK=0
+
+
+#
+# ---------------------------------------------------------
+#
+FROM node-base AS frontend-build
+
+COPY turbo.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY frontend/package.json frontend/
 COPY frontend/bin/ frontend/bin/
 COPY bin/ bin/
@@ -38,10 +53,10 @@ COPY common/esbuilder/ common/esbuilder/
 COPY common/replay-shared/ common/replay-shared/
 COPY common/tailwind/ common/tailwind/
 COPY packages/quill/ packages/quill/
+COPY packages/llm-normalizer/ packages/llm-normalizer/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
-    corepack enable && pnpm --version && \
     CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
 COPY frontend/ frontend/
@@ -72,8 +87,24 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 # the processed frontend/dist ships in the final image, so the CLI must not be mutable remote code.
 # To upgrade, change POSTHOG_CLI_VERSION and recompute the hash:
 #   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
-ARG POSTHOG_CLI_VERSION=0.7.22
-ARG POSTHOG_CLI_INSTALLER_SHA256=9bfeafcfb6f3acd2d15e3fad267b3c22b26d6aa0a28497e3f1a214f143f66219
+ARG POSTHOG_CLI_VERSION=0.11.2
+ARG POSTHOG_CLI_INSTALLER_SHA256=69ace33b5e153bd7678bea4e1e565f6baa67ca76660e2aca653ed80ea7f6c725
+# The CLI stamps the release it creates with git metadata (branch, remote, repo name) read from the
+# GitHub Actions environment. Only frontend/dist is copied into this stage, so there is no .git
+# directory to fall back on: without these the release is created with no link back to the code it
+# was built from, and the CLI skips the metadata silently because --release-name/--release-version
+# already let it create the release. The CLI treats empty values as absent, so local builds that
+# pass none of these behave as before.
+ARG GITHUB_ACTIONS
+ARG GITHUB_SHA
+ARG GITHUB_REF_NAME
+ARG GITHUB_REPOSITORY
+ARG GITHUB_SERVER_URL
+ENV GITHUB_ACTIONS=$GITHUB_ACTIONS \
+    GITHUB_SHA=$GITHUB_SHA \
+    GITHUB_REF_NAME=$GITHUB_REF_NAME \
+    GITHUB_REPOSITORY=$GITHUB_REPOSITORY \
+    GITHUB_SERVER_URL=$GITHUB_SERVER_URL
 RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
     if ( \
         [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ] && \
@@ -89,8 +120,9 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
         posthog-cli sourcemap process \
             --directory /code/frontend/dist \
             --public-path-prefix /static \
-            --project posthog \
-            --version "${COMMIT_HASH:-unknown}" \
+            --release-mode event \
+            --release-name posthog \
+            --release-version "${COMMIT_HASH:-unknown}" \
     ); then \
         echo uploaded > /tmp/.sourcemaps-status; \
     else \
@@ -105,23 +137,20 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
 #
 # Build plugin transpiler and other Node.js build artifacts.
 #
-FROM node:24.13.0-bookworm-slim AS node-scripts-build
-WORKDIR /code
-SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+FROM node-base AS node-scripts-build
 # Build plugin transpiler for site destinations/apps
-COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY turbo.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY bin/turbo bin/turbo
 COPY patches/ patches/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/plugin_transpiler/ common/plugin_transpiler/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
-    corepack enable && \
     NODE_OPTIONS="--max-old-space-size=4096" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build
 
 COPY products/canvas/packages/canvas_builder/ products/canvas/packages/canvas_builder/
 RUN --mount=type=cache,id=npm,target=/root/.npm \
-    npm ci --ignore-scripts --omit=dev --prefix products/canvas/packages/canvas_builder
+    npm ci --ignore-scripts --omit=dev --no-audit --no-fund --prefix products/canvas/packages/canvas_builder
 
 # The transpiler bundle externalizes @babel/standalone (its only external runtime require — a
 # self-contained 24MB package with no deps). Materialize it as real files inside the transpiler's
@@ -170,10 +199,12 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
-    # uv sync validates workspace membership even with --no-dev, so every
-    # workspace member must be present in the build context.
+    # uv sync validates workspace membership even with --no-dev, so every workspace member must be
+    # present in the build context. tools/owners is also a real install source here: posthog-owners
+    # is a runtime dependency (stamphog's digest reads owners.yaml through it), and --no-editable
+    # copies it into the venv so the image never depends on this bind mount's path surviving.
     --mount=type=bind,source=tools/owners,target=tools/owners \
-    uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
+    uv sync --locked --no-dev --no-editable --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
@@ -241,56 +272,15 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: v1.32 is running bullseye, v1.33+ is running bookworm
-FROM unit:1.34.2-python3.13
+FROM python:3.13.13-bookworm@sha256:0544e35a04d3d3272a5e180a402065bfa84402bf39431a727f8989e32ffce979
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
-# Unit embeds libpython instead of launching the python3 CLI, so PEP 538 C-locale
+# Granian embeds libpython instead of launching the python3 CLI, so PEP 538 C-locale
 # coercion never runs and open() defaults to ASCII under the container's bare locale.
 # Force UTF-8 so file reads with non-ASCII bytes don't raise UnicodeDecodeError.
 ENV PYTHONUTF8 1
 ENV LANG C.UTF-8
-ARG UNIT_GIT_TAG=1.35.0
-ARG UNIT_GIT_REF=28404105810f53c570523c3e70006ad0ca210e58
-
-# Build Unit from the upstream 1.35.0 release ref to ensure the Django 5 ASGI fix is present even when Docker tags lag.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    "build-essential" \
-    "git" \
-    "libpcre2-dev" \
-    "zlib1g-dev" \
-    && \
-    git clone --depth 1 --branch "$UNIT_GIT_TAG" https://github.com/nginx/unit.git /tmp/unit && \
-    cd /tmp/unit && \
-    test "$(git rev-parse HEAD)" = "$UNIT_GIT_REF" && \
-    NCPU="$(getconf _NPROCESSORS_ONLN)" && \
-    DEB_HOST_MULTIARCH="$(gcc -print-multiarch)" && \
-    CONFIGURE_ARGS="--prefix=/usr \
-        --statedir=/var/lib/unit \
-        --control=unix:/var/run/control.unit.sock \
-        --runstatedir=/var/run \
-        --pid=/var/run/unit.pid \
-        --logdir=/var/log \
-        --log=/var/log/unit.log \
-        --tmpdir=/var/tmp \
-        --user=unit \
-        --group=unit \
-        --openssl \
-        --libdir=/usr/lib/$DEB_HOST_MULTIARCH \
-        --modulesdir=/usr/lib/unit/modules" && \
-    ./configure $CONFIGURE_ARGS && \
-    make -j "$NCPU" unitd && \
-    install -pm755 build/sbin/unitd /usr/sbin/unitd && \
-    make clean && \
-    ./configure $CONFIGURE_ARGS && \
-    ./configure python --config=/usr/local/bin/python3-config && \
-    make -j "$NCPU" python3-install && \
-    rm -rf /tmp/unit && \
-    apt-get purge -y --auto-remove "build-essential" "git" "libpcre2-dev" "zlib1g-dev" && \
-    rm -rf /var/lib/apt/lists/*
-
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
 # Runtime-only shared libs: lxml/xmlsec are compiled --no-binary in the build stage (which keeps
@@ -298,7 +288,7 @@ RUN apt-get update && \
 # libxmlsec1-openssl provides the OpenSSL crypto backend that libxmlsec1-dev used to pull in.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
-    "gettext-base" \
+    "git" \
     "libpq5" \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-openssl=1.2.37-2" \
@@ -413,10 +403,12 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
-# runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image.
-COPY --chown=posthog:posthog tools/pr-approval-agent tools/pr-approval-agent/
+# runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image as
+# source. The engine arrives with products/ above, and only tools/owners needs its own COPY. This
+# differs from the installation of posthog-owners into the venv as a library: the sandbox receives
+# files copied into a checkout, and not an import.
 COPY --chown=posthog:posthog tools/owners tools/owners/
-RUN test -f tools/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
+RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
 # Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
 # (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.
@@ -435,7 +427,7 @@ EXPOSE 8000
 
 # Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
-COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
+# Root is needed only so bin/docker-server can drop the app to nobody with setpriv.
 # nosemgrep: dockerfile.security.last-user-is-root.last-user-is-root
 USER root
 CMD ["./bin/docker"]

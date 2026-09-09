@@ -1,6 +1,6 @@
 import dataclasses
 from time import sleep
-from typing import Any, ClassVar, Literal, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
 from opentelemetry import trace
 
@@ -40,7 +40,14 @@ from posthog.hogql.direct_connection import (
     get_direct_connection_source_none_or_raise,
     raw_query_denied_by_table_access,
 )
-from posthog.hogql.direct_sql import DirectQueryRequest, ensure_single_direct_statement, get_adapter
+from posthog.hogql.direct_sql import (
+    DirectQueryPrincipal,
+    DirectQueryRequest,
+    DirectSQLAdapter,
+    ensure_single_direct_statement,
+    get_adapter,
+    get_raw_adapter_for_source,
+)
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
@@ -55,25 +62,45 @@ from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.dataclasses import frozen
+from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
-from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
 
 
-@dataclasses.dataclass
+@frozen
+class EmbeddedClickHouseQuery:
+    sql: str
+    context: HogQLContext
+    settings: dict[str, object]
+
+
+class _EmbeddedSelectSettingsValidator(TraversingVisitor):
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if node.settings is not None:
+            raise ExposedHogQLError("SETTINGS are not allowed when embedding a HogQL query.")
+        super().visit_select_query(node)
+
+
+@dataclasses.dataclass(frozen=False)
 class HogQLQueryExecutor:
     query: Union[str, ast.SelectQuery, ast.SelectSetQuery] | None
     team: Team
@@ -138,6 +165,8 @@ class HogQLQueryExecutor:
         self.limit: Optional[int] = None
         self.offset: Optional[int] = None
         self.used_data_warehouse_sources: list[WarehouseSourceUsage] = []
+        self._direct_source: Optional[ExternalDataSource] = None
+        self._direct_source_resolved = False
 
     @tracer.start_as_current_span("HogQLQueryExecutor._parse_query")
     def _parse_query(self):
@@ -182,6 +211,7 @@ class HogQLQueryExecutor:
                         modifiers=self.query_modifiers,
                         timings=self.timings,
                         bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
+                        trigger="executor",
                     )
                 self.select_query = replace_filters(
                     self.select_query, self.filters, self.team, database=self.context.database
@@ -225,8 +255,11 @@ class HogQLQueryExecutor:
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
                     self.select_query = transformed_node
 
-    @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
-    def _generate_hogql(self):
+    @tracer.start_as_current_span("HogQLQueryExecutor._resolve_direct_source")
+    def _resolve_direct_source(self) -> Optional["ExternalDataSource"]:
+        if self._direct_source_resolved:
+            return self._direct_source
+
         source = get_direct_connection_source_none_or_raise(
             self.team,
             self.connection_id,
@@ -235,6 +268,12 @@ class HogQLQueryExecutor:
         )
         self.connection_id = str(source.id) if source else None
         self._direct_source = source
+        self._direct_source_resolved = True
+        return source
+
+    @tracer.start_as_current_span("HogQLQueryExecutor._generate_hogql")
+    def _generate_hogql(self):
+        self._resolve_direct_source()
 
         database = self.context.database
         if database is None or self.connection_id is not None:
@@ -246,6 +285,7 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 connection_id=self.connection_id,
                 bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
+                trigger="executor",
             )
 
         # Reset between executions: the resolver/printer append per query, and dataclasses.replace
@@ -392,7 +432,7 @@ class HogQLQueryExecutor:
         if self.connection_id != direct_source_id:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
 
-        source = getattr(self, "_direct_source", None)
+        source = self._direct_source
         adapter = get_adapter(source.direct_engine) if source is not None else None
         dialect: HogQLDialect = adapter.dialect if adapter is not None and adapter.dialect is not None else "postgres"
 
@@ -433,6 +473,84 @@ class HogQLQueryExecutor:
             engine="direct_sql",
         )
 
+    def _references_information_schema(self, context: HogQLContext) -> bool:
+        try:
+            resolved = Resolver(context=context, dialect="hogql").visit(clone_expr(self.select_query, True))
+            query_type = getattr(resolved, "type", None)
+        except Exception:
+            # The transpiler reports its own resolution errors; only a resolvable
+            # introspection query changes the route.
+            return False
+        if query_type is None:
+            return False
+        return any(
+            isinstance(lazy_table_type.table, InformationSchemaTable)
+            for lazy_table_type in extract_lazy_table_types(query_type)
+        )
+
+    def _prepare_pure_trino_query(self) -> _PreparedExecution | None:
+        source = self._resolve_direct_source()
+        if source is None or self.connection_id is None:
+            raise InternalHogQLError("Pure Trino compilation requires a selected connection.")
+
+        database = Database.create_for(
+            team=self.team,
+            user=self.user,
+            user_access_control=self.context.user_access_control,
+            modifiers=self.query_modifiers,
+            timings=self.timings,
+            connection_id=self.connection_id,
+            bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
+            trigger="executor",
+        )
+
+        limit_context = self.limit_context or LimitContext.QUERY
+        direct_context = dataclasses.replace(
+            self.context,
+            is_direct_query=True,
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            timings=self.timings,
+            modifiers=self.query_modifiers,
+            limit_context=limit_context,
+            database=database,
+        )
+
+        # Catalog introspection describes the connection but reads nothing from it. Route such a
+        # query to the ClickHouse path in _prepare_execution, where these tables exist.
+        if self._references_information_schema(direct_context):
+            return None
+
+        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the optional backend only for Trino queries
+            transpile_hogql_to_trino_with_database,
+        )
+
+        transpiled = transpile_hogql_to_trino_with_database(
+            self.select_query,
+            database=database,
+            filters=self.filters,
+            variables=self.variables,
+            modifiers=self.modifiers,
+            # The team-effective value, so a team-level timezone setting is honored even when the
+            # caller sets no modifiers of its own.
+            convert_to_project_timezone=self.query_modifiers.convertToProjectTimezone,
+            limit_top_select=limit_context not in (LimitContext.COHORT_CALCULATION, LimitContext.SAVED_QUERY),
+            limit_context=limit_context,
+            default_limit=get_default_limit_for_context(limit_context),
+            pretty=self.pretty if self.pretty is not None else True,
+            include_hogql=True,
+        )
+
+        self.hogql = transpiled.hogql
+        self.print_columns = list(transpiled.print_columns)
+        self.direct_sql = ensure_single_direct_statement(transpiled.sql)
+        self.direct_values = transpiled.values
+        self.direct_source_id = str(source.id)
+        self.direct_dialect = "trino"
+        self.direct_context = dataclasses.replace(direct_context, values=dict(transpiled.values))
+        return self._PreparedExecution(sql=self.direct_sql, context=self.direct_context, engine="direct_sql")
+
     def _get_select_query_type(self) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
         if self.select_query.type is not None:
             return self.select_query.type
@@ -457,7 +575,7 @@ class HogQLQueryExecutor:
         return sources
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_sql_query")
-    def _execute_direct_sql_query(self) -> None:
+    def _execute_direct_sql_query(self, adapter: DirectSQLAdapter | None = None) -> None:
         assert self.direct_sql is not None
         assert self.direct_source_id is not None
 
@@ -465,9 +583,16 @@ class HogQLQueryExecutor:
         if source is None:
             raise ExposedHogQLError("Connection not found or has been deleted")
 
-        adapter = get_adapter(source.direct_engine)
+        adapter = adapter or get_adapter(source.direct_engine)
         if adapter is None:
             raise InternalHogQLError(f"No direct SQL adapter registered for engine: {source.direct_engine}")
+
+        query_tags = get_query_tags()
+        cancellation_token = (
+            build_direct_query_cancellation_token(query_tags.client_query_id, str(query_tags.celery_task_id))
+            if query_tags.client_query_id is not None and query_tags.celery_task_id is not None
+            else None
+        )
 
         result = adapter.execute(
             DirectQueryRequest(
@@ -479,6 +604,12 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 query_type=self.query_type,
                 debug=bool(self.debug),
+                principal=(
+                    DirectQueryPrincipal(value=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}")
+                    if isinstance(self.user, User) and self.user.pk is not None
+                    else None
+                ),
+                cancellation_token=cancellation_token,
             )
         )
 
@@ -494,7 +625,7 @@ class HogQLQueryExecutor:
             self.print_columns = result.print_columns
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
-    def _generate_clickhouse_sql(self):
+    def _generate_clickhouse_sql(self, *, include_settings: bool = True):
         settings = get_default_hogql_global_settings(self.team.pk, self.settings)
         if self.limit_context in (
             LimitContext.EXPORT,
@@ -523,6 +654,7 @@ class HogQLQueryExecutor:
                 modifiers=self.query_modifiers,
                 limit_context=self.limit_context,
                 database=self.hogql_context.database if self.hogql_context else None,
+                emit_top_level_settings=include_settings,
             )
             with self.timings.measure("prepare_ast_for_printing"):
                 self.clickhouse_prepared_ast = prepare_ast_for_printing(
@@ -559,11 +691,24 @@ class HogQLQueryExecutor:
             else:
                 raise
 
-    def _prepare_execution(self) -> _PreparedExecution:
+    def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
         self._parse_query()
+
+        if embedded_select:
+            self.context.limit_top_select = False
+
+        source = self._resolve_direct_source()
+        if source is not None and source.direct_engine == "trino":
+            trino_execution = self._prepare_pure_trino_query()
+            if trino_execution is not None:
+                return trino_execution
+
         self._process_variables()
         self._process_placeholders()
-        self._apply_limit()
+        if embedded_select:
+            _EmbeddedSelectSettingsValidator().visit(self.select_query)
+        if not embedded_select:
+            self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
 
@@ -572,7 +717,7 @@ class HogQLQueryExecutor:
             return direct_execution
 
         with self.timings.measure("_generate_clickhouse_sql"):
-            self._generate_clickhouse_sql()
+            self._generate_clickhouse_sql(include_settings=not embedded_select)
 
         assert self.clickhouse_sql is not None
         assert self.clickhouse_context is not None
@@ -595,7 +740,13 @@ class HogQLQueryExecutor:
         )
         if source is None:
             raise ExposedHogQLError("Sending a raw query requires a valid connection.")
-        if raw_query_denied_by_table_access(
+        self.connection_id = str(source.id)
+        self.direct_source_id = self.connection_id
+        managed_warehouse_mode = source.managed_warehouse_sql_mode if source.has_managed_warehouse_prefix else None
+        adapter = get_raw_adapter_for_source(source)
+        if adapter is None:
+            raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+        if managed_warehouse_mode != ManagedWarehouseSQLMode.BUILT_IN and raw_query_denied_by_table_access(
             self.team,
             source,
             user=self.user,
@@ -603,56 +754,9 @@ class HogQLQueryExecutor:
             bypass_warehouse_access_control=self.context.bypass_warehouse_access_control if self.context else False,
         ):
             raise ExposedHogQLError(RAW_QUERY_TABLE_DENIED_ERROR)
-        self.connection_id = str(source.id)
-        self.direct_source_id = self.connection_id
-        adapter = get_adapter(source.direct_engine)
-        if adapter is None:
-            raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
         self.direct_dialect = adapter.dialect
         self.direct_sql = adapter.prepare_raw_sql(str(self.query))
-        self._execute_direct_sql_query()
-
-    def _capture_send_raw_query_translation_error(self) -> None:
-        """Try a post-success HogQL translation for raw queries.
-
-        On success, this stores the translated HogQL in ``self.hogql`` for the response.
-        On failure, it records the exception for telemetry and leaves ``self.hogql`` unset.
-
-        This runs synchronously after the raw query succeeds, so it adds the cost of
-        ``_prepare_execution()`` to raw-query responses.
-        """
-        if not isinstance(self.query, str) or self.connection_id is None:
-            return
-
-        try:
-            shadow_executor = HogQLQueryExecutor(
-                query=str(self.query),
-                team=self.team,
-                query_type=self.query_type,
-                filters=self.filters,
-                placeholders=self.placeholders,
-                variables=self.variables,
-                workload=self.workload,
-                settings=self.settings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-                pretty=self.pretty,
-                connection_id=self.connection_id,
-                user=self.user,
-            )
-            shadow_executor._prepare_execution()
-            self.hogql = shadow_executor.hogql
-        except Exception as error:
-            capture_exception(
-                error,
-                {
-                    "component": "send_raw_query_parse_and_print",
-                    "send_raw_query": True,
-                    "team_id": self.team.pk,
-                    "connection_id": self.connection_id,
-                    "query_type": self.query_type,
-                },
-            )
+        self._execute_direct_sql_query(adapter)
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
@@ -749,13 +853,23 @@ class HogQLQueryExecutor:
         prepared_execution = self._prepare_execution()
         return prepared_execution.sql, prepared_execution.context
 
+    @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_subquery_sql")
+    def generate_clickhouse_subquery_sql(self) -> EmbeddedClickHouseQuery:
+        prepared_execution = self._prepare_execution(embedded_select=True)
+        if prepared_execution.engine != "clickhouse":
+            raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can be embedded.")
+        return EmbeddedClickHouseQuery(
+            sql=prepared_execution.sql,
+            context=prepared_execution.context,
+            settings=prepared_execution.context.top_level_settings,
+        )
+
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
         trace.get_current_span().set_attribute("team_id", self.team.pk)
         try:
             if self.send_raw_query and self.connection_id is not None:
                 self._execute_raw_direct_query()
-                self._capture_send_raw_query_translation_error()
             else:
                 prepared_execution = self._prepare_execution()
 

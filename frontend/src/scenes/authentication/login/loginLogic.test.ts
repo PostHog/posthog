@@ -4,7 +4,7 @@ import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
+import { handleLoginRedirect, loginLogic, redirectAfterLogin } from 'scenes/authentication/login/loginLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { initKea } from '~/initKea'
@@ -202,11 +202,12 @@ describe('loginLogic', () => {
             await expectLogic(logic).toDispatchActions(['setCodeVerificationRequired', 'submitLoginFailure'])
 
             expect(logic.values.codeVerificationRequired).toBe(true)
-            expect(logic.values.generalError?.code).toBe('code_based_verification_sent')
+            expect(logic.values.codeVerificationEmail).toBe('user@example.com')
+            expect(logic.values.generalError).toBe(null)
 
             logic.actions.exitCodeVerification()
             expect(logic.values.codeVerificationRequired).toBe(false)
-            expect(logic.values.generalError).toBe(null)
+            expect(logic.values.codeVerificationEmail).toBe(null)
         })
     })
 
@@ -491,6 +492,142 @@ describe('loginLogic', () => {
             logic.actions.precheck({ email: 'user@example.com', autoAttempt: true })
             await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
             expect(assignMock).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('cross-project redirect after login', () => {
+        const originalContext = window.POSTHOG_APP_CONTEXT
+        const originalLocation = window.location
+        let hrefSpy: jest.Mock
+
+        beforeEach(() => {
+            initKeaTests()
+            // getCurrentTeamIdOrNone() reads the current project from the app context.
+            window.POSTHOG_APP_CONTEXT = { current_team: { id: 5 } } as any
+            hrefSpy = jest.fn()
+            Object.defineProperty(window, 'location', {
+                value: {
+                    origin: 'http://localhost',
+                    pathname: '/login',
+                    search: '',
+                    hash: '',
+                    set href(url: string) {
+                        hrefSpy(url)
+                    },
+                },
+                configurable: true,
+            })
+        })
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = originalContext
+            Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
+        })
+
+        it('does a full navigation to a project other than the current one', () => {
+            router.actions.push(`/login?next=${encodeURIComponent('/project/999/pipeline/destinations/hog-abc')}`)
+            handleLoginRedirect()
+            // A full load lets AutoProjectMiddleware switch the active project before the scene mounts.
+            expect(hrefSpy).toHaveBeenCalledWith('/project/999/pipeline/destinations/hog-abc')
+        })
+
+        it('stays client-side when the target is already the current project', () => {
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/pipeline/destinations/hog-abc')}`)
+            handleLoginRedirect()
+            expect(hrefSpy).not.toHaveBeenCalled()
+        })
+
+        it('does a full navigation for a project token the middleware resolves server-side', () => {
+            // A `phc_` key or a legacy allowlisted api_token can't be compared to the numeric team id,
+            // so it must reach AutoProjectMiddleware for resolution — client-side routing wouldn't switch.
+            router.actions.push(`/login?next=${encodeURIComponent('/project/phc_ABC123/pipeline/destinations')}`)
+            handleLoginRedirect()
+            expect(hrefSpy).toHaveBeenCalledWith('/project/phc_ABC123/pipeline/destinations')
+        })
+    })
+
+    describe('redirectAfterLogin', () => {
+        const originalLocation = window.location
+        let replaceSpy: jest.Mock
+        let assignSpy: jest.Mock
+        let reloadSpy: jest.Mock
+
+        beforeEach(() => {
+            initKeaTests()
+            replaceSpy = jest.fn()
+            assignSpy = jest.fn()
+            reloadSpy = jest.fn()
+            Object.defineProperty(window, 'location', {
+                value: {
+                    origin: 'http://localhost',
+                    pathname: '/login',
+                    search: '',
+                    hash: '',
+                    replace: replaceSpy,
+                    assign: assignSpy,
+                    reload: reloadSpy,
+                },
+                configurable: true,
+            })
+        })
+
+        afterEach(() => {
+            Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
+        })
+
+        it('lands on the app root in a single document load', () => {
+            router.actions.push('/login')
+            redirectAfterLogin()
+            expect(replaceSpy).toHaveBeenCalledTimes(1)
+            expect(replaceSpy).toHaveBeenCalledWith('/')
+            // A second navigation would cancel every chunk the first boot had started fetching
+            expect(reloadSpy).not.toHaveBeenCalled()
+        })
+
+        it('takes the place of the login entry, so Back does not return to it', () => {
+            router.actions.push('/login')
+            redirectAfterLogin()
+            expect(assignSpy).not.toHaveBeenCalled()
+        })
+
+        it('lands on the next path, keeping its query and hash', () => {
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/insights?foo=bar')}#tab=raw`)
+            redirectAfterLogin()
+            expect(replaceSpy).toHaveBeenCalledTimes(1)
+            expect(replaceSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
+        })
+
+        it('ignores a next path pointing at another origin', () => {
+            router.actions.push('/login?next=//google.com')
+            redirectAfterLogin()
+            expect(replaceSpy).toHaveBeenCalledWith('/')
+        })
+
+        it('prefers an explicit destination over the next path', () => {
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/insights')}`)
+            redirectAfterLogin('/project/5/replay/home')
+            expect(replaceSpy).toHaveBeenCalledTimes(1)
+            expect(replaceSpy).toHaveBeenCalledWith('/project/5/replay/home')
+        })
+
+        it('rejects an explicit cross-origin destination', () => {
+            router.actions.push('/login')
+            redirectAfterLogin('https://evil.example/steal')
+            expect(replaceSpy).toHaveBeenCalledWith('/')
+        })
+
+        it('rejects a protocol-relative cross-origin destination', () => {
+            router.actions.push('/login')
+            redirectAfterLogin('//evil.example/steal')
+            expect(replaceSpy).toHaveBeenCalledWith('/')
+        })
+
+        it('accepts an absolute destination on our own origin, as its path', () => {
+            // The guard must not over-reject: a same-origin absolute URL is a legitimate
+            // destination, and it arrives as a path.
+            router.actions.push('/login')
+            redirectAfterLogin('http://localhost/project/5/insights?foo=bar#tab=raw')
+            expect(replaceSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
         })
     })
 })

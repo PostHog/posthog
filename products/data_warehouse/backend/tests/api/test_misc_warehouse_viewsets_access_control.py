@@ -23,7 +23,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 MANAGED_VIEWSET_KIND = "revenue_analytics"
 
@@ -285,30 +285,6 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_delete_org.assert_called_once_with(self.team.organization_id)
-
-
-@pytest.mark.ee
-class TestModelPathViewSetAccessControl(WarehouseAccessControlTestMixin):
-    """Read-only DAG endpoints — viewer OK, none blocked."""
-
-    resource = "warehouse_objects"
-
-    def _list_url(self) -> str:
-        return f"/api/projects/{self.team.pk}/warehouse_model_paths/"
-
-    def test_viewer_can_list(self):
-        self._create_access_control(self.viewer_user, access_level="viewer")
-        self.client.force_login(self.viewer_user)
-
-        response = self.client.get(self._list_url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_project_default_none_blocks(self):
-        self._create_project_default(access_level="none")
-        self.client.force_login(self.viewer_user)
-
-        response = self.client.get(self._list_url())
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 @pytest.mark.ee

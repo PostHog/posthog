@@ -17,17 +17,12 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.constants import AvailableFeature
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
-
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, ProjectSecretAPIKey, Team, User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.tasks.backend.facade import loops as loops_facade
 from products.tasks.backend.models import Channel, Loop, LoopTrigger, Task, TaskRun
 from products.tasks.backend.presentation.views.loops import MAX_LOOP_TRIGGER_PAYLOAD_BYTES

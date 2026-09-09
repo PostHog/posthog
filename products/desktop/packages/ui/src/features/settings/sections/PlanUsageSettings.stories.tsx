@@ -27,7 +27,6 @@ const usage = {
     },
   },
   is_rate_limited: false,
-  is_pro: true,
   code_usage_subscribed: true,
   billing_period_end: "2026-09-01T00:00:00.000Z",
 } satisfies UsageOutput;
@@ -44,7 +43,7 @@ const meta: Meta<typeof PlanUsageContent> = {
   ],
   args: {
     billingEnabled: true,
-    spendAnalysisEnabled: true,
+    cloudComputeEnabled: true,
     billingUrl: "https://app.posthog.com/organization/billing",
     usage,
     usageLoading: false,
@@ -56,16 +55,20 @@ type Story = StoryObj<typeof PlanUsageContent>;
 
 export const WithComponentBreakdown: Story = {};
 
+export const CloudComputeDisabled: Story = {
+  args: {
+    cloudComputeEnabled: false,
+  },
+};
+
 export const BreakdownAwaitingData: Story = {
   args: {
-    spendAnalysisEnabled: false,
     usage: { ...usage, ai_credits: { ...usage.ai_credits, breakdown: null } },
   },
 };
 
 export const ExplicitZeroUsage: Story = {
   args: {
-    spendAnalysisEnabled: false,
     usage: {
       ...usage,
       ai_credits: {
@@ -85,7 +88,6 @@ export const ExplicitZeroUsage: Story = {
 
 export const OrganizationLimitReached: Story = {
   args: {
-    spendAnalysisEnabled: false,
     usage: {
       ...usage,
       ai_credits: { ...usage.ai_credits, exhausted: true, used_usd: 70 },
@@ -95,5 +97,5 @@ export const OrganizationLimitReached: Story = {
 };
 
 export const Loading: Story = {
-  args: { usage: null, usageLoading: true, spendAnalysisEnabled: false },
+  args: { usage: null, usageLoading: true },
 };

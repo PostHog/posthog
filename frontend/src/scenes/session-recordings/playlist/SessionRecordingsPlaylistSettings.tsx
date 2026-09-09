@@ -6,11 +6,9 @@ import { IconChevronRight, IconEllipsis, IconEye, IconInfo, IconPlus, IconSort, 
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { SettingsBar, SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { matchesConfirmationText } from 'lib/utils/confirmationText'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
@@ -74,6 +72,10 @@ export function getSortChangedEvent(
     }
 }
 
+export function getRecommendedFilterChange(enabled: boolean): Partial<RecordingUniversalFilters> {
+    return { recommended_only: enabled }
+}
+
 function SortedBy({
     filters,
     setFilters,
@@ -84,10 +86,8 @@ function SortedBy({
     disabledReason?: string
 }): JSX.Element {
     const surfacingScoreEnabled = useFeatureFlag('REPLAY_PLAYLIST_SURFACING_SCORE')
-    const inRelevanceSortExperiment = useFeatureFlag('REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT', 'test')
-    const showRelevanceSort = surfacingScoreEnabled || inRelevanceSortExperiment
+    const showRelevanceSort = surfacingScoreEnabled
 
-    // Track sort changes for the relevance-sort experiment
     const changeSort = (sort: RecordingSort): void => {
         const sortChangedEvent = getSortChangedEvent(filters, sort)
         if (sortChangedEvent) {
@@ -198,6 +198,35 @@ function SortedBy({
                 )
             }
         />
+    )
+}
+
+function RecommendedOnlyFilter({
+    filters,
+    setFilters,
+}: {
+    filters: RecordingUniversalFilters
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+}): JSX.Element | null {
+    const enabled = useFeatureFlag('REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT', 'test')
+    if (!enabled) {
+        return null
+    }
+
+    return (
+        <Tooltip title="Show recordings with high relevance">
+            <span className="inline-flex items-center ml-3">
+                <LemonCheckbox
+                    label="High relevance"
+                    checked={!!filters.recommended_only}
+                    onChange={(checked) => {
+                        posthog.capture('session recording recommended filter changed', { enabled: checked })
+                        setFilters(getRecommendedFilterChange(checked))
+                    }}
+                    data-attr="session-recordings-recommended-only"
+                />
+            </span>
+        </Tooltip>
     )
 }
 
@@ -501,7 +530,6 @@ export function SessionRecordingsPlaylistTopSettings({
         handleBulkMarkAsViewed,
         handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
@@ -510,8 +538,6 @@ export function SessionRecordingsPlaylistTopSettings({
         AccessControlResourceType.SessionRecording,
         AccessControlLevel.Editor
     )
-
-    const visionEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION]
 
     const getActionsMenuItems = (): LemonMenuItem[] => {
         const menuItems: LemonMenuItem[] = [
@@ -544,14 +570,12 @@ export function SessionRecordingsPlaylistTopSettings({
             'data-attr': 'mark-as-not-viewed',
         })
 
-        if (visionEnabled) {
-            // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
-            menuItems.push({
-                key: 'bulk-scan-recordings',
-                label: () => <BulkScanMenuItem />,
-                custom: true,
-            })
-        }
+        // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
+        menuItems.push({
+            key: 'bulk-scan-recordings',
+            label: () => <BulkScanMenuItem />,
+            custom: true,
+        })
 
         menuItems.push({
             label: 'Delete',
@@ -584,14 +608,17 @@ export function SessionRecordingsPlaylistTopSettings({
                     aria-label="Select all recordings"
                 />
                 {filters && setFilters ? (
-                    <span className="text-xs font-normal inline-flex items-center ml-2">
-                        Sort by:{' '}
-                        <SortedBy
-                            filters={filters}
-                            setFilters={setFilters}
-                            disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
-                        />
-                    </span>
+                    <>
+                        <span className="text-xs font-normal inline-flex items-center ml-2">
+                            Sort by:{' '}
+                            <SortedBy
+                                filters={filters}
+                                setFilters={setFilters}
+                                disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
+                            />
+                        </span>
+                        <RecommendedOnlyFilter filters={filters} setFilters={setFilters} />
+                    </>
                 ) : null}
             </div>
             <div className="flex items-center">

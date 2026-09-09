@@ -2,7 +2,7 @@
 // landscape, w/ "code":     229 x 28
 // stacked,   no "code":     52 x 47
 // stacked,   w/ "code":     52 x 59
-// no wordmark (logo only):  52 x 47
+// no wordmark (logo only):  52 x 28
 
 export default function LogosLandscape({
   code = true,
@@ -10,7 +10,7 @@ export default function LogosLandscape({
   wordmark = true,
 }) {
   const width = !wordmark ? 52 : stacked ? 52 : code ? 229 : 160;
-  const height = !wordmark ? 47 : stacked ? (code ? 59 : 47) : 28;
+  const height = !wordmark ? 28 : stacked ? (code ? 59 : 47) : 28;
   return (
     <svg
       width={width}

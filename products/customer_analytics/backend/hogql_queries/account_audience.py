@@ -93,7 +93,10 @@ def count_accounts_for_audience(team: Team, filters: AccountAudienceFilters) -> 
 
 
 def _where_exprs(team: Team, filters: AccountAudienceFilters) -> list[ast.Expr]:
-    where: list[ast.Expr] = [parse_expr("isNotNull(accounts.external_id) AND accounts.external_id != ''")]
+    where: list[ast.Expr] = [
+        parse_expr("isNotNull(accounts.external_id) AND accounts.external_id != ''"),
+        parse_expr("isNull(accounts.ignored_at)"),
+    ]
 
     if filters.tag_names:
         subquery = parse_select(

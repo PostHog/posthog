@@ -19,6 +19,7 @@ interface ChatThreadFooterProps {
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
+  currentWork?: string;
 }
 
 /**
@@ -38,6 +39,7 @@ export function ChatThreadFooter({
   taskId,
   footerState,
   hasPendingPermission,
+  currentWork,
 }: ChatThreadFooterProps) {
   const showDebugLogs = useSettingsStore((s) => s.debugLogsCloudRuns);
   const eventFooterState = useConversationItems(events, isPromptPending, {
@@ -47,9 +49,15 @@ export function ChatThreadFooter({
     footerState?.lastTurnInfo ?? eventFooterState.lastTurnInfo;
   const isCompacting =
     footerState?.isCompacting ?? eventFooterState.isCompacting;
+  const isClearing = footerState?.isClearing ?? eventFooterState.isClearing;
   const completedToolCallCount =
     footerState?.completedToolCallCount ??
     eventFooterState.completedToolCallCount;
+  const lastActivityAt =
+    footerState?.lastActivityAt ?? eventFooterState.lastActivityAt;
+  const isBackgroundTurnActive =
+    footerState?.isBackgroundTurnActive ??
+    eventFooterState.isBackgroundTurnActive;
   const pendingPermissions = usePendingPermissionsForTask(taskId ?? "");
   const pendingPermissionVisible = resolvePendingPermissionVisibility(
     hasPendingPermission,
@@ -75,7 +83,11 @@ export function ChatThreadFooter({
         hasPendingPermission={pendingPermissionVisible}
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
+        isClearing={isClearing}
+        isBackgroundTurnActive={isBackgroundTurnActive}
         completedToolCallCount={completedToolCallCount}
+        lastActivityAt={lastActivityAt}
+        currentWork={currentWork}
       />
     </div>
   );

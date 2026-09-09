@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
+from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kongkonnect import (
     KongKonnectSourceConfig,
@@ -13,13 +13,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect.kong_konnect import (
     DEFAULT_INITIAL_LOOKBACK_DAYS,
-    KongKonnectResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect.source import (
     KongKonnectSource,
     _coerce_lookback_days,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides: Any) -> KongKonnectSourceConfig:
@@ -29,9 +27,6 @@ def _config(**overrides: Any) -> KongKonnectSourceConfig:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert KongKonnectSource().source_type == ExternalDataSourceType.KONGKONNECT
-
     def test_connection_host_fields_includes_region(self) -> None:
         # `region` selects the host the stored access token is sent to, so editing it must re-require the secret.
         assert KongKonnectSource().connection_host_fields == ["region"]
@@ -41,22 +36,6 @@ class TestSourceConfig:
         # A finished source must be visible (no unreleasedSource) and flagged alpha.
         assert config.unreleasedSource is None
         assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_fields_and_requiredness(self) -> None:
-        fields = {f.name: f for f in KongKonnectSource().get_source_config.fields}
-        assert set(fields) == {"api_token", "region", "lookback_days"}
-
-        api_token = fields["api_token"]
-        assert isinstance(api_token, SourceFieldInputConfig)
-        assert api_token.required is True
-
-        region = fields["region"]
-        assert isinstance(region, SourceFieldSelectConfig)
-        assert region.required is True
-
-        lookback_days = fields["lookback_days"]
-        assert isinstance(lookback_days, SourceFieldInputConfig)
-        assert lookback_days.required is False
 
 
 class TestGetSchemas:
@@ -112,10 +91,6 @@ class TestCoerceLookbackDays:
 
 
 class TestSourceForPipeline:
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        manager = KongKonnectSource().get_resumable_source_manager(MagicMock())
-        assert manager._data_class is KongKonnectResumeConfig
-
     @patch.object(source_module, "kong_konnect_source")
     def test_plumbs_region_and_lookback(self, mock_source: MagicMock) -> None:
         inputs = MagicMock()

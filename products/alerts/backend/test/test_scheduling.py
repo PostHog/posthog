@@ -108,12 +108,26 @@ class TestValidateAndNormalizeScheduleRestriction:
         raw = {"blocked_windows": [{"start": "19:00", "end": "00:00"}]}
         assert validate_and_normalize_schedule_restriction(raw) == raw
 
+    @parameterized.expand(
+        [
+            ("unknown_root_key", {"typo": True}),
+            ("missing_blocked_windows", {"enabled": True}),
+            (
+                "unknown_window_key",
+                {"blocked_windows": [{"start": "10:00", "end": "11:00", "typo": True}]},
+            ),
+        ]
+    )
+    def test_rejects_unknown_schedule_restriction_keys(self, _name: str, raw: dict[str, Any]) -> None:
+        with pytest.raises(ValueError):
+            validate_and_normalize_schedule_restriction(raw)
+
 
 class TestNextCalendarCheckTime:
     @parameterized.expand(
         [
-            # Sub-daily intervals advance from the prior next_check_at, preserving per-alert spread
-            ("real_time_from_prev", CalendarInterval.REAL_TIME, PREV_CHECK, datetime(2026, 3, 18, 11, 49, tzinfo=UTC)),
+            # Sub-daily intervals preserve their schedule phase and skip missed evaluations.
+            ("real_time_from_prev", CalendarInterval.REAL_TIME, PREV_CHECK, datetime(2026, 3, 18, 12, 1, tzinfo=UTC)),
             ("real_time_first_check", CalendarInterval.REAL_TIME, None, datetime(2026, 3, 18, 12, 2, tzinfo=UTC)),
             (
                 "15min_from_prev",
@@ -122,6 +136,12 @@ class TestNextCalendarCheckTime:
                 datetime(2026, 3, 18, 12, 2, tzinfo=UTC),
             ),
             ("hourly_from_prev", CalendarInterval.HOURLY, PREV_CHECK, datetime(2026, 3, 18, 12, 47, tzinfo=UTC)),
+            (
+                "hourly_skips_backlog",
+                CalendarInterval.HOURLY,
+                datetime(2026, 3, 18, 5, 47, tzinfo=UTC),
+                datetime(2026, 3, 18, 12, 47, tzinfo=UTC),
+            ),
         ]
     )
     def test_sub_daily_advances_from_previous(

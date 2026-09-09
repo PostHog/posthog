@@ -1,4 +1,4 @@
-//! Kafka producer for `cohort_membership_changed_shadow`.
+//! Kafka producer for the membership-changes output topic.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -29,7 +29,7 @@ impl KafkaMembershipSink {
     pub async fn new(kafka_config: &KafkaConfig, topic: String) -> Result<Self> {
         let producer = create_kafka_producer(kafka_config, AlwaysHealthy)
             .await
-            .context("creating cohort_membership_changed_shadow producer")?;
+            .context("creating membership sink producer")?;
         Ok(Self { producer, topic })
     }
 }

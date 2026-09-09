@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Callable
 from typing import Any, Optional, cast
 
@@ -16,7 +17,7 @@ from common.hogvm.python.operation import (
     HOGQL_BYTECODE_VERSION as VERSION,
     Operation as op,
 )
-from common.hogvm.python.stl import sleep
+from common.hogvm.python.stl import STL, sleep
 from common.hogvm.python.utils import HogVMException, UncaughtHogVMException
 
 
@@ -86,7 +87,6 @@ class TestBytecodeExecute:
         assert self._run("match('test', 'x.*')") is False
         assert self._run("match('test', '')") is True
         assert self._run("match('', '')") is True
-        assert self._run("match('ab', '(?<=a)b')") is True
         assert self._run("'test' =~ 'e.*'") is True
         assert self._run("'test' !~ 'e.*'") is False
         assert self._run("'test' =~ '^e.*'") is False
@@ -118,6 +118,7 @@ class TestBytecodeExecute:
         [
             ("function_list_input", "match(['tool_call'], 'tool')", {}, "Function match requires input"),
             ("function_invalid_pattern", "match('tool_call', '[')", {}, "Invalid regex pattern"),
+            ("function_lookbehind_unsupported", "match('ab', '(?<=a)b')", {}, "Invalid regex pattern"),
             ("operator_list_input", "['tool_call'] =~ 'tool'", {}, "Function match requires input"),
             (
                 "operator_invalid_pattern",
@@ -164,6 +165,20 @@ class TestBytecodeExecute:
         try:
             execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "replaceOne", 1], {})
         except Exception as e:
+            assert str(e) == "Function replaceOne requires at least 3 arguments"
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+        try:
+            execute_bytecode([_H, VERSION, op.STRING, "AB", op.STRING, "extra", op.CALL_GLOBAL, "lower", 2], {})
+        except Exception as e:
+            assert str(e) == "Function lower requires at most 1 arguments"
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+        try:
+            execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "lower", 1], {})
+        except Exception as e:
             assert str(e) == "Stack underflow"
         else:
             raise AssertionError("Expected Exception not raised")
@@ -174,6 +189,33 @@ class TestBytecodeExecute:
             assert str(e) == "Invalid bytecode. More than one value left on stack"
         else:
             raise AssertionError("Expected Exception not raised")
+
+    @pytest.mark.parametrize("indirect", [False, True])
+    def test_json_has_without_path(self, indirect: bool) -> None:
+        program = "let hasPath := JSONHas; return hasPath('{}');" if indirect else "return JSONHas('{}');"
+        assert self._run_program(program) is True
+
+    def test_every_builtin_tolerates_its_own_min_args(self):
+        # A builtin whose fn indexes past its declared minArgs raises a bare IndexError instead of a
+        # HogVMException, which callers cannot tell apart from a bug in their own code. Blocking
+        # builtins are excluded because calling them would sleep or shell out.
+        leaked = []
+        for name, stl_fn in STL.items():
+            if stl_fn.is_blocking:
+                continue
+            arg_count = stl_fn.minArgs or 0
+            bytecode: list[Any] = [_H, VERSION]
+            for _ in range(arg_count):
+                bytecode += [op.STRING, "1"]
+            bytecode += [op.CALL_GLOBAL, name, arg_count]
+            try:
+                execute_bytecode(bytecode, {})
+            except IndexError:
+                leaked.append(name)
+            except Exception:
+                pass
+
+        assert leaked == []
 
     def test_memory_limits_1(self):
         # let string := 'banana'
@@ -1163,9 +1205,44 @@ class TestBytecodeExecute:
         assert self._run("extractRegex(null, '\\\\w+')") == ""
         assert self._run("extractRegex('hello', null)") == ""
 
+        # A pattern with a group that captured nothing still returns the group, not the whole match
+        assert self._run("extractRegex('b', '(a)?b')") == ""
+        assert self._run("extractRegex('b', '(?:(a)|b)')") == ""
+
         # Complex pattern like ClickHouse sortableSemver uses
         assert self._run("extractRegex('v1.2.3-alpha', '(\\\\d+(\\\\.\\\\d+)+)')") == "1.2.3"
         assert self._run("extractRegex('version 10.20.30', '(\\\\d+(\\\\.\\\\d+)+)')") == "10.20.30"
+
+    @parameterized.expand(
+        [
+            ("match", False),
+            ("extractRegex", ""),
+        ]
+    )
+    def test_regex_functions_run_in_linear_time(self, fn_name: str, expected: bool | str) -> None:
+        # Python's re engine needs exponential time on this pattern, so this pins the engine choice.
+        # CPU time rather than wall clock, so a paused runner cannot fail the assertion on its own.
+        subject = "a" * 26 + "!"
+        start = time.process_time()
+        result = STL[fn_name].fn([subject, "(a+)+$"], None, None, 5.0)
+        elapsed = time.process_time() - start
+        assert result == expected
+        assert elapsed < 1.0
+
+    @parameterized.expand(
+        [
+            ("extractRegex", "café", r"\w+", "caf"),
+            ("extractRegex", "日本語", r"\w+", ""),
+            ("match", "Müller", r"^\w+$", False),
+            ("match", "١٢٣", r"\d+", False),
+        ]
+    )
+    def test_regex_character_classes_are_ascii_only(
+        self, fn_name: str, subject: str, pattern: str, expected: bool | str
+    ) -> None:
+        # The linear-time test cannot pin this, because another linear-time engine could restore the
+        # Unicode classes and still run fast. Python's re engine gives "café", a match, and true here.
+        assert STL[fn_name].fn([subject, pattern], None, None, 5.0) == expected
 
     def test_sortable_semver(self):
         # Basic semver parsing

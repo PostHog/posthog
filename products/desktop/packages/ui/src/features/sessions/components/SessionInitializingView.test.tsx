@@ -1,4 +1,3 @@
-import { Theme } from "@radix-ui/themes";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionInitializingView } from "./SessionInitializingView";
@@ -11,40 +10,57 @@ describe("SessionInitializingView", () => {
   it.each([
     {
       executionTarget: "local" as const,
-      heading: "Starting Pi…",
-      subtitle: "Connecting to Pi on this device.",
+      title: "Starting local agent",
     },
     {
       executionTarget: "cloud" as const,
-      heading: "Getting things ready…",
-      subtitle: "Connecting to your cloud runner.",
-    },
-    {
-      executionTarget: "cloud" as const,
-      cloudStatus: "in_progress" as const,
-      heading: "Starting the sandbox…",
-      subtitle: "Connecting to your cloud runner.",
+      title: "Starting cloud agent",
     },
   ])(
-    "shows $executionTarget connection copy",
-    ({ executionTarget, cloudStatus, heading, subtitle }) => {
+    "shows the current step through $executionTarget startup",
+    ({ executionTarget, title }) => {
       vi.useFakeTimers();
 
-      render(
-        <Theme>
-          <SessionInitializingView
-            executionTarget={executionTarget}
-            cloudStatus={cloudStatus}
-          />
-        </Theme>,
-      );
+      render(<SessionInitializingView executionTarget={executionTarget} />);
+
+      expect(screen.getByRole("status").textContent).toBe(title);
 
       act(() => {
         vi.advanceTimersByTime(2000);
       });
 
-      expect(screen.getByText(heading)).toBeInTheDocument();
-      expect(screen.getByText(subtitle)).toBeInTheDocument();
+      expect(screen.getByRole("status").textContent).toBe(title);
     },
   );
+
+  it("updates the visible phase when hooks start and finish", () => {
+    vi.useFakeTimers();
+    const { rerender } = render(
+      <SessionInitializingView executionTarget="local" />,
+    );
+    rerender(
+      <SessionInitializingView executionTarget="local" phase="setup_hooks" />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Running repository setup",
+    );
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(screen.getByRole("status").textContent).toBe(
+      "Running repository setup",
+    );
+    rerender(
+      <SessionInitializingView
+        executionTarget="local"
+        phase="sdk_initialization"
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Starting local agent",
+    );
+    expect(
+      screen.queryByText("Running repository setup"),
+    ).not.toBeInTheDocument();
+  });
 });

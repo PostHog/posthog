@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import type { PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,13 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { productEnablementCreate } from '~/generated/core/api'
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
-import {
-    ExternalDataSource,
-    ExternalDataSourceSchema,
-    RecordingUniversalFilters,
-    TeamPublicType,
-    TeamType,
-} from '~/types'
+import { ExternalDataSource, ExternalDataSourceSchema, TeamPublicType, TeamType } from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import {
@@ -27,27 +22,35 @@ import {
 } from 'products/engineering_analytics/frontend/generated/api'
 import type { CISignalsConfigApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 import { eventDefinitionsList } from 'products/event_definitions/frontend/generated/api'
+import { visionScannersList, visionScannersPartialUpdate } from 'products/replay_vision/frontend/generated/api'
+import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 
+import type { SignalSourceTypeApi } from '../generated/api.schemas'
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
 import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
-import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
+import { SOURCE_STEERING_KEY, SignalSourceConfig, ToggleSignalSourceParams } from './types'
 
 /** product_enablement recipe names for tools that back a signal source. */
 export type SourceToolEnablement = 'session_replay' | 'error_tracking' | 'conversations'
 
-/** The PostHog tool behind a signal source: whether it captures anything, and how to turn it on. */
+export type SourceToolDataStatus = 'unavailable' | 'loading' | 'error' | 'recent' | 'none'
+
 export interface SourceToolStatus {
     toolName: string
-    enabled: boolean
-    /** The product_enablement recipe that turns the tool on, when one exists. */
+    enabled: boolean | null
     enablement: SourceToolEnablement | null
-    /** Whether the tool's events exist in this project; null when there is no cheap event signal. */
-    receivingData: boolean | null
+    dataStatus: SourceToolDataStatus
 }
 
-/** Event definitions probed to tell whether each source's tool is receiving data. */
+/** Event definitions probed to detect recent data for each source's tool. */
 const TOOL_USAGE_EVENTS = ['$exception', '$ai_generation', '$ai_trace', '$pageview', '$autocapture']
+
+/**
+ * Cap on the per-source entity lists the roster inlines. Well past the tail: the busiest projects
+ * run a few dozen scanners, and the median runs one.
+ */
+const ENTITY_PAGE_SIZE = 100
 
 /** Matches Cymbal `EmitSignalRequest.source_type` + `products.signals.backend.api.emit_signal` checks. */
 export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
@@ -55,6 +58,18 @@ export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
     SignalSourceType.IssueReopened,
     SignalSourceType.IssueSpiking,
 ]
+
+/**
+ * The guidance written on the Error tracking card is stored on each of its signal-type rows, so a
+ * row created later starts from what its siblings already carry. Without this, turning a type on
+ * after writing guidance leaves that one trigger emitting unsteered while the card reads as set.
+ */
+function inheritedErrorTrackingConfig(configs: SignalSourceConfig[]): Record<string, any> {
+    const steering = configs
+        .map((config) => config.config[SOURCE_STEERING_KEY])
+        .find((value) => typeof value === 'string' && value.trim())
+    return steering ? { [SOURCE_STEERING_KEY]: steering } : {}
+}
 
 /** Warehouse-backed signal sources, keyed by roster source id. */
 export type WarehouseBackedSource = 'github' | 'linear' | 'zendesk' | 'pganalyze' | 'engineering_analytics'
@@ -209,9 +224,15 @@ export interface signalSourcesLogicValues {
     dataSourceSetupSource: WarehouseBackedSource | null
     enabledSourcesCount: number
     enablingTool: SourceToolEnablement | null
+    errorTrackingConfigs: SignalSourceConfig[]
     errorTrackingIsFullyEnabled: boolean
+    errorTrackingTypeStates: {
+        enabled: boolean
+        sourceType: SignalSourceType
+    }[]
     evalReportsConfig: SignalSourceConfig | null
     githubIssuesConfig: SignalSourceConfig | null
+    hasEmittingScanner: boolean | null
     hasNoSources: boolean
     healthChecksConfig: SignalSourceConfig | null
     isAnomalyInvestigationToggling: boolean
@@ -223,20 +244,20 @@ export interface signalSourcesLogicValues {
     isHealthChecksToggling: boolean
     isLinearIssuesToggling: boolean
     isPgAnalyzeIssuesToggling: boolean
-    isSessionAnalysisRunning: boolean
-    isSessionAnalysisToggling: boolean
     isZendeskTicketsToggling: boolean
     linearIssuesConfig: SignalSourceConfig | null
     pgAnalyzeIssuesConfig: SignalSourceConfig | null
-    sessionAnalysisConfig: SignalSourceConfig | null
-    sessionAnalysisSetupOpen: boolean
     sourceConfigs: SignalSourceConfig[] | null
+    sourceConfigsLoadFailed: boolean
     sourceConfigsLoading: boolean
     sourcesModalOpen: boolean
     togglingSourceKeys: Set<string>
     toolDataEvents: Set<string> | null
+    toolDataEventsFailed: boolean
     toolDataEventsLoading: boolean
     toolStatusBySource: Partial<Record<AgentRosterSource, SourceToolStatus>>
+    visionScanners: ReplayScannerApi[] | null
+    visionScannersLoading: boolean
     zendeskTicketsConfig: SignalSourceConfig | null
 }
 
@@ -245,14 +266,7 @@ export interface signalSourcesLogicActions {
     loadSources: () => {
         value: true
     } // sourcesDataLogic
-    loadCurrentTeam: () => any // teamLogic
-    clearSessionAnalysisFilters: () => {
-        value: true
-    }
     closeDataSourceSetup: () => {
-        value: true
-    }
-    closeSessionAnalysisSetup: () => {
         value: true
     }
     closeSourcesModal: () => {
@@ -315,20 +329,53 @@ export interface signalSourcesLogicActions {
         toolDataEvents: Set<string>
         payload?: any
     }
+    loadVisionScanners: () => any
+    loadVisionScannersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadVisionScannersSuccess: (
+        visionScanners: ReplayScannerApi[],
+        payload?: any
+    ) => {
+        visionScanners: ReplayScannerApi[]
+        payload?: any
+    }
     onDataSourceSetupComplete: () => {
         value: true
     }
     openDataSourceSetup: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
     }
-    openSessionAnalysisSetup: () => {
-        value: true
-    }
     openSourcesModal: () => {
         value: true
     }
-    saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => {
-        filters: RecordingUniversalFilters
+    replaceSourceConfig: (config: SignalSourceConfig) => {
+        config: SignalSourceConfig
+    }
+    setAllScannerSignals: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setAllScannerSignalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setAllScannerSignalsSuccess: (
+        visionScanners: ReplayScannerApi[],
+        payload?: {
+            enabled: boolean
+        }
+    ) => {
+        visionScanners: ReplayScannerApi[]
+        payload?: {
+            enabled: boolean
+        }
     }
     setDataWarehouseSourceEnabled: (
         source: WarehouseBackedSource,
@@ -358,14 +405,29 @@ export interface signalSourcesLogicActions {
     toggleErrorTrackingComplete: () => {
         value: true
     }
+    toggleErrorTrackingType: (sourceType: SignalSourceType) => {
+        sourceType: SignalSourceTypeApi
+    }
     toggleEvalReports: () => {
         value: true
     }
     toggleHealthChecks: () => {
         value: true
     }
-    toggleSessionAnalysis: () => {
-        value: true
+    toggleScannerSignals: ({ scannerId }: any) => any
+    toggleScannerSignalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    toggleScannerSignalsSuccess: (
+        visionScanners: ReplayScannerApi[],
+        payload?: any
+    ) => {
+        visionScanners: ReplayScannerApi[]
+        payload?: any
     }
     toggleSignalSource: (params: ToggleSignalSourceParams) => {
         params: ToggleSignalSourceParams
@@ -385,13 +447,11 @@ export interface signalSourcesLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface signalSourcesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        sessionAnalysisConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         githubIssuesConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         linearIssuesConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         zendeskTicketsConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         pgAnalyzeIssuesConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         conversationsConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
-        isSessionAnalysisToggling: (togglingSourceKeys: Set<string>) => boolean
         isConversationsToggling: (togglingSourceKeys: Set<string>) => boolean
         isGithubIssuesToggling: (togglingSourceKeys: Set<string>) => boolean
         isLinearIssuesToggling: (togglingSourceKeys: Set<string>) => boolean
@@ -406,13 +466,20 @@ export interface signalSourcesLogicMeta {
         isAnomalyInvestigationToggling: (togglingSourceKeys: Set<string>) => boolean
         toolStatusBySource: (
             currentTeam: TeamPublicType | TeamType | null,
-            toolDataEvents: Set<string> | null
+            toolDataEvents: Set<string> | null,
+            toolDataEventsLoading: boolean,
+            toolDataEventsFailed: boolean
         ) => Partial<Record<AgentRosterSource, SourceToolStatus>>
         errorTrackingIsFullyEnabled: (sourceConfigs: SignalSourceConfig[] | null) => boolean
         ciSignalsIsFullyEnabled: (ciSignalsConfig: CISignalsConfigApi | null) => boolean
         isCiSignalsToggling: (togglingSourceKeys: Set<string>) => boolean
-        isSessionAnalysisRunning: (sessionAnalysisConfig: SignalSourceConfig | null) => boolean
-        enabledSourcesCount: (sourceConfigs: SignalSourceConfig[] | null) => number
+        hasEmittingScanner: (visionScanners: ReplayScannerApi[] | null) => boolean | null
+        errorTrackingConfigs: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig[]
+        errorTrackingTypeStates: (sourceConfigs: SignalSourceConfig[] | null) => {
+            enabled: boolean
+            sourceType: SignalSourceType
+        }[]
+        enabledSourcesCount: (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null) => number
         hasNoSources: (sourceConfigs: SignalSourceConfig[] | null, enabledSourcesCount: number) => boolean
     }
 }
@@ -436,15 +503,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             teamLogic,
             ['currentTeam'],
         ],
-        actions: [sourcesDataLogic, ['loadSources'], teamLogic, ['loadCurrentTeam']],
+        actions: [sourcesDataLogic, ['loadSources']],
     })),
 
     actions({
         openSourcesModal: true,
         closeSourcesModal: true,
-        openSessionAnalysisSetup: true,
-        closeSessionAnalysisSetup: true,
-        toggleSessionAnalysis: true,
         initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => ({ source }),
         startDataWarehouseSourceToggle: (source: WarehouseBackedSource) => ({ source }),
         completeDataWarehouseSourceToggle: (source: WarehouseBackedSource) => ({ source }),
@@ -455,8 +519,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleSignalSource: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceSuccess: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
+        replaceSourceConfig: (config: SignalSourceConfig) => ({ config }),
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
+        toggleErrorTrackingType: (sourceType: SignalSourceType) => ({ sourceType }),
+        setAllScannerSignals: (enabled: boolean) => ({ enabled }),
         toggleCiSignals: (viaSetupWizard?: boolean) => ({ viaSetupWizard: viaSetupWizard ?? false }),
         toggleCiSignalsComplete: true,
         toggleHealthChecks: true,
@@ -465,11 +532,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleAnomalyInvestigation: true,
         enableSourceTool: (enablement: SourceToolEnablement) => ({ enablement }),
         enableSourceToolComplete: true,
-        saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
-        clearSessionAnalysisFilters: true,
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         sourceConfigs: [
             null as SignalSourceConfig[] | null,
             {
@@ -491,14 +556,73 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             {
                 loadToolDataEvents: async (): Promise<Set<string>> => {
                     const response = await eventDefinitionsList(String(teamLogic.values.currentTeamId), {
+                        exclude_stale: true,
                         names: TOOL_USAGE_EVENTS,
                         limit: TOOL_USAGE_EVENTS.length,
                     })
-                    return new Set(response.results.map(({ name }) => name))
+                    return new Set(
+                        response.results.filter(({ last_seen_at }) => !!last_seen_at).map(({ name }) => name)
+                    )
                 },
             },
         ],
-    }),
+        // Replay Vision never writes a `SignalSourceConfig` row: each scanner's own `emits_signals`
+        // flag is the per-source authorization, so its roster row reads the scanners API instead.
+        // `null` until the answer is in, so callers can tell "nothing there" from "not asked yet".
+        visionScanners: [
+            null as ReplayScannerApi[] | null,
+            {
+                loadVisionScanners: async (): Promise<ReplayScannerApi[]> => {
+                    try {
+                        // `ApiConfig` over `teamLogic.values.currentTeamId`: the team loads async, so
+                        // on a cold mount the kea value is still null and the source reads as off.
+                        const response = await visionScannersList(String(ApiConfig.getCurrentProjectId()), {
+                            enabled: 'enabled',
+                            limit: ENTITY_PAGE_SIZE,
+                        })
+                        return response.results
+                    } catch {
+                        // Replay Vision 404s when its flag is off, and this source only ever adds to
+                        // the count, so a failure reads as "no scanners" rather than stranding every
+                        // consumer of the count on a loading state.
+                        return []
+                    }
+                },
+                toggleScannerSignals: async ({ scannerId }): Promise<ReplayScannerApi[]> => {
+                    const scanners = values.visionScanners ?? []
+                    const scanner = scanners.find((existing: ReplayScannerApi) => existing.id === scannerId)
+                    if (!scanner) {
+                        return scanners
+                    }
+                    const updated = await visionScannersPartialUpdate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        scannerId,
+                        { emits_signals: !scanner.emits_signals }
+                    )
+                    return scanners.map((existing: ReplayScannerApi) =>
+                        existing.id === scannerId ? updated : existing
+                    )
+                },
+                // One action rather than N single toggles: each of those reads the same starting
+                // list and returns a whole new one, so the last to land would drop the others.
+                setAllScannerSignals: async ({ enabled }): Promise<ReplayScannerApi[]> => {
+                    const scanners = values.visionScanners ?? []
+                    const changing = scanners.filter(
+                        (scanner: ReplayScannerApi) => (scanner.emits_signals ?? false) !== enabled
+                    )
+                    const updated = await Promise.all(
+                        changing.map((scanner: ReplayScannerApi) =>
+                            visionScannersPartialUpdate(String(ApiConfig.getCurrentProjectId()), scanner.id, {
+                                emits_signals: enabled,
+                            })
+                        )
+                    )
+                    const byId = new Map(updated.map((scanner) => [scanner.id, scanner]))
+                    return scanners.map((existing: ReplayScannerApi) => byId.get(existing.id) ?? existing)
+                },
+            },
+        ],
+    })),
 
     reducers({
         sourcesModalOpen: [
@@ -506,14 +630,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             {
                 openSourcesModal: () => true,
                 closeSourcesModal: () => false,
-            },
-        ],
-        sessionAnalysisSetupOpen: [
-            false,
-            {
-                openSourcesModal: () => false,
-                openSessionAnalysisSetup: () => true,
-                closeSessionAnalysisSetup: () => false,
             },
         ],
         dataSourceSetupSource: [
@@ -531,20 +647,27 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 enableSourceToolComplete: () => null,
             },
         ],
-        sourceConfigs: {
-            toggleSessionAnalysis: (state: SignalSourceConfig[] | null) =>
-                toggleSourceConfigState(
-                    state,
-                    SignalSourceProduct.SessionReplay,
-                    SignalSourceType.SessionAnalysisCluster
-                ),
-            setDataWarehouseSourceEnabled: (state: SignalSourceConfig[] | null, { source, enabled }) => {
-                const { completion } = WAREHOUSE_SOURCE_SETUP[source]
-                if (completion.kind !== 'source_config') {
-                    return state
-                }
-                return setSourceConfigState(state, completion.sourceProduct, completion.sourceType, enabled)
+        toolDataEventsFailed: [
+            false,
+            {
+                loadToolDataEvents: () => false,
+                loadToolDataEventsSuccess: () => false,
+                loadToolDataEventsFailure: () => true,
             },
+        ],
+        sourceConfigsLoadFailed: [
+            false,
+            {
+                loadSourceConfigs: () => false,
+                loadSourceConfigsSuccess: () => false,
+                loadSourceConfigsFailure: () => true,
+            },
+        ],
+        sourceConfigs: {
+            // A save endpoint returned the row: reflect it immediately so consumers don't read
+            // stale config while the follow-up list reload is in flight (or after it failed).
+            replaceSourceConfig: (state: SignalSourceConfig[] | null, { config }: { config: SignalSourceConfig }) =>
+                state ? state.map((c) => (c.id === config.id ? config : c)) : state,
             toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue),
             toggleEvalReports: (state: SignalSourceConfig[] | null) =>
@@ -615,15 +738,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     }),
 
     selectors({
-        sessionAnalysisConfig: [
-            (s) => [s.sourceConfigs],
-            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
-                sourceConfigs?.find(
-                    (c) =>
-                        c.source_product === SignalSourceProduct.SessionReplay &&
-                        c.source_type === SignalSourceType.SessionAnalysisCluster
-                ) ?? null,
-        ],
         githubIssuesConfig: [
             (s) => [s.sourceConfigs],
             (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
@@ -661,11 +775,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         c.source_product === SignalSourceProduct.Conversations &&
                         c.source_type === SignalSourceType.Ticket
                 ) ?? null,
-        ],
-        isSessionAnalysisToggling: [
-            (s) => [s.togglingSourceKeys],
-            (keys: Set<string>): boolean =>
-                keys.has(`${SignalSourceProduct.SessionReplay}_${SignalSourceType.SessionAnalysisCluster}`),
         ],
         isConversationsToggling: [
             (s) => [s.togglingSourceKeys],
@@ -734,47 +843,65 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 keys.has(`${SignalSourceProduct.Analytics}_${SignalSourceType.AnomalyInvestigation}`),
         ],
         toolStatusBySource: [
-            (s) => [s.currentTeam, s.toolDataEvents],
+            (s) => [s.currentTeam, s.toolDataEvents, s.toolDataEventsLoading, s.toolDataEventsFailed],
             (
                 currentTeam: TeamPublicType | TeamType | null,
-                toolDataEvents: Set<string> | null
+                toolDataEvents: Set<string> | null,
+                toolDataEventsLoading: boolean,
+                toolDataEventsFailed: boolean
             ): Partial<Record<AgentRosterSource, SourceToolStatus>> => {
                 const team = currentTeam as TeamType | null
-                const has = (...events: string[]): boolean | null =>
-                    toolDataEvents ? events.some((event) => toolDataEvents.has(event)) : null
+                const dataStatus = (...events: string[]): SourceToolDataStatus => {
+                    if (toolDataEventsLoading || (toolDataEvents === null && !toolDataEventsFailed)) {
+                        return 'loading'
+                    }
+                    if (toolDataEventsFailed) {
+                        return 'error'
+                    }
+                    return events.some((event) => toolDataEvents?.has(event)) ? 'recent' : 'none'
+                }
+                const errorTrackingDataStatus = dataStatus('$exception')
+                const errorTrackingEnabled =
+                    team?.autocapture_exceptions_opt_in === true || errorTrackingDataStatus === 'recent'
+                        ? true
+                        : team && errorTrackingDataStatus === 'none'
+                          ? false
+                          : null
+                // Both replay sources read recordings, so they stand or fall on the same opt-in.
+                const sessionReplayTool: SourceToolStatus = {
+                    toolName: 'Session Replay',
+                    enabled: team ? !!team.session_recording_opt_in : null,
+                    enablement: 'session_replay',
+                    // Recordings never produce event definitions, so there is no cheap signal.
+                    dataStatus: 'unavailable',
+                }
                 return {
                     error_tracking: {
-                        toolName: 'Error tracking',
-                        // Server SDKs capture exceptions without the autocapture opt-in, so
-                        // flowing data counts as on.
-                        enabled: !!team?.autocapture_exceptions_opt_in || has('$exception') === true,
+                        toolName: 'Error Tracking',
+                        // Server SDKs capture exceptions without the autocapture opt-in, so recent
+                        // exception data counts as on.
+                        enabled: errorTrackingEnabled,
                         enablement: 'error_tracking',
-                        receivingData: has('$exception'),
+                        dataStatus: errorTrackingDataStatus,
                     },
-                    session_replay: {
-                        toolName: 'Session replay',
-                        enabled: !!team?.session_recording_opt_in,
-                        enablement: 'session_replay',
-                        // Recordings never produce event definitions, so there is no cheap signal.
-                        receivingData: null,
-                    },
+                    replay_vision: sessionReplayTool,
                     conversations: {
                         toolName: 'Support',
-                        enabled: !!team?.conversations_enabled,
+                        enabled: team ? !!team.conversations_enabled : null,
                         enablement: 'conversations',
-                        receivingData: null,
+                        dataStatus: 'unavailable',
                     },
                     llm_analytics: {
-                        toolName: 'AI observability',
+                        toolName: 'AI Observability',
                         enabled: true,
                         enablement: null,
-                        receivingData: has('$ai_generation', '$ai_trace'),
+                        dataStatus: dataStatus('$ai_generation', '$ai_trace'),
                     },
                     analytics: {
-                        toolName: 'Product analytics',
+                        toolName: 'Product Analytics',
                         enabled: true,
                         enablement: null,
-                        receivingData: has('$pageview', '$autocapture'),
+                        dataStatus: dataStatus('$pageview', '$autocapture'),
                     },
                 }
             },
@@ -802,24 +929,68 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean => keys.has('engineering_analytics'),
         ],
-        isSessionAnalysisRunning: [
-            (s) => [s.sessionAnalysisConfig],
-            (config: SignalSourceConfig | null): boolean => config?.status === SignalSourceConfigStatus.RUNNING,
+        // `null` until the scanners load, so callers can tell "no scanner emits" from "not asked yet".
+        hasEmittingScanner: [
+            (s) => [s.visionScanners],
+            (visionScanners: ReplayScannerApi[] | null): boolean | null =>
+                visionScanners === null ? null : visionScanners.some((scanner) => scanner.emits_signals),
+        ],
+        // The rows behind the one Error tracking card. Guidance written on the card is saved to all
+        // of them, since a reader steering "error tracking" means the source, not one trigger.
+        errorTrackingConfigs: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig[] =>
+                ERROR_TRACKING_SIGNAL_SOURCE_TYPES.map((sourceType) =>
+                    sourceConfigs?.find(
+                        (row) =>
+                            row.source_product === SignalSourceProduct.ErrorTracking && row.source_type === sourceType
+                    )
+                ).filter((row): row is SignalSourceConfig => !!row),
+        ],
+        // Each error tracking signal type is its own config row, so each can be armed on its own.
+        errorTrackingTypeStates: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): { sourceType: SignalSourceType; enabled: boolean }[] =>
+                ERROR_TRACKING_SIGNAL_SOURCE_TYPES.map((sourceType) => ({
+                    sourceType,
+                    enabled:
+                        sourceConfigs?.find(
+                            (row) =>
+                                row.source_product === SignalSourceProduct.ErrorTracking &&
+                                row.source_type === sourceType
+                        )?.enabled === true,
+                })),
         ],
         enabledSourcesCount: [
-            (s) => [s.sourceConfigs],
+            (s) => [s.sourceConfigs, s.hasEmittingScanner],
             // The scout gate is a meta-toggle surfaced in the Scout troop section, not a generic
             // signal source — exclude it so a scout-only project doesn't show the "Signal sources"
-            // setup card as done with a phantom "1 watching".
-            (sourceConfigs: SignalSourceConfig[] | null): number =>
-                sourceConfigs?.filter(
-                    (c) =>
-                        c.enabled &&
-                        !(
-                            c.source_product === SignalSourceProduct.SignalsScout &&
-                            c.source_type === SignalSourceType.CrossSourceIssue
-                        )
-                ).length ?? 0,
+            // setup card as done with a phantom "1 watching". Replay Vision has no config row at
+            // all, so it is counted separately, once, however many of its scanners emit.
+            // Evaluation configs can survive from the retired per-result path, but eval reports are
+            // the only AI observability source that emits signals.
+            (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null): number => {
+                const configured =
+                    sourceConfigs?.filter(
+                        (c) =>
+                            c.enabled &&
+                            !(
+                                c.source_product === SignalSourceProduct.SignalsScout &&
+                                c.source_type === SignalSourceType.CrossSourceIssue
+                            ) &&
+                            !(
+                                c.source_product === SignalSourceProduct.LlmAnalytics &&
+                                c.source_type === SignalSourceType.Evaluation
+                            ) &&
+                            // Retired: rows survive until the cleanup migration runs, and counting
+                            // them shows a watcher that cannot produce anything.
+                            !(
+                                c.source_product === SignalSourceProduct.SessionReplay &&
+                                c.source_type === SignalSourceType.SessionAnalysisCluster
+                            )
+                    ).length ?? 0
+                return configured + (hasEmittingScanner ? 1 : 0)
+            },
         ],
         hasNoSources: [
             (s) => [s.sourceConfigs, s.enabledSourcesCount],
@@ -955,6 +1126,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                     breakpoint()
                     actions.toggleSignalSourceSuccess(params)
+                    if (
+                        sourceProduct === SignalSourceProduct.LlmAnalytics &&
+                        sourceType === SignalSourceType.EvaluationReport
+                    ) {
+                        lemonToast.success(`AI observability signal source ${enabled ? 'enabled' : 'disabled'}`)
+                    } else if (
+                        sourceProduct === SignalSourceProduct.Analytics &&
+                        sourceType === SignalSourceType.AnomalyInvestigation
+                    ) {
+                        lemonToast.success(`Product analytics signal source ${enabled ? 'enabled' : 'disabled'}`)
+                    }
                     // Only a successful enable counts as a connection. First-time when there was no
                     // persisted (non-placeholder) config for this product/type before the toggle.
                     if (enabled) {
@@ -977,8 +1159,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 }
             },
             toggleErrorTracking: async (_, breakpoint) => {
-                const desiredEnabled = !values.errorTrackingIsFullyEnabled
+                // The row switch reads "on" as soon as one type is armed, so turning it off has to
+                // stand every type down rather than arm the remaining ones.
+                const desiredEnabled = !values.errorTrackingTypeStates.some(({ enabled }) => enabled)
                 const configs = values.sourceConfigs ?? []
+                const inheritedConfig = inheritedErrorTrackingConfig(values.errorTrackingConfigs)
                 // First connection when no persisted error-tracking config existed before this enable.
                 const wasConnected = configs.some(
                     (c) => c.source_product === SignalSourceProduct.ErrorTracking && !c.id.startsWith('new_')
@@ -996,7 +1181,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                                 source_product: SignalSourceProduct.ErrorTracking,
                                 source_type: sourceType,
                                 enabled: true,
-                                config: {},
+                                config: inheritedConfig,
                             })
                         }
                     }
@@ -1023,6 +1208,31 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     lemonToast.error(errorMessage)
                     actions.loadSourceConfigs()
                 }
+            },
+            toggleErrorTrackingType: async ({ sourceType }, breakpoint) => {
+                const configs = values.sourceConfigs ?? []
+                const inheritedConfig = inheritedErrorTrackingConfig(values.errorTrackingConfigs)
+                const existing = configs.find(
+                    (c) => c.source_product === SignalSourceProduct.ErrorTracking && c.source_type === sourceType
+                )
+                const desiredEnabled = !(existing?.enabled ?? false)
+                try {
+                    if (existing && !existing.id.startsWith('new_')) {
+                        await api.signalSourceConfigs.update(existing.id, { enabled: desiredEnabled })
+                    } else if (desiredEnabled) {
+                        await api.signalSourceConfigs.create({
+                            source_product: SignalSourceProduct.ErrorTracking,
+                            source_type: sourceType,
+                            enabled: true,
+                            config: inheritedConfig,
+                        })
+                    }
+                    breakpoint()
+                } catch (error: any) {
+                    breakpoint()
+                    lemonToast.error(error?.detail || error?.message || 'Failed to toggle this signal type')
+                }
+                actions.loadSourceConfigs()
             },
             toggleCiSignals: async ({ viaSetupWizard }, breakpoint) => {
                 const desiredEnabled = !values.ciSignalsIsFullyEnabled
@@ -1079,15 +1289,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.loadSourceConfigs()
                 }
             },
-            toggleSessionAnalysis: () => {
-                const config = values.sessionAnalysisConfig
-                const desiredEnabled = config?.enabled ?? true
-                actions.toggleSignalSource({
-                    sourceProduct: SignalSourceProduct.SessionReplay,
-                    sourceType: SignalSourceType.SessionAnalysisCluster,
-                    enabled: desiredEnabled,
-                })
-            },
             toggleHealthChecks: () => {
                 // The optimistic reducer flips the config before this listener runs,
                 // so config.enabled already reflects the desired state.
@@ -1138,11 +1339,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         products: [enablement],
                     })
                     // Refresh the cached team so the tool reads back as on.
-                    actions.loadCurrentTeam()
+                    await teamLogic.asyncActions.loadCurrentTeam()
                 } catch (error: any) {
                     lemonToast.error(error?.detail || error?.message || "Couldn't turn this on. Please try again.")
+                } finally {
+                    actions.enableSourceToolComplete()
                 }
-                actions.enableSourceToolComplete()
             },
             setDataWarehouseSourceEnabled: ({ source, enabled }) => {
                 const { completion } = WAREHOUSE_SOURCE_SETUP[source]
@@ -1155,47 +1357,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     enabled,
                 })
             },
-            saveSessionAnalysisFilters: async ({ filters }) => {
-                try {
-                    const existing = values.sessionAnalysisConfig
-                    if (existing) {
-                        await api.signalSourceConfigs.update(existing.id, {
-                            config: { recording_filters: filters },
-                            enabled: true,
-                        })
-                    } else {
-                        await api.signalSourceConfigs.create({
-                            source_product: SignalSourceProduct.SessionReplay,
-                            source_type: SignalSourceType.SessionAnalysisCluster,
-                            config: { recording_filters: filters },
-                            enabled: true,
-                        })
-                    }
-                    lemonToast.success('Session analysis filters saved')
-                    actions.loadSourceConfigs()
-                    actions.closeSessionAnalysisSetup()
-                } catch (error: any) {
-                    const errorMessage = error?.detail || error?.message || 'Failed to save filters'
-                    lemonToast.error(errorMessage)
-                }
-            },
-            clearSessionAnalysisFilters: async () => {
-                try {
-                    const existing = values.sessionAnalysisConfig
-                    if (
-                        existing &&
-                        existing.id !==
-                            `new_${SignalSourceProduct.SessionReplay}_${SignalSourceType.SessionAnalysisCluster}`
-                    ) {
-                        await api.signalSourceConfigs.update(existing.id, { config: {}, enabled: true })
-                        lemonToast.success('Session analysis filters cleared')
-                    }
-                    actions.loadSourceConfigs()
-                } catch (error: any) {
-                    const errorMessage = error?.detail || error?.message || 'Failed to clear filters'
-                    lemonToast.error(errorMessage)
-                }
-            },
         }
     }),
 
@@ -1205,6 +1366,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // The condition allows us to safely mount this logic for user without the product autonomy feature flag
                 // without needlessly loading the source configs
                 actions.loadSourceConfigs()
+                actions.loadVisionScanners()
                 if (values.featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
                     actions.loadCiSignalsConfig()
                 }

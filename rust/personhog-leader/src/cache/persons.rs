@@ -12,27 +12,35 @@ pub struct PersonCacheKey {
     pub person_id: i64,
 }
 
-/// Fixed per-entry overhead charged on top of the serialized-properties
-/// estimate: the struct's scalar fields, the uuid, the key, and foyer's
+/// Fixed per-entry overhead charged on top of the stored properties
+/// bytes: the struct's scalar fields, the uuid, the key, and foyer's
 /// record bookkeeping.
 const PERSON_ENTRY_OVERHEAD_BYTES: usize = 256;
 
-/// The weight an entry contributes to the cache's byte capacity, from
-/// the serialized size of its properties at whichever boundary the
-/// person entered through. An estimate for eviction accounting — the
-/// point is that weight scales with document size, not that it matches
-/// the allocator byte for byte.
+/// The weight an entry contributes to the cache's byte capacity. The
+/// cache stores properties in serialized form, so this is the real
+/// allocation, not an estimate: entries held as parsed JSON trees cost
+/// a small multiple of their serialized size, and weighing those by
+/// serialized length let a "16MiB" cache hold ~2.7x that in heap.
 pub fn approx_person_bytes(properties_serialized_len: usize) -> usize {
     PERSON_ENTRY_OVERHEAD_BYTES + properties_serialized_len
 }
 
-/// Cached person state with properties as a JSON map.
+/// Cached person state, with properties held in serialized JSON form.
+///
+/// Serialized rather than parsed for memory accounting: the cache weighs
+/// entries by byte length, and holding the bytes makes the charged
+/// weight the real allocation. Readers that need the map parse on
+/// access via [`CachedPerson::parse_properties`]; readers that need the
+/// wire form (proto responses, changelog records) take the bytes as
+/// they are.
 #[derive(Debug, Clone)]
 pub struct CachedPerson {
     pub id: i64,
     pub uuid: String,
     pub team_id: i64,
-    pub properties: serde_json::Value,
+    /// Properties as serialized JSON, validated at construction.
+    pub properties: Vec<u8>,
     pub created_at: i64,
     pub version: i64,
     pub is_identified: bool,
@@ -51,19 +59,34 @@ pub struct CachedPerson {
     // TODO: Add properties_last_updated_at and properties_last_operation
 }
 
+impl CachedPerson {
+    /// Parse the stored properties into a JSON value. Construction
+    /// validates the bytes, so a failure here means the cache holds a
+    /// document no constructor produced.
+    pub fn parse_properties(&self) -> serde_json::Result<serde_json::Value> {
+        if self.properties.is_empty() {
+            return Ok(serde_json::Value::Object(serde_json::Map::new()));
+        }
+        serde_json::from_slice(&self.properties)
+    }
+}
+
 /// Decodes a changelog `Person` record into cache form. The only fallible
-/// step is parsing the properties JSON; callers add their own context
-/// (offset, partition) to the error.
+/// step is validating the properties JSON — validated without building
+/// the tree, and stored as the record's own bytes.
 impl TryFrom<Person> for CachedPerson {
     type Error = serde_json::Error;
 
     fn try_from(person: Person) -> Result<Self, Self::Error> {
+        if !person.properties.is_empty() {
+            serde_json::from_slice::<serde::de::IgnoredAny>(&person.properties)?;
+        }
         let approx_bytes = approx_person_bytes(person.properties.len());
         Ok(Self {
             id: person.id,
             uuid: person.uuid,
             team_id: person.team_id,
-            properties: serde_json::from_slice(&person.properties)?,
+            properties: person.properties,
             created_at: person.created_at,
             version: person.version,
             is_identified: person.is_identified,
@@ -156,12 +179,34 @@ impl PersonCache {
 mod tests {
     use super::*;
 
+    /// Proto3 encodes an absent bytes field as empty, and every leader
+    /// write path serializes at least `{}` — so empty properties can
+    /// only arrive from records that predate this store, and rejecting
+    /// them would fail the warm over a document that is simply
+    /// property-less. This pins the lenient reading in both directions:
+    /// decode accepts, and parse yields the empty map.
+    #[test]
+    fn empty_properties_bytes_read_as_the_empty_map() {
+        let record = Person {
+            uuid: "00000000-0000-0000-0000-000000000001".to_string(),
+            properties: Vec::new(),
+            ..Default::default()
+        };
+        let cached = CachedPerson::try_from(record).expect("empty properties decode");
+        assert!(cached.properties.is_empty());
+        assert_eq!(
+            cached.parse_properties().unwrap(),
+            serde_json::Value::Object(serde_json::Map::new())
+        );
+    }
+
     fn test_person() -> CachedPerson {
         CachedPerson {
             id: 1,
             uuid: "abc-123".to_string(),
             team_id: 42,
-            properties: serde_json::json!({"email": "test@example.com"}),
+            properties: serde_json::to_vec(&serde_json::json!({"email": "test@example.com"}))
+                .unwrap(),
             created_at: 1700000000,
             version: 1,
             is_identified: false,
@@ -190,7 +235,8 @@ mod tests {
         for person_id in 0..128 {
             let mut person = test_person();
             person.id = person_id;
-            person.properties = serde_json::json!({ "blob": blob.clone() });
+            person.properties =
+                serde_json::to_vec(&serde_json::json!({ "blob": blob.clone() })).unwrap();
             person.approx_bytes = approx_person_bytes(1536);
             cache.put(
                 PersonCacheKey {
@@ -237,7 +283,10 @@ mod tests {
         assert_eq!(cached.id, 1);
         assert_eq!(cached.uuid, "abc-123");
         assert_eq!(cached.team_id, 42);
-        assert_eq!(cached.properties["email"], "test@example.com");
+        assert_eq!(
+            cached.parse_properties().unwrap()["email"],
+            "test@example.com"
+        );
     }
 
     #[test]
@@ -267,11 +316,15 @@ mod tests {
 
         let mut updated = test_person();
         updated.version = 2;
-        updated.properties = serde_json::json!({"email": "new@example.com"});
+        updated.properties =
+            serde_json::to_vec(&serde_json::json!({"email": "new@example.com"})).unwrap();
         cache.put(key.clone(), updated);
 
         let cached = cache.get(&key).unwrap();
         assert_eq!(cached.version, 2);
-        assert_eq!(cached.properties["email"], "new@example.com");
+        assert_eq!(
+            cached.parse_properties().unwrap()["email"],
+            "new@example.com"
+        );
     }
 }

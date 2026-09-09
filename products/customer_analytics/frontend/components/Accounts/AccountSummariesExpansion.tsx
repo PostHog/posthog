@@ -2,10 +2,12 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { LemonDropdown, LemonSelect, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
+import { LemonDropdown, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
-import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 
@@ -15,13 +17,9 @@ import {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountSummariesLogic, NOT_LOADED, SUMMARIES_PAGE_SIZE } from './accountSummariesLogic'
+import { AccountSummaryCadencePicker } from './AccountSummaryCadencePicker'
 
-const CADENCE_OPTIONS: { value: SlackSummaryCadenceEnumApi | null; label: string }[] = [
-    { value: null, label: 'Off' },
-    { value: SlackSummaryCadenceEnumApi.Daily, label: 'Daily' },
-    { value: SlackSummaryCadenceEnumApi.Weekly, label: 'Weekly' },
-    { value: SlackSummaryCadenceEnumApi.Monthly, label: 'Monthly' },
-]
+const HedgehogBusiness = pngHoggie(businessEvolutionPng)
 
 function SummariesEmptyState({
     title,
@@ -34,7 +32,7 @@ function SummariesEmptyState({
 }): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
-            <BigLeaguesHog className="w-24 h-24" />
+            <HedgehogBusiness className="w-24 h-24" />
             <h4 className="mb-0">{title}</h4>
             <p className="text-secondary max-w-sm mb-0">{detail}</p>
             {children}
@@ -42,25 +40,21 @@ function SummariesEmptyState({
     )
 }
 
-function CadencePicker({ accountId }: { accountId: string }): JSX.Element {
-    const { summariesResult, cadenceSaving } = useValues(accountSummariesLogic({ accountId }))
-    const { setCadence } = useActions(accountSummariesLogic({ accountId }))
-    return (
-        <LemonSelect<SlackSummaryCadenceEnumApi | null>
-            size="small"
-            value={summariesResult.cadence}
-            options={CADENCE_OPTIONS}
-            onChange={(value) => setCadence(value)}
-            disabledReason={cadenceSaving ? 'Saving…' : undefined}
-            data-attr="account-summary-cadence-picker"
-        />
-    )
+function backfillDescription(cadence: SlackSummaryCadenceEnumApi | null): string {
+    if (cadence === SlackSummaryCadenceEnumApi.Daily) {
+        return 'Summarizing the last 7 days, one summary per day.'
+    }
+    return cadence === SlackSummaryCadenceEnumApi.Monthly ? 'Summarizing last month.' : 'Summarizing last week.'
 }
 
-function periodLabel(summary: AccountChannelSummaryApi): string {
+export function periodLabel(summary: AccountChannelSummaryApi): string {
     const start = summary.period_start.slice(0, 10)
-    // period_end is exclusive; a daily summary covers a single day.
-    return summary.cadence === 'daily' ? start : `${start} to ${summary.period_end.slice(0, 10)}`
+    // Span, not cadence: an opt-in backfill writes a trailing window under whichever cadence was picked.
+    if (dayjs(summary.period_end).diff(summary.period_start, 'day') <= 1) {
+        // period_end is exclusive, so a single day's end already reads as the next date.
+        return start
+    }
+    return `${start} to ${summary.period_end.slice(0, 10)}`
 }
 
 function MessageCountBadge({ summary }: { summary: AccountChannelSummaryApi }): JSX.Element {
@@ -136,7 +130,7 @@ function SummaryCard({
 }
 
 export function AccountSummariesExpansion({ accountId }: { accountId: string }): JSX.Element {
-    const { summariesResult, summariesResultLoading, page, expandedSummaryIds } = useValues(
+    const { summariesResult, summariesResultLoading, page, expandedSummaryIds, generatingFirstSummary } = useValues(
         accountSummariesLogic({ accountId })
     )
     const { loadSummariesPage, toggleSummaryExpanded } = useActions(accountSummariesLogic({ accountId }))
@@ -166,6 +160,21 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
     }
 
     if (!summaries || summaries.length === 0) {
+        if (generatingFirstSummary) {
+            return (
+                <SummariesEmptyState
+                    title={
+                        cadence === SlackSummaryCadenceEnumApi.Daily
+                            ? 'Generating your first summaries'
+                            : 'Generating your first summary'
+                    }
+                    detail={`${backfillDescription(cadence)} This usually takes a minute.`}
+                >
+                    <Spinner className="text-xl" />
+                    <AccountSummaryCadencePicker accountId={accountId} />
+                </SummariesEmptyState>
+            )
+        }
         return (
             <SummariesEmptyState
                 title={cadence ? 'No summaries yet' : 'Summaries are off'}
@@ -175,7 +184,7 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
                         : "Get periodic AI summaries of this account's Slack channel, citing the original messages. Pick a cadence to turn them on."
                 }
             >
-                <CadencePicker accountId={accountId} />
+                <AccountSummaryCadencePicker accountId={accountId} />
             </SummariesEmptyState>
         )
     }
@@ -183,10 +192,17 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
     return (
         <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
-                <h4 className="mb-0">Channel summaries</h4>
+                <div className="flex items-center gap-2">
+                    <h4 className="mb-0">Channel summaries</h4>
+                    {generatingFirstSummary && (
+                        <span className="text-muted text-sm flex items-center gap-1">
+                            <Spinner /> Generating more
+                        </span>
+                    )}
+                </div>
                 <div className="flex items-center gap-2">
                     <span className="text-muted text-sm">Cadence</span>
-                    <CadencePicker accountId={accountId} />
+                    <AccountSummaryCadencePicker accountId={accountId} />
                 </div>
             </div>
             {summaries.map((summary) => (

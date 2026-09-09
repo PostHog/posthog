@@ -3,6 +3,7 @@ import { actionToUrl } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { buildTeamScopedPersistenceConfig } from 'lib/logic/persistence'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils/dateFilters'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
@@ -47,6 +48,7 @@ import {
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     findSchemaByFieldName,
     generateUniqueName,
+    sanitizeIntegrationFilter,
     validColumnsForTiles,
 } from './utils'
 
@@ -68,7 +70,34 @@ export type NativeSourceHierarchyStatus = {
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
     ATTRIBUTION = 'attribution',
+    RETENTION = 'retention',
+    // Still the tab key when Setup's flag is off, which is everywhere until it rolls
+    // out. Removing it would change the URL and the header copy for every user of the
+    // audit — which is fully rolled out — for no gain.
     INTEGRATION_HEALTH = 'integration-health',
+    SETUP = 'setup',
+}
+
+/** Section within the Setup tab, synced to `?section=`. Declared here rather than
+ * alongside the components so the logic doesn't import from the scene, which imports
+ * the logic back. */
+export enum SetupSection {
+    SUGGESTIONS = 'suggestions',
+    SOURCES = 'sources',
+    CONVERSION_GOALS = 'conversion-goals',
+    UTM_MAPPING = 'utm-mapping',
+    INTEGRATION_HEALTH = 'integration-health',
+    ATTRIBUTION = 'attribution',
+    GENERAL = 'general',
+}
+
+export const DEFAULT_SETUP_SECTION = SetupSection.SUGGESTIONS
+
+/** Where a tab key lands once Setup absorbs it. Applied by the scene, which is what
+ * knows whether Setup is rendering — with its flag off `integration-health` is still a
+ * real tab and resolves on its own. */
+export const SETUP_ABSORBED_TABS: Partial<Record<MarketingAnalyticsTab, SetupSection>> = {
+    [MarketingAnalyticsTab.INTEGRATION_HEALTH]: SetupSection.INTEGRATION_HEALTH,
 }
 
 const EXTENDED_DRILL_DOWN_LEVELS = new Set<MarketingAnalyticsDrillDownLevel>([
@@ -205,9 +234,6 @@ export interface DateFilterState extends DateRange {
     interval: IntervalType
 }
 
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const persistConfig = { persist: true, prefix: `${teamId}__` }
-
 const INITIAL_DATE_FROM = '-7d' as string | null
 const INITIAL_DATE_TO = null as string | null
 const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
@@ -216,12 +242,14 @@ const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 export interface marketingAnalyticsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     conversion_goals: ConversionGoalFilter[] // marketingAnalyticsSettingsLogic
+    filter_test_accounts: boolean // marketingAnalyticsSettingsLogic
     sources_map: Record<string, SourceMap> // marketingAnalyticsSettingsLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
     dataWarehouseSourcesLoading: boolean // sourceManagementLogic
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // sourceManagementLogic
     baseCurrency: CurrencyCode // teamLogic
     _drillDownLevel: MarketingAnalyticsDrillDownLevel
+    _integrationFilter: IntegrationFilter
     activeTab: MarketingAnalyticsTab
     allAvailableSources: {
         id: string
@@ -280,7 +308,10 @@ export interface marketingAnalyticsLogicValues {
     loading: boolean
     nativeSources: ExternalDataSource[]
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
+    optionsOpen: boolean
     overviewQuery: MarketingAnalyticsAggregatedQuery
+    setupSection: SetupSection
+    shouldFilterTestAccounts: boolean
     tileColumnSelection: validColumnsForTiles
     uniqueConversionGoalName: string
     validExternalTables: ExternalTable[]
@@ -296,14 +327,19 @@ export interface marketingAnalyticsLogicActions {
     addOrUpdateConversionGoal: (conversionGoal: ConversionGoalFilter) => {
         conversionGoal: ConversionGoalFilter
     } // marketingAnalyticsSettingsLogic
+    updateFilterTestAccounts: (filterTestAccounts: boolean) => {
+        filterTestAccounts: boolean
+    } // marketingAnalyticsSettingsLogic
     loadDatabase: (
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // sourceManagementLogic
     loadSources: () => {
         value: true
@@ -404,6 +440,12 @@ export interface marketingAnalyticsLogicActions {
     setIntegrationFilter: (integrationFilter: IntegrationFilter) => {
         integrationFilter: IntegrationFilter
     }
+    setOptionsOpen: (optionsOpen: boolean) => {
+        optionsOpen: boolean
+    }
+    setSetupSection: (section: SetupSection) => {
+        section: SetupSection
+    }
     setTileColumnSelection: (column: validColumnsForTiles) => {
         column: validColumnsForTiles
     }
@@ -420,6 +462,7 @@ export interface marketingAnalyticsLogicActions {
         dateFrom?: string | null
         dateTo?: string | null
         drillDownLevel?: MarketingAnalyticsDrillDownLevel
+        includeNonIntegrated?: boolean
         integrationSourceIds?: string[]
         interval?: IntervalType
         tileColumnSelection?: string
@@ -431,6 +474,7 @@ export interface marketingAnalyticsLogicActions {
             dateFrom?: string | null | undefined
             dateTo?: string | null | undefined
             drillDownLevel?: MarketingAnalyticsDrillDownLevel | undefined
+            includeNonIntegrated?: boolean | undefined
             integrationSourceIds?: string[] | undefined
             interval?: IntervalType | undefined
             tileColumnSelection?: string | undefined
@@ -441,6 +485,7 @@ export interface marketingAnalyticsLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface marketingAnalyticsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        integrationFilter: (_integrationFilter: IntegrationFilter) => IntegrationFilter
         drillDownLevel: (
             _drillDownLevel: MarketingAnalyticsDrillDownLevel,
             featureFlags: FeatureFlagsSet
@@ -536,6 +581,7 @@ export interface marketingAnalyticsLogicMeta {
             tileColumnSelection: validColumnsForTiles,
             integrationFilter: IntegrationFilter
         ) => DataWarehouseNode[]
+        shouldFilterTestAccounts: (filter_test_accounts: boolean) => boolean
         overviewQuery: (
             dateFilter: {
                 dateFrom: string | null
@@ -544,7 +590,8 @@ export interface marketingAnalyticsLogicMeta {
             },
             compareFilter: CompareFilter,
             draftConversionGoal: ConversionGoalFilter | null,
-            integrationFilter: IntegrationFilter
+            integrationFilter: IntegrationFilter,
+            shouldFilterTestAccounts: boolean
         ) => MarketingAnalyticsAggregatedQuery
     }
 }
@@ -563,7 +610,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             teamLogic,
             ['baseCurrency'],
             marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals'],
+            ['sources_map', 'conversion_goals', 'filter_test_accounts'],
             sourceManagementLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
             featureFlagLogic,
@@ -575,13 +622,14 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
-            ['addOrUpdateConversionGoal'],
+            ['addOrUpdateConversionGoal', 'updateFilterTestAccounts'],
             teamLogic,
             ['addProductIntent'],
         ],
     })),
     actions({
         setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
+        setSetupSection: (section: SetupSection) => ({ section }),
 
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
@@ -602,6 +650,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             interval,
         }),
         setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
+        setOptionsOpen: (optionsOpen: boolean) => ({ optionsOpen }),
         // Internal action for URL sync - updates state without triggering actionToUrl
         syncFromUrl: (params: {
             dateFrom?: string | null
@@ -610,6 +659,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             compare?: boolean
             compare_to?: string
             integrationSourceIds?: string[]
+            includeNonIntegrated?: boolean
             chartDisplayType?: ChartDisplayType
             tileColumnSelection?: string
             drillDownLevel?: MarketingAnalyticsDrillDownLevel
@@ -623,163 +673,192 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setDrillDownLevel: (level: MarketingAnalyticsDrillDownLevel) => ({ level }),
         setInitialized: true,
     }),
-    reducers({
-        activeTab: [
-            MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
-            {
-                setActiveTab: (_, { tab }) => tab,
-            },
-        ],
-        initialized: [
-            false,
-            {
-                setInitialized: () => true,
-            },
-        ],
-        draftConversionGoal: [
-            null as ConversionGoalFilter | null,
-            {
-                setDraftConversionGoal: (_, { goal }) => goal,
-            },
-        ],
-        conversionGoalInput: [
-            {
-                ...defaultConversionGoalFilter,
-                conversion_goal_id: uuid(),
-                conversion_goal_name: '',
-            } as ConversionGoalFilter,
-            {
-                setConversionGoalInput: (_, { goal }) => goal,
-            },
-        ],
-        compareFilter: [
-            { compare: true } as CompareFilter,
-            persistConfig,
-            {
-                setCompareFilter: (_, { compareFilter }) => compareFilter,
-                syncFromUrl: (state, { params }) => {
-                    if (params.compare === undefined && params.compare_to === undefined) {
-                        return state
-                    }
-                    return {
-                        ...state,
-                        ...(params.compare !== undefined ? { compare: params.compare } : {}),
-                        ...(params.compare_to !== undefined ? { compare_to: params.compare_to } : {}),
-                    }
+    reducers(() => {
+        const persistConfig = buildTeamScopedPersistenceConfig()
+
+        return {
+            activeTab: [
+                MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
+                {
+                    setActiveTab: (_, { tab }) => tab,
                 },
-            },
-        ],
-        integrationFilter: [
-            { integrationSourceIds: [] } as IntegrationFilter,
-            persistConfig,
-            {
-                setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
-                syncFromUrl: (state, { params }) =>
-                    params.integrationSourceIds ? { integrationSourceIds: params.integrationSourceIds } : state,
-            },
-        ],
-        dateFilter: [
-            {
-                dateFrom: INITIAL_DATE_FROM,
-                dateTo: INITIAL_DATE_TO,
-                interval: INITIAL_INTERVAL,
-            },
-            persistConfig,
-            {
-                setDates: (_, { dateFrom, dateTo }) => {
-                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
-                        dateFrom = INITIAL_DATE_FROM
-                    }
-                    return {
-                        dateFrom,
-                        dateTo,
-                        interval: getDefaultInterval(dateFrom, dateTo),
-                    }
+            ],
+            setupSection: [
+                DEFAULT_SETUP_SECTION as SetupSection,
+                {
+                    setSetupSection: (_, { section }) => section,
                 },
-                setDateInterval: (state, { interval }) => {
-                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, state.dateFrom, state.dateTo)
-                    return {
-                        dateFrom,
-                        dateTo,
-                        interval,
-                    }
+            ],
+            initialized: [
+                false,
+                {
+                    setInitialized: () => true,
                 },
-                setDatesAndInterval: (_, { dateFrom, dateTo, interval }) => {
-                    if (!dateFrom && !dateTo) {
-                        dateFrom = INITIAL_DATE_FROM
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
-                        dateFrom = INITIAL_DATE_FROM
-                    }
-                    return {
-                        dateFrom,
-                        dateTo,
-                        interval: interval || getDefaultInterval(dateFrom, dateTo),
-                    }
+            ],
+            draftConversionGoal: [
+                null as ConversionGoalFilter | null,
+                {
+                    setDraftConversionGoal: (_, { goal }) => goal,
                 },
-                syncFromUrl: (state, { params }) => {
-                    if (params.dateFrom === undefined && params.dateTo === undefined && params.interval === undefined) {
-                        return state
-                    }
-                    const dateFrom = params.dateFrom ?? state.dateFrom
-                    const dateTo = params.dateTo ?? state.dateTo
-                    const interval = params.interval ?? state.interval
-                    return { dateFrom, dateTo, interval }
+            ],
+            conversionGoalInput: [
+                {
+                    ...defaultConversionGoalFilter,
+                    conversion_goal_id: uuid(),
+                    conversion_goal_name: '',
+                } as ConversionGoalFilter,
+                {
+                    setConversionGoalInput: (_, { goal }) => goal,
                 },
-            },
-        ],
-        columnConfigModalVisible: [
-            false,
-            {
-                showColumnConfigModal: () => true,
-                hideColumnConfigModal: () => false,
-            },
-        ],
-        conversionGoalModalVisible: [
-            false,
-            {
-                showConversionGoalModal: () => true,
-                hideConversionGoalModal: () => false,
-            },
-        ],
-        chartDisplayType: [
-            ChartDisplayType.ActionsAreaGraph as ChartDisplayType,
-            persistConfig,
-            {
-                setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
-                syncFromUrl: (state, { params }) =>
-                    params.chartDisplayType !== undefined ? params.chartDisplayType : state,
-            },
-        ],
-        tileColumnSelection: [
-            MarketingAnalyticsColumnsSchemaNames.Cost as validColumnsForTiles,
-            persistConfig,
-            {
-                setTileColumnSelection: (_, { column }) => column,
-                syncFromUrl: (state, { params }) =>
-                    params.tileColumnSelection !== undefined
-                        ? (params.tileColumnSelection as validColumnsForTiles)
-                        : state,
-            },
-        ],
-        _drillDownLevel: [
-            MarketingAnalyticsDrillDownLevel.Campaign as MarketingAnalyticsDrillDownLevel,
-            persistConfig,
-            {
-                setDrillDownLevel: (_, { level }) => level,
-                syncFromUrl: (state, { params }) =>
-                    params.drillDownLevel !== undefined ? params.drillDownLevel : state,
-            },
-        ],
+            ],
+            compareFilter: [
+                { compare: true } as CompareFilter,
+                persistConfig,
+                {
+                    setCompareFilter: (_, { compareFilter }) => compareFilter,
+                    syncFromUrl: (state, { params }) => {
+                        if (params.compare === undefined && params.compare_to === undefined) {
+                            return state
+                        }
+                        return {
+                            ...state,
+                            ...(params.compare !== undefined ? { compare: params.compare } : {}),
+                            ...(params.compare_to !== undefined ? { compare_to: params.compare_to } : {}),
+                        }
+                    },
+                },
+            ],
+            optionsOpen: [false as boolean, { setOptionsOpen: (_, { optionsOpen }) => optionsOpen }],
+            _integrationFilter: [
+                { integrationSourceIds: [] } as IntegrationFilter,
+                // pinned: localStorage key. Kea derives it from the reducer name, so the rename above
+                // would otherwise point it at a fresh key. That resets a selection someone already made,
+                // and strands the unreadable value under the old key for a rollback to find again.
+                { ...persistConfig, storageKey: 'scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter' },
+                {
+                    setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
+                    syncFromUrl: (state, { params }) => {
+                        if (!params.integrationSourceIds && params.includeNonIntegrated === undefined) {
+                            return state
+                        }
+                        return {
+                            integrationSourceIds: params.integrationSourceIds ?? state.integrationSourceIds,
+                            includeNonIntegrated: params.includeNonIntegrated ?? state.includeNonIntegrated,
+                        }
+                    },
+                },
+            ],
+            dateFilter: [
+                {
+                    dateFrom: INITIAL_DATE_FROM,
+                    dateTo: INITIAL_DATE_TO,
+                    interval: INITIAL_INTERVAL,
+                },
+                persistConfig,
+                {
+                    setDates: (_, { dateFrom, dateTo }) => {
+                        if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                            dateFrom = INITIAL_DATE_FROM
+                        }
+                        return {
+                            dateFrom,
+                            dateTo,
+                            interval: getDefaultInterval(dateFrom, dateTo),
+                        }
+                    },
+                    setDateInterval: (state, { interval }) => {
+                        const { dateFrom, dateTo } = updateDatesWithInterval(interval, state.dateFrom, state.dateTo)
+                        return {
+                            dateFrom,
+                            dateTo,
+                            interval,
+                        }
+                    },
+                    setDatesAndInterval: (_, { dateFrom, dateTo, interval }) => {
+                        if (!dateFrom && !dateTo) {
+                            dateFrom = INITIAL_DATE_FROM
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                            dateFrom = INITIAL_DATE_FROM
+                        }
+                        return {
+                            dateFrom,
+                            dateTo,
+                            interval: interval || getDefaultInterval(dateFrom, dateTo),
+                        }
+                    },
+                    syncFromUrl: (state, { params }) => {
+                        if (
+                            params.dateFrom === undefined &&
+                            params.dateTo === undefined &&
+                            params.interval === undefined
+                        ) {
+                            return state
+                        }
+                        const dateFrom = params.dateFrom ?? state.dateFrom
+                        const dateTo = params.dateTo ?? state.dateTo
+                        const interval = params.interval ?? state.interval
+                        return { dateFrom, dateTo, interval }
+                    },
+                },
+            ],
+            columnConfigModalVisible: [
+                false,
+                {
+                    showColumnConfigModal: () => true,
+                    hideColumnConfigModal: () => false,
+                },
+            ],
+            conversionGoalModalVisible: [
+                false,
+                {
+                    showConversionGoalModal: () => true,
+                    hideConversionGoalModal: () => false,
+                },
+            ],
+            chartDisplayType: [
+                ChartDisplayType.ActionsAreaGraph as ChartDisplayType,
+                persistConfig,
+                {
+                    setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
+                    syncFromUrl: (state, { params }) =>
+                        params.chartDisplayType !== undefined ? params.chartDisplayType : state,
+                },
+            ],
+            tileColumnSelection: [
+                MarketingAnalyticsColumnsSchemaNames.Cost as validColumnsForTiles,
+                persistConfig,
+                {
+                    setTileColumnSelection: (_, { column }) => column,
+                    syncFromUrl: (state, { params }) =>
+                        params.tileColumnSelection !== undefined
+                            ? (params.tileColumnSelection as validColumnsForTiles)
+                            : state,
+                },
+            ],
+            _drillDownLevel: [
+                MarketingAnalyticsDrillDownLevel.Campaign as MarketingAnalyticsDrillDownLevel,
+                persistConfig,
+                {
+                    setDrillDownLevel: (_, { level }) => level,
+                    syncFromUrl: (state, { params }) =>
+                        params.drillDownLevel !== undefined ? params.drillDownLevel : state,
+                },
+            ],
+        }
     }),
     selectors({
+        integrationFilter: [
+            (s) => [s._integrationFilter],
+            (stored: IntegrationFilter): IntegrationFilter => sanitizeIntegrationFilter(stored),
+        ],
         drillDownLevel: [
             (s) => [s._drillDownLevel, s.featureFlags],
             (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
@@ -1178,8 +1257,18 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return [...nativeNodeList, ...nonNativeNodeList]
             },
         ],
+        shouldFilterTestAccounts: [
+            (s) => [s.filter_test_accounts],
+            (filter_test_accounts: boolean): boolean => filter_test_accounts,
+        ],
         overviewQuery: [
-            (s) => [s.dateFilter, s.compareFilter, s.draftConversionGoal, s.integrationFilter],
+            (s) => [
+                s.dateFilter,
+                s.compareFilter,
+                s.draftConversionGoal,
+                s.integrationFilter,
+                s.shouldFilterTestAccounts,
+            ],
             (
                 dateFilter: {
                     dateFrom: string | null
@@ -1188,7 +1277,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
                 compareFilter: CompareFilter,
                 draftConversionGoal: ConversionGoalFilter | null,
-                integrationFilter: IntegrationFilter
+                integrationFilter: IntegrationFilter,
+                shouldFilterTestAccounts: boolean
             ): MarketingAnalyticsAggregatedQuery => ({
                 kind: NodeKind.MarketingAnalyticsAggregatedQuery,
                 dateRange: {
@@ -1197,6 +1287,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
                 compareFilter,
                 properties: [],
+                filterTestAccounts: shouldFilterTestAccounts,
                 draftConversionGoal: draftConversionGoal || undefined,
                 integrationFilter,
             }),
@@ -1209,6 +1300,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             // Tab
             if (values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD) {
                 searchParams.set('tab', values.activeTab)
+            }
+
+            // Section is meaningless outside Setup, and the default is implied.
+            if (values.activeTab === MarketingAnalyticsTab.SETUP && values.setupSection !== DEFAULT_SETUP_SECTION) {
+                searchParams.set('section', values.setupSection)
             }
 
             // Date filters
@@ -1234,6 +1330,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             if (values.integrationFilter?.integrationSourceIds?.length) {
                 searchParams.set('integration_sources', values.integrationFilter.integrationSourceIds.join(','))
             }
+            // Only the cleared state travels: absent means included, which is the default.
+            if (values.integrationFilter?.includeNonIntegrated === false) {
+                searchParams.set('include_non_integrated', 'false')
+            }
 
             // Chart display type
             if (values.chartDisplayType) {
@@ -1255,6 +1355,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
         return {
             setActiveTab: buildUrl,
+            setSetupSection: buildUrl,
             setDates: buildUrl,
             setDateInterval: buildUrl,
             setDatesAndInterval: buildUrl,
@@ -1368,9 +1469,14 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const searchParams = new URLSearchParams(window.location.search)
         const params: Parameters<typeof actions.syncFromUrl>[0] = {}
 
-        const tab = searchParams.get('tab') as MarketingAnalyticsTab | null
-        if (tab && Object.values(MarketingAnalyticsTab).includes(tab)) {
-            actions.setActiveTab(tab)
+        const rawTab = searchParams.get('tab')
+        if (rawTab && Object.values(MarketingAnalyticsTab).includes(rawTab as MarketingAnalyticsTab)) {
+            actions.setActiveTab(rawTab as MarketingAnalyticsTab)
+        }
+
+        const section = searchParams.get('section') as SetupSection | null
+        if (section && Object.values(SetupSection).includes(section)) {
+            actions.setSetupSection(section)
         }
 
         const dateFrom = searchParams.get('date_from')
@@ -1396,6 +1502,9 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const integrationSources = searchParams.get('integration_sources')
         if (integrationSources) {
             params.integrationSourceIds = integrationSources.split(',').filter(Boolean)
+        }
+        if (searchParams.get('include_non_integrated') === 'false') {
+            params.includeNonIntegrated = false
         }
         const chartDisplayType = searchParams.get('chart_display_type') as ChartDisplayType | null
         if (chartDisplayType && Object.values(ChartDisplayType).includes(chartDisplayType)) {

@@ -1,5 +1,5 @@
+import { applyCspToHtml } from "@posthog/core/mcp-apps/csp";
 import { getImageMimeType, isAllowedImageMimeType } from "@posthog/shared";
-import { applyCspToHtml } from "../../mcp-apps/utils/mcp-app-csp";
 import { injectArtifactHtmlCommentBridge } from "./artifactHtmlCommentBridge";
 import type { CommentSurfaceTheme } from "./selectionCommentAction";
 

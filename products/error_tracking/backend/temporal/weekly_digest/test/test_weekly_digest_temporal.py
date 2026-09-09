@@ -24,6 +24,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.messaging import MessagingRecord
 from posthog.models.utils import uuid7
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -52,9 +53,8 @@ from products.error_tracking.backend.temporal.weekly_digest.workflow import (
 from products.error_tracking.backend.weekly_digest import build_team_digest_data
 
 from ee.clickhouse.materialized_columns.columns import materialize
-from ee.models.rbac.access_control import AccessControl
 
-_WEBHOOK_POST = "products.error_tracking.backend.weekly_digest.requests.post"
+_WEBHOOK_POST = "products.error_tracking.backend.weekly_digest_delivery.requests.post"
 _BUILD_TEAM_DIGEST_DATA = "products.error_tracking.backend.weekly_digest.build_team_digest_data"
 _IS_CLOUD = "products.error_tracking.backend.temporal.weekly_digest.activities.is_cloud"
 _OBJECT_STORAGE = "products.error_tracking.backend.temporal.weekly_digest.activities.object_storage"
@@ -137,6 +137,11 @@ class TestLoadPageOrgs(SimpleTestCase):
 
 
 # send_digest_to_workflow refuses to send outside Cloud, so the send path needs cloud mode.
+# The fallback and final-attempt branches are defined relative to max_attempts, so the cases
+# below have to move with it rather than hardcode the attempt numbers of one particular budget.
+_MAX_ATTEMPTS = SendOrgDigestInputs(org_id="").max_attempts
+
+
 @override_settings(CLOUD_DEPLOYMENT="US")
 class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
     @classmethod
@@ -404,7 +409,7 @@ class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
             # Final attempt (attempt == max_attempts): fall back to delivering the healthy teams rather
             # than starving the recipient of a digest entirely. The activity still raises for visibility.
             with pytest.raises(ApplicationError, match="team builds") as exc_info:
-                self._run(attempt=6)
+                self._run(attempt=_MAX_ATTEMPTS)
 
         assert mock_post.call_count == 1
         sections = mock_post.call_args.kwargs["json"]["digest"]["project_sections"]
@@ -414,9 +419,9 @@ class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("before_last_two_attempts_no_fallback", 4, 0),
-            ("second_to_last_attempt_falls_back", 5, 1),
-            ("final_attempt_falls_back", 6, 1),
+            ("before_last_two_attempts_no_fallback", _MAX_ATTEMPTS - 2, 0),
+            ("second_to_last_attempt_falls_back", _MAX_ATTEMPTS - 1, 1),
+            ("final_attempt_falls_back", _MAX_ATTEMPTS, 1),
         ]
     )
     def test_broken_test_account_filter_falls_back_to_unfiltered_on_last_two_attempts(

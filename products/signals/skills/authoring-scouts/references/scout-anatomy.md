@@ -14,9 +14,11 @@ Keep the body lean and push depth into references — every line of the body is 
 
 ## Naming
 
-The skill name **must** match `signals-scout-<scope>` — the harness discovers scouts by globbing `signals-scout-*`.
-`<scope>` is lowercase kebab-case naming the surface or question the scout watches: `signals-scout-error-tracking`, `signals-scout-checkout-funnel`, `signals-scout-mcp-feedback`.
-A skill named anything else is just a normal skill and never runs as a scout.
+Any valid skill name works: lowercase letters, numbers, and hyphens.
+The `SignalScoutConfig` row is what makes a skill a scout.
+Name it in lowercase kebab-case after the surface or question the scout watches: `error-tracking`, `checkout-funnel`, `mcp-feedback`.
+The canonical fleet keeps the `signals-scout-` prefix, and a per-team scout can use it too.
+The prefix only controls whether the coordinator auto-registers a config for a skill that has none, so a scout named anything else comes in through `scout-create-prepare` / `-execute`, which writes the skill and its config in one call.
 
 ## Frontmatter
 
@@ -57,6 +59,7 @@ A sentence or two that names the surface and the shapes is the whole job.
 ## Body structure
 
 The canonical body is a workflow, not a script — it reads like how an experienced analyst would approach the surface, and trusts the agent to adapt.
+(One variant departs from it: a **recurring measurement / LLM-judge scout** on the structured-output channel replaces the discriminator + Decide sections with a rubric and a sample → judge → record loop — see that pattern in [`scout-patterns.md`](scout-patterns.md); orient and memory stay the same, and so does close-out — except its quick early-exit fires only on an empty eligible population, never at a steady baseline, since the scout samples and records every verdict (the unremarkable ones are the denominator) on any run with items to judge.)
 The fleet's specialists all share this shape:
 
 1. **Identity + discriminator (the most important lines).** One sentence on what the scout is, then **name the signal-vs-noise discriminator explicitly** and tell the agent to internalize it.

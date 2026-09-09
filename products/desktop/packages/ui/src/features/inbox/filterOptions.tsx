@@ -26,7 +26,7 @@ export type InboxSortField = Extract<
   "priority" | "created_at" | "total_weight"
 >;
 
-export type InboxSortOption = {
+type InboxSortOption = {
   label: string;
   field: InboxSortField;
   direction: "asc" | "desc";
@@ -71,14 +71,16 @@ export const INBOX_PRIORITY_OPTIONS: {
   { value: "P4", accent: "var(--gray-9)" },
 ];
 
-export const INBOX_SOURCE_OPTIONS: {
+export type InboxSourceOption = {
   value: SourceProduct;
   label: string;
   icon: ReactNode;
-}[] = [
+};
+
+export const INBOX_SOURCE_OPTIONS: InboxSourceOption[] = [
   {
-    value: "session_replay",
-    label: "Session replay",
+    value: "replay_vision",
+    label: "Replay Vision",
     icon: <VideoIcon size={14} />,
   },
   {

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { PaginationAuto, PaginationManual, PaginationState } from './types'
 
@@ -14,12 +14,15 @@ export function usePagination<T>(
 
     const { location, searchParams, hashParams } = useValues(router)
     const { push } = useActions(router)
+    const [localCurrentPage, setLocalCurrentPage] = useState(1)
 
-    const syncPageToUrl = !(pagination?.controlled && pagination.useUrl === false)
+    const syncPageToUrl = pagination?.useUrl !== false
     const setCurrentPage = useCallback(
         (newPage: number) => {
             if (syncPageToUrl) {
                 push(location.pathname, { ...searchParams, [currentPageParam]: newPage }, hashParams)
+            } else {
+                setLocalCurrentPage(newPage)
             }
         },
         [location, searchParams, hashParams, push, syncPageToUrl] // oxlint-disable-line react-hooks/exhaustive-deps
@@ -30,7 +33,10 @@ export function usePagination<T>(
         entryCount && (pagination ? (pagination.pageSize ? Math.ceil(entryCount / pagination.pageSize) : 1) : null)
     const currentPage: number | null = pagination?.controlled
         ? pagination.currentPage || null
-        : Math.min(parseInt(searchParams[currentPageParam]) || 1, pageCount as number)
+        : Math.min(
+              syncPageToUrl ? parseInt(searchParams[currentPageParam]) || 1 : localCurrentPage,
+              pageCount as number
+          )
 
     const { dataSourcePage, currentStartIndex, currentEndIndex } = useMemo(() => {
         const calculatedStartIndex =

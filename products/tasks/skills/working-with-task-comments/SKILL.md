@@ -4,7 +4,7 @@ description: >-
   Read and use comments attached to the current PostHog task, its artifacts, and its canvases through
   the PostHog MCP exec dispatcher. Use when the user mentions task comments, artifact or canvas
   comments, annotations, selected-text feedback, replies, unresolved comments, or asks an agent to
-  inspect or act on feedback left in PostHog Code. Covers exec discovery and calls, target filtering,
+  inspect or act on feedback left in PostHog Desktop. Covers exec discovery and calls, target filtering,
   pagination, full-thread retrieval, anchor/version context, and task-scoped access.
 ---
 
@@ -34,7 +34,7 @@ The expected inner tools are:
 
 If the client exposes no tool corresponding to canonical `posthog:exec`, the PostHog MCP server is
 unavailable in the run. If `exec search` returns none of these names, the current connection lacks
-the required PostHog Code task context. Only then report that task comments cannot be accessed.
+the required PostHog Desktop task context. Only then report that task comments cannot be accessed.
 
 Use `info <inner-tool-name>` when the schema is unclear. For example:
 

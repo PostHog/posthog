@@ -22,6 +22,8 @@ _LAZY = {
     "CDCRepairError": "cdc.repair",
     "CDCRepairInProgress": "cdc.repair",
     "repair_cdc_source": "cdc.repair",
+    "purge_buffer_prefix": "cdc.buffer",
+    "ClickHouseConnectionError": "sources.clickhouse.clickhouse",
     "ClickHouseSource": "sources.clickhouse.source",
     "AnySource": "sources.common.base",
     "ExternalWebhookInfo": "sources.common.base",
@@ -57,6 +59,10 @@ _LAZY = {
     "CustomSourceConfig": "sources.generated_configs.custom",
     "GithubSource": "sources.github.source",
     "GithubSourceConfig": "sources.generated_configs.github",
+    "MotherDuckConnectionError": "sources.motherduck.motherduck",
+    "MotherduckSource": "sources.motherduck.source",
+    "MotherduckSourceConfig": "sources.generated_configs.motherduck",
+    "translate_motherduck_error": "sources.motherduck.motherduck",
     "MySQLSourceConfig": "sources.generated_configs.mysql",
     "PostgresSourceConfig": "sources.generated_configs.postgres",
     "SnowflakeSourceConfig": "sources.generated_configs.snowflake",
@@ -70,10 +76,13 @@ _LAZY = {
     "SSL_REQUIRED_AFTER_DATE": "sources.postgres.postgres",
     "_get_sslmode": "sources.postgres.postgres",
     "get_primary_key_columns": "sources.postgres.postgres",
+    "new_source_requires_ssl": "sources.postgres.postgres",
     "source_requires_ssl": "sources.postgres.postgres",
     "PostgresSource": "sources.postgres.source",
     "RedshiftSource": "sources.redshift.source",
     "SnowflakeSource": "sources.snowflake.source",
+    "connect_trino": "sources.trino.trino",
+    "trino_error_to_message": "sources.trino.trino",
 }
 
 __all__ = sorted(_LAZY)

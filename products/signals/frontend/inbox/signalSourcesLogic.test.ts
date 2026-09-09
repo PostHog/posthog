@@ -1,6 +1,9 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -55,6 +58,14 @@ const githubIssuesConfig = {
     created_at: '2026-07-27T00:00:00Z',
     updated_at: '2026-07-27T00:00:00Z',
     status: null,
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolvePromise!: (value: T) => void
+    const promise = new Promise<T>((resolve) => {
+        resolvePromise = resolve
+    })
+    return { promise, resolve: resolvePromise }
 }
 
 describe('signalSourcesLogic', () => {
@@ -118,6 +129,36 @@ describe('signalSourcesLogic', () => {
         expect(logic.values.dataSourceSetupSource).toBe(setup)
     })
 
+    it('carries the card guidance onto an error tracking signal type turned on later', async () => {
+        // Error tracking is one guidance box over three rows. A row created after the guidance was
+        // written would otherwise start empty, so that one trigger would report everything while the
+        // card still reads as steered.
+        const steeredRow = (sourceType: SignalSourceType): any => ({
+            ...githubIssuesConfig,
+            id: `config-${sourceType}`,
+            source_product: SignalSourceProduct.ErrorTracking,
+            source_type: sourceType,
+            config: { steering: 'Ignore errors from localhost.' },
+        })
+        const create = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig as any)
+        logic.actions.loadSourceConfigsSuccess([
+            steeredRow(SignalSourceType.IssueCreated),
+            steeredRow(SignalSourceType.IssueReopened),
+        ])
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleErrorTrackingType(SignalSourceType.IssueSpiking)
+        }).toDispatchActions(['loadSourceConfigs'])
+
+        expect(create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                source_type: SignalSourceType.IssueSpiking,
+                config: { steering: 'Ignore errors from localhost.' },
+            })
+        )
+        create.mockRestore()
+    })
+
     it('keeps an enabled source enabled when its config loads during the source lookup', async () => {
         let resolveSources!: (sources: Awaited<ReturnType<typeof api.externalDataSources.list>>) => void
         const sourcesPromise = new Promise<Awaited<ReturnType<typeof api.externalDataSources.list>>>((resolve) => {
@@ -169,7 +210,7 @@ describe('signalSourcesLogic', () => {
         expect(logic.values.isGithubIssuesToggling).toBe(false)
     })
 
-    it('creates an AI observability config for evaluation reports', async () => {
+    it('uses only eval reports for the AI observability signal source', async () => {
         const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue({
             id: 'config-evaluation-reports',
             source_product: SignalSourceProduct.LlmAnalytics,
@@ -180,7 +221,20 @@ describe('signalSourcesLogic', () => {
             updated_at: '2026-07-30T00:00:00Z',
             status: null,
         })
-        logic.actions.loadSourceConfigsSuccess([])
+        logic.actions.loadSourceConfigsSuccess([
+            {
+                id: 'retired-evaluation-config',
+                source_product: SignalSourceProduct.LlmAnalytics,
+                source_type: SignalSourceType.Evaluation,
+                enabled: true,
+                config: { evaluation_ids: ['evaluation-1'] },
+                created_at: '2026-07-30T00:00:00Z',
+                updated_at: '2026-07-30T00:00:00Z',
+                status: null,
+            },
+        ])
+
+        expect(logic.values.enabledSourcesCount).toBe(0)
 
         logic.actions.toggleEvalReports()
         await expectLogic(logic).toFinishAllListeners()
@@ -191,5 +245,122 @@ describe('signalSourcesLogic', () => {
             enabled: true,
             config: {},
         })
+    })
+
+    it.each([
+        {
+            name: 'while recent data is loading',
+            arrange: (_mountedLogic: typeof logic) => undefined,
+            enabled: null,
+            dataStatus: 'loading',
+        },
+        {
+            name: 'when the recent data check fails',
+            arrange: (mountedLogic: typeof logic) => {
+                mountedLogic.actions.loadToolDataEventsSuccess(new Set(['$exception']))
+                mountedLogic.actions.loadToolDataEventsFailure('Failed')
+            },
+            enabled: null,
+            dataStatus: 'error',
+        },
+        {
+            name: 'when a successful check finds no recent exceptions',
+            arrange: (mountedLogic: typeof logic) => mountedLogic.actions.loadToolDataEventsSuccess(new Set()),
+            enabled: false,
+            dataStatus: 'none',
+        },
+        {
+            name: 'when a successful check finds recent exceptions',
+            arrange: (mountedLogic: typeof logic) =>
+                mountedLogic.actions.loadToolDataEventsSuccess(new Set(['$exception'])),
+            enabled: true,
+            dataStatus: 'recent',
+        },
+    ])('reports Error tracking as $dataStatus $name', ({ arrange, enabled, dataStatus }) => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            autocapture_exceptions_opt_in: false,
+        })
+
+        arrange(logic)
+
+        expect(logic.values.toolStatusBySource.error_tracking).toMatchObject({ enabled, dataStatus })
+    })
+
+    it('uses only recently seen event definitions as tool data', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/event_definitions/': ({ request }) => {
+                    const excludeStale = new URL(request.url).searchParams.get('exclude_stale') === 'true'
+                    const results = excludeStale
+                        ? [
+                              { name: '$exception', last_seen_at: '2026-08-09T00:00:00Z' },
+                              { name: '$pageview', last_seen_at: null },
+                          ]
+                        : [
+                              { name: '$exception', last_seen_at: '2026-08-09T00:00:00Z' },
+                              { name: '$pageview', last_seen_at: null },
+                              { name: '$ai_trace', last_seen_at: '2026-01-01T00:00:00Z' },
+                          ]
+                    return [200, { count: results.length, next: null, previous: null, results }]
+                },
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            autocapture_exceptions_opt_in: false,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadToolDataEvents()
+        }).toFinishAllListeners()
+
+        expect(logic.values.toolDataEvents).toEqual(new Set(['$exception']))
+        expect(logic.values.toolStatusBySource.error_tracking).toMatchObject({
+            enabled: true,
+            dataStatus: 'recent',
+        })
+        expect(logic.values.toolStatusBySource.analytics?.dataStatus).toBe('none')
+        expect(logic.values.toolStatusBySource.llm_analytics?.dataStatus).toBe('none')
+    })
+
+    it('keeps tool enablement loading until the refreshed team is available', async () => {
+        const enablementResponse = deferred<[number, { results: Record<string, string> }]>()
+        const teamResponse = deferred<[number, typeof MOCK_DEFAULT_TEAM]>()
+        const teamRequestStarted = deferred<void>()
+        useMocks({
+            post: {
+                '/api/projects/:team_id/product_enablement/': () => enablementResponse.promise,
+            },
+            get: {
+                '/api/environments/:team_id/': () => {
+                    teamRequestStarted.resolve()
+                    return teamResponse.promise
+                },
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            autocapture_exceptions_opt_in: false,
+        })
+
+        logic.actions.enableSourceTool('error_tracking')
+        expect(logic.values.enablingTool).toBe('error_tracking')
+
+        enablementResponse.resolve([200, { results: { error_tracking: 'enabled' } }])
+        await teamRequestStarted.promise
+        expect(logic.values.enablingTool).toBe('error_tracking')
+
+        teamResponse.resolve([
+            200,
+            {
+                ...MOCK_DEFAULT_TEAM,
+                autocapture_exceptions_opt_in: true,
+            },
+        ])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.enablingTool).toBeNull()
+        expect(logic.values.toolStatusBySource.error_tracking?.enabled).toBe(true)
     })
 })

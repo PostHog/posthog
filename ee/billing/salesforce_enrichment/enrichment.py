@@ -9,6 +9,8 @@ import posthoganalytics
 from dateutil import parser
 from simple_salesforce.format import format_soql
 
+from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
 
@@ -307,12 +309,18 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
     return filtered_update_data
 
 
+@frozen
+class BulkUpdateResult:
+    succeeded: int
+    failed: int
+
+
 def bulk_update_salesforce_accounts(
     sf,
     update_records,
     *,
     raise_on_batch_error: bool = False,
-) -> tuple[int, int]:
+) -> BulkUpdateResult:
     """Update Salesforce accounts in batches of 200 using sObject Collections API.
 
     Args:
@@ -321,12 +329,12 @@ def bulk_update_salesforce_accounts(
         raise_on_batch_error: When True, re-raise exceptions from the batch HTTP call
 
     Returns:
-        Tuple of (succeeded, failed) counts.
+        BulkUpdateResult with succeeded and failed counts.
     """
     logger = LOGGER.bind(function="bulk_update_salesforce_accounts")
 
     if not update_records:
-        return 0, 0
+        return BulkUpdateResult(succeeded=0, failed=0)
 
     # Split records into batches of 200 (Salesforce sObject Collections API limit)
     batches = [
@@ -387,7 +395,7 @@ def bulk_update_salesforce_accounts(
         success_rate=round(success_rate, 1),
     )
 
-    return total_success, total_errors
+    return BulkUpdateResult(succeeded=total_success, failed=total_errors)
 
 
 def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:
@@ -738,7 +746,7 @@ async def _enrich_specific_domain_debug(
     if not accounts:
         return _build_debug_error_result(chunk_number, start_time, domain, "No Salesforce accounts found")
 
-    async with AsyncHarmonicClient() as harmonic_client:
+    async with AsyncHarmonicClient(priority=Priority.BATCH, source="salesforce_enrichment_debug") as harmonic_client:
         harmonic_results = await harmonic_client.enrich_companies_batch([domain])
         harmonic_result = harmonic_results[0] if harmonic_results else None
 
@@ -875,8 +883,7 @@ async def enrich_accounts_chunked_async(
     total_failed = 0
     update_records = []
 
-    # Process in batches with rate limiting (5 req/sec)
-    async with AsyncHarmonicClient() as harmonic_client:
+    async with AsyncHarmonicClient(priority=Priority.BATCH, source="salesforce_enrichment_bulk") as harmonic_client:
         for batch_start in range(0, len(account_data), HARMONIC_BATCH_SIZE):
             batch_end = min(batch_start + HARMONIC_BATCH_SIZE, len(account_data))
             batch = account_data[batch_start:batch_end]

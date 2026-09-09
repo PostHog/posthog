@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT person_id, person_uuid FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "person_uuid",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "2291c5f5ecbd8c3254413064ba987ed11445da486366938c04c43c7b2b3756e1"
+}

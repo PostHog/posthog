@@ -309,8 +309,7 @@ class TestDirectMySQLQuery(APIBaseTest):
             "posthog.hogql.direct_sql.mysql_adapter.MySQLAdapter.validate_source_config",
             return_value=(implementation, MagicMock()),
         ):
-            with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
-                response = executor.execute()
+            response = executor.execute()
 
         self.assertEqual(executor.direct_dialect, "mysql")
         self.assertEqual(executor.direct_sql, "SELECT 1")
@@ -349,8 +348,7 @@ class TestDirectMySQLQuery(APIBaseTest):
             "posthog.hogql.direct_sql.mysql_adapter.MySQLAdapter.validate_source_config",
             return_value=(implementation, MagicMock()),
         ):
-            with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
-                response = executor.execute()
+            response = executor.execute()
 
         self.assertEqual(executor.direct_sql, query)
         self.assertEqual(response.results, [(1,)])

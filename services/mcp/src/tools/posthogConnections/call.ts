@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { buildForwardedContext, resolveConnectionTarget, seedForwardedContext } from '@/lib/connection-forwarding'
 import { ExecCommandError } from '@/lib/errors'
+import { formatInputValidationError, rewrapFlattenedArguments } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -31,7 +32,6 @@ const UNSUPPORTED_TOOLS: Record<string, string> = {
     'switch-project': 'A connection points at one fixed project. Use a different connection to reach a different one.',
     'switch-organization':
         'A connection points at one fixed project. Use a different connection to reach a different one.',
-    'session-recording-summarize': 'This tool streams its response, which a connection cannot carry.',
 }
 
 /**
@@ -97,12 +97,15 @@ export function createConnectionCallTool(
 
             // Check the arguments before touching the connection, so a malformed call fails here
             // rather than after a cross-region round trip, as an opaque 400 from the other project.
-            const parsedArguments = target.schema.safeParse(params.arguments ?? {})
+            const rawArguments = params.arguments ?? {}
+            const firstPass = target.schema.safeParse(rawArguments, { reportInput: true })
+            const rewrapped = firstPass.success
+                ? undefined
+                : rewrapFlattenedArguments(firstPass.error, rawArguments, target.schema)
+            const parsedArguments = rewrapped ? target.schema.safeParse(rewrapped, { reportInput: true }) : firstPass
             if (!parsedArguments.success) {
                 throw new ExecCommandError(
-                    `Arguments for \`${params.tool}\` are invalid: ${parsedArguments.error.issues
-                        .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-                        .join('; ')}`,
+                    formatInputValidationError(target.name, parsedArguments.error, rawArguments, target.schema),
                     'usage'
                 )
             }

@@ -15,9 +15,8 @@ import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
-    const { steps, funnelsFilter, hasDataWarehouseSeries } = useValues(funnelDataLogic(insightProps))
+    const { steps, funnelVizType: vizType, hasDataWarehouseSeries } = useValues(funnelDataLogic(insightProps))
     useMountedLogic(funnelCorrelationUsageLogic(insightProps))
-    const vizType = funnelsFilter?.funnelVizType
     if (
         (vizType !== FunnelVizType.Steps && vizType !== FunnelVizType.Flow) ||
         steps.length <= 1 ||
@@ -29,7 +28,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
     return (
         <>
             <h2 className="font-semibold text-lg my-4">Correlation analysis</h2>
-            <PayGateMini feature={AvailableFeature.CORRELATION_ANALYSIS}>
+            <PayGateMini feature={AvailableFeature.CORRELATION_ANALYSIS} featureDetail="funnel-correlation-analysis">
                 <div className="funnel-correlation">
                     <FunnelCorrelationSkewWarning />
                     <FunnelCorrelationTable />

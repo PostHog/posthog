@@ -15,6 +15,7 @@ from products.tasks.backend.temporal.process_task.utils import (
         ("claude-sonnet-5", RuntimeAdapter.CLAUDE),
         ("CLAUDE-SONNET-5", RuntimeAdapter.CLAUDE),
         ("gpt-5.6-sol", RuntimeAdapter.CODEX),
+        ("gpt-6-astra", RuntimeAdapter.CODEX),
         ("some-model-nobody-serves", None),
         (None, None),
     ],
@@ -28,6 +29,7 @@ def test_get_runtime_adapter_for_model(model: str | None, expected: RuntimeAdapt
     [
         pytest.param("claude", "claude-sonnet-5", "high", id="pair-with-supported-effort"),
         pytest.param("codex", "gpt-5.6-sol", "max", id="codex-max-effort-model"),
+        pytest.param("codex", "gpt-6-astra", "max", id="gpt-6-max-effort-model"),
         pytest.param("claude", "claude-sonnet-5", None, id="pair-without-effort"),
         pytest.param(None, None, None, id="nothing-selected"),
         pytest.param("claude", "a-model-no-adapter-claims", None, id="model-outside-the-catalogue"),

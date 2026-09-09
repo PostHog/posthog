@@ -1,7 +1,7 @@
 """Zendesk source settings and constants"""
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
@@ -163,16 +163,33 @@ class ZendeskEndpointConfig:
     params: dict[str, Any] = field(default_factory=dict)
 
 
-# Parent that drives the `ticket_comments` fan-out. It is deliberately kept out of
-# `ZENDESK_ENDPOINTS` so it never becomes a schema of its own — tickets already sync through the
-# cursor incremental export.
-TICKET_COMMENTS_PARENT_NAME = "tickets_for_comments"
+# Parent that drives the `ticket_comments` fan-out. The name is the `tickets` schema's, because
+# that is how `_warehouse_parent_reuse_available` finds the parent to read from. The path is the
+# API-fallback walk, and stays on the plain list endpoint so a fallback run produces the row set it
+# has always produced.
+TICKET_COMMENTS_PARENT_NAME = "tickets"
 TICKET_COMMENTS_PARENT = ZendeskEndpointConfig(
     name=TICKET_COMMENTS_PARENT_NAME,
     path="/api/v2/tickets",
     data_selector="tickets",
     primary_key=["id"],
 )
+
+# A ticket's `updated_at` moves whenever a comment is added, redacted, or made private. Comments
+# carry no modification timestamp of their own, so this is the only field a scan can use to find
+# the tickets whose comments may have changed.
+TICKET_COMMENTS_PARENT_FILTER_FIELD = "updated_at"
+
+# Absorbs the offset between a comment's `created_at`, which is the child's watermark, and the
+# ticket `updated_at` the scan compares it against, so a comment written moments before the last
+# run finished is not stranded below the next run's floor.
+TICKET_COMMENTS_PARENT_LOOKBACK = timedelta(hours=1)
+
+# Zendesk archives a closed ticket around 120 days after it closes, and an archived ticket drops
+# out of `/api/v2/tickets` while staying in the incremental export the `tickets` schema syncs.
+# Scanning further back than that covers tickets the API path would never visit, which multiplies
+# the fan-out instead of shrinking it, so a run that far behind takes the API path.
+TICKET_COMMENTS_PARENT_MAX_CATCHUP = timedelta(days=120)
 
 # Parent endpoints referenced by `ZendeskEndpointConfig.fanout`, looked up by `fanout.parent_name`.
 FANOUT_PARENTS: dict[str, ZendeskEndpointConfig] = {TICKET_COMMENTS_PARENT_NAME: TICKET_COMMENTS_PARENT}
@@ -210,12 +227,22 @@ ZENDESK_ENDPOINTS: dict[str, ZendeskEndpointConfig] = {
         # across the whole table.
         primary_key=["ticket_id", "id"],
         partition_key="created_at",
+        # No `incremental_start_param`: `/tickets/{id}/comments` takes no time filter, unlike the
+        # plain list endpoints. The cursor exists so the table merges on its primary key instead of
+        # being replaced, which is what lets the fan-out over tickets be bounded without dropping
+        # the comments that fall outside the bound.
+        incremental_fields=[_datetime_incremental_field("created_at")],
+        default_incremental_field="created_at",
         fanout=DependentEndpointConfig(
             parent_name=TICKET_COMMENTS_PARENT_NAME,
             resolve_param="ticket_id",
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "ticket_id"},
+            # The row filter is per-run rather than static, so it is applied in `zendesk.py` where
+            # the watermark is known. Without one this scan would fan out over every ticket ever
+            # exported, so that code also drops the run to the API path when it cannot build one.
+            parent_source="warehouse",
         ),
     ),
     "group_memberships": ZendeskEndpointConfig(
