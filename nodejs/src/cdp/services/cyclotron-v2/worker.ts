@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import { Pool, PoolClient } from 'pg'
+import { Counter } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
@@ -7,6 +8,7 @@ import { logger } from '~/common/utils/logger'
 import { assignEmailDequeueSeq } from './manager'
 import {
     CYCLOTRON_COUNTER_MAX,
+    CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
     CyclotronV2BulkCreateAndCheckInInput,
     CyclotronV2DequeuedJob,
     CyclotronV2JobInit,
@@ -33,6 +35,13 @@ export interface RawJobRow {
     cancel_requested_at: string | null
     lock_id: string
 }
+
+// Read off the row the dequeue already returns, so tracking churn costs no extra query.
+const highTransitionDequeuesCounter = new Counter({
+    name: 'cdp_cyclotron_v2_high_transition_dequeues',
+    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD}, meaning they are cycling without completing.`,
+    labelNames: ['queue'] as const,
+})
 
 export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
@@ -408,6 +417,10 @@ export class CyclotronV2Worker {
         const pool = this.pool
         const lockId = row.lock_id
         let released = false
+
+        if (row.transition_count >= CYCLOTRON_TRANSITION_CHURN_THRESHOLD) {
+            highTransitionDequeuesCounter.labels({ queue: row.queue_name }).inc()
+        }
 
         const releaseGuard = (method: string) => {
             if (released) {

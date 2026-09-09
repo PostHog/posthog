@@ -7,7 +7,13 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
-import { CYCLOTRON_COUNTER_MAX, CyclotronV2BatchLimit, CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
+import {
+    CYCLOTRON_COUNTER_MAX,
+    CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
+    CyclotronV2BatchLimit,
+    CyclotronV2DequeuedJob,
+    CyclotronV2JobInit,
+} from './types'
 import { CyclotronV2Worker } from './worker'
 import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
@@ -163,6 +169,13 @@ async function gaugeValueForQueue(queue: string): Promise<number | null> {
     const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_queue_depth')
     const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
     return line ? Number(line.trim().split(' ').pop()) : null
+}
+
+// Absent until the queue's first churning dequeue, so a missing line reads as 0.
+async function churnCountForQueue(queue: string): Promise<number> {
+    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_high_transition_dequeues')
+    const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
+    return line ? Number(line.trim().split(' ').pop()) : 0
 }
 
 describe('Cyclotron V2', () => {
@@ -1648,6 +1661,19 @@ describe('Cyclotron V2', () => {
             expect(job.transitionCount).toBe(1)
             const row = await queryJob(id)
             expect(row.transition_count).toBe(1)
+        })
+
+        it.each([
+            ['below the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 2, 0],
+            ['at the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 1],
+        ])('counts a dequeue %s', async (_label, seeded, expected) => {
+            const before = await churnCountForQueue(QUEUE)
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [seeded, id])
+
+            await dequeueOneBatch(createWorker())
+
+            expect((await churnCountForQueue(QUEUE)) - before).toBe(expected)
         })
     })
 

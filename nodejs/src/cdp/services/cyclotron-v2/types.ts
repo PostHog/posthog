@@ -13,6 +13,15 @@ export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'fail
  */
 export const CYCLOTRON_COUNTER_MAX = 32767
 
+/**
+ * A dequeued job past this many transitions is in a retry loop it will not leave
+ * on its own. Set above anything reached by normal work: across both prod-us
+ * queues p50 is 2-4 transitions and the highest live row is ~19.5k, so nothing
+ * legitimate crosses this, while a saturating job still has hours of headroom
+ * below `CYCLOTRON_COUNTER_MAX` for someone to act on the alert.
+ */
+export const CYCLOTRON_TRANSITION_CHURN_THRESHOLD = 20000
+
 export type CyclotronV2PoolConfig = {
     dbUrl: string
     maxConnections?: number
