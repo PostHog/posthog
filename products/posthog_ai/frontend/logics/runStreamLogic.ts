@@ -340,6 +340,7 @@ function extractUserMessageText(content: string | unknown[] | undefined): string
     }
     if (Array.isArray(content)) {
         return content
+            .filter((block) => !isHiddenUserContent(block))
             .map((block) =>
                 block && typeof block === 'object' && typeof (block as { text?: unknown }).text === 'string'
                     ? (block as { text: string }).text
@@ -348,6 +349,13 @@ function extractUserMessageText(content: string | unknown[] | undefined): string
             .join('')
     }
     return ''
+}
+
+function isHiddenUserContent(content: unknown): boolean {
+    if (!isRecord(content) || !isRecord(content._meta) || !isRecord(content._meta.ui)) {
+        return false
+    }
+    return content._meta.ui.hidden === true
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1350,6 +1358,9 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
         const sessionUpdate = update.sessionUpdate
         if (sessionUpdate === 'user_message_chunk' || sessionUpdate === 'user_message') {
+            if (isHiddenUserContent(update.content)) {
+                continue
+            }
             const content = update.content as { text?: string } | undefined
             const userText = String(content?.text ?? update.text ?? '')
             if (source === 'replay') {
@@ -3456,6 +3467,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // unattached optimistic stream has no task id and records nothing — its send path marks
             // sent keys directly.
             if (isPosthogNotification(notification, '_posthog/user_message')) {
+                const content = notification.params?.content
+                if (Array.isArray(content) && content.length > 0 && content.every(isHiddenUserContent)) {
+                    return
+                }
                 actions.markTurnStarted()
                 if (values.bootstrappedTaskId) {
                     const lines = contextBlockLinesFromUserMessage(extractUserMessageText(notification.params?.content))
@@ -3500,6 +3515,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // chains persist a turn in both wire forms, and the seen-lines reducer dedupes the overlap.
             // Chunked frames are skipped: a partial text could truncate a block mid-line.
             if (isSessionUpdateUserMessage(update)) {
+                if (isHiddenUserContent(update.content)) {
+                    return
+                }
                 actions.markTurnStarted()
                 if (values.bootstrappedTaskId && update.sessionUpdate === 'user_message') {
                     const lines = contextBlockLinesFromUserMessage(String(update.content?.text ?? update.text ?? ''))
