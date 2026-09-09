@@ -49,6 +49,7 @@ import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
 import { SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
+import { SqlMetricCard } from '~/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard'
 import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
@@ -1044,10 +1045,28 @@ function InternalDataTableVisualization(
         component = <TwoDimensionalHeatmap />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
+    } else if (effectiveVisualizationType === ChartDisplayType.Metric) {
+        component = (
+            <SqlMetricCard
+                xData={xData}
+                yData={yData}
+                metricSettings={chartSettings.metric}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     }
 
     if (props.embedded && !props.showSettingsPanel) {
-        return <div className="DataVisualization InsightCard__viz">{component}</div>
+        return (
+            <div
+                className={clsx(
+                    'DataVisualization InsightCard__viz',
+                    effectiveVisualizationType === ChartDisplayType.Metric && 'InsightCard__viz--Metric'
+                )}
+            >
+                {component}
+            </div>
+        )
     }
 
     return (

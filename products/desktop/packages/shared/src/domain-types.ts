@@ -337,6 +337,7 @@ const storeSkillStubSchema = z.object({
 export type StoreSkillStub = z.infer<typeof storeSkillStubSchema>;
 
 const taskRunStateFields = {
+  ai_agent_name: optionalField(z.string()),
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
   benjamin_version: optionalField(z.string()),

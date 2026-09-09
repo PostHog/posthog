@@ -459,6 +459,24 @@ class LLMSkillViewSet(
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    def _load_skill_with_object_access(
+        self,
+        request: Request,
+        skill_name: str,
+        version: int | None = None,
+        version_id: str | None = None,
+    ) -> LLMSkill | None:
+        # has_permission passes anyone with a grant on any one skill, so the loaded row is checked here.
+        skill = get_skill_by_name_from_db(self.team, skill_name, version, version_id)
+        if skill is not None:
+            self.check_object_permissions(request, skill)
+        return skill
+
+    def _guard_object_access(self, request: Request, skill_name: str) -> Response | None:
+        if self._load_skill_with_object_access(request, skill_name) is None:
+            return self._skill_not_found_response(skill_name)
+        return None
+
     def _handle_skill_write_error(self, err: Exception, skill_name: str) -> Response | None:
         """Render the error responses shared by create_file / delete_file / rename_file.
 
@@ -550,7 +568,9 @@ class LLMSkillViewSet(
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMSkill]:
         params = self._get_list_params(request)
 
-        queryset = get_latest_skills_queryset(self.team)
+        queryset = self.user_access_control.filter_queryset_by_access_level(
+            get_latest_skills_queryset(self.team), resource="llm_skill"
+        )
 
         search = params.get("search", "").strip()
         if search:
@@ -739,7 +759,7 @@ class LLMSkillViewSet(
     def get_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         version_params = self._get_body_fetch_params(request)
         version = cast(int | None, version_params.get("version"))
-        skill = get_skill_by_name_from_db(self.team, skill_name, version)
+        skill = self._load_skill_with_object_access(request, skill_name, version)
 
         if skill is None and _is_uuid(skill_name):
             redirect = self._redirect_to_name(request, skill_name)
@@ -767,6 +787,7 @@ class LLMSkillViewSet(
         skill_by_id = get_active_skill_queryset(self.team).filter(id=skill_name).first()
         if skill_by_id is None:
             return None
+        self.check_object_permissions(request, skill_by_id)
         # Use a relative path (no build_absolute_uri) to avoid embedding the
         # Host header in the Location value — prevents host-header open-redirect.
         redirect_url = request.get_full_path().replace(skill_name, skill_by_id.name, 1)
@@ -782,6 +803,10 @@ class LLMSkillViewSet(
         auth_error = self._ensure_web_authenticated(request)
         if auth_error is not None:
             return auth_error
+
+        access_error = self._guard_object_access(request, skill_name)
+        if access_error is not None:
+            return access_error
 
         payload = LLMSkillPublishSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -950,11 +975,11 @@ class LLMSkillViewSet(
         query_params = self._get_resolve_query_params(request)
         version = cast(int | None, query_params.get("version"))
         version_id = query_params.get("version_id")
-        skill = get_skill_by_name_from_db(
-            self.team,
-            skill_name=skill_name,
-            version=version,
-            version_id=str(version_id) if version_id else None,
+        skill = self._load_skill_with_object_access(
+            request,
+            skill_name,
+            version,
+            str(version_id) if version_id else None,
         )
         if skill is None:
             return self._skill_not_found_response(skill_name)
@@ -987,7 +1012,7 @@ class LLMSkillViewSet(
     def export(self, request: Request, skill_name: str = "", **kwargs) -> Response | HttpResponse:
         version_params = self._get_requested_version_params(request)
         version = cast(int | None, version_params.get("version"))
-        skill = get_skill_by_name_from_db(self.team, skill_name, version)
+        skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
@@ -1285,6 +1310,10 @@ class LLMSkillViewSet(
         if auth_error is not None:
             return auth_error
 
+        access_error = self._guard_object_access(request, skill_name)
+        if access_error is not None:
+            return access_error
+
         try:
             skill_versions = archive_skill(self.team, skill_name)
         except LLMSkillNotFoundError:
@@ -1324,6 +1353,10 @@ class LLMSkillViewSet(
         auth_error = self._ensure_web_authenticated(request)
         if auth_error is not None:
             return auth_error
+
+        access_error = self._guard_object_access(request, skill_name)
+        if access_error is not None:
+            return access_error
 
         payload = LLMSkillDuplicateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -1386,6 +1419,10 @@ class LLMSkillViewSet(
         if auth_error is not None:
             return auth_error
 
+        access_error = self._guard_object_access(request, skill_name)
+        if access_error is not None:
+            return access_error
+
         payload = LLMSkillRenameSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         new_name = payload.validated_data["new_name"]
@@ -1443,7 +1480,7 @@ class LLMSkillViewSet(
         if auth_error is not None:
             return auth_error
 
-        skill = get_skill_by_name_from_db(self.team, skill_name)
+        skill = self._load_skill_with_object_access(request, skill_name)
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
@@ -1541,7 +1578,7 @@ class LLMSkillViewSet(
     def get_file(self, request: Request, skill_name: str = "", file_path: str = "", **kwargs) -> Response:
         version_params = self._get_requested_version_params(request)
         version = cast(int | None, version_params.get("version"))
-        skill = get_skill_by_name_from_db(self.team, skill_name, version)
+        skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
@@ -1574,6 +1611,10 @@ class LLMSkillViewSet(
         auth_error = self._ensure_web_authenticated(request)
         if auth_error is not None:
             return auth_error
+
+        access_error = self._guard_object_access(request, skill_name)
+        if access_error is not None:
+            return access_error
 
         payload = LLMSkillFileCreateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -1637,6 +1678,10 @@ class LLMSkillViewSet(
         auth_error = self._ensure_web_authenticated(request)
         if auth_error is not None:
             return auth_error
+
+        access_error = self._guard_object_access(request, skill_name)
+        if access_error is not None:
+            return access_error
 
         file_path = file_path.rstrip("/")
         normalized = file_path.replace("\\", "/")
@@ -1704,6 +1749,10 @@ class LLMSkillViewSet(
         auth_error = self._ensure_web_authenticated(request)
         if auth_error is not None:
             return auth_error
+
+        access_error = self._guard_object_access(request, skill_name)
+        if access_error is not None:
+            return access_error
 
         payload = LLMSkillFileRenameSerializer(data=request.data)
         payload.is_valid(raise_exception=True)

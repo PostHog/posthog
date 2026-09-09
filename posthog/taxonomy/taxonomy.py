@@ -2911,6 +2911,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
             "examples": ["ClaudeCode", "ClaudeAI", "Cowork"],
         },
+        "$mcp_llm_model": {
+            "label": "MCP model",
+            "description": "The model used by the MCP client for this tool call. Taken from recognized client metadata when available, otherwise from the agent's self-reported llm_model argument. MCP does not attest model identity, so use this for analytics rather than billing or access control.",
+            "examples": ["claude-sonnet-5", "gpt-5.6-sol"],
+        },
+        "$mcp_llm_model_source": {
+            "label": "MCP model source",
+            "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
+            "examples": ["client_metadata", "self_reported"],
+        },
         "$mcp_intent": {
             "label": "MCP intent",
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or — if none was supplied — from an intentFallback the MCP server provides.",

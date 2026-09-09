@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, DataVisualizationNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import type { InsightQueryNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, ChartDisplayType, FunnelVizType, TeamType } from '~/types'
@@ -18,6 +18,7 @@ import {
     escapePropertyAsHogQLIdentifier,
     getDisplay,
     hogql,
+    isMetricInsightQuery,
     queryUsesDataWarehouse,
     queryVizDefinitelyRendersToCanvas,
     queryVizRendersToCanvas,
@@ -478,5 +479,42 @@ describe('getDisplay', () => {
         ],
     ])('normalizes the deprecated ActionsStackedBar alias to ActionsBar for %s', (_, query) => {
         expect(getDisplay(query as InsightQueryNode)).toEqual(ChartDisplayType.ActionsBar)
+    })
+})
+
+describe('isMetricInsightQuery', () => {
+    it.each([
+        [
+            'SQL metric',
+            {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                display: ChartDisplayType.Metric,
+            },
+            true,
+        ],
+        [
+            'trends metric',
+            {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { display: ChartDisplayType.Metric },
+                },
+            },
+            true,
+        ],
+        [
+            'SQL line chart',
+            {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            false,
+        ],
+    ])('identifies a %s', (_label, query, expected) => {
+        expect(isMetricInsightQuery(query as Node)).toBe(expected)
     })
 })
