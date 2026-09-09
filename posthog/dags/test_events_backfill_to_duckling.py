@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import duckdb
 import psycopg
@@ -65,6 +65,7 @@ from products.data_warehouse.backend.facade.backfill_status import BackfillOutco
 from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE, NO_HISTORY_SENTINEL
 from products.managed_warehouse.backend.facade.client import ServiceCredential, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.contracts import (
+    DucklingTables,
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
     ServiceCredentialConnect,
@@ -179,14 +180,14 @@ class TestResolveTableNames:
     def test_passes_through_resolved_names(self):
         with patch(
             "posthog.dags.events_backfill_to_duckling.resolve_events_persons_tables",
-            return_value=("events_alpha", "persons_alpha"),
+            return_value=DucklingTables(events_table="events_alpha", persons_table="persons_alpha"),
         ):
             assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
 
     def test_unsafe_resolved_name_is_rejected(self):
         with patch(
             "posthog.dags.events_backfill_to_duckling.resolve_events_persons_tables",
-            return_value=("events_a-b; DROP", "persons"),
+            return_value=DucklingTables(events_table="events_a-b; DROP", persons_table="persons"),
         ):
             with pytest.raises(ValueError):
                 _resolve_table_names(1)
@@ -1363,6 +1364,43 @@ class TestConnectionDropped:
 
     @parameterized.expand(
         [
+            # duckgres reaps a client session that idled past duckgres.idle_timeout
+            # (the backfill holds its connection across the ClickHouse->S3 export).
+            # It sends a FATAL 57P05 before closing; older builds just dropped the
+            # socket, which landed in the transport-marker branch instead. The two
+            # halves of that classification are guarded independently below, so
+            # neither can regress while the other keeps these cases green.
+            #
+            # The real observed shape: sqlstate AND message both present.
+            (
+                "idle_session_timeout",
+                psycopg.errors.IdleSessionTimeout(
+                    "terminating connection due to idle timeout (duckgres.idle_timeout is 5m0s)"
+                ),
+            ),
+            # Message alone, no sqlstate — psycopg surfacing the text without a
+            # parsed ErrorResponse. Guards the _CONNECTION_DROPPED_MARKERS entry.
+            (
+                "idle_timeout_message_without_sqlstate",
+                psycopg.OperationalError("terminating connection due to idle timeout (duckgres.idle_timeout is 5m0s)"),
+            ),
+            # Sqlstate alone. PostgreSQL's own idle_session_timeout wording is
+            # hyphenated ("idle-session timeout") and so does NOT match the
+            # duckgres-shaped marker — which is exactly why this guards the
+            # _CONNECTION_DROPPED_SQLSTATES entry on its own.
+            (
+                "idle_session_timeout_sqlstate_without_marker",
+                psycopg.errors.IdleSessionTimeout("terminating connection due to idle-session timeout"),
+            ),
+        ]
+    )
+    def test_idle_session_reap_is_dropped(self, _label, exc):
+        # Safest possible replay: the session was idle, so no statement was in
+        # flight and a retry cannot double-apply.
+        assert _connection_dropped(exc) is True
+
+    @parameterized.expand(
+        [
             ("disk_full", psycopg.errors.DiskFull()),
             ("undefined_table", psycopg.errors.UndefinedTable()),
             ("value_error", ValueError("nope")),
@@ -1562,12 +1600,6 @@ class TestDuckgresSessionRetry:
 
 
 class TestDuckgresSessionServiceCredential:
-    """The session mints reuse-FIRST (no rotation when a usable grant exists —
-    that's what keeps same-team concurrent runs/partitions from clobbering
-    each other's credentials), escalates to force_rotate only when the CP
-    hands back nothing usable, and refreshes a (nearly) expired credential on
-    reconnect."""
-
     # Fixed datetimes, never datetime.now(): these payloads are what the CP
     # hands a session, and the session's refresh decision is "expiry vs now"
     # — so a stale credential is one expired in the PAST (fixed: far behind)
@@ -1575,6 +1607,8 @@ class TestDuckgresSessionServiceCredential:
     # ahead). Deterministic under any wall clock.
     _STALE_EXPIRY = datetime(2020, 1, 1, tzinfo=UTC)
     _FRESH_EXPIRY = datetime(2040, 1, 1, tzinfo=UTC)
+    _FIRST_CREDENTIAL_ID = "svc_0123456789abcdef01234567"
+    _SECOND_CREDENTIAL_ID = "svc_89abcdef0123456789abcdef"
     _CONNECT = ServiceCredentialConnect(
         host="019740a8-ac01-0000-cad1-4626cafbc273.dw.us.postwh.com",
         port=443,
@@ -1582,51 +1616,75 @@ class TestDuckgresSessionServiceCredential:
         sslmode="require",
     )
 
-    def _credential(self, credential_secret: str, *, rotated: bool = True, expires_at: datetime | None = None):
+    def _credential(
+        self,
+        credential_secret: str,
+        *,
+        credential_id: str,
+        expires_at: datetime | None = None,
+    ):
         return ServiceCredential(
-            credential_id="svc_test_events_backfill",
+            credential_id=credential_id,
             credential_secret=credential_secret,
             expires_at=expires_at or self._FRESH_EXPIRY,
-            rotated=rotated,
             connect=self._CONNECT,
         )
 
     @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
     @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
-    def test_mint_is_reuse_first_and_no_refresh_while_fresh(self, mock_connect, mock_mint):
-        credential = self._credential("grant", rotated=True)
+    def test_mints_once_and_no_refresh_while_fresh(self, mock_connect, mock_mint):
+        credential = self._credential("grant", credential_id=self._FIRST_CREDENTIAL_ID)
         mock_mint.return_value = credential
         mock_connect.return_value = MagicMock()
         target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
 
         session = _DuckgresSession(MagicMock(), target)
 
-        # First mint asks for NO rotation — a concurrent same-team run's
-        # working credential must not be clobbered by every session init.
-        mock_mint.assert_called_once_with("org-1", 2, principal="dagster:events-backfill", force_rotate=False)
+        mock_mint.assert_called_once_with("org-1", 2, principal="dagster:events-backfill")
         session._reconnect()
         assert mock_mint.call_count == 1  # still fresh — no refresh
         assert mock_connect.call_args_list[1].kwargs["service_credential"] is credential
 
+    @patch("posthog.dags.events_backfill_to_duckling.refresh_service_credential")
     @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
     @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
-    def test_escalates_to_force_rotate_when_reuse_returns_no_plaintext(self, mock_connect, mock_mint):
-        # The realistic first-fetch shape: CP reuses a live grant → no
-        # plaintext → must escalate to force_rotate to get one.
+    def test_concurrent_sessions_with_same_principal_manage_distinct_credentials(
+        self, mock_connect, mock_mint, mock_refresh
+    ):
         mock_mint.side_effect = [
-            self._credential("", rotated=False),
-            self._credential("escalated", rotated=True),
+            self._credential("first-secret", credential_id=self._FIRST_CREDENTIAL_ID, expires_at=self._STALE_EXPIRY),
+            self._credential(
+                "second-secret",
+                credential_id=self._SECOND_CREDENTIAL_ID,
+                expires_at=self._STALE_EXPIRY,
+            ),
+        ]
+        mock_refresh.side_effect = [
+            self._credential("first-refreshed", credential_id=self._FIRST_CREDENTIAL_ID),
+            self._credential("second-refreshed", credential_id=self._SECOND_CREDENTIAL_ID),
         ]
         mock_connect.return_value = MagicMock()
         target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
 
-        _DuckgresSession(MagicMock(), target)
+        first_session = _DuckgresSession(MagicMock(), target)
+        second_session = _DuckgresSession(MagicMock(), target)
+        first_session._reconnect()
+        second_session._reconnect()
 
-        assert mock_mint.call_args_list[0].kwargs["force_rotate"] is False
-        assert mock_mint.call_args_list[1].kwargs["force_rotate"] is True
-        # ...and the connect uses the ESCALATED credential (the one with a
-        # password), not the empty reuse response.
-        assert mock_connect.call_args_list[0].kwargs["service_credential"].credential_secret == "escalated"
+        assert mock_mint.call_args_list == [
+            call("org-1", 2, principal="dagster:events-backfill"),
+            call("org-1", 2, principal="dagster:events-backfill"),
+        ]
+        assert [call.kwargs["service_credential"].credential_id for call in mock_connect.call_args_list] == [
+            self._FIRST_CREDENTIAL_ID,
+            self._SECOND_CREDENTIAL_ID,
+            self._FIRST_CREDENTIAL_ID,
+            self._SECOND_CREDENTIAL_ID,
+        ]
+        assert mock_refresh.call_args_list == [
+            call("org-1", self._FIRST_CREDENTIAL_ID),
+            call("org-1", self._SECOND_CREDENTIAL_ID),
+        ]
 
     @patch("posthog.dags.events_backfill_to_duckling.refresh_service_credential")
     @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
@@ -1637,8 +1695,8 @@ class TestDuckgresSessionServiceCredential:
         # rotates the SECRET for that credential_id on refresh. The same
         # identity comes back; with per-credential grants this refresh is
         # scoped to exactly the credential the session holds.
-        stale = self._credential("stale", expires_at=self._STALE_EXPIRY)
-        fresh = self._credential("fresh-secret")
+        stale = self._credential("stale", credential_id=self._FIRST_CREDENTIAL_ID, expires_at=self._STALE_EXPIRY)
+        fresh = self._credential("fresh-secret", credential_id=self._FIRST_CREDENTIAL_ID)
         mock_mint.return_value = stale
         mock_refresh.return_value = fresh
         mock_connect.side_effect = [MagicMock(name="c0"), MagicMock(name="c1")]
@@ -1648,7 +1706,7 @@ class TestDuckgresSessionServiceCredential:
         session._reconnect()
 
         assert mock_mint.call_count == 1  # the initial session mint only — NO re-mint
-        mock_refresh.assert_called_once_with("org-1", "svc_test_events_backfill")
+        mock_refresh.assert_called_once_with("org-1", self._FIRST_CREDENTIAL_ID)
         assert mock_connect.call_args_list[1].kwargs["service_credential"] is fresh
 
     @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")

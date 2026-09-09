@@ -24,6 +24,8 @@ from posthog.temporal.ai.slack_app.types import (
     SlackRepoSelectionOutcome,
 )
 
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
+
 
 def _message(
     ts: str,
@@ -56,12 +58,17 @@ class _Recorder:
         self.processing_marked: list[str] = []
         # ts per forwarded followup, in execution order.
         self.forwarded: list[str] = []
+        # ts -> model override the forward call actually received.
+        self.forwarded_with_override: dict[str, SlackAppModelOverride | None] = {}
         # ts per internal-error notice posted back to the thread, in execution order.
         self.internal_errors: list[str] = []
         # ts -> forward result; missing means False (no existing task, fall through to new-task path).
         self.forward_results: dict[str, bool] = {}
+        # ts -> thread snapshot; missing means a one-message thread. An empty list is what
+        # a deleted trigger message reads as.
+        self.thread_messages: dict[str, list[SlackThreadMessage]] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
-        self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed", "needs_user_github"]] = {}
+        self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed"]] = {}
         # ts per personal-GitHub gate call, in execution order.
         self.github_gate_calls: list[str] = []
         # event text per needs-repo classifier call, in execution order.
@@ -71,6 +78,8 @@ class _Recorder:
         self.create_reached: dict[str, asyncio.Event] = {}
         self.picker_posted = asyncio.Event()
         self.picker_workflow_id: str | None = None
+        # True holds untagged replies back on the thread creator's `ask` mode.
+        self.awaiting_confirmation = False
 
 
 def _fake_activities(rec: _Recorder) -> list:
@@ -90,6 +99,15 @@ def _fake_activities(rec: _Recorder) -> list:
     ) -> bool:
         return True
 
+    @activity.defn(name="request_untagged_followup_confirmation_activity")
+    async def request_confirmation(
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        channel: str,
+        thread_ts: str,
+        slack_user_id: str,
+    ) -> bool:
+        return rec.awaiting_confirmation
+
     @activity.defn(name="forward_posthog_code_followup_activity")
     async def forward(
         inputs: PostHogCodeSlackMentionWorkflowInputs,
@@ -98,8 +116,10 @@ def _fake_activities(rec: _Recorder) -> list:
         slack_user_id: str,
         event_text: str,
         user_message_ts: str | None,
+        model_override: SlackAppModelOverride | None = None,
     ) -> bool:
         ts = inputs.event["ts"]
+        rec.forwarded_with_override[ts] = model_override
         if rec.forward_results.get(ts, False):
             rec.forwarded.append(ts)
             return True
@@ -108,19 +128,24 @@ def _fake_activities(rec: _Recorder) -> list:
     @activity.defn(name="collect_posthog_code_thread_messages_activity")
     async def collect(
         inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
-    ) -> list[dict[str, str]]:
-        return [{"user": "U1", "text": inputs.event["text"]}]
+    ) -> list[SlackThreadMessage]:
+        ts = inputs.event["ts"]
+        return rec.thread_messages.get(ts, [SlackThreadMessage(user="U1", text=inputs.event["text"])])
 
     @activity.defn(name="cascade_posthog_code_repository_activity")
     async def cascade(
-        inputs: PostHogCodeSlackMentionWorkflowInputs, event_text: str, user_id: int | None = None
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        event_text: str,
+        user_id: int | None = None,
+        thread_messages: list[SlackThreadMessage] | None = None,
+        mention_ts: str | None = None,
     ) -> PostHogCodeRepoCascadeOutcome:
         mode = rec.cascade_modes.get(inputs.event["ts"], "auto")
         repository = "org/auto-repo" if mode == "auto" else None
         return PostHogCodeRepoCascadeOutcome(mode=mode, repository=repository, reason="test")
 
     @activity.defn(name="classify_posthog_code_task_needs_repo_activity")
-    async def needs_repo(event_text: str, thread_messages: list[dict[str, str]]) -> bool:
+    async def needs_repo(event_text: str, thread_messages: list[SlackThreadMessage]) -> bool:
         rec.needs_repo_calls.append(event_text)
         return True
 
@@ -129,7 +154,7 @@ def _fake_activities(rec: _Recorder) -> list:
         inputs: PostHogCodeSlackMentionWorkflowInputs,
         channel: str,
         event: dict[str, Any],
-        thread_messages: list[dict[str, str]],
+        thread_messages: list[SlackThreadMessage],
         user_id: int,
     ) -> SlackRepoSelectionOutcome:
         return SlackRepoSelectionOutcome(status="failed", repository=None, reason="agent crashed")
@@ -173,7 +198,7 @@ def _fake_activities(rec: _Recorder) -> list:
         slack_user_id: str,
         user_id: int,
         event: dict[str, Any],
-        thread_messages: list[dict[str, str]],
+        thread_messages: list[SlackThreadMessage],
         repository: str | None,
         repo_research_task_id: str | None = None,
         repo_research_run_id: str | None = None,
@@ -197,12 +222,6 @@ def _fake_activities(rec: _Recorder) -> list:
     async def internal_error(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
         rec.internal_errors.append(inputs.event["ts"])
 
-    @activity.defn(name="resolve_posthog_code_slack_user_activity")
-    async def resolve_user(
-        inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, slack_user_id: str
-    ) -> int | None:
-        return 42
-
     @activity.defn(name="mark_slack_app_message_processing_activity")
     async def mark_processing(input: SlackAppMessageReactionInput) -> None:
         rec.processing_marked.append(input.message_ts)
@@ -216,6 +235,7 @@ def _fake_activities(rec: _Recorder) -> list:
         mark_queued,
         quota,
         classify_followup,
+        request_confirmation,
         forward,
         collect,
         cascade,
@@ -227,7 +247,6 @@ def _fake_activities(rec: _Recorder) -> list:
         create_task,
         picker_timeout,
         internal_error,
-        resolve_user,
     ]
 
 
@@ -335,6 +354,25 @@ async def test_model_override_reaches_task_creation():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created_with_override == {"1.1": None, "1.2": override}
+
+
+@pytest.mark.asyncio
+async def test_model_override_reaches_a_followup_without_creating_a_task():
+    """The classifier runs above the follow-up/new-task split, so a reply naming a model
+    steers the run it lands on instead of being read as prose."""
+    rec = _Recorder()
+    override = SlackAppModelOverride(model="claude-fable-5", reasoning_effort="high")
+    rec.model_overrides["actually run this on fable"] = override
+    rec.forward_results["1.1"] = True
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(
+            h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1", text="actually run this on fable")
+        )
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.forwarded_with_override == {"1.1": override}
+    assert rec.created == []
 
 
 @pytest.mark.asyncio
@@ -495,3 +533,19 @@ async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/auto-repo")]
+
+
+@pytest.mark.asyncio
+async def test_deleted_trigger_message_creates_no_task_and_says_nothing():
+    # A prompt deleted right after posting reads back as an empty thread. Slack posts a
+    # reply with an unresolvable thread_ts at channel root, so anything we say here —
+    # including an "internal error" notice — lands in front of the whole channel.
+    rec = _Recorder()
+    rec.thread_messages["1.1"] = []
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created == []
+    assert rec.internal_errors == []

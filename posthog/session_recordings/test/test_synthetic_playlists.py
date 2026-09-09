@@ -22,13 +22,6 @@ from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSourc
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
-try:
-    from products.replay.backend.models.session_summaries import SingleSessionSummary
-
-    HAS_EE = True
-except ImportError:
-    HAS_EE = False
-
 
 class TestSyntheticPlaylists(APIBaseTest):
     def _get_playlists_response(self, query_params: str = "") -> dict:
@@ -60,8 +53,6 @@ class TestSyntheticPlaylists(APIBaseTest):
             "synthetic-expiring",
             "synthetic-frustrated",
         ]
-        if HAS_EE:
-            expected.append("synthetic-summarised")
 
         assert sorted(synthetic_short_ids) == sorted(expected)
 
@@ -229,27 +220,16 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
-    def test_synthetic_playlist_summarised_content(self) -> None:
-        if not HAS_EE:
-            # Skip test if EE is not available
-            return
+    def test_cannot_add_recordings_to_synthetic_playlist(self) -> None:
+        base = f"/api/projects/{self.team.id}/session_recording_playlists/synthetic-watch-history/recordings"
 
-        SingleSessionSummary.objects.create(
-            team=self.team,
-            session_id="summarised-session-1",
-            summary={"content": "User completed checkout flow"},
-            created_by=self.user,
-        )
-        SingleSessionSummary.objects.create(
-            team=self.team,
-            session_id="summarised-session-2",
-            summary={"content": "User encountered error on login"},
-            created_by=self.user,
-        )
+        single = self.client.post(f"{base}/session-1")
+        assert single.status_code == status.HTTP_400_BAD_REQUEST
 
-        playlist = self._get_synthetic_playlist("synthetic-summarised")
+        bulk = self.client.post(f"{base}/bulk_add", {"session_recording_ids": ["session-1"]})
+        assert bulk.status_code == status.HTTP_400_BAD_REQUEST
 
-        assert playlist["recordings_counts"]["collection"]["count"] == 2
+        assert SessionRecordingPlaylist.objects.count() == 0
 
     def test_pagination_includes_synthetics_only_on_first_page(self) -> None:
         for i in range(25):
@@ -260,7 +240,7 @@ class TestSyntheticPlaylists(APIBaseTest):
                 type="collection",
             )
 
-        expected_synthetic_count = 7 if HAS_EE else 6
+        expected_synthetic_count = 6
 
         page1_data = self._get_playlists_response("?limit=20")
         assert len(page1_data["results"]) == 20
@@ -273,7 +253,7 @@ class TestSyntheticPlaylists(APIBaseTest):
         assert page2_data["count"] == 25 + expected_synthetic_count
 
     def test_pagination_limit_constrains_combined_results(self) -> None:
-        expected_synthetic_count = 7 if HAS_EE else 6
+        expected_synthetic_count = 6
 
         # With no DB playlists, requesting limit=3 should return at most 3
         # synthetic playlists, not all of them.
@@ -312,7 +292,7 @@ class TestSyntheticPlaylists(APIBaseTest):
             last_modified_at=base_time,
         )
 
-        expected_synthetic_count = 7 if HAS_EE else 6
+        expected_synthetic_count = 6
 
         response_data = self._get_playlists_response(f"?order={order_param}")
         results = response_data["results"]

@@ -38,14 +38,6 @@ async def delete_misc_small_tables_activity(inputs: TeamDataActivityInputs) -> N
 
 
 @temporalio.activity.defn
-async def delete_personless_distinct_ids_activity(inputs: TeamDataActivityInputs) -> None:
-    async with Heartbeater():
-        from posthog.models.team.util import _delete_personless_distinct_ids_for_teams
-
-        await database_sync_to_async_pool(_delete_personless_distinct_ids_for_teams)(inputs.team_ids)
-
-
-@temporalio.activity.defn
 async def delete_cohort_members_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_cohort_members_for_all_teams

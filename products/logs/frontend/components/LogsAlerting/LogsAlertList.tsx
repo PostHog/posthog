@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
-import { IconBell, IconEllipsis, IconPlus } from '@posthog/icons'
+import { IconBell, IconEllipsis } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -12,17 +11,13 @@ import {
     LemonTag,
 } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
-
-import { ProductKey } from '~/queries/schema/schema-general'
 
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 import IconSlack from 'public/services/slack.png'
@@ -32,7 +27,7 @@ import {
     NotificationDestinationTypeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
-    LogsAlertThresholdOperatorEnumApi,
+    LogsAlertConfigurationThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertingLogic } from './logsAlertingLogic'
@@ -46,10 +41,8 @@ const DESTINATION_TAGS = [
     { type: NotificationDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
 ] as const
 
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
-
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
-    const operator = alert.threshold_operator === LogsAlertThresholdOperatorEnumApi.Below ? '<' : '>'
+    const operator = alert.threshold_operator === LogsAlertConfigurationThresholdOperatorEnumApi.Below ? '<' : '>'
     return `${operator} ${alert.threshold_count} in ${alert.window_minutes}m`
 }
 
@@ -71,7 +64,7 @@ export function LogsAlertDestinationTags({
 }
 
 export function LogsAlertList(): JSX.Element {
-    const { alerts, alertsLoading, resettingAlertIds, createdByFilter } = useValues(logsAlertingLogic)
+    const { alerts, alertsLoading, resettingAlertIds, snoozingAlertIds, createdByFilter } = useValues(logsAlertingLogic)
     const {
         setCreatedByFilter,
         deleteAlert,
@@ -80,6 +73,7 @@ export function LogsAlertList(): JSX.Element {
         snoozeAlert,
         unsnoozeAlert,
         openCreateAlertModal,
+        openEditAlertModal,
     } = useActions(logsAlertingLogic)
 
     const columns: LemonTableColumns<LogsAlertConfigurationApi> = [
@@ -87,7 +81,7 @@ export function LogsAlertList(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             render: (_, alert) => (
-                <LemonButton type="tertiary" size="small" to={urls.logsAlertDetail(alert.id)}>
+                <LemonButton type="tertiary" size="small" onClick={() => openEditAlertModal(alert)}>
                     {alert.name}
                 </LemonButton>
             ),
@@ -98,7 +92,7 @@ export function LogsAlertList(): JSX.Element {
             render: (_, alert) => (
                 <LogsAlertStateIndicator
                     state={alert.state}
-                    enabled={alert.enabled ?? true}
+                    enabled={alert.enabled === true}
                     firstEnabledAt={alert.first_enabled_at}
                     lastErrorMessage={alert.last_error_message}
                     snoozeUntil={alert.snooze_until}
@@ -191,7 +185,7 @@ export function LogsAlertList(): JSX.Element {
             dataIndex: 'enabled',
             render: (_, alert) => (
                 <LemonSwitch
-                    checked={alert.enabled ?? true}
+                    checked={alert.enabled === true}
                     onChange={() => toggleAlertEnabled(alert)}
                     disabledReason={
                         alert.state === LogsAlertConfigurationStateEnumApi.Broken
@@ -206,18 +200,28 @@ export function LogsAlertList(): JSX.Element {
             title: '',
             render: (_, alert) => {
                 const isResetting = resettingAlertIds.has(alert.id)
+                const isSnoozing = snoozingAlertIds.has(alert.id)
+                let snoozeMenuItem: LemonMenuItems[number] | false = false
+                if (alert.enabled === true && alert.state === LogsAlertConfigurationStateEnumApi.Snoozed) {
+                    snoozeMenuItem = {
+                        label: isSnoozing ? 'Unsnoozing…' : 'Unsnooze',
+                        disabledReason: isSnoozing ? 'Updating snooze' : undefined,
+                        onClick: () => unsnoozeAlert(alert.id),
+                    }
+                } else if (alert.enabled === true) {
+                    snoozeMenuItem = {
+                        label: isSnoozing ? 'Snoozing…' : 'Snooze',
+                        disabledReason: isSnoozing ? 'Updating snooze' : undefined,
+                        items: SNOOZE_DURATIONS.map((duration) => ({
+                            label: duration.label,
+                            onClick: () => snoozeAlert(alert.id, duration.minutes),
+                        })),
+                    }
+                }
                 const menuItems: LemonMenuItems = [
-                    { label: 'Edit', to: urls.logsAlertDetail(alert.id) },
+                    { label: 'Edit', onClick: () => openEditAlertModal(alert) },
                     { label: 'View history', to: urls.logsAlertDetail(alert.id, 'history') },
-                    alert.state === LogsAlertConfigurationStateEnumApi.Snoozed
-                        ? { label: 'Unsnooze', onClick: () => unsnoozeAlert(alert.id) }
-                        : {
-                              label: 'Snooze',
-                              items: SNOOZE_DURATIONS.map((duration) => ({
-                                  label: duration.label,
-                                  onClick: () => snoozeAlert(alert.id, duration.minutes),
-                              })),
-                          },
+                    snoozeMenuItem,
                     alert.state === LogsAlertConfigurationStateEnumApi.Broken && {
                         label: isResetting ? 'Resetting…' : 'Reset alert',
                         disabledReason: isResetting ? 'Reset in progress' : undefined,
@@ -257,30 +261,6 @@ export function LogsAlertList(): JSX.Element {
             },
         },
     ]
-
-    if (alerts.length === 0 && !createdByFilter && !alertsLoading) {
-        return (
-            <ProductIntroduction
-                productName="Logs alerts"
-                productKey={ProductKey.ALERTS}
-                thingName="logs alert"
-                description="Logs alerts notify you when matching logs cross a threshold."
-                isEmpty
-                customHog={HedgehogMagnifyingGlass}
-                actionElementOverride={
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        onClick={openCreateAlertModal}
-                        data-attr="logs-alerts-new"
-                    >
-                        Create alert
-                    </LemonButton>
-                }
-                docsURL="https://posthog.com/docs/logs/alerts"
-            />
-        )
-    }
 
     return (
         <div className="space-y-2">

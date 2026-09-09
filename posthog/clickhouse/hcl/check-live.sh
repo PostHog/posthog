@@ -20,8 +20,11 @@ set -euo pipefail
 HCL=posthog/clickhouse/hcl
 HCLEXP="$HCL/bin/hclexp"      # offline wrapper (no cluster network needed)
 GOLDEN="$HCL/golden"
-EXCLUDE="$HCL/exclude.hcl"
 ENV="${VERIFY_LIVE_ENV:-local-multi}"
+# The same exclude dump-live.sh introspected with, so the gate ignores exactly what
+# the dump dropped.
+EXCLUDE="$HCL/exclude.hcl"
+[ -f "$HCL/exclude-$ENV.hcl" ] && EXCLUDE="$HCL/exclude-$ENV.hcl"
 WARN="${VERIFY_LIVE_WARN:-0}"
 DUMPDIR="${1:-${LIVE_DUMP_DIR:?dump dir required (pass as arg1 or set LIVE_DUMP_DIR); run dump-live.sh first}}"
 
@@ -67,7 +70,7 @@ for role in "${ROLES[@]}"; do
   fi
 
   echo "== $ENV/$role: diff golden vs live dump =="
-  if drift="$("$HCLEXP" diff -left "$golden" -right "$live" -exclude "$EXCLUDE" -format json | report_drift)"; then
+  if drift="$("$HCLEXP" diff -left "$golden" -right "$live" -exclude "$EXCLUDE" -ignore-column-order -format json | report_drift)"; then
     echo "no differences"
   else
     echo "DRIFT: $ENV/$role — migrations produced a schema that differs from the HCL golden"

@@ -7,7 +7,9 @@ import {
   countFlatRows,
   flattenTurnRows,
   keyTurnRows,
+  nextOlderHistoryLoadState,
   nextThreadFollowState,
+  OLDER_HISTORY_LOAD_THRESHOLD_PX,
   type StickyAnchorEntry,
   sampleThreadScroll,
   type ThreadScrollSample,
@@ -26,7 +28,13 @@ function sessionUpdate(
     turnComplete = false,
     timestamp,
     text,
-  }: { turnComplete?: boolean; timestamp?: number; text?: string } = {},
+    traceId,
+  }: {
+    turnComplete?: boolean;
+    timestamp?: number;
+    text?: string;
+    traceId?: string | null;
+  } = {},
 ): SessionUpdateItem {
   return {
     type: "session_update",
@@ -40,6 +48,7 @@ function sessionUpdate(
       childItems: new Map(),
       turnCancelled: false,
       turnComplete,
+      traceId,
     },
     timestamp,
   };
@@ -96,19 +105,29 @@ describe("keyTurnRows", () => {
 });
 
 describe("flattenTurnRows", () => {
-  it("passes standalone rows through with ordinal keys for user messages", () => {
+  it("keys standalone rows by their content-derived ids", () => {
     const rows: TurnRow[] = [
       userMessage("u1"),
       { type: "git_action", id: "g1", actionType: "commit" as never },
       userMessage("u2"),
     ];
     const flat = flattenTurnRows(rows);
-    expect(flat.map((r) => r.key)).toEqual([
-      "user-turn-0",
-      "g1",
-      "user-turn-1",
-    ]);
+    expect(flat.map((r) => r.key)).toEqual(["u1", "g1", "u2"]);
     expect(flat.every((r) => !r.inTurn && !r.isTrailingInTurn)).toBe(true);
+  });
+
+  it("keeps a row's key unchanged when older rows are prepended", () => {
+    const tail: TurnRow[] = [
+      userMessage("u2"),
+      agentTurn("a", [sessionUpdate("a1")]),
+    ];
+    const before = flattenTurnRows(tail);
+    const after = flattenTurnRows([
+      userMessage("u1"),
+      agentTurn("b", [sessionUpdate("b1")]),
+      ...tail,
+    ]);
+    expect(after.slice(2).map((r) => r.key)).toEqual(before.map((r) => r.key));
   });
 
   it("flattens an agent turn to one row per item, flagging only the last as trailing", () => {
@@ -119,7 +138,7 @@ describe("flattenTurnRows", () => {
       userMessage("u1"),
       agentTurn("a", [a, b, c]),
     ]);
-    expect(flat.map((r) => r.key)).toEqual(["user-turn-0", "a", "b", "c"]);
+    expect(flat.map((r) => r.key)).toEqual(["u1", "a", "b", "c"]);
     expect(flat.map((r) => r.inTurn)).toEqual([false, true, true, true]);
     expect(flat.map((r) => r.isTrailingInTurn)).toEqual([
       false,
@@ -136,6 +155,19 @@ describe("flattenTurnRows", () => {
     ]);
     const flat = flattenTurnRows([done]);
     expect(flat.map((r) => r.turnTimestamp)).toEqual([undefined, 1234]);
+  });
+
+  it("carries the turn's trace id on the same row as its timestamp", () => {
+    const done = agentTurn("d", [
+      sessionUpdate("d1"),
+      sessionUpdate("d2", {
+        turnComplete: true,
+        timestamp: 1234,
+        traceId: "trace-d",
+      }),
+    ]);
+    const flat = flattenTurnRows([done]);
+    expect(flat.map((r) => r.turnTraceId)).toEqual([undefined, "trace-d"]);
   });
 
   it("carries the turn's copy text on the same row as its timestamp", () => {
@@ -289,6 +321,96 @@ describe("nextThreadFollowState", () => {
     ],
   ])("%s", (_name, state, event, expected) => {
     expect(nextThreadFollowState(state, event)).toEqual(expected);
+  });
+});
+
+describe("nextOlderHistoryLoadState", () => {
+  const AT_TOP = 0;
+  const AWAY = OLDER_HISTORY_LOAD_THRESHOLD_PX + 1;
+  // Enough room to scroll back out of the threshold band, so a gesture is possible.
+  const SCROLLABLE = OLDER_HISTORY_LOAD_THRESHOLD_PX * 4;
+
+  it.each([
+    [
+      "spends the armed gesture on reaching the threshold",
+      true,
+      {
+        canLoad: true,
+        isLoading: false,
+        scrollTop: AT_TOP,
+        maxScrollTop: SCROLLABLE,
+      },
+      { armed: false, load: true },
+    ],
+    [
+      "will not retry a failed load while the viewport stays at the top",
+      false,
+      {
+        canLoad: true,
+        isLoading: false,
+        scrollTop: AT_TOP,
+        maxScrollTop: SCROLLABLE,
+      },
+      { armed: false, load: false },
+    ],
+    [
+      "will not chain a second page after one lands at the top",
+      false,
+      {
+        canLoad: true,
+        isLoading: false,
+        scrollTop: OLDER_HISTORY_LOAD_THRESHOLD_PX,
+        maxScrollTop: SCROLLABLE,
+      },
+      { armed: false, load: false },
+    ],
+    [
+      "re-arms once the reader scrolls back out of the threshold",
+      false,
+      {
+        canLoad: true,
+        isLoading: false,
+        scrollTop: AWAY,
+        maxScrollTop: SCROLLABLE,
+      },
+      { armed: true, load: false },
+    ],
+    [
+      "holds the armed gesture while a page is still in flight",
+      true,
+      {
+        canLoad: true,
+        isLoading: true,
+        scrollTop: AT_TOP,
+        maxScrollTop: SCROLLABLE,
+      },
+      { armed: true, load: false },
+    ],
+    [
+      "keeps paging a window that leaves the viewport nothing to scroll",
+      false,
+      { canLoad: true, isLoading: false, scrollTop: AT_TOP, maxScrollTop: 0 },
+      { armed: false, load: true },
+    ],
+    [
+      "re-arms at the bottom of a window too short to clear the threshold",
+      false,
+      { canLoad: true, isLoading: false, scrollTop: 300, maxScrollTop: 300 },
+      { armed: true, load: false },
+    ],
+    [
+      "disarms once the whole transcript is loaded",
+      true,
+      {
+        canLoad: false,
+        isLoading: false,
+        scrollTop: AT_TOP,
+        maxScrollTop: SCROLLABLE,
+      },
+      { armed: false, load: false },
+    ],
+  ])("%s", (_name, armed, input, expected) => {
+    expect(nextOlderHistoryLoadState(armed, input)).toEqual(expected);
   });
 });
 

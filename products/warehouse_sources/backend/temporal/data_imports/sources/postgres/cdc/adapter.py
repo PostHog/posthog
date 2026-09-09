@@ -65,6 +65,15 @@ def _slot_setup_error_message(exc: Exception) -> str:
             "Either grant it replication access, or switch these tables to Incremental sync "
             "instead of CDC. Incremental needs only SELECT permission."
         )
+    # A read replica or read-only standby rejects the CREATE PUBLICATION that CDC needs.
+    if "in a read-only transaction" in message:
+        return (
+            f"Failed to create replication slot: {exc} "
+            "CDC has to create a replication slot and publication, which only a writable primary "
+            "database allows. This connection points at a read replica or read-only standby. "
+            "Connect to the primary database, or switch these tables to Incremental sync, which "
+            "needs only SELECT."
+        )
     return f"Failed to create replication slot: {exc}"
 
 

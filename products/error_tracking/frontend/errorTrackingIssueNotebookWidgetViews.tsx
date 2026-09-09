@@ -11,7 +11,7 @@ import { defineNotebookWidgetViews } from 'scenes/notebooks/notebookWidgetCatalo
 import { NotebookNodeProps } from 'scenes/notebooks/types'
 
 import { eventsSourceLogic } from './components/EventsTable/eventsSourceLogic'
-import { EventsTable } from './components/EventsTable/EventsTable'
+import { EventsTable, getEventMarkerColor } from './components/EventsTable/EventsTable'
 import { ExceptionCard } from './components/ExceptionCard'
 import { errorTrackingIssueSceneLogic } from './scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
@@ -83,7 +83,8 @@ export function ErrorTrackingIssueDetail({
     attributes,
 }: NotebookNodeProps<ErrorTrackingIssueNotebookWidgetAttributes>): JSX.Element {
     const logic = errorTrackingIssueSceneLogic({ id: attributes.id })
-    const { initialEvent, initialEventLoading, issue, issueLoading, selectedEvent } = useValues(logic)
+    const { initialEvent, initialEventLoading, issue, issueLoading, selectedEvent, summary } = useValues(logic)
+    const detailEvent = selectedEvent || initialEvent || undefined
 
     if (!issue && !issueLoading) {
         return <NotFound object="error tracking issue" />
@@ -96,7 +97,12 @@ export function ErrorTrackingIssueDetail({
                 <ExceptionCard
                     issueId={attributes.id}
                     issueName={issue?.name || null}
-                    event={selectedEvent || initialEvent || undefined}
+                    event={detailEvent}
+                    eventMarkerColor={
+                        detailEvent
+                            ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)
+                            : undefined
+                    }
                     loading={issueLoading || initialEventLoading}
                 />
             </div>

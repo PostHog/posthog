@@ -13,6 +13,10 @@ import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
+import {
+    clearPendingVerificationEmail,
+    setPendingVerificationEmail,
+} from 'scenes/authentication/shared/verificationCode'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
@@ -68,7 +72,6 @@ export interface signupLogicValues {
     challengeRequired: boolean
     emailCaseNotice: string | undefined
     emailWasNormalized: boolean
-    error: string | null
     isPasskeyRegistering: boolean
     isPendingInviteResending: boolean
     isSignupPanelAuthSubmitting: boolean
@@ -79,7 +82,6 @@ export interface signupLogicValues {
     isSignupPanelOnboardingValid: boolean
     loginUrl: string
     panel: number
-    panelTitle: string
     passkeyError: string | null
     passkeyRegistered: boolean
     pendingInvite: PendingInvite | null
@@ -153,9 +155,6 @@ export interface signupLogicActions {
     }
     setEmailNormalized: (wasNormalized: boolean) => {
         wasNormalized: boolean
-    }
-    setError: (error: string | null) => {
-        error: string | null
     }
     setPanel: (panel: number) => {
         panel: number
@@ -288,7 +287,6 @@ export interface signupLogicMeta {
         validatedPassword: (signupPanelAuth: SignupPanelAuthForm) => ValidatedPasswordResult
         emailCaseNotice: (emailWasNormalized: boolean) => string | undefined
         loginUrl: (searchParams: Record<string, any>) => string
-        panelTitle: (panel: number, preflight: PreflightStatus | null, pendingInvite: PendingInvite | null) => string
     }
 }
 
@@ -308,7 +306,6 @@ export const signupLogic = kea<signupLogicType>([
         setPasskeyRegistered: (registered: boolean) => ({ registered }),
         setPasskeyRegistering: (registering: boolean) => ({ registering }),
         setPasskeyError: (error: string | null) => ({ error }),
-        setError: (error: string | null) => ({ error }),
         // Turnstile challenge actions
         setChallengeRequired: (required: boolean) => ({ required }),
         setChallengeNonce: (nonce: string | null) => ({ nonce }),
@@ -352,12 +349,6 @@ export const signupLogic = kea<signupLogicType>([
             {
                 setPasskeyError: (_, { error }) => error,
                 registerPasskey: () => null,
-            },
-        ],
-        error: [
-            null as string | null,
-            {
-                setError: (_, { error }) => error,
             },
         ],
         challengeRequired: [
@@ -423,11 +414,16 @@ export const signupLogic = kea<signupLogicType>([
                       ? 'Please use a valid email address'
                       : undefined,
             }),
+            // kea-forms counts manual errors as validation errors and refuses to submit while any
+            // are set, and it only clears them when the field is touched or the form is reset. So
+            // the "account already exists" error from a previous attempt would block every later
+            // submit, leaving the user stuck on the email panel with a different email typed in.
+            preSubmit: () => {
+                actions.setSignupPanelEmailManualErrors({})
+            },
             submit: async ({ email }, breakpoint) => {
                 breakpoint()
-                actions.setSignupPanelEmailManualErrors({})
                 actions.setPasskeyError(null)
-                actions.setError(null)
                 let precheckResponse: SignupEmailPrecheckResponse
                 try {
                     precheckResponse = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
@@ -439,7 +435,6 @@ export const signupLogic = kea<signupLogicType>([
                         actions.setSignupPanelEmailManualErrors({
                             email: errorMessage,
                         })
-                        actions.setError(errorMessage)
                         actions.setPanel(0)
                         return
                     }
@@ -497,8 +492,15 @@ export const signupLogic = kea<signupLogicType>([
                 name: !name?.trim() ? 'Please enter your name' : undefined,
                 role_at_organization: !role_at_organization ? 'Please select your role in the organization' : undefined,
             }),
+            // Same reason as the email panel: without this, the generic or name error left behind by
+            // a failed signup would make every retry of this form a no-op.
+            preSubmit: () => {
+                actions.setSignupPanelOnboardingManualErrors({})
+            },
             submit: async (payload, breakpoint) => {
                 breakpoint()
+                // A new signup attempt must not inherit the address a previous attempt stored
+                clearPendingVerificationEmail()
                 try {
                     const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
@@ -532,6 +534,12 @@ export const signupLogic = kea<signupLogicType>([
                         posthog.capture('signup completed with passkey')
                     }
 
+                    // The verify page has no session yet, so store the address for its copy,
+                    // keyed by the user uuid from the redirect path
+                    const verifyUuid = res.redirect_url?.match(/\/verify_email\/([^/?#]+)/)?.[1]
+                    if (verifyUuid && signupData.email) {
+                        setPendingVerificationEmail(verifyUuid, signupData.email)
+                    }
                     // it's ok to trust the url sent from the server
                     // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
                     location.href = res.redirect_url || '/'
@@ -607,30 +615,6 @@ export const signupLogic = kea<signupLogicType>([
             (searchParams: Record<string, string>) => {
                 const nextParam = getRelativeNextPath(searchParams['next'], location)
                 return nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'
-            },
-        ],
-        panelTitle: [
-            (s) => [s.panel, s.preflight, s.pendingInvite],
-            (
-                panel: number,
-                preflight: null | import('../../../../types').PreflightStatus,
-                pendingInvite: PendingInvite | null
-            ): string => {
-                if (panel === 0 && pendingInvite) {
-                    return ''
-                }
-                if (preflight?.demo) {
-                    return 'Explore PostHog yourself'
-                }
-
-                switch (panel) {
-                    case 1:
-                        return 'Choose how to sign in'
-                    case 2:
-                        return 'Tell us a bit about yourself'
-                    default:
-                        return 'Get started'
-                }
             },
         ],
     }),

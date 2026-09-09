@@ -1,11 +1,12 @@
-import {
-  matchesCommandSearch,
-  prioritizeExactCommandMatches,
-} from "@posthog/ui/features/command/commandSearch";
 import type {
   Command,
   CommandSection,
-} from "@posthog/ui/features/command/useSearchSections";
+} from "@posthog/ui/features/command/commandRow";
+import {
+  addRecentCommand,
+  matchesCommandSearch,
+  prioritizeExactCommandMatches,
+} from "@posthog/ui/features/command/commandSearch";
 import { describe, expect, it } from "vitest";
 
 const command = (id: string, label: string): Command => ({
@@ -38,5 +39,18 @@ describe("prioritizeExactCommandMatches", () => {
     expect(
       matchesCommandSearch(command("release", "Release"), " release "),
     ).toBe(true);
+  });
+
+  it("keeps the five most recently selected commands without duplicates", () => {
+    const selected = ["one", "two", "three", "four", "five", "six"].reduce(
+      (recent, id) => addRecentCommand(recent, command(id, id)),
+      [] as Command[],
+    );
+
+    expect(
+      addRecentCommand(selected, command("four", "four")).map(
+        (item) => item.id,
+      ),
+    ).toEqual(["four", "six", "five", "three", "two"]);
   });
 });

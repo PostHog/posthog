@@ -2,7 +2,6 @@ import uuid
 import typing
 import asyncio
 import datetime as dt
-import operator
 import dataclasses
 import collections.abc
 from zoneinfo import ZoneInfo
@@ -25,8 +24,9 @@ from posthog.tasks.email import get_members_to_notify_for_pipeline_error, send_b
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.usage_ingestion.client import UsageRecord, areport_usage
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
@@ -196,69 +196,6 @@ class TaskNotDoneError(Exception):
         super().__init__(f"Expected task '{task}' to be done by now")
 
 
-def generate_query_ranges(
-    remaining_range: tuple[dt.datetime | None, dt.datetime],
-    done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
-) -> typing.Iterator[tuple[dt.datetime | None, dt.datetime]]:
-    """Recursively yield ranges of dates that need to be queried.
-
-    There are essentially 3 scenarios we are expecting:
-    1. The batch export just started, so we expect `done_ranges` to be an empty
-       list, and thus should return the `remaining_range`.
-    2. The batch export crashed mid-execution, so we have some `done_ranges` that
-       do not completely add up to the full range. In this case we need to yield
-       ranges in between all the done ones.
-    3. The batch export crashed right after we finish, so we have a full list of
-       `done_ranges` adding up to the `remaining_range`. In this case we should not
-       yield anything.
-
-    Case 1 is fairly trivial and we can simply return `remaining_range` if we get
-    an empty `done_ranges`.
-
-    Case 2 is more complicated and we can expect that the ranges produced by this
-    function will lead to duplicate events selected, as our batch export query is
-    inclusive in the lower bound. Since multiple rows may have the same
-    `inserted_at` we cannot simply skip an `inserted_at` value, as there may be a
-    row that hasn't been exported as it with the same `inserted_at` as a row that
-    has been exported. So this function will return ranges with `inserted_at`
-    values that were already exported for at least one event. Ideally, this is
-    *only* one event, but we can never be certain.
-    """
-    if len(done_ranges) == 0:
-        yield remaining_range
-        return
-
-    epoch = dt.datetime.fromtimestamp(0, tz=dt.UTC)
-    list_done_ranges: list[tuple[dt.datetime, dt.datetime]] = list(done_ranges)
-
-    list_done_ranges.sort(key=operator.itemgetter(0))
-
-    while True:
-        try:
-            next_range: tuple[dt.datetime | None, dt.datetime] = list_done_ranges.pop(0)
-        except IndexError:
-            if remaining_range[0] != remaining_range[1]:
-                # If they were equal it would mean we have finished.
-                yield remaining_range
-
-            return
-        else:
-            candidate_end_at = next_range[0] if next_range[0] is not None else epoch
-
-        candidate_start_at = remaining_range[0]
-        remaining_range = (next_range[1], remaining_range[1])
-
-        if candidate_start_at is not None and candidate_start_at >= candidate_end_at:
-            # We have landed within a done range.
-            continue
-
-        if candidate_start_at is None and candidate_end_at == epoch:
-            # We have landed within the first done range of a backfill.
-            continue
-
-        yield (candidate_start_at, candidate_end_at)
-
-
 def iter_records(
     client: ClickHouseClient,
     team_id: int,
@@ -375,6 +312,10 @@ class DataInterval:
     start: dt.datetime
     end: dt.datetime
 
+    def __post_init__(self) -> None:
+        if self.start > self.end:
+            raise ValueError(f"DataInterval start must not be after end: start={self.start}, end={self.end}")
+
 
 def get_data_interval(interval: str, data_interval_end: str | None, timezone: str | None = None) -> DataInterval:
     """Return the start and end of an export's data interval.
@@ -444,7 +385,7 @@ def get_data_interval(interval: str, data_interval_end: str | None, timezone: st
     return DataInterval(start=data_interval_start_dt, end=data_interval_end_dt)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class StartBatchExportRunInputs:
     """Inputs to the 'start_batch_export_run' activity.
 
@@ -593,7 +534,7 @@ async def check_is_over_limit(team_id: int) -> bool:
     return False
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class FinishBatchExportRunInputs:
     """Inputs to the 'finish_batch_export_run' activity.
 
@@ -626,6 +567,18 @@ class FinishBatchExportRunInputs:
     bytes_exported: int | None = None
     records_failed: int | None = None
     on_demand: bool = False
+
+
+def _is_billable(run: BatchExportRun) -> bool:
+    # Mirrors get_teams_with_rows_exported_in_period in the nightly report, which bills neither
+    # HTTP nor Workflows destinations, and skips a run whose export has been deleted.
+    export = run.batch_export or run.batch_export_on_demand
+    if export is None or export.deleted:
+        return False
+    return export.destination.type not in (
+        BatchExportDestination.Destination.HTTP,
+        BatchExportDestination.Destination.WORKFLOWS,
+    )
 
 
 @activity.defn
@@ -674,6 +627,30 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         finished_at=dt.datetime.now(dt.UTC),
         **update_params,
     )
+
+    # The run is already written, so nothing here may fail the activity — not the destination
+    # lookup `_is_billable` walks, not the report itself.
+    try:
+        if (
+            batch_export_run.status == BatchExportRun.Status.COMPLETED
+            and batch_export_run.records_completed
+            and _is_billable(batch_export_run)
+        ):
+            await areport_usage(
+                [
+                    UsageRecord(
+                        record_id=str(batch_export_run.id),
+                        producer_id="batch-exports",
+                        team_id=inputs.team_id,
+                        usage_key="batch_export_rows",
+                        unit="rows",
+                        quantity=batch_export_run.records_completed,
+                    )
+                ],
+                site="batch_exports",
+            )
+    except Exception:
+        LOGGER.exception("batch_export_run.usage_collection_failed", batch_export_run_id=inputs.id)
 
     if batch_export_run.status == BatchExportRun.Status.FAILED_RETRYABLE:
         # We should never get here as we do not have a retry limit.

@@ -1,5 +1,6 @@
 """Activities for the per-backfill tick workflow: gatekeeping, candidate walk, cursor advance, schedule ops."""
 
+import time
 import asyncio
 from uuid import UUID
 
@@ -8,6 +9,10 @@ from django.utils import timezone
 
 import structlog
 from pydantic import ValidationError
+from rest_framework.exceptions import (
+    PermissionDenied,
+    ValidationError as DRFValidationError,
+)
 from temporalio import activity
 from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
@@ -16,16 +21,23 @@ from posthog.schema import RecordingsQuery
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 
 from products.replay_vision.backend.enqueue_claims import claim_enqueue_slot_prefix
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_scanner import apply_experiment_targeting
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
     ReplayScannerBackfill,
 )
-from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
-from products.replay_vision.backend.quota import quota_state
+from products.replay_vision.backend.queries import excluded_sessions
+from products.replay_vision.backend.queries.scanner_candidate_query import (
+    BACKFILL_CANDIDATE_QUERY_TYPE,
+    BACKFILL_EXCLUDED_SESSIONS_QUERY_TYPE,
+    WindowedCandidateQuery,
+)
+from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight,
     count_in_flight_rows,
@@ -43,6 +55,7 @@ from products.replay_vision.backend.temporal.backfill_types import (
 from products.replay_vision.backend.temporal.constants import (
     BACKFILL_SCHEDULE_ID_PREFIX,
     BACKFILL_SCHEDULE_TYPE,
+    FIND_BACKFILL_CANDIDATES_TIMEOUT,
     backfill_dispatch_budget,
     build_apply_scanner_workflow_id,
 )
@@ -98,6 +111,13 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
         record_backfill_tick_outcome("paused_quota")
         return PrepareBackfillTickOutput(action=BackfillTickAction.PAUSE)
 
+    scanner_budget = compute_scanner_budget(backfill.scanner) if backfill.scanner.credit_limit is not None else None
+    if scanner_budget is not None and scanner_budget.would_exceed(backfill.credits_per_observation):
+        # Children would decline at create while the cursor walks past their sessions; the hold lets
+        # the backfill resume when the period resets or the limit rises.
+        record_backfill_tick_outcome("skipped_scanner_limit")
+        return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
+
     in_flight = count_in_flight(inputs.team_id, backfill.scanner_id, backfill_id=backfill.id)
     budget = backfill_dispatch_budget(in_flight["scanner"], in_flight["team"], in_flight["backfill"])
     # Never dispatch more children than the quota can pay for: a child declined at create still advances
@@ -106,6 +126,11 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
     affordable = quota.affordable_count(backfill.credits_per_observation)
     if affordable is not None:
         budget = min(budget, affordable)
+    if scanner_budget is not None:
+        # The scanner's own cap bounds the batch the same way the org quota does.
+        scanner_affordable = scanner_budget.affordable_count(backfill.credits_per_observation)
+        if scanner_affordable is not None:
+            budget = min(budget, scanner_affordable)
     if budget <= 0:
         record_backfill_tick_outcome("throttled")
         return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
@@ -118,7 +143,7 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
 def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> FindBackfillCandidatesOutput:
     backfill = (
         ReplayScannerBackfill.objects.for_team(inputs.team_id)
-        .select_related("team")
+        .select_related("team", "created_by")
         .filter(pk=inputs.backfill_id)
         .first()
     )
@@ -141,12 +166,16 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         raise ApplicationError(
             f"ReplayScannerBackfill {inputs.backfill_id} has malformed frozen query: {exc}", non_retryable=True
         ) from exc
+    query = apply_experiment_targeting(query, snapshot.experiment_targeting)
 
-    candidates = BackfillCandidateQuery(
+    candidate_query = WindowedCandidateQuery(
         team=backfill.team,
         query=query,
+        # The exposure filter's access check runs as whoever launched the backfill.
+        user=backfill.created_by,
         window_start=backfill.window_start,
         window_end=backfill.window_end,
+        query_type=BACKFILL_CANDIDATE_QUERY_TYPE,
         sampling_rate=snapshot.sampling_rate,
         # Same salt as the live sweep, so a sampled scanner backfills the same deterministic bucket it scans live.
         sampling_salt=str(backfill.scanner_id),
@@ -155,7 +184,24 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         cursor_end_time=backfill.cursor_end_time,
         cursor_session_id=backfill.cursor_session_id or None,
         candidate_limit=inputs.candidate_limit,
-    ).run()
+        skip_negative_blocklists=True,
+    )
+    started_at = time.monotonic()
+    try:
+        candidates = candidate_query.run()
+    except (PermissionDenied, DRFValidationError) as exc:
+        # The exposure filter can't run anymore: the launcher was deleted or lost experiment
+        # access, or the experiment can't answer for its exposed population (deleted, back to
+        # draft, renamed variant). Cancelling on a condition that might heal is deliberate: a
+        # stuck backfill silently counts its unspent credits into the spend projection, while a
+        # cancelled one is visible and can be relaunched.
+        ReplayScannerBackfill.objects.for_team(inputs.team_id).filter(
+            pk=backfill.pk, status__in=ACTIVE_BACKFILL_STATUSES
+        ).update(status=BackfillStatus.CANCELLED, finished_at=timezone.now())
+        raise ApplicationError(
+            f"ReplayScannerBackfill {inputs.backfill_id} cancelled: its exposure filter can't run: {exc}",
+            non_retryable=True,
+        ) from exc
 
     # Succeeded only, matching the `$recording_observed` event the creation-time count excludes on.
     # Postgres rather than that count's fail-soft ClickHouse read, whose hiccup would report every session
@@ -168,7 +214,20 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
             session_id__in=[c.session_id for c in candidates],
         ).values_list("session_id", "completed_at")
     )
-    dispatchable = [c for c in candidates if c.session_id not in succeeded_at]
+    unobserved = [c for c in candidates if c.session_id not in succeeded_at]
+    # After the Postgres filter, so the scan covers only ids that could still be dispatched.
+    excluded = excluded_sessions.excluded_session_ids(
+        team=backfill.team,
+        candidate_query=candidate_query,
+        candidates=unobserved,
+        query_type=BACKFILL_EXCLUDED_SESSIONS_QUERY_TYPE,
+        scanner_id=str(backfill.scanner_id),
+        seconds_remaining=FIND_BACKFILL_CANDIDATES_TIMEOUT.total_seconds() - (time.monotonic() - started_at),
+    )
+    # Same quarantine as the live sweep: a session past the stuck threshold cannot render, and the
+    # cursor steps over it exactly like an excluded session.
+    stuck = read_stuck_session_ids(inputs.team_id, [c.session_id for c in unobserved])
+    dispatchable = [c for c in unobserved if c.session_id not in excluded and c.session_id not in stuck]
     # Only sessions the live sweep reached after this backfill was quoted were in its total, so only those
     # count as work done; earlier successes were already excluded at creation.
     overtaken = {
@@ -189,6 +248,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         scanner_in_flight_rows=rows["scanner"],
         backfill_id=backfill.id,
         backfill_in_flight_rows=rows["backfill"],
+        scheduled=True,
     )
 
     # The cursor may step over an already-observed session, because nothing will ever need doing for
@@ -300,6 +360,8 @@ async def reap_backfill_schedules_activity() -> None:
     seen: set[UUID] = set()
     fixes = []
     async for listing in await client.list_schedules(query=f'PostHogScheduleType = "{BACKFILL_SCHEDULE_TYPE}"'):
+        # The SDK throttles the RPCs, so per-listing is cheap.
+        activity.heartbeat({"phase": "listing_schedules", "seen": len(seen)})
         if not listing.id.startswith(prefix):
             continue
         try:
@@ -316,4 +378,5 @@ async def reap_backfill_schedules_activity() -> None:
             logger.info("replay_vision.backfill_reaper.recreating_missing", backfill_id=str(backfill_id))
             fixes.append(_recreate_schedule(backfill_id, team_id, scanner_id, row_status, client))
     if fixes:
+        activity.heartbeat({"phase": "applying_fixes", "fixes": len(fixes)})
         await asyncio.gather(*fixes)

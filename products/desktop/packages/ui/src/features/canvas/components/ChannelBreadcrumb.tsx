@@ -1,12 +1,10 @@
 import { LinkIcon, StarIcon } from "@phosphor-icons/react";
 import {
-  Button,
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
-  cn,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -18,9 +16,13 @@ import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { HeaderTitleEditor } from "@posthog/ui/features/task-detail/HeaderTitleEditor";
+import {
+  BreadcrumbSegment,
+  BreadcrumbSeparator,
+} from "@posthog/ui/primitives/Breadcrumb";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
-import { Flex, Text } from "@radix-ui/themes";
+import { Flex } from "@radix-ui/themes";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 
@@ -53,6 +55,12 @@ interface ChannelBreadcrumbProps {
   onRename?: (next: string) => void;
   /** Right-aligned slot pushed to the far end of the bar (e.g. an opener). */
   trailing?: ReactNode;
+  /**
+   * Slot that rides directly after the leaf segment instead of the far end —
+   * for controls that act on the leaf itself (copy its link), which read as
+   * unrelated once the bar's width separates them from the name.
+   */
+  leafTrailing?: ReactNode;
 }
 
 // "# channel / leaf" header breadcrumb shared across channel scenes (CONTEXT.md,
@@ -69,6 +77,7 @@ export function ChannelBreadcrumb({
   editScopeKey,
   onRename,
   trailing,
+  leafTrailing,
 }: ChannelBreadcrumbProps) {
   const spacesLayout = useChannelsLayout();
   // Only a leaf is renamable, so the scope key falls back to its label.
@@ -77,9 +86,7 @@ export function ChannelBreadcrumb({
   const editing = editingScope === currentEditScope;
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const atChannelHome = channelId
-    ? pathname === `/website/${channelId}`
-    : false;
+  const atChannelHome = channelId ? pathname === `/spaces/${channelId}` : false;
 
   const channelSegment = (
     <BreadcrumbSegment
@@ -94,7 +101,7 @@ export function ChannelBreadcrumb({
         channelId && !atChannelHome
           ? () =>
               void navigate({
-                to: "/website/$channelId",
+                to: "/spaces/$channelId",
                 params: { channelId },
               })
           : undefined
@@ -129,10 +136,6 @@ export function ChannelBreadcrumb({
           <>
             <BreadcrumbSeparator />
             {editing && onRename ? (
-              // Matches the segment it replaces — same height, padding and type
-              // scale as a `size="sm"` button — so opening the editor doesn't
-              // jump the row. It takes the rest of the row, since a long name is
-              // exactly what you're most likely to be editing.
               <HeaderTitleEditor
                 initialTitle={leafLabel}
                 onSubmit={(next) => {
@@ -143,98 +146,34 @@ export function ChannelBreadcrumb({
                 className="h-6 px-2 font-normal text-[13px]"
               />
             ) : onRename ? (
-              // Only a renamable leaf gets a tooltip: it carries a user-authored
-              // name that can be long enough to truncate. Fixed section labels
-              // never overflow, so a tooltip there is just noise.
               <Tooltip>
                 <TooltipTrigger render={<span className="flex min-w-0" />}>
-                  {/* A renamable leaf is a live control — a click opens the
-                      editor — so it reads as one: full-strength text, pointer
-                      cursor, hover fill. */}
                   <BreadcrumbSegment
-                    icon={leafIcon}
+                    icon={<span className="mr-0.5">{leafIcon}</span>}
                     label={leafLabel}
+                    shrink
                     onClick={() => setEditingScope(currentEditScope)}
+                    className="pr-1"
                   />
                 </TooltipTrigger>
                 <TooltipContent>{leafLabel}</TooltipContent>
               </Tooltip>
             ) : (
-              <BreadcrumbSegment icon={leafIcon} label={leafLabel} muted />
+              <BreadcrumbSegment
+                icon={leafIcon}
+                label={leafLabel}
+                muted
+                shrink
+              />
+            )}
+            {leafTrailing && (
+              <span className="flex shrink-0 items-center">{leafTrailing}</span>
             )}
           </>
         )}
       </Flex>
       {trailing}
     </Flex>
-  );
-}
-
-/**
- * One segment of the breadcrumb. Always a Button, so every segment carries the
- * same padding, height and icon gap whether or not it goes anywhere — the leaf
- * used to be bare text, which left it visually adrift from its siblings.
- *
- * Without `onClick` the segment is genuinely inert: `aria-disabled` (so quill
- * drops the hover fill and assistive tech reads it as unavailable) plus
- * `pointer-events-none`, and out of the tab order. The disabled dimming is
- * overridden — a breadcrumb has to stay readable.
- */
-function BreadcrumbSegment({
-  icon,
-  label,
-  strong,
-  muted,
-  onClick,
-  contextMenu = false,
-  ...rest
-}: {
-  icon?: ReactNode;
-  label: string;
-  /** The root segment carries the space name, which reads heavier. */
-  strong?: boolean;
-  /** The leaf is the current page, so it sits back from the linked segments. */
-  muted?: boolean;
-  /** Navigates, or (on a renamable leaf) opens the inline editor. */
-  onClick?: () => void;
-  contextMenu?: boolean;
-}) {
-  const interactive = Boolean(onClick);
-
-  return (
-    <Button
-      {...rest}
-      type="button"
-      size="sm"
-      aria-disabled={interactive ? undefined : true}
-      tabIndex={interactive ? undefined : -1}
-      onClick={onClick}
-      className={cn(
-        "no-drag min-w-0",
-        // Live segments (a link, or a click-to-rename leaf) behave like
-        // any other button: pointer cursor and hover fill. Inert ones read as
-        // plain text — full opacity, ordinary cursor, and no hover (quill's
-        // hover rules already skip aria-disabled) — and leave the tab order.
-        interactive || contextMenu
-          ? "cursor-pointer!"
-          : "pointer-events-none cursor-default! opacity-100!",
-      )}
-    >
-      {icon && (
-        <span className="flex shrink-0 text-muted-foreground/80">{icon}</span>
-      )}
-      {/* No `title`: the native tooltip duplicated the styled one, and on the
-          fixed segments there was nothing worth revealing. */}
-      <Text
-        className={cn(
-          "min-w-0 truncate whitespace-nowrap text-[13px]",
-          strong && "font-medium",
-          muted && "text-muted-foreground",
-        )}
-      >
-        {label}
-      </Text>
-    </Button>
   );
 }
 
@@ -292,11 +231,5 @@ function ChannelSegmentContextMenu({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
-  );
-}
-
-function BreadcrumbSeparator() {
-  return (
-    <Text className="shrink-0 text-[13px] text-muted-foreground/20">/</Text>
   );
 }

@@ -192,8 +192,14 @@ function FeatureFlagImplementationWidget({
 function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): JSX.Element {
     const { id } = attributes
     const logic = featureFlagLogic({ id })
-    const { featureFlag, featureFlagLoading, featureFlagMissing, hasUnsavedChanges, nonEmptyVariants } =
-        useValues(logic)
+    const {
+        featureFlag,
+        featureFlagLoading,
+        featureFlagMissing,
+        hasUnsavedChanges,
+        nonEmptyVariants,
+        hasEarlyAccessFeatures,
+    } = useValues(logic)
     const { loadFeatureFlag, setFeatureFlagFilters, submitFeatureFlagWithValidation } = useActions(logic)
 
     if (featureFlagMissing) {
@@ -228,6 +234,7 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
                         isDisabled={!featureFlag.active}
                         bucketingIdentifier={featureFlag.bucketing_identifier}
                         evaluationRuntime={featureFlag.evaluation_runtime}
+                        hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                     />
                 )}
 

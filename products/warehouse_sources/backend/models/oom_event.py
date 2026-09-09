@@ -19,27 +19,17 @@ if TYPE_CHECKING:
 # Self-reported phases that rule a death out as a *merge* memory problem. Repartitioning only changes
 # merge memory, so a death in any of these phases must not feed the repartition trigger, whatever
 # killed the worker (an extract-phase OOM is real, but its remedy is chunking or routing, not a finer
-# partition layout). An unknown phase (no report: rollout gap, expired key, Redis down) fails open.
+# partition layout). An unknown phase (no report: rollout gap, expired key, Redis down) fails open,
+# and so does "repartition": a rewrite death held partition-sized data of this schema, which is
+# exactly the evidence the trigger runs on.
 NON_MERGE_PHASES = ("extract", "load", "finished")
-
-
-def infra_burst_window_seconds() -> int:
-    return int(getattr(settings, "DATA_WAREHOUSE_OOM_INFRA_BURST_WINDOW_SECONDS", 1800))
-
-
-def infra_burst_min_schemas() -> int:
-    return int(getattr(settings, "DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_SCHEMAS", 50))
-
-
-def infra_burst_min_teams() -> int:
-    return int(getattr(settings, "DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS", 10))
 
 
 def evidence_freshness_bound_seconds() -> float:
     # A phase flip reaches Redis only on the next periodic sample, so evidence up to one interval old
     # is normal. Twice the interval tolerates one missed write; beyond that the report describes what
     # the run was doing earlier, not what killed it.
-    return 2.0 * float(getattr(settings, "DATA_WAREHOUSE_WORKLOAD_REPORT_INTERVAL_SECONDS", 30.0))
+    return 2.0 * settings.DATA_WAREHOUSE_WORKLOAD_REPORT_INTERVAL_SECONDS
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -113,41 +103,30 @@ class ExternalDataSchemaOOMEvent(TeamScopedRootMixin, UUIDModel):
     def recent_count(cls, schema: "ExternalDataSchema", *, days: int) -> int:
         """Occurrences within the last `days` that still look like this table's own merge OOM.
 
-        Three rules narrow the raw stopped-heartbeating signal, each with a distinct evidence source,
-        and each failing open (an occurrence the evidence cannot explain away stays counted):
+        Three rules narrow the raw stopped-heartbeating signal, all failing open so an occurrence the
+        evidence cannot explain stays counted:
 
-        * **Phase** — a death self-reported in a non-merge phase is not a repartitioning problem,
-          whatever killed the worker (see `NON_MERGE_PHASES`).
-        * **Culprit** — a pod OOM kills every co-tenant. If something else on the pod self-reported a
-          strictly larger peak buffer than us, we were plausibly collateral, not the cause. The
-          snapshot only carries co-tenant peaks time-correlated with the death (see
-          `enrich_death_event_properties`): a neighbour that crashed an hour earlier, or a lifetime
-          peak long since released, must not exonerate a death it had nothing to do with.
+        * **Phase** — a death self-reported outside a merge is not a repartitioning problem, whatever
+          killed the worker (see `NON_MERGE_PHASES`).
+        * **Culprit** — a pod OOM kills every co-tenant, so a neighbour reporting a strictly larger
+          peak buffer makes us plausibly collateral. Only peaks time-correlated with the death are
+          carried (see `enrich_death_event_properties`), because a neighbour that crashed an hour
+          earlier cannot exonerate this one.
         * **Infra burst** — a deploy, node drain or incident takes down many unrelated schemas at
-          once; an occurrence sharing a window with a fleet-wide burst is attributed to infrastructure.
-          A burst must span many distinct *teams* as well as schemas — one tenant's own outage is not
-          infrastructure and must not suppress other tenants' counting.
-          Judged at read time from the rows themselves, because the burst window extends past the
-          occurrence being judged (later rows are part of its evidence).
+          once. The burst must span many distinct teams as well as schemas, since one tenant's own
+          outage is not infrastructure. Judged at read time because the window extends past the
+          occurrence being judged, so later rows are part of its evidence.
 
-        The phase and culprit rules additionally require the snapshot to be *fresh* relative to the
-        death (see `_evidence_excludes`): self-reports are periodic, so stale evidence predates
-        whatever killed the worker and cannot exonerate.
+        Phase and culprit additionally require the snapshot to be fresh relative to the death (see
+        `_evidence_excludes`): self-reports are periodic, so stale evidence predates whatever killed
+        the worker.
 
-        Every retry attempt counts, including repeats within one job: each is a separate attempt at
-        the same merge, rescheduled onto whichever worker picks it up, so a job failing attempt after
-        attempt is the clearest evidence the log carries.
+        Every retry attempt counts, including repeats within one job, because each is a fresh attempt
+        at the same merge on whichever worker picks it up.
 
-        `days` is required (no default) so it stays sourced from `DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS`
-        at the call site rather than duplicating that window here where the two could silently diverge.
-
-        The window is also floored at the schema's `last_repartition_at`: a completed repartition
-        addresses the OOMs that preceded it, so counting them again would re-trigger a repartition on
-        the same (now healthy) table every cooldown until they age out.
-
-        This is the *filtered* view for the split trigger, where failing open means counting. Gates
-        that must stay conservative in the opposite direction (coarsening, which grows the merge
-        working set) use `has_recent_occurrences` — the raw signal — instead.
+        The window is floored at `last_repartition_at`: a completed repartition addresses the OOMs
+        that preceded it, so counting them again would re-trigger on a now-healthy table every
+        cooldown until they age out. `blocks_coarsening` deliberately drops that floor.
         """
         since = timezone.now() - timedelta(days=days)
         last_repartition_at = schema.last_repartition_at
@@ -156,8 +135,11 @@ class ExternalDataSchemaOOMEvent(TeamScopedRootMixin, UUIDModel):
                 since = max(since, parser.parse(last_repartition_at))
             except (ValueError, TypeError):
                 pass
+        return cls._classified_count(cls._events_since(schema, since), since)
 
-        events = list(
+    @classmethod
+    def _events_since(cls, schema: "ExternalDataSchema", since: datetime) -> list[dict[str, Any]]:
+        return list(
             cls.objects.for_team(schema.team_id)
             .filter(schema_id=schema.pk, created_at__gte=since)
             .values(
@@ -168,33 +150,48 @@ class ExternalDataSchemaOOMEvent(TeamScopedRootMixin, UUIDModel):
                 "co_tenant_correlated_max_peak_buffer_bytes",
             )
         )
-        # Healthy schemas have no rows, so they pay for one indexed lookup and no rule evaluation.
-        # The in-memory rules run first so exonerated rows never reach the burst check at all.
+
+    @classmethod
+    def _classified_count(cls, events: list[dict[str, Any]], since: datetime) -> int:
+        # Cheap rules first, so exonerated rows never reach the fleet-wide burst query below.
         candidates = [event for event in events if not cls._evidence_excludes(event)]
         if not candidates:
             return 0
 
-        # Burst screening is one fleet-wide bucketed aggregate over the whole window, whatever the
-        # candidate count: a half-window bucket that alone crosses the thresholds proves any window
-        # fully containing it does too (distinct counts are monotone under containment), so each
-        # candidate's verdict is an in-memory containment check. Bursts spread too thin for any
-        # single bucket to prove fail open and count. The extra window before `since` keeps a burst
-        # just outside the window boundary visible to the candidates near it.
-        window = timedelta(seconds=infra_burst_window_seconds())
+        # One bucketed aggregate serves every candidate: distinct counts are monotone under
+        # containment, so a half-window bucket that alone crosses the thresholds proves any window
+        # containing it does too, and each candidate's verdict becomes an in-memory check. Bursts too
+        # thin for a single bucket to prove fail open and count. Reaching one window back from `since`
+        # keeps a burst straddling the boundary visible to the candidates near it.
+        window = timedelta(seconds=settings.DATA_WAREHOUSE_OOM_INFRA_BURST_WINDOW_SECONDS)
         buckets = cls._burst_bucket_stats(since - window, timezone.now())
         return sum(1 for event in candidates if not cls._window_has_burst_bucket(event["created_at"], buckets))
 
     @classmethod
-    def has_recent_occurrences(cls, schema: "ExternalDataSchema", *, days: int) -> bool:
-        """Whether ANY occurrence exists in the window — the raw signal, no rules applied.
+    def blocks_coarsening(cls, schema: "ExternalDataSchema", *, days: int) -> bool:
+        """Whether recent evidence says a coarser layout would be unsafe for this table.
 
-        For gates whose conservative direction is inverted relative to the split trigger: coarsening
-        grows the merge working set, so any recent death evidence — even one the rules would explain
-        away as a victim or infrastructure — must block it. Exclusion exists to withhold a split,
-        never to enable a coarsen.
+        Coarsening grows the merge working set, so it must not run on a table whose merges are already
+        dying. The classification is deliberately reused rather than the raw log, because one
+        fleet-wide restart would otherwise withhold coarsening from every table it touched. The rules
+        fail open, so a death nothing explains still blocks.
+
+        A merge-phase death whose own peak crossed `DATA_WAREHOUSE_COARSEN_BLOCK_MERGE_PEAK_BYTES`
+        blocks as well, whatever verdict the rules reached, because the two directions are not
+        symmetric: a merely plausible exclusion costs the split trigger a rewrite it did not need, but
+        costs this one an enlarged merge on a table last seen holding real memory.
         """
+        # No `last_repartition_at` floor, unlike `recent_count`. Coarsening undoes a split, so the
+        # OOMs that justified that split are the evidence most worth keeping; flooring them away would
+        # let the table coarsen straight back and split again on the next OOM.
         since = timezone.now() - timedelta(days=days)
-        return cls.objects.for_team(schema.team_id).filter(schema_id=schema.pk, created_at__gte=since).exists()
+        events = cls._events_since(schema, since)
+        if cls._classified_count(events, since) > 0:
+            return True
+        peak_bound = settings.DATA_WAREHOUSE_COARSEN_BLOCK_MERGE_PEAK_BYTES
+        return any(
+            event["self_phase"] == "merge" and (event["self_peak_buffer_bytes"] or 0) > peak_bound for event in events
+        )
 
     @classmethod
     def _evidence_excludes(cls, event: dict[str, Any]) -> bool:
@@ -225,7 +222,7 @@ class ExternalDataSchemaOOMEvent(TeamScopedRootMixin, UUIDModel):
         verdict infrastructure — one tenant's own outage takes out many of its schemas at once and
         must not classify other tenants' contemporaneous deaths as infra.
         """
-        bucket_seconds = infra_burst_window_seconds() / 2
+        bucket_seconds = settings.DATA_WAREHOUSE_OOM_INFRA_BURST_WINDOW_SECONDS / 2
         rows = (
             cls.all_teams.filter(created_at__gte=start, created_at__lte=end)
             .annotate(bucket=Floor(Extract("created_at", "epoch") / bucket_seconds))
@@ -242,11 +239,12 @@ class ExternalDataSchemaOOMEvent(TeamScopedRootMixin, UUIDModel):
         # Sound in the exclusion direction only: a bucket fully inside [t - window, t + window] whose
         # own distinct counts cross the thresholds proves the window's do (distinct counts are
         # monotone under containment). No such bucket proves nothing, so the candidate counts.
-        window_seconds = float(infra_burst_window_seconds())
+        window_seconds = float(settings.DATA_WAREHOUSE_OOM_INFRA_BURST_WINDOW_SECONDS)
         bucket_seconds = window_seconds / 2
         low = created_at.timestamp() - window_seconds
         high = created_at.timestamp() + window_seconds
-        min_schemas, min_teams = infra_burst_min_schemas(), infra_burst_min_teams()
+        min_schemas = settings.DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_SCHEMAS
+        min_teams = settings.DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS
         return any(
             bucket.start_epoch >= low
             and bucket.start_epoch + bucket_seconds <= high

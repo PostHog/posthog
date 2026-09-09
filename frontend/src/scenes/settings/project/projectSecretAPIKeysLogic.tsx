@@ -15,6 +15,7 @@ import {
     PROJECT_SECRET_API_KEY_SCOPE_PRESETS,
     ProjectSecretAPIKeyAllowedScope,
     ProjectSecretAPIKeyScopePreset,
+    scopeMatchesSearch,
 } from 'lib/scopes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -256,17 +257,17 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                     try {
                         return await api.projectSecretApiKeys.list()
                     } catch (error: any) {
-                        lemonToast.error('Failed to load project API keys')
+                        lemonToast.error('Failed to load project secret API keys')
                         throw error
                     }
                 },
                 deleteKey: async ({ id }: { id: string }) => {
                     try {
                         await api.projectSecretApiKeys.delete(id)
-                        lemonToast.success('Project API key deleted')
+                        lemonToast.success('Project secret API key deleted')
                         return values.keys.filter((key: ProjectSecretAPIKeyApi) => key.id !== id)
                     } catch (error: any) {
-                        lemonToast.error('Failed to delete project API key')
+                        lemonToast.error('Failed to delete project secret API key')
                         throw error
                     }
                 },
@@ -283,7 +284,7 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                         const storedKey = { ...rolledKey, value: '' }
                         return values.keys.map((key: ProjectSecretAPIKeyApi) => (key.id === id ? storedKey : key))
                     } catch (error: any) {
-                        lemonToast.error('Failed to roll project API key')
+                        lemonToast.error('Failed to roll project secret API key')
                         throw error
                     }
                 },
@@ -321,7 +322,7 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                     if (values.editingKeyId === 'new') {
                         actions.createKeySuccess(key)
                     } else {
-                        lemonToast.success('Project API key updated')
+                        lemonToast.success('Project secret API key updated')
                     }
 
                     actions.loadKeysSuccess([
@@ -330,7 +331,7 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                     ])
                     actions.setEditingKeyId(null)
                 } catch (error: any) {
-                    lemonToast.error('Failed to save project API key')
+                    lemonToast.error('Failed to save project secret API key')
                     throw error
                 }
             },
@@ -374,11 +375,7 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                     label: PROJECT_SECRET_SCOPE_OBJECT_NAMES[key] ?? capitalizeFirstLetter(key.replace(/_/g, ' ')),
                     disabledActions: allActions.filter((a) => !allowed.has(a)),
                 }))
-                if (!searchTerm.trim()) {
-                    return scopes
-                }
-                const lowerSearch = searchTerm.toLowerCase()
-                return scopes.filter(({ label }) => label.toLowerCase().includes(lowerSearch))
+                return scopes.filter((scope) => scopeMatchesSearch(scope, searchTerm))
             },
         ],
         availablePresets: [
@@ -443,7 +440,7 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                 content: (
                     <>
                         <p>Copy your new project secret API key:</p>
-                        <CodeSnippet className="ph-no-capture" thing="project API key">
+                        <CodeSnippet className="ph-no-capture" thing="project secret API key">
                             {key.value}
                         </CodeSnippet>
                         <p className="text-warning mt-4">
@@ -460,12 +457,12 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
             }
 
             LemonDialog.open({
-                title: 'Project API key rolled',
+                title: 'Project secret API key rolled',
                 width: 536,
                 content: (
                     <>
                         <p>Your new key for "{key.label}":</p>
-                        <CodeSnippet thing="project API key">{key.value}</CodeSnippet>
+                        <CodeSnippet thing="project secret API key">{key.value}</CodeSnippet>
                         <p className="text-warning mt-4">
                             <strong>Warning:</strong> The previous key is no longer valid. This key will never be shown
                             again. Copy it now.

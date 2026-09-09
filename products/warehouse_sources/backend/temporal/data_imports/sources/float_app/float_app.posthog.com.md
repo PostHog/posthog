@@ -16,8 +16,9 @@ import AlphaRelease from "../\_snippets/alpha-release.mdx"
 
 [Float](https://www.float.com/) is a resource-management and team-scheduling platform for capacity
 planning. This source syncs your people, accounts, clients, departments, projects, phases,
-allocations, milestones, logged time, time off, and holidays into the PostHog data warehouse so you
-can join scheduling and capacity data with your product and revenue data.
+allocations, milestones, logged time, time off, holidays, rate cards, and currencies into the
+PostHog data warehouse so you can join scheduling and capacity data with your product and revenue
+data.
 
 ## Prerequisites
 

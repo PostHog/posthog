@@ -3,7 +3,7 @@
 Load, consistency, and e2e correctness harness for the personhog leader path.
 Revived from the original personhog-cannon draft (#55581) and extended with stack orchestration, Postgres seeding, and an acked-write journal so it can gate CI, not just generate load.
 
-The core invariant it checks: **every write acked by the leader path is visible afterwards** — in strong reads once coordination has converged (post-chaos handoffs re-driven; an already-settled run waits zero time, and failing to converge within 30s fails the gate), and in Postgres (at or above the highest acked version) once the writer drains.
+The core invariant it checks: **every write acked by the leader path is visible afterwards** — on the person it was written to, or on the survivor once a merge folded that person away — in strong reads once coordination has converged (post-chaos handoffs re-driven; an already-settled run waits zero time, and failing to converge within 30s fails the gate), and in Postgres (at or above the highest acked version) once the writer drains.
 Every acked update is journaled under a unique property key, so the final state must contain all of them regardless of how concurrent writers interleaved.
 Version assignment is asserted throughout: the leader assigns each version of a person to at most one acked write, so a duplicated acked version (two writes served from the same base state), or a strong read observing a version below the highest ack, is a violation.
 Read-your-write recency is asserted live: `--probers` (default 2) workers run write-then-strong-read cycles alongside the blast traffic, so a staleness window during a chaos event trips a probe even if it heals before the end-of-run verification.
@@ -61,6 +61,54 @@ target/debug/personhog-test-harness gate --create-via-identity \
 ```
 
 Multiple local leaders work because each registers with a `host:port` pod name, which the router's address resolver dials as-is (bare pod names still resolve via DNS on the fleet-wide leader port).
+
+### Merging persons under load
+
+`--merge-concurrency N` adds a merge lane: N workers repeatedly pick live persons and merge one or more sources into a target through `MergePersons` on the identity service, while the blast writers and probers keep writing to all of them.
+Every source is a distinct live person, so each source that settles as `merged` ran the durable saga end to end (fence, seal, fold, flip, release) with writes racing the source's fence and the target's fold.
+A source distinct id is reserved for one in-flight call and never reused once merged; targets are shared, so concurrent calls can contend for a person and settle as `skipped_conflict`.
+`--merge-sources K` puts K sources on each call (default 1, the shape ingestion sends); the leader folds sealed sources in request order, and the journal holds the survivor to that order.
+The lane implies `--create-via-identity` (merges need distinct ids) and merges identified sources by default (`--merge-identified-sources false` for `$identify` semantics, under which a survivor can never be a source again).
+
+The invariant extends to the fold rather than stopping at it:
+
+- The sources' acked writes are asserted on the survivor under the leader's fold rule (the survivor wins every key it has, the sources fill the rest in request order), and the folded version is claimed like any other ack.
+- The merge event's own writes are asserted in the acked survivor document and afterwards: its `$set` key must be present, its `$set_once` must fill a fresh key, lose to the same event's `$set` on a shared key, and leave the seed property every person holds untouched.
+- The journal is a tree: a merged source keeps its own keys and hangs off the survivor its ack named, and a live person's expected document is folded from that tree. So a source write whose ack lands after the merge was journaled still counts, even for a key an earlier fold already carried, and a survivor that merges on carries everything with it.
+- A merged source must be gone: a strong read right after the ack and at end of run must answer not-found, its Postgres row must be a tombstone whose death version sits above every version the leader acked for it, and no acked version may exceed the sealed version the saga recorded on its `lifecycle_op_person` row — an ack above the seal means a write got through the fence.
+- Two merges into one survivor are ordered by the folded version, not by ack arrival: the earlier fold fills a key and the later fold finds it present, which is what the journal expects.
+- A merge the crash window abandons mid-saga is re-driven by the identity sweeper (the spawned identity runs it on a 3s cadence), and the delete leg waits for those ops to settle before it asserts.
+- A call that loses every response (retried under the same op id) is settled after traffic from the saga's own `lifecycle_op` record: a completed merge is journaled late (safe, because folds are ordered by version), an aborted or never-started one leaves the source live, and one that never settles is a violation. Writes refused for a fenced or destroyed person are counted as lifecycle rejections, not failures.
+- The delete leg expects merged sources to answer `not_found` on the first attempt.
+
+Pathological merges — a person carrying thousands of distinct ids, every one of which the flip must repoint — get their own lane: `--merge-wide-persons N` creates N extra persons with `--merge-wide-distinct-ids K` extra mappings each (identity caps a create entry at 5000), and `--merge-wide-role source|target|both` decides which side they take.
+Workers prefer a wide pair while one is available, and calls involving a wide person report as a separate `merges_wide` row so their cost does not hide in the ordinary median.
+Merged sources are additionally checked for leftover mappings (`__merged_source_dids_left`): every distinct id of a destroyed person must point at the survivor.
+
+```bash
+# 5 wide sources with 2000 distinct ids each, merged into ordinary targets
+target/debug/personhog-test-harness gate --merge-concurrency 2 --merge-rate 2 \
+  --merge-wide-persons 5 --merge-wide-distinct-ids 2000 --merge-wide-role source \
+  --persons 100 --duration 15s
+```
+
+Each merged source retires one person, so size `--persons` for sources × rate × duration; the report says when the lane ran the pool dry.
+The `merges` row in the report is the baseline: one call is one saga, so its latency is the end-to-end merge cost and its RPS the merge throughput.
+
+```bash
+# Paced: 5 merges/s alongside the blast traffic
+target/debug/personhog-test-harness gate --merge-concurrency 4 --merge-rate 5 \
+  --persons 200 --concurrency 10 --duration 15s
+
+# Throughput ceiling: unpaced workers, pool sized for a 10s burn
+target/debug/personhog-test-harness gate --merge-concurrency 8 --persons 400 --duration 10s
+
+# Merges through a leader kill and a scale-up: fences, folds, and death
+# documents must survive the handoffs
+target/debug/personhog-test-harness gate --leaders 3 --partitions 8 \
+  --merge-concurrency 4 --merge-rate 5 --persons 200 --duration 15s \
+  --kill-after 5s --scale-up-after 8s
+```
 
 ### Chaos disruptions
 
@@ -180,10 +228,6 @@ target/debug/personhog-test-harness gate --routers 3 --leaders 3 --duration 18s 
 Verification still waits for convergence (bounded at 30s — 2x the slow-crash TTL chain, the slowest legitimate recovery) before asserting strong reads; red here means convergence itself failed.
 The two follow-ups once listed here are resolved: draining pods were never actually rebalance targets (`active_pod_names` has filtered to `Ready` pods since the original PoC — the earlier claim misread the wedge, whose real mechanism was the shutdown ordering fixed above), and a stuck handoff now defers only its own partition (the coordinator pins in-flight partitions and rebalances the rest — see `plan_partial_rebalance`).
 
-**Follow-up: the guarded rebalance transaction has a partition-count budget.**
-Plan application guards every handoff with two etcd compares (handoff-key absence + assignment precondition), and etcd's default `--max-txn-ops` of 128 caps the compare list — so a full-fleet plan (bootstrap, mass failover) fits in one transaction only up to 64 partitions; beyond that etcd rejects it with a hard error, not a guard failure.
-Every environment today runs well under the bound, but it must be resolved as part of choosing the prod partition count: either an explicitly-set shared chart value rendered into both etcd's `--max-txn-ops` and a coordinator plan budget (so the two validate against each other), or chunked plan application — which must not ship without stateright coverage of partial application and harness scenarios at that scale.
-
 **Follow-up: coalesce changelog recovery fetches if the pool ever queues.**
 Recoveries check out one pooled consumer per person, so N concurrent misses on genuinely-behind persons cost N sequential Kafka point-reads once the pool saturates.
 The changelog is offset-ordered, so a batch executor could assign one consumer at the lowest pending offset per partition and satisfy every waiter it passes in a single sweep (group-commit shape; bound the sweep span so sparse marks don't degenerate into scanning the gap between them).
@@ -236,10 +280,15 @@ target/debug/personhog-test-harness consistency \
   Operation     Total  Success  Failed      p50      p95      p99       RPS
   writes          970      970       0   23.3ms   45.4ms   56.4ms     160.1
   reads            20       20       0    753us    1.2ms    1.3ms       3.3
+  merges           80       80       0   80.6ms  197.0ms  697.3ms       5.0
+
+  Lifecycle rejections (counted in Total, not Failed): 17 writes refused for a fenced or destroyed person
+  Merge outcomes per source: merged=79 skipped_conflict=1
 
   Consistency violations: 0
 ```
 
 Violations are printed per person/key with expected vs actual; `__version` rows mean Postgres settled at a different version than the last ack, `__row` rows mean the person never reached Postgres at all.
+Merge runs add `__merged_source_alive` (a destroyed person still reads), `__merged_source_tombstone` / `__merged_source_death_version` (the source row is not a tombstone, or its death version does not sit above every acked write), `__merged_source_ack_above_seal` (the leader acked a source write above the sealed version the saga recorded — the fence failed open), `__merged_source_seal_record` (the saga left no deleted source row for a merged person), `__merged_twice` (one person destroyed by two merges), and `__merge_unsettled` (a merge that lost every response never reached a terminal step).
 
 Set `RUST_LOG=personhog_test_harness=debug` for per-request logging.

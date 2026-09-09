@@ -16,6 +16,17 @@ pub const MAX_MERGE_BATCH_SIZE: usize = 250;
 
 const MAX_DISTINCT_ID_LENGTH: usize = 400;
 
+/// Longer than the `posthog_persondistinctid.distinct_id` column admits.
+/// The limit counts characters, not bytes — `varchar(400)` counts
+/// characters, and capture emits multibyte ids whose UTF-8 length passes
+/// 400 bytes well inside its own 200-character cap. An oversized id can
+/// never exist in storage, so it can never resolve and must never be
+/// attached; as a merge SOURCE it settles per-source (skipped_illegal)
+/// rather than failing the batch.
+pub fn is_distinct_id_oversized(id: &str) -> bool {
+    id.chars().count() > MAX_DISTINCT_ID_LENGTH
+}
+
 // Mirrors ingestion's isDistinctIdIllegal (nodejs/src/common/persons/
 // person-utils.ts): generic ids that stem from a bug or mistake must never
 // drive a merge. Some are illegal in any casing, others only exactly as
@@ -54,8 +65,26 @@ static CASE_INSENSITIVE_ILLEGAL_IDS: LazyLock<HashSet<String>> =
 static CASE_SENSITIVE_ILLEGAL_IDS: LazyLock<HashSet<String>> =
     LazyLock::new(|| with_quoted(BARE_CASE_SENSITIVE_ILLEGAL_IDS));
 
+/// Whether JavaScript's `String.prototype.trim` would strip this char.
+/// Deliberately not Rust's `str::trim`, which also strips U+0085: the
+/// two sides must agree on which ids are illegal.
+fn is_js_whitespace(c: char) -> bool {
+    matches!(
+        c,
+        '\t' | '\u{000B}' | '\u{000C}' | ' ' | '\u{00A0}' | '\u{FEFF}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200A}'
+                | '\u{202F}'
+                | '\u{205F}'
+                | '\u{3000}'
+                | '\n'
+                | '\r'
+                | '\u{2028}'
+                | '\u{2029}'
+    )
+}
+
 pub fn is_distinct_id_illegal(id: &str) -> bool {
-    id.trim().is_empty()
+    id.trim_matches(is_js_whitespace).is_empty()
         || CASE_INSENSITIVE_ILLEGAL_IDS.contains(&id.to_lowercase())
         || CASE_SENSITIVE_ILLEGAL_IDS.contains(id)
 }
@@ -103,7 +132,7 @@ pub fn validate_merge_persons(request: &MergePersonsRequest) -> Result<(Uuid, i6
             "team_id must be a positive 32-bit integer",
         ));
     }
-    if request.target_distinct_id.len() > MAX_DISTINCT_ID_LENGTH {
+    if is_distinct_id_oversized(&request.target_distinct_id) {
         return Err(Status::invalid_argument(format!(
             "target_distinct_id exceeds {MAX_DISTINCT_ID_LENGTH} characters"
         )));
@@ -111,6 +140,14 @@ pub fn validate_merge_persons(request: &MergePersonsRequest) -> Result<(Uuid, i6
     if is_distinct_id_illegal(&request.target_distinct_id) {
         return Err(Status::invalid_argument(
             "target_distinct_id is an illegal distinct id",
+        ));
+    }
+    // Postgres cannot store NUL in text: an unresolved NUL target would
+    // reach the establish path and fail person creation with an internal
+    // error on every attempt.
+    if request.target_distinct_id.contains('\u{0000}') {
+        return Err(Status::invalid_argument(
+            "target_distinct_id must not contain NUL",
         ));
     }
     if request.sources.is_empty() {
@@ -124,10 +161,14 @@ pub fn validate_merge_persons(request: &MergePersonsRequest) -> Result<(Uuid, i6
     }
     let mut seen = HashSet::with_capacity(request.sources.len());
     for source in &request.sources {
-        if source.source_distinct_id.len() > MAX_DISTINCT_ID_LENGTH {
-            return Err(Status::invalid_argument(format!(
-                "a source distinct id exceeds {MAX_DISTINCT_ID_LENGTH} characters"
-            )));
+        // NUL is a whole-request reject where oversized ids are a
+        // per-source outcome: Postgres cannot store NUL in text at all,
+        // so the frozen op row — which must record every requested
+        // source for retries — would be unwritable jsonb.
+        if source.source_distinct_id.contains('\u{0000}') {
+            return Err(Status::invalid_argument(
+                "source distinct ids must not contain NUL",
+            ));
         }
         if !seen.insert(source.source_distinct_id.as_str()) {
             return Err(Status::invalid_argument(format!(

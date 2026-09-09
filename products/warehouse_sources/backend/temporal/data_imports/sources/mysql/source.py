@@ -76,6 +76,12 @@ _VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
     ("Unknown database", "Database does not exist. Check the database name is correct."),
 ]
 
+# Error 1045 is the same failure the Postgres, Supabase, and Neon sources already word this
+# way. Keeping one wording means a wrong password reads the same whichever database it is.
+_INVALID_CREDENTIALS_ERROR = (
+    "The database rejected the username or password. Check the user and password for this source and try again."
+)
+
 _HOST_IS_URL_ERROR = (
     "Enter just the hostname in the host field (for example, db.example.com), not a full URL or "
     "connection string. Remove any scheme (like http:// or mysql://) and any username, password, "
@@ -178,7 +184,19 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "Can't connect to MySQL server on": None,
+            # pymysql collapses every connect-level failure (wrong host/port, closed firewall,
+            # unreachable host, a connect timeout that outlasts the in-process retry budget) into
+            # error 2003, "Can't connect to MySQL server on '<host>' (<os detail>)". Non-retryable
+            # for the same reason as the Postgres source's connect-timeout entry: a persistently
+            # unreachable host won't recover on retry. Give the actionable reachability guidance the
+            # raw driver tuple lacks; the volatile host/os-detail are excluded from the match. The
+            # create-time `_VALIDATE_CONNECTION_HINTS` above stay more granular.
+            "Can't connect to MySQL server on": (
+                "PostHog couldn't connect to your MySQL server. Check that the host and port are "
+                "correct and that the database is reachable from the public internet, with PostHog's "
+                "egress IP addresses allowed through your firewall. For a database that can't be "
+                "exposed publicly, use the SSH tunnel option, then re-enable the sync."
+            ),
             "No primary key defined for table": (
                 "This table needs a primary key to sync incrementally, but none is set. Choose a primary "
                 "key for the table in its sync settings, or switch it to full table replication, then "
@@ -188,7 +206,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # user's host grant) is wrong. Surface it as an auth failure — mirroring the Postgres
             # source — so the user fixes credentials instead of the generic "check connection
             # details" message sending them to check the host/port.
-            "Access denied for user": "Invalid user or password",
+            "Access denied for user": _INVALID_CREDENTIALS_ERROR,
             # MySQL/MariaDB error 1049 (ER_BAD_DB_ERROR): the configured database doesn't exist on
             # the server — it was renamed or dropped after the source was set up, or the connection
             # was reconfigured to point at a different server. `validate_credentials` already
@@ -288,6 +306,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # egress / SSH-tunnel host) — retrying connects from the same host fails identically.
             # Match the stable tail phrase, not the volatile host in the message prefix.
             "is not allowed to connect to this MySQL server": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
+            # MySQL/MariaDB error 1226 (ER_USER_LIMIT_REACHED): the connecting user account has a
+            # `MAX_CONNECTIONS_PER_HOUR` resource limit set (via `CREATE USER`/`GRANT ... WITH
+            # MAX_CONNECTIONS_PER_HOUR`), and this hour's quota is used up. The counter only resets
+            # at the top of the next clock hour, so retrying immediately keeps failing identically
+            # and just spends more of the next hour's quota re-attempting — only a DB admin raising
+            # or removing the limit fixes it. Match the locale-independent error code (the username
+            # and current-value count are volatile).
+            "(1226,": "Your MySQL/MariaDB user account has a 'max_connections_per_hour' resource limit configured, and PostHog has used it up for this hour (error 1226). The limit resets at the top of the next hour, but retrying now only spends more of that quota. Ask your database admin to raise or remove the limit on the connecting user, then resync.",
             # MySQL/MariaDB error 1142 (ER_TABLEACCESS_DENIED_ERROR): the connecting user authenticated
             # fine but lacks the SELECT privilege on a table the sync reads — distinct from the 1045
             # login failure already handled above. Only a DB admin can GRANT it, and the streaming query
@@ -333,6 +359,13 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # customer's server running out of space.
             "OS errno 28 -": "Your MySQL/MariaDB server ran out of disk space while writing a temporary file for this sync ('No space left on device'). Syncing a large table can spill a big sort to the server's temporary directory. Free up disk space on your database server, add an index on this table's incremental field so the sync avoids the large sort, or switch the table to a full re-sync, then resync.",
             "Errcode: 28": "Your MySQL/MariaDB server ran out of disk space while writing a temporary file for this sync ('No space left on device'). Syncing a large table can spill a big sort to the server's temporary directory. Free up disk space on your database server, add an index on this table's incremental field so the sync avoids the large sort, or switch the table to a full re-sync, then resync.",
+            # MySQL/MariaDB error 1041 (ER_OUT_OF_RESOURCES): mysqld itself couldn't allocate memory
+            # for the connection/query — the host's available memory (or its configured swap) is
+            # exhausted, whether by mysqld or another process on the same host. Static server-side
+            # resource state, so every retry hits the same wall — the Postgres source treats its
+            # equivalent (SQLSTATE 53200 "out of memory") the same way. Match the locale-independent
+            # error code (the trailing "ulimit"/swap guidance is MySQL's own, not translated).
+            "(1041,": "Your MySQL/MariaDB server ran out of memory (error 1041). This usually means mysqld or another process on the host is using all available memory, or the host needs more swap space. Free up memory on your database server, raise mysqld's memory limit (for example via 'ulimit'), or add swap space, then resync.",
             # pymysql encodes the handshake fields (host, user, password, database) as latin-1;
             # a value carrying a non-latin-1 character — most often an invisible zero-width space
             # (U+200B) pasted in from another app — raises UnicodeEncodeError before any packet is
@@ -376,6 +409,12 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             "Too many connections",
             "Can't create a new thread",
             "reparent operation in progress",
+            # TiProxy cannot reach a TiDB backend due to a failover, restart, or momentary
+            # network blip. `_connect_with_transient_retry` already retries it in-process (see
+            # `_is_transient_tiproxy_unavailable` in mysql.py). This entry is the backstop for
+            # the rare case where it exhausts that budget so Temporal's own activity retry
+            # can recover it rather than surfacing it as error-tracking noise.
+            "TiProxy fails to connect to TiDB",
         }
 
     def reconcile_schema_metadata(
@@ -396,8 +435,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             return get_mysql_connection_metadata(conn, database=config.database)
 
     def validate_credentials(
-        self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
+        self,
+        config: MySQLSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
+        # `require_ssl` keeps signature parity with Postgres; MySQL SSL is governed by
+        # `config.using_ssl` inside `connect`.
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
@@ -405,7 +451,9 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         # A pasted URL or connection string in the host field otherwise fails DNS resolution with a
         # misleading "check the spelling" message that echoes the raw value back (which can embed
         # credentials). Catch it early with an actionable message that never reflects the input.
-        if "://" in config.host:
+        # A scheme-less paste ("db.example.com/mydb", "user:secret@db.example.com") has no "://",
+        # so match the path and userinfo separators — neither is legal in a hostname anyway.
+        if "/" in config.host or "@" in config.host:
             return False, _HOST_IS_URL_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
@@ -463,5 +511,8 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         access_method: str,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
-        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
+        return self.validate_credentials(
+            config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
+        )

@@ -37,8 +37,8 @@ import {
   useUserRepositoryIntegration,
 } from "@posthog/ui/features/integrations/useIntegrations";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
-import { ScoutsFleetSection } from "@posthog/ui/features/scouts/components/ScoutsFleetSection";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
+import { DailyReportLimitSettings } from "@posthog/ui/features/settings/sections/DailyReportLimitSettings";
 import { GitHubIntegrationSection } from "@posthog/ui/features/settings/sections/GitHubIntegrationSection";
 import { SlackInboxNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackInboxNotificationsSettings";
 import {
@@ -48,6 +48,7 @@ import {
 import { useCreateTask } from "@posthog/ui/features/tasks/useTaskCrudMutations";
 import { Badge } from "@posthog/ui/primitives/Badge";
 import { toast } from "@posthog/ui/primitives/toast";
+import { settingsSourceHref } from "@posthog/ui/router/reportNavigation";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
@@ -83,6 +84,9 @@ export function ConfigureAgentsSection() {
     handleSetup,
     handleSetupComplete,
     handleSetupCancel,
+    teamConfig,
+    teamConfigLoading,
+    handleUpdateMaxReportsPerDay,
     userAutonomyConfig,
     userAutonomyConfigLoading,
   } = useSignalSourceManager();
@@ -135,27 +139,6 @@ export function ConfigureAgentsSection() {
       </SettingsSubsection>
 
       <SettingsSubsection
-        title="Scouts"
-        description={
-          <>
-            Scheduled agents that sweep this project on a cadence and emit
-            signals to your inbox.{" "}
-            {/* Placeholder docs link until a dedicated scouts page exists. */}
-            <a
-              href="https://posthog.com/blog/self-driving-product"
-              target="_blank"
-              rel="noreferrer"
-              className="text-accent-11 no-underline hover:text-accent-12"
-            >
-              Learn more
-            </a>
-          </>
-        }
-      >
-        <ScoutsFleetSection />
-      </SettingsSubsection>
-
-      <SettingsSubsection
         title="Signal sources"
         description="Each source watches for signals and spins up work when something matters."
       >
@@ -193,6 +176,11 @@ export function ConfigureAgentsSection() {
             </Box>
           </Tooltip>
         )}
+        <DailyReportLimitSettings
+          config={teamConfig}
+          onSave={handleUpdateMaxReportsPerDay}
+          isLoading={teamConfigLoading}
+        />
       </SettingsSubsection>
 
       <SettingsSubsection
@@ -202,7 +190,6 @@ export function ConfigureAgentsSection() {
         <SlackInboxNotificationsSettings
           isLoading={isLoadingSlack}
           showHeader={false}
-          showTopBorder={false}
         />
       </SettingsSubsection>
 
@@ -213,6 +200,7 @@ export function ConfigureAgentsSection() {
         <Link
           to="/settings/$category"
           params={{ category: "mcp-servers" }}
+          search={{ from: settingsSourceHref() }}
           onClick={() =>
             track(ANALYTICS_EVENTS.AGENTS_ACTION, {
               action_type: "open_mcp_servers",

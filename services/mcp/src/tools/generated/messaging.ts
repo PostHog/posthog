@@ -2,19 +2,18 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    MessagingPreferencesBulkAddOptOutsCreateBody,
-    MessagingPreferencesOptOutsRetrieveQueryParams,
-    MessagingPreferencesRemoveOptOutCreateBody,
-} from '@/generated/messaging/api'
+import * as orvalSchemas from '@/generated/messaging/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const OptOutsAddSchema = MessagingPreferencesBulkAddOptOutsCreateBody
+const OptOutsAddSchema = () => {
+    const MessagingPreferencesBulkAddOptOutsCreateBody = orvalSchemas.MessagingPreferencesBulkAddOptOutsCreateBody()
+    return MessagingPreferencesBulkAddOptOutsCreateBody
+}
 
-const optOutsAdd = (): ToolBase<typeof OptOutsAddSchema, Schemas.BulkAddOptOutsResult> => ({
+const optOutsAdd = (): ToolBase<ReturnType<typeof OptOutsAddSchema>, Schemas.BulkAddOptOutsResult> => ({
     name: 'opt-outs-add',
-    schema: OptOutsAddSchema,
-    handler: async (context: Context, params: z.infer<typeof OptOutsAddSchema>) => {
+    schema: OptOutsAddSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof OptOutsAddSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.opt_outs !== undefined) {
@@ -32,12 +31,15 @@ const optOutsAdd = (): ToolBase<typeof OptOutsAddSchema, Schemas.BulkAddOptOutsR
     },
 })
 
-const OptOutsListSchema = MessagingPreferencesOptOutsRetrieveQueryParams
+const OptOutsListSchema = () => {
+    const MessagingPreferencesOptOutsRetrieveQueryParams = orvalSchemas.MessagingPreferencesOptOutsRetrieveQueryParams()
+    return MessagingPreferencesOptOutsRetrieveQueryParams
+}
 
-const optOutsList = (): ToolBase<typeof OptOutsListSchema, Schemas.PaginatedOptOuts> => ({
+const optOutsList = (): ToolBase<ReturnType<typeof OptOutsListSchema>, Schemas.PaginatedOptOuts> => ({
     name: 'opt-outs-list',
-    schema: OptOutsListSchema,
-    handler: async (context: Context, params: z.infer<typeof OptOutsListSchema>) => {
+    schema: OptOutsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof OptOutsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedOptOuts>({
             method: 'GET',
@@ -46,18 +48,22 @@ const optOutsList = (): ToolBase<typeof OptOutsListSchema, Schemas.PaginatedOptO
                 category_key: params.category_key,
                 page: params.page,
                 page_size: params.page_size,
+                search: params.search,
             },
         })
         return result
     },
 })
 
-const OptOutsRemoveSchema = MessagingPreferencesRemoveOptOutCreateBody
+const OptOutsRemoveSchema = () => {
+    const MessagingPreferencesRemoveOptOutCreateBody = orvalSchemas.MessagingPreferencesRemoveOptOutCreateBody()
+    return MessagingPreferencesRemoveOptOutCreateBody
+}
 
-const optOutsRemove = (): ToolBase<typeof OptOutsRemoveSchema, Schemas.MessagePreferences> => ({
+const optOutsRemove = (): ToolBase<ReturnType<typeof OptOutsRemoveSchema>, Schemas.MessagePreferences> => ({
     name: 'opt-outs-remove',
-    schema: OptOutsRemoveSchema,
-    handler: async (context: Context, params: z.infer<typeof OptOutsRemoveSchema>) => {
+    schema: OptOutsRemoveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof OptOutsRemoveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.identifier !== undefined) {

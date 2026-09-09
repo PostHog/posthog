@@ -3,7 +3,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, sele
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '~/queries/schema/schema-general'
 import { isPathsQuery } from '~/queries/utils'
-import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActionFilter, FunnelVizType, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { DataColorTheme } from '../../lib/colors'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -254,6 +254,9 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                         MathAvailability.None,
                         NodeKind.FunnelsDataWarehouseNode
                     ),
+                    funnelsFilter: {
+                        funnelVizType: FunnelVizType.Steps,
+                    },
                     dateRange: {
                         date_from: values.dateRange?.date_from,
                     },

@@ -142,7 +142,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     // including the one this mounts on.
     useOnMountEffect(() => {
         if (stepIndex === 0) {
-            reportOnboardingStarted('welcome', SELF_DRIVING_ONBOARDING_EVENT_PROPS)
+            reportOnboardingStarted(SELF_DRIVING_ONBOARDING_EVENT_PROPS)
         }
     })
     useEffect(() => {
@@ -221,7 +221,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                             />
                         ))}
                     </div>
-                    <div className="shrink-0 flex justify-end">
+                    <div className="min-w-0 flex justify-end">
                         {/* On the install step, live verification: flips when the team's first event
                             lands, whichever install path produced it. Past the install step, the run
                             keeps a quiet presence up here; on the install step itself the tracker
@@ -270,7 +270,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                     )}
                     {!step.hideContinue && (
                         <div className="flex items-center gap-2">
-                            {step.id === 'install' && <ManualSetupButton />}
+                            {step.id === 'install' && <ManualSetupButton onAdvance={advance} />}
                             <LemonButton
                                 type="primary"
                                 status="alt"

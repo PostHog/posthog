@@ -1,17 +1,9 @@
 import { BindLogic } from 'kea'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
-import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
-
 import { LogsSamplingRulesSortableTable } from './LogsSamplingRulesSortableTable'
 import { logsSamplingSectionLogic } from './logsSamplingSectionLogic'
 
-export function LogsSamplingSection(): JSX.Element | null {
-    const enabled = useFeatureFlag(LogsFeatureFlagKeys.dropRules)
-    if (!enabled) {
-        return null
-    }
+export function LogsSamplingSection(): JSX.Element {
     return (
         <BindLogic logic={logsSamplingSectionLogic} props={{}}>
             <div className="space-y-3">

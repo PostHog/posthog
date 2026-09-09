@@ -1,20 +1,21 @@
 import {
   ArrowCounterClockwiseIcon,
-  CopyIcon,
   FileTextIcon,
+  LinkIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
+import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
+import { useReportPage } from "@posthog/ui/features/inbox/components/ReportPageContext";
 import {
   type InboxBackTarget,
   useInboxBackTarget,
 } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInboxRestoreReport";
-import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
-import { Spinner } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useNavigate } from "@tanstack/react-router";
 
 interface DismissedReportDetailProps {
@@ -44,14 +45,14 @@ export function DismissedReportDetail({
   // returns there. Arriving directly (deep link, Archive-tab click, refresh)
   // falls back to "Back to archive".
   const back = useInboxBackTarget({
-    to: "/code/inbox/dismissed",
+    to: "/inbox/dismissed",
     label: "Back to archive",
   });
   return (
     <InboxReportDetailGate
       reportId={reportId}
       cachedReport={cachedReport}
-      backTo="/code/inbox/dismissed"
+      backTo="/inbox/dismissed"
       backLabel="Back to archive"
       backLinkTo={back.to}
       backLinkLabel={back.label}
@@ -62,7 +63,7 @@ export function DismissedReportDetail({
   );
 }
 
-function DismissedReportDetailContent({
+export function DismissedReportDetailContent({
   report,
   back,
 }: {
@@ -82,15 +83,20 @@ function DismissedReportDetailContent({
       primaryAction={
         <>
           {canRestore && <RestoreReportButton report={report} />}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => copyInboxReportLink(report)}
-            title="Copy a deep link to this report"
-          >
-            <CopyIcon size={12} />
-          </Button>
+          <InboxReportCopyLinkMenu
+            report={report}
+            trigger={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Copy link"
+                title="Copy link"
+              >
+                <LinkIcon size={12} />
+              </Button>
+            }
+          />
         </>
       }
       summarySection={{ Icon: FileTextIcon, title: "Summary" }}
@@ -102,6 +108,7 @@ function DismissedReportDetailContent({
 function RestoreReportButton({ report }: { report: SignalReport }) {
   const restore = useInboxRestoreReport();
   const navigate = useNavigate();
+  const reportPage = useReportPage();
 
   return (
     <Button
@@ -110,15 +117,17 @@ function RestoreReportButton({ report }: { report: SignalReport }) {
       size="sm"
       disabled={restore.isPending}
       className="gap-1"
-      title="Restore this report to the inbox"
+      title="Restore this report to Self-driving"
       onClick={() =>
         restore.mutate(report.id, {
-          onSuccess: () => navigate({ to: "/code/inbox/dismissed" }),
+          onSuccess: () => {
+            if (!reportPage) void navigate({ to: "/inbox/dismissed" });
+          },
         })
       }
     >
       {restore.isPending ? (
-        <Spinner size="1" />
+        <Spinner size="sm" />
       ) : (
         <ArrowCounterClockwiseIcon size={12} />
       )}

@@ -1,7 +1,24 @@
-import { ErrorEventProperties, ExceptionAttributes } from './types'
-import { getExceptionAttributes, getExceptionList, getExceptionRelease, getSessionId } from './utils'
+import {
+    ErrorEventProperties,
+    ErrorTrackingStackFrame,
+    ErrorTrackingStackFrameRecord,
+    ExceptionAttributes,
+} from './types'
+import {
+    getExceptionAttributes,
+    getExceptionList,
+    getExceptionRelease,
+    getInstructionAddress,
+    getRuntimeFromLib,
+    getSessionId,
+    isReleaseIdMissingFromSDK,
+} from './utils'
 
 describe('Error Display', () => {
+    it('recognizes the Kotlin Multiplatform SDK runtime', () => {
+        expect(getRuntimeFromLib('posthog-kmp')).toBe('kotlin')
+    })
+
     it('can read sentry stack trace when $exception_list is not present', () => {
         const eventProperties = {
             'should not be in the': 'result',
@@ -178,6 +195,29 @@ describe('Error Display', () => {
         expect(result.level).toEqual('fatal')
     })
 
+    // Mobile SDKs report the platform in $os_name and leave $os unset, so reading $os alone left
+    // iOS, Android, and React Native errors with no OS anywhere in the UI.
+    // Non-string values must resolve to undefined: they reach PropertyIcon, whose lowercase lookup
+    // would throw and take down the whole exception card.
+    it.each([
+        ['$os_name only', { $os_name: 'iOS' }, 'iOS'],
+        ['$os only', { $os: 'Windows' }, 'Windows'],
+        ['both keys', { $os_name: 'iPadOS', $os: 'Mac OS X' }, 'iPadOS'],
+        ['neither key', {}, undefined],
+        ['an empty $os_name', { $os_name: '', $os: 'Windows' }, 'Windows'],
+        ['a non-string $os_name', { $os_name: 42, $os: 'Windows' }, 'Windows'],
+        ['non-string values in both keys', { $os_name: 42, $os: {} }, undefined],
+    ])('resolves os from %s', (_name, properties, expected) => {
+        expect(getExceptionAttributes(properties).os).toEqual(expected)
+    })
+
+    it.each([
+        ['a string $browser', { $browser: 'Chrome' }, 'Chrome'],
+        ['a non-string $browser', { $browser: 42 }, undefined],
+    ])('resolves browser from %s', (_name, properties, expected) => {
+        expect(getExceptionAttributes(properties).browser).toEqual(expected)
+    })
+
     // A non-string $session_id (e.g. a numeric timestamp from a misbehaving SDK) must not leak
     // through as a number — it used to crash the issue scene via a ts-pattern exhaustive match.
     it.each([
@@ -227,5 +267,88 @@ describe('Error Display', () => {
         ['release without a timestamp', { $exception_release: { id: 'release-id', version: '1.2.3' } }],
     ])('ignores an invalid %s', (_name, properties) => {
         expect(getExceptionRelease(properties as ErrorEventProperties)).toBeUndefined()
+    })
+
+    it.each([
+        ['an apple frame', { raw_frame: { instruction_addr: '0x00000001010444e4' } }, '0x00000001010444e4'],
+        ['a frame with no junk drawer', undefined, null],
+        ['a junk drawer with no raw frame', {}, null],
+        ['a raw frame with no address', { raw_frame: { colno: 12 } }, null],
+        ['a null address', { raw_frame: { instruction_addr: null } }, null],
+        ['a non-string address', { raw_frame: { instruction_addr: 4311089892 } }, null],
+        ['a whitespace-only address', { raw_frame: { instruction_addr: '   ' } }, null],
+        ['a padded address', { raw_frame: { instruction_addr: '  0x00000001010444e4 ' } }, '0x00000001010444e4'],
+    ])('reads the instruction address from %s', (_name, junk_drawer, expected) => {
+        expect(getInstructionAddress({ junk_drawer } as ErrorTrackingStackFrame)).toEqual(expected)
+    })
+
+    it.each<[string, unknown[], unknown[]]>([
+        ['every frame replaced by a truncation marker', ['[TRUNCATED]', '[TRUNCATED]'], []],
+        ['a raw stack trace line', ['at handleRequest (file:///srv/app/server.js:42:9)'], []],
+        ['a null frame', [null], []],
+        ['a valid frame next to a string', [{ raw_id: 'abc' }, '[TRUNCATED]'], [{ raw_id: 'abc/0' }]],
+        ['a non-string raw id', [{ raw_id: 1234 }], [{ raw_id: 1234 }]],
+    ])('survives malformed stack frames, given %s', (_name, frames, expected) => {
+        const properties = {
+            $exception_list: [{ type: 'Error', value: 'boom', stacktrace: { frames } }],
+        } as unknown as ErrorEventProperties
+
+        expect(getExceptionList(properties)[0]?.stacktrace?.frames).toEqual(expected)
+    })
+
+    it.each<[string, unknown[], unknown[]]>([
+        ['a null exception', [null], []],
+        ['an exception replaced by a truncation marker', ['[TRUNCATED]'], []],
+        [
+            'a valid exception next to a null',
+            [{ type: 'Error', value: 'boom' }, null],
+            [{ type: 'Error', value: 'boom' }],
+        ],
+    ])('drops exception entries that are not objects, given %s', (_name, $exception_list, expected) => {
+        const properties = { $exception_list } as unknown as ErrorEventProperties
+
+        expect(getExceptionList(properties)).toEqual(expected)
+    })
+
+    it('leaves the event properties it reads unchanged', () => {
+        const frame = { raw_id: 'abc' }
+        const properties = {
+            $exception_list: [{ type: 'Error', value: 'boom', stacktrace: { frames: [frame] } }],
+        } as unknown as ErrorEventProperties
+
+        const result = getExceptionList(properties)
+
+        expect(result[0].stacktrace?.frames[0].raw_id).toEqual('abc/0')
+        expect(frame.raw_id).toEqual('abc')
+    })
+
+    const RELEASE = { id: 'release-id', version: '1.2.3', created_at: '2026-08-04T10:00:00Z' }
+    const UPLOADED_SET = { symbol_set_ref: 'chunk-id', release: null }
+    const UPLOADED_SET_WITH_RELEASE = { symbol_set_ref: 'chunk-id', release: RELEASE }
+    const FETCHED_SET = { symbol_set_ref: 'https://example.com/main.js.map', release: null }
+    const UNRESOLVED_FRAME = { symbol_set_ref: null, release: null }
+
+    it.each([
+        ['a frame that used no symbol set', {}, [UNRESOLVED_FRAME], false],
+        ['a symbol set PostHog fetched from the web', {}, [FETCHED_SET], false],
+        ['a symbol set uploaded with a release', {}, [UPLOADED_SET_WITH_RELEASE], false],
+        ['a release id reported by the SDK', { $release_id: 'release-id' }, [UPLOADED_SET], false],
+        [
+            'a release resolved for the event',
+            { $exception_release: { id: 'release-id', version: '1.2.3', timestamp: '2026-08-04T10:00:00Z' } },
+            [UPLOADED_SET],
+            false,
+        ],
+        ['one of two symbol sets with a release', {}, [UPLOADED_SET, UPLOADED_SET_WITH_RELEASE], false],
+        ['two symbol sets uploaded without a release', {}, [UPLOADED_SET, UPLOADED_SET], true],
+        ['a frame whose record did not load', {}, [UPLOADED_SET, undefined], false],
+    ])('reports a release the SDK never sent for %s', (_name, properties, records, expected) => {
+        const frames = records.map((_, index) => ({ raw_id: `frame-${index}` }) as ErrorTrackingStackFrame)
+        const keyedRecords = Object.fromEntries(
+            records.flatMap((record, index) =>
+                record ? [[`frame-${index}`, record as ErrorTrackingStackFrameRecord]] : []
+            )
+        )
+        expect(isReleaseIdMissingFromSDK(properties as ErrorEventProperties, frames, keyedRecords)).toBe(expected)
     })
 })

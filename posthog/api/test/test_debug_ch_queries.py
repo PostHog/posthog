@@ -15,6 +15,8 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER
 
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
 
 class TestDebugCHQuery(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
@@ -148,6 +150,30 @@ class TestDebugCHQuery(APIBaseTest):
         self.assertEqual(data["tables"]["exposures"]["written_bytes"][i], 100)
         self.assertEqual(sum(data["tables"]["metric_events"]["written_rows"]), 0)
 
+    def test_precompute_timeseries_latency_series_are_bucket_aligned_and_zero_filled(self):
+        # Same positional-indexing contract as cache_growth: the latency and bytes-per-read
+        # series must align to `buckets` and stay zero-filled where a bucket has no reads.
+        self.user.is_staff = True
+        self.user.save()
+        bucket = datetime.now(UTC).strftime("%Y-%m-%dT00:00:00Z")
+
+        with patch(
+            "posthog.api.debug_ch_queries.sync_execute",
+            side_effect=[[(bucket, 5, 4, 1, 120.0, 450.0, 2048.0)], []],
+        ):
+            resp = self.client.get("/api/debug_ch_queries/precompute_timeseries/?hours=336")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        data = resp.json()
+        i = data["buckets"].index(bucket)
+        reads = data["reads"]
+        for series in ("precomputed_p50_duration_ms", "precomputed_p90_duration_ms", "precomputed_avg_read_bytes"):
+            self.assertEqual(len(reads[series]), len(data["buckets"]))
+        self.assertEqual(reads["precomputed_p50_duration_ms"][i], 120)
+        self.assertEqual(reads["precomputed_p90_duration_ms"][i], 450)
+        self.assertEqual(reads["precomputed_avg_read_bytes"][i], 2048)
+        self.assertEqual(sum(reads["precomputed_p50_duration_ms"]), 120)
+
     @patch("posthog.api.debug_ch_queries.sync_execute", return_value=[])
     def test_slowest_queries_pat_with_scope_and_staff_allowed(self, _mock_execute):
         self.user.is_staff = True
@@ -204,3 +230,23 @@ class TestCacheTableStats(SimpleTestCase):
         self.assertNotIn("unavailable", exposures)
         self.assertTrue(metric_events["unavailable"])
         self.assertEqual(metric_events["total_rows"], 0)
+
+
+class TestPrecomputationTeamsUpdate(APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_staff_toggle_stamps_manual_provenance(self):
+        # A missing stamp would let the auto-enrollment job override a human's disable
+        # on its next run.
+        self.user.is_staff = True
+        self.user.save()
+
+        resp = self.client.post(
+            "/api/debug_ch_queries/precomputation_teams/",
+            {"team_id": self.team.id, "experiment_precomputation_enabled": False},
+        )
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+
+        config = TeamExperimentsConfig.objects.get(team=self.team)
+        self.assertFalse(config.experiment_precomputation_enabled)
+        self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)

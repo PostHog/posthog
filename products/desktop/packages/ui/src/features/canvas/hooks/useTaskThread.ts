@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef } from "react";
 
 const THREAD_POLL_INTERVAL_MS = 5_000;
 
-export function taskThreadQueryKey(taskId: string | undefined) {
+function taskThreadQueryKey(taskId: string | undefined) {
   return ["task-thread", taskId ?? "none"] as const;
 }
 
@@ -46,6 +46,9 @@ export function useTaskThread(
       enabled: !!taskId && enabled,
       refetchInterval: pollIntervalMs,
       staleTime: pollIntervalMs,
+      // The poll is the retry. Request-level retries also hold the timeline's
+      // first paint behind their backoff, since it gates on this query settling.
+      retry: false,
     },
   );
   useEffect(() => {

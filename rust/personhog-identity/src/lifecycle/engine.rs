@@ -58,6 +58,10 @@ pub enum SagaError {
     /// Another instance held the lease past our deadline.
     #[error("another instance is driving this operation")]
     Busy,
+    /// The drive's own execute deadline elapsed; a same-op-id retry
+    /// resumes it. `Busy` instead means contention.
+    #[error("execute deadline elapsed")]
+    DeadlineElapsed,
     /// A leader RPC (fence, release, fold) failed transiently. The step made
     /// no durable progress; a retry with the same op_id re-drives it. Boxed
     /// so the rare failure does not widen every step's Result.
@@ -114,9 +118,17 @@ impl From<SagaError> for Status {
     fn from(err: SagaError) -> Status {
         match err {
             SagaError::Db(e) => Status::internal(format!("database error: {e}")),
-            SagaError::RequestMismatch(msg) => Status::failed_precondition(msg),
+            // A definitive refusal (the op_id belongs to a different
+            // request), marked so callers branch on the reason instead of
+            // the message and retry layers never loop on it.
+            SagaError::RequestMismatch(msg) => {
+                personhog_common::grpc::semantic_refusal(msg, "op_id_reused")
+            }
             SagaError::Busy => Status::unavailable(
                 "another instance is driving this operation; retry with the same op_id",
+            ),
+            SagaError::DeadlineElapsed => Status::unavailable(
+                "execute deadline elapsed while the operation was still being driven; retry with the same op_id",
             ),
             SagaError::Leader(status) => Status::unavailable(format!(
                 "leader call failed ({}: {}); retry with the same op_id",
@@ -178,6 +190,9 @@ pub struct EngineConfig {
     pub poll_interval: Duration,
     /// Log a warning when an op's attempt counter reaches this value.
     pub attempt_alert_threshold: i32,
+    /// Rows one GC pass may delete, so a post-backlog sweep never holds
+    /// locks for long; the next pass continues.
+    pub gc_batch_limit: i64,
 }
 
 pub struct Engine {
@@ -225,7 +240,7 @@ impl Engine {
         team_id: i64,
         request: &Value,
     ) -> Result<OpRow, SagaError> {
-        sqlx::query!(
+        let inserted = sqlx::query!(
             r#"
             INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request)
             VALUES ($1, $2, $3, $4, $5)
@@ -238,12 +253,23 @@ impl Engine {
             request,
         )
         .execute(&self.pool)
-        .await?;
+        .await?
+        .rows_affected()
+            > 0;
 
         let row = self.load(op_id).await?.ok_or_else(|| {
             SagaError::CorruptState(format!("op {op_id} vanished right after create-or-attach"))
         })?;
-        if row.op_type != driver.op_type() || row.team_id != team_id || row.request != *request {
+        // Only a genuine attach is verified: the reloaded copy of our own
+        // insert has been through jsonb normalization (number rewriting,
+        // key ordering), so comparing it against the caller's request
+        // would reject a first call whose request isn't normalization-
+        // stable — and its retries with it, forever.
+        if !inserted
+            && (row.op_type != driver.op_type()
+                || row.team_id != team_id
+                || row.request != *request)
+        {
             return Err(SagaError::RequestMismatch(format!(
                 "op {op_id} already exists with a different request"
             )));
@@ -311,8 +337,8 @@ impl Engine {
             };
             if let Some(completed_at) = row.completed_at {
                 if claim_attempt.is_some() {
-                    // We drove it over the line (vs attaching to an op that
-                    // was already done).
+                    // A stolen lease double-counts alongside the stealer;
+                    // exact attribution would cost a query per completion.
                     common_metrics::inc(
                         OPS_COMPLETED_TOTAL,
                         &[
@@ -332,8 +358,11 @@ impl Engine {
                 return Ok(row);
             }
             if tokio::time::Instant::now() >= deadline {
+                // With the claim in hand the drive was simply slow, not
+                // contended.
                 if let Some(attempt) = claim_attempt {
                     self.release_lease(op_id, attempt).await.ok();
+                    return Err(SagaError::DeadlineElapsed);
                 }
                 return Err(SagaError::Busy);
             }
@@ -396,9 +425,10 @@ impl Engine {
                     SagaError::Leader(_) => "leader",
                     SagaError::LeaderRefused(_) => "leader_refused",
                     SagaError::CorruptState(_) => "corrupt_state",
-                    // Not constructed by drivers; collapsed so dashboards
-                    // never chase dead labels.
-                    SagaError::RequestMismatch(_) | SagaError::Busy => "other",
+                    // Collapsed: these carry no attribution worth a label.
+                    SagaError::RequestMismatch(_)
+                    | SagaError::Busy
+                    | SagaError::DeadlineElapsed => "other",
                 };
                 common_metrics::inc(
                     STEP_FAILURES_TOTAL,
@@ -531,16 +561,7 @@ impl Engine {
         row: &OpRow,
         status: &Status,
     ) -> Result<bool, sqlx::Error> {
-        // The reason becomes a metric label; cap it so a misbehaving
-        // peer cannot mint unbounded label cardinality.
-        let reason = personhog_common::grpc::semantic_refusal_reason(status)
-            .filter(|r| {
-                r.len() <= 64
-                    && r.chars()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
-            })
-            .unwrap_or("unknown")
-            .to_string();
+        let reason = personhog_common::grpc::refusal_reason_label(status).to_string();
         let parked = sqlx::query!(
             r#"
             UPDATE lifecycle_op
@@ -676,10 +697,15 @@ impl Engine {
         let result = sqlx::query!(
             r#"
             DELETE FROM lifecycle_op
-            WHERE completed_at IS NOT NULL
-              AND completed_at < now() - make_interval(secs => $1)
+            WHERE op_id IN (
+                SELECT op_id FROM lifecycle_op
+                WHERE completed_at IS NOT NULL
+                  AND completed_at < now() - make_interval(secs => $1)
+                LIMIT $2
+            )
             "#,
             retention.as_secs_f64(),
+            self.config.gc_batch_limit,
         )
         .execute(&self.pool)
         .await?;

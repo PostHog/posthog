@@ -3,6 +3,7 @@
 import time
 import datetime as dt
 from collections import defaultdict
+from itertools import batched
 from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -159,7 +160,9 @@ def _fetch_count_triggered_eval_report_candidate_groups() -> list[list[str]]:
         .values_list("id", "team_id")
     ):
         ids_by_team[team_id].append(str(pk))
-    return [chunk for ids in ids_by_team.values() for chunk in _chunk(ids, COUNT_TRIGGER_QUERY_WIDTH)]
+    return [
+        list(chunk) for ids in ids_by_team.values() for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)
+    ]
 
 
 def _load_count_triggered_report(report_id: str) -> "EvaluationReport | None":
@@ -227,10 +230,6 @@ def _check_count_triggered_eval_report_sync(
     return CheckCountTriggeredEvalReportOutput(report_id=report_id, due=count >= report.trigger_threshold)
 
 
-def _chunk(items: list, size: int) -> list[list]:
-    return [items[index : index + size] for index in range(0, len(items), size)]
-
-
 def _check_count_triggered_eval_reports_batch(
     report_ids: list[str],
     now: dt.datetime | None = None,
@@ -287,7 +286,7 @@ def _check_count_triggered_eval_reports_batch(
         # have a comparable window — one stale report no longer sets the scan's lower
         # bound for every other report queued alongside it.
         entries.sort(key=lambda entry: entry[2])
-        for chunk in _chunk(entries, COUNT_TRIGGER_QUERY_WIDTH):
+        for chunk in batched(entries, COUNT_TRIGGER_QUERY_WIDTH, strict=False):
             counts = _count_eval_results_for_reports_with_split_retry(
                 team,
                 [
@@ -622,6 +621,7 @@ async def prepare_report_context_activity(
             evaluation_prompt=evaluation.evaluation_config.get("prompt", ""),
             evaluation_type=evaluation.evaluation_type,
             output_type=evaluation.output_type,
+            true_is_failure=bool(evaluation.output_config.get("true_is_failure")),
             period_start=period_start.isoformat(),
             period_end=period_end.isoformat(),
             previous_period_start=previous_period_start.isoformat(),
@@ -651,21 +651,9 @@ async def run_eval_report_agent_activity(
             evaluation_target = _load_evaluation_target(inputs.team_id, inputs.evaluation_id)
             return (
                 run_eval_report_agent(
-                    team_id=inputs.team_id,
-                    report_id=inputs.report_id,
-                    trace_id=inputs.trace_id,
-                    session_id=inputs.session_id,
-                    evaluation_id=inputs.evaluation_id,
-                    evaluation_name=inputs.evaluation_name,
-                    evaluation_description=inputs.evaluation_description,
-                    evaluation_prompt=inputs.evaluation_prompt,
-                    evaluation_type=inputs.evaluation_type,
+                    inputs,
                     evaluation_target=evaluation_target,
-                    output_type=inputs.output_type,
-                    period_start=inputs.period_start,
-                    period_end=inputs.period_end,
-                    previous_period_start=inputs.previous_period_start,
-                    report_prompt_guidance=inputs.report_prompt_guidance,
+                    detector_evaluation_ids=_load_detector_evaluation_ids(inputs.team_id),
                 ),
                 evaluation_target,
             )
@@ -688,6 +676,22 @@ def _load_evaluation_target(team_id: int, evaluation_id: str) -> str:
     )
 
     return Evaluation.objects.values_list("target", flat=True).get(id=evaluation_id, team_id=team_id)
+
+
+def _load_detector_evaluation_ids(team_id: int) -> list[str]:
+    """The generation detail tool lists every evaluation on a generation, not just this report's,
+    so it needs each one's polarity to label it. Read here rather than in the context activity,
+    which would carry the whole team's list through two Temporal payloads to reach this one."""
+    from products.ai_observability.backend.models.evaluations import (  # noqa: PLC0415 -- keep Django model loading inside activity execution
+        Evaluation,
+    )
+
+    return [
+        str(evaluation_id)
+        for evaluation_id in Evaluation.objects.filter(
+            team_id=team_id, output_type="boolean", output_config__true_is_failure=True
+        ).values_list("id", flat=True)
+    ]
 
 
 @temporalio.activity.defn

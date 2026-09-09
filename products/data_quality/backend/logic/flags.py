@@ -13,7 +13,9 @@ DATA_QUALITY_CHECKS_FEATURE_FLAG = "data-quality-checks"
 def is_data_quality_checks_enabled(team: "Team") -> bool:
     """The `data-quality-checks` flag check, org-keyed. Canonical home for the check -- gate any
     data-quality surface (API, information_schema tables, MCP tools, triggers) through here."""
-    if settings.DEBUG:
+    # The flag is evaluated against PostHog's own analytics project, which a local or end-to-end
+    # environment has no membership in, so it would gate the whole product out of both.
+    if settings.DEBUG or settings.E2E_TESTING:
         return True
     return feature_enabled_or_false(
         DATA_QUALITY_CHECKS_FEATURE_FLAG,

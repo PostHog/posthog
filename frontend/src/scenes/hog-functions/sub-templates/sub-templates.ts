@@ -61,6 +61,15 @@ function mcpFailedToolCallEvent(errorType?: string): CyclotronJobFilterEvents {
     return { id: '$mcp_tool_call', type: 'events', properties }
 }
 
+// A permanently broken batch export fails every run (as often as every 5 minutes), so dedupe
+// per export: one message per broken export per hour. The auto-pause threshold bounds the tail.
+const BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS = 60 * 60
+
+// Keyed per batch export so two exports breaking at once both alert. The producer always sets
+// batch_export_id, but HogMaskerService skips masking on falsy hashes, so fall back defensively.
+const BATCH_EXPORT_ALERT_MASKING_HASH =
+    "{event.properties.batch_export_id ? event.properties.batch_export_id : 'unknown-batch-export'}"
+
 // The page a rageclick happened on: $pathname when posthog-js set it, else the full URL.
 const PA_RAGECLICK_PAGE_EXPR = 'event.properties.$pathname ? event.properties.$pathname : event.properties.$current_url'
 
@@ -127,13 +136,14 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         sub_template_id: 'activity-log',
         type: 'internal_destination',
         context_id: 'activity-log',
-        filters: { events: [{ id: '$activity_log_entry_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$activity_log_entry_created', type: 'events' }] },
     },
     'feature-flag-change': {
         sub_template_id: 'feature-flag-change',
         type: 'internal_destination',
         context_id: 'activity-log',
         filters: {
+            source: 'internal-events',
             events: [
                 {
                     id: '$activity_log_entry_created',
@@ -154,77 +164,85 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         sub_template_id: 'discussion-mention',
         type: 'internal_destination',
         context_id: 'discussion-mention',
-        filters: { events: [{ id: '$discussion_mention_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$discussion_mention_created', type: 'events' }] },
     },
     'error-tracking-issue-created': {
         sub_template_id: 'error-tracking-issue-created',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
     },
     'error-tracking-issue-reopened': {
         sub_template_id: 'error-tracking-issue-reopened',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
     },
     'error-tracking-issue-spiking': {
         sub_template_id: 'error-tracking-issue-spiking',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
     },
     [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: {
         sub_template_id: INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID,
         type: 'internal_destination',
         context_id: 'insight-alerts',
-        filters: { events: [{ id: '$insight_alert_firing', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$insight_alert_firing', type: 'events' }] },
     },
     'experiment-significant': {
         sub_template_id: 'experiment-significant',
         type: 'internal_destination',
         context_id: 'experiment-alerts',
-        filters: { events: [{ id: '$experiment_metric_significant', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$experiment_metric_significant', type: 'events' }] },
     },
     'logs-alert-firing': {
         sub_template_id: 'logs-alert-firing',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_firing', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_firing', type: 'events' }] },
     },
     'logs-alert-resolved': {
         sub_template_id: 'logs-alert-resolved',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_resolved', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_resolved', type: 'events' }] },
     },
     'logs-alert-auto-disabled': {
         sub_template_id: 'logs-alert-auto-disabled',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_auto_disabled', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_auto_disabled', type: 'events' }] },
     },
     'logs-alert-errored': {
         sub_template_id: 'logs-alert-errored',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_errored', type: 'events' }] },
-        flag: FEATURE_FLAGS.LOGS_ALERTING,
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_errored', type: 'events' }] },
     },
     'health-check-firing': {
         sub_template_id: 'health-check-firing',
         type: 'internal_destination',
         context_id: 'health-alerts',
-        filters: { events: [{ id: '$health_check_issue_firing', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$health_check_issue_firing', type: 'events' }] },
     },
     'health-check-resolved': {
         sub_template_id: 'health-check-resolved',
         type: 'internal_destination',
         context_id: 'health-alerts',
-        filters: { events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
+    },
+    'batch-export-run-failed': {
+        sub_template_id: 'batch-export-run-failed',
+        type: 'internal_destination',
+        context_id: 'batch-export-alerts',
+        filters: { source: 'internal-events', events: [{ id: '$batch_export_run_failed', type: 'events' }] },
+        masking: {
+            hash: BATCH_EXPORT_ALERT_MASKING_HASH,
+            ttl: BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS,
+            threshold: null,
+        },
+        flag: FEATURE_FLAGS.BATCH_EXPORT_ALERTS,
     },
 }
 
@@ -593,6 +611,13 @@ function notificationVariants({
         },
     ]
 }
+
+// batch_export_name is user-controlled and error can embed whatever the destination returned, so
+// both get the same Slack escaping + bounds as the other producer-controlled notification fields
+// (a raw value could smuggle <!channel> mentions or <url|text> masked links into the message).
+// The error bound matches the backend's 1000-char truncation of the property.
+const BATCH_EXPORT_NAME_SLACK = `{${slackEscapeExpr('event.properties.batch_export_name')}}`
+const BATCH_EXPORT_ERROR_SLACK = `{${slackEscapeExpr('event.properties.error', 1000)}}`
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'mcp-tool-error': notificationVariants({
@@ -1304,7 +1329,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'context',
                             elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
                         },
-                        { type: 'divider' },
+                        // A hog template that is a single {…} expression resolves to the expression's raw
+                        // value, so this string becomes a whole block: a chart of the alerted insight when
+                        // one was rendered (`insight_chart_url`, set for any firing alert by
+                        // dispatch_alert_notification), otherwise the plain divider. Slack has no way to
+                        // omit a block conditionally, and an image block with an empty URL fails the send.
+                        "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
                         {
                             type: 'actions',
                             // The alert id in the block_id is what lets the datetimepicker action identify
@@ -1619,6 +1649,52 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'batch-export-run-failed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['batch-export-run-failed'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on batch export failure',
+            description: 'Post to a Slack channel when a batch export run fails',
+            inputs: {
+                blocks: {
+                    value: [
+                        { type: 'header', text: { type: 'plain_text', text: 'Batch export failed' } },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                // data_interval_start is null for backfill runs covering everything
+                                // up to the end date ("beginning of time" in the backfills UI)
+                                text: `*${BATCH_EXPORT_NAME_SLACK}* ({event.properties.destination_type}) failed to export data for {event.properties.data_interval_start ? event.properties.data_interval_start : 'the beginning of time'} – {event.properties.data_interval_end}.`,
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: { type: 'mrkdwn', text: `*Error:* ${BATCH_EXPORT_ERROR_SLACK}` },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/pipeline/batch-exports/{event.properties.batch_export_id}',
+                                    text: { text: 'View batch export', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: `Batch export '${BATCH_EXPORT_NAME_SLACK}' failed: ${BATCH_EXPORT_ERROR_SLACK}`,
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1633,6 +1709,12 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$error_tracking_issue_created':
         case '$error_tracking_issue_reopened':
         case '$error_tracking_issue_spiking':
+        case '$error_tracking_issue_resolved':
+        case '$error_tracking_issue_suppressed':
+        case '$error_tracking_issue_assigned':
+        case '$error_tracking_issue_unassigned':
+        case '$error_tracking_issue_merged':
+        case '$error_tracking_issue_split':
             return 'error-tracking'
         case '$insight_alert_firing':
             return 'insight-alerts'
@@ -1650,6 +1732,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$health_check_issue_firing':
         case '$health_check_issue_resolved':
             return 'health-alerts'
+        case '$batch_export_run_failed':
+            return 'batch-export-alerts'
         default:
             return 'standard'
     }

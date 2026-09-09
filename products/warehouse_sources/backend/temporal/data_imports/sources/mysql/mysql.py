@@ -41,7 +41,9 @@ from posthog.exceptions_capture import capture_exception  # noqa: F401
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
+    BinaryColumnReporter,
     build_pyarrow_decimal_type,
+    restrict_schema_to_columns,
     table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
@@ -55,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     compute_projected_columns,
     project_arrow_columns,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SourceMetadata,
     SQLSourceImplementation,
@@ -525,15 +528,17 @@ def _is_transient_packet_sequence_error(e: BaseException) -> bool:
     return any(_PACKET_SEQUENCE_ERROR_PHRASE in str(arg) for arg in e.args)
 
 
-# Vitess/PlanetScale vtgate surfaces a backend tablet it can't reach at connect time as pymysql
+# Vitess/PlanetScale vtgate surfaces a backend tablet it can't reach as pymysql
 # OperationalError(1815, 'internal connection error: dial tcp <addr>: connect: connection timed
 # out, after N attempts, reqid=...'): the vtgate handshake succeeds but dialing the tablet behind
 # it times out — a failover, a restart, or a momentary network blip that a fresh attempt recovers
 # from. 1815 is MySQL's generic ER_INTERNAL_ERROR, so key on the Go-network `dial tcp` +
 # `connection timed out` signature (no plain MySQL error carries the `dial tcp` token) rather than
-# the bare code; the volatile tablet address, attempt count, and reqid stay untouched. This is the
-# connect-time sibling of the `code = Unavailable` tablet-unavailable case, which instead lands on
-# the first query after connect (see `_is_transient_tablet_unavailable`).
+# the bare code; the volatile tablet address, attempt count, and reqid stay untouched. Like the
+# `code = Unavailable` tablet-unavailable case (see `_is_transient_tablet_unavailable`), this can
+# land either at connect time or on the first query against a freshly opened connection (e.g.
+# `get_table_metadata`'s information_schema lookup), so both `_connect_with_transient_retry` and
+# `_retry_on_transient_tablet_unavailable` check it.
 _VITESS_DIAL_TOKEN = "dial tcp"
 _VITESS_DIAL_TIMEOUT_TOKEN = "connection timed out"
 
@@ -604,6 +609,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
                 or _is_transient_connect_broken_pipe(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_too_many_connections(e)
                 or _is_transient_cant_create_thread(e)
             ):
@@ -657,6 +663,22 @@ def _is_transient_vitess_reparent(e: BaseException) -> bool:
     return _VITESS_REPARENT_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
+# TiProxy (TiDB's connection proxy) surfaces this 1105 error when it cannot reach a TiDB
+# node due to a failover, a restart, or a momentary network blip. It arrives during the
+# MySQL auth handshake: TiProxy accepts the TCP connection but then cannot route to a
+# backend TiDB node and sends back ER_UNKNOWN_ERROR (1105) with this fixed message. Like
+# the Vitess `code = Unavailable` case above (same error code, same proxy-layer pattern),
+# a fresh attempt recovers once a healthy TiDB node is available.
+_TIPROXY_UNAVAILABLE_TOKEN = "TiProxy fails to connect to TiDB"
+
+
+def _is_transient_tiproxy_unavailable(e: BaseException) -> bool:
+    """Return True if TiProxy could not reach a TiDB backend due to a transient failure."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _TIPROXY_UNAVAILABLE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 def _is_transient_metadata_query_reset(e: BaseException) -> bool:
     """Return True if a metadata query's connection was reset mid-query — a transient blip.
 
@@ -692,8 +714,8 @@ def _retry_on_transient_tablet_unavailable(
     whole operation (which reopens the connection) with a bounded backoff instead of
     failing sync setup on the first blip and surfacing it as captured error-tracking
     noise. Non-transient errors re-raise immediately — the predicates only match the gRPC
-    `Unavailable` status, a mid-reparent primary, or a plain peer-reset connection drop,
-    all self-healing.
+    `Unavailable` status, a mid-reparent primary, a dial-timeout reaching a backend tablet,
+    a TiProxy failover, or a plain peer-reset connection drop, all self-healing.
     """
     attempt = 0
     while True:
@@ -704,6 +726,8 @@ def _retry_on_transient_tablet_unavailable(
             if attempt >= max_attempts or not (
                 _is_transient_tablet_unavailable(e)
                 or _is_transient_vitess_reparent(e)
+                or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_metadata_query_reset(e)
             ):
                 raise
@@ -1445,6 +1469,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         primary_keys, arrow_schema, chunk_size, partition_settings, rows_to_sync = (
             _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
         )
+        binary_reporter = BinaryColumnReporter(logger)
 
         def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
             """Open a fresh connection and stream rows.
@@ -1512,13 +1537,21 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
 
                     column_names = [column[0] for column in ss_cursor.description or []]
 
-                    while True:
-                        # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
-                        batch = ss_cursor.fetchmany(chunk_size)
-                        if not batch:
-                            break
+                    # The streaming read can return a strict subset of the columns discovered
+                    # during setup (a column dropped at the source, or the table recreated
+                    # narrower, between discovery and the read), so restrict the schema to what
+                    # the query actually returned instead of failing the batch build.
+                    read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in batch), arrow_schema)
+                    for batch in fetch_row_batches(
+                        ss_cursor.fetchmany, max_rows=chunk_size, byte_bounded=inputs.byte_bounded_extraction
+                    ):
+                        yield table_from_iterator(
+                            (dict(zip(column_names, row)) for row in batch),
+                            read_schema,
+                            primary_keys=primary_keys,
+                            binary_reporter=binary_reporter,
+                        )
                 finally:
                     # Tear the streaming cursor down without draining the rest of
                     # the unbuffered result set — see `_release_streaming_cursor`.

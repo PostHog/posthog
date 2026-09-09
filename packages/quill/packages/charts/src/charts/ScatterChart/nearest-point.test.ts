@@ -1,8 +1,9 @@
 import { findNearestPointIndex } from './nearest-point'
 import type { ScatterPointPosition } from './scatter-layout'
 
+// The hit test doesn't care which series a point came from, so they all sit in one here.
 function position(index: number, x: number, y: number, radius = 4): ScatterPointPosition {
-    return { index, x, y, radius, color: '#000', shape: 'circle' }
+    return { index, seriesIndex: 0, x, y, radius, color: '#000', shape: 'circle' }
 }
 
 describe('findNearestPointIndex', () => {

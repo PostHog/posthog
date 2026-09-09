@@ -21,7 +21,19 @@ class BaseEvalCase(BaseModel):
     """Human-readable name for this eval case."""
 
     prompt: str
-    """Natural language task description for the agent or model."""
+    """Natural language task description for the agent or model.
+
+    The first turn of the conversation. Append follow-up user messages via
+    ``followups``."""
+
+    followups: list[str] = Field(default_factory=list)
+    """Follow-up user messages, sent one turn at a time after ``prompt``.
+
+    Empty (the default) runs a single-turn case exactly as before. Non-empty
+    keeps the same agent session alive across ``1 + len(followups)`` turns —
+    for suites that grade how routing or behavior changes over a conversation.
+    Sandboxed cases only; the one-shot runner executes a single model call per
+    case and never reads this field."""
 
     expected: dict[str, Any] = Field(default_factory=dict)
     """Expected values for scoring, keyed by scorer ``_name()``.
@@ -40,11 +52,19 @@ class SandboxedEvalCase(BaseEvalCase):
     repo_fixture: str = ""
     """Name of the repo fixture (informational, for tracking)."""
 
+    disable_bundled_skills: bool = False
+    """Remove skills baked into the sandbox image for this case.
+
+    Use this when the behavior under evaluation is a separate skill delivery
+    path, so native agent skill discovery cannot satisfy the task by accident.
+    Exec skill-delivery mode applies the same behavior to every case.
+    """
+
     interaction_origin: str | None = None
     """Surface to run the case as (e.g. ``"slack"``), for suites grading behavior that only
     exists on one surface. The agent server branches its system prompt on this, so setting it
-    is what makes a case exercise the real prompt instead of a copy. ``None`` runs the case
-    like a plain task, which is what every non-surface-specific suite wants."""
+    is what makes a case exercise the real prompt instead of a copy. ``None`` uses the ``eval``
+    origin in exec skill-delivery mode and leaves the origin unset in bundled mode."""
 
     setup: Callable[[CustomPromptSandboxContext], dict[str, Any]] | None = Field(
         default=None,
@@ -91,6 +111,10 @@ class AgentArtifacts(BaseModel):
 
     lint_output: str = ""
     """Lint output extracted from agent tool calls."""
+
+    tool_call_count: int = 0
+    """Tool calls the agent made. Zero alongside a non-zero ``exit_code`` means the run failed before
+    it did any work, which the harness treats as an infrastructure error rather than a score."""
 
     duration_seconds: float = 0.0
     """Wall-clock time for the agent run in seconds."""

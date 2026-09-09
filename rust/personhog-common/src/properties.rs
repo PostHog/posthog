@@ -73,6 +73,7 @@ static PROTECTED_PROPERTIES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "epik",
         "qclid",
         "sccid",
+        "$fbc",
         // Session and page tracking
         "$session_id",
         "$window_id",
@@ -123,7 +124,10 @@ impl SanitizeStats {
 }
 
 /// Rewrite the merged state so that it both applies to Postgres jsonb and
-/// round-trips back out of it, at any depth:
+/// round-trips back out of it *unchanged* — a sanitized value compares
+/// equal to its own jsonb round-trip, which idempotency guards (frozen
+/// request rows, no-op detection against cached state) rely on. At any
+/// depth:
 ///
 /// * `\u{0000}` (NUL) becomes `\u{FFFD}` in every string — keys and
 ///   values — mirroring the Node.js pipeline's `sanitizeJsonbValue`;
@@ -133,6 +137,11 @@ impl SanitizeStats {
 /// * Floats beyond ±[`MAX_JSONB_SAFE_MAGNITUDE`] are clamped to it, so
 ///   Postgres's expanded numeric rendering stays parseable on the way
 ///   back (see the constant's doc).
+/// * Floats holding an exact integer become JSON integers: jsonb renders
+///   numerics in plain decimal, so `1e17` comes back as
+///   `100000000000000000`, which serde_json parses as an integer — never
+///   equal to the float that went in. Converting up front makes the
+///   stored form and the sanitized form the same value.
 pub fn sanitize_for_jsonb(value: &mut Value) -> SanitizeStats {
     let mut stats = SanitizeStats::default();
     sanitize_value(value, &mut stats);
@@ -150,11 +159,15 @@ fn sanitize_value(value: &mut Value, stats: &mut SanitizeStats) {
         Value::Number(n) => {
             // Only floats can exceed the safe magnitude: i64/u64 top out
             // around 1.8e19.
-            if let Some(f) = n.as_f64() {
-                if n.is_f64() && f.abs() > MAX_JSONB_SAFE_MAGNITUDE {
-                    let clamped = MAX_JSONB_SAFE_MAGNITUDE.copysign(f);
-                    *value = Value::from(clamped);
-                    stats.clamped_numbers += 1;
+            if n.is_f64() {
+                if let Some(f) = n.as_f64() {
+                    if f.abs() > MAX_JSONB_SAFE_MAGNITUDE {
+                        let clamped = MAX_JSONB_SAFE_MAGNITUDE.copysign(f);
+                        *value = Value::from(clamped);
+                        stats.clamped_numbers += 1;
+                    } else if let Some(int) = integral_float_as_int(f) {
+                        *value = int;
+                    }
                 }
             }
         }
@@ -183,6 +196,30 @@ fn sanitize_value(value: &mut Value, stats: &mut SanitizeStats) {
             }
         }
         _ => {}
+    }
+}
+
+/// The integer a float canonicalizes to when its value is one, i.e. when
+/// Postgres would hand the number back as an integer literal. Positive
+/// values take the u64 path because that is what serde_json's parser
+/// yields for a positive integer literal.
+fn integral_float_as_int(f: f64) -> Option<Value> {
+    if f.fract() != 0.0 {
+        return None;
+    }
+    if f >= 0.0 {
+        // `as u64` saturates: exactly 2^64 aliases to u64::MAX, whose own
+        // f64 round-trip is 2^64 again — the equality check would convert
+        // to the wrong integer. u64::MAX itself is not representable as
+        // f64, so excluding the saturation point loses nothing.
+        let u = f as u64;
+        (u != u64::MAX && u as f64 == f).then(|| Value::from(u))
+    } else {
+        // No aliasing on this side: i64::MIN (-2^63) is exactly
+        // representable, and anything below it saturates to i64::MIN,
+        // whose round-trip then fails the equality check.
+        let i = f as i64;
+        (i as f64 == f).then(|| Value::from(i))
     }
 }
 
@@ -559,6 +596,7 @@ mod tests {
         assert!(!can_trim_property("email"));
         assert!(!can_trim_property("$browser"));
         assert!(!can_trim_property("utm_source"));
+        assert!(!can_trim_property("$fbc"));
         assert!(!can_trim_property("$user_id"));
         assert!(!can_trim_property("$initial_referrer"));
         assert!(can_trim_property("custom_field"));
@@ -637,6 +675,44 @@ mod tests {
         assert_eq!(value["neg_huge"][0], -1e307);
         assert_eq!(value["fine"], 1e306);
         assert_eq!(value["int"], u64::MAX);
+    }
+
+    #[test]
+    fn sanitize_canonicalizes_integral_floats_to_postgres_integers() {
+        let mut value = serde_json::json!({
+            "exp": 1e17,
+            "neg": -3e3,
+            "whole": 2.0,
+            "neg_zero": -0.0,
+            "two_63": 9.223372036854776e18,
+            "i64_min": -9.223372036854776e18,
+            "frac": 0.5,
+        });
+        let stats = sanitize_for_jsonb(&mut value);
+        assert!(
+            !stats.changed(),
+            "value-preserving rewrites are not changes"
+        );
+        assert_eq!(value["exp"], 100_000_000_000_000_000u64);
+        assert_eq!(value["neg"], -3000);
+        assert_eq!(value["whole"], 2);
+        assert_eq!(value["neg_zero"], 0);
+        assert_eq!(value["two_63"], 9_223_372_036_854_775_808u64);
+        assert_eq!(value["i64_min"], i64::MIN);
+        assert!(value["frac"].is_f64());
+    }
+
+    #[test]
+    fn sanitize_keeps_integral_floats_that_no_integer_can_hold() {
+        // 2^64 saturates the u64 cast; 1e30 is integral but far beyond it.
+        // Both already round-trip through jsonb as themselves (serde_json
+        // re-parses their expansions as the same f64), so they stay floats.
+        let mut value = serde_json::json!([1.8446744073709552e19, 1e30]);
+        sanitize_for_jsonb(&mut value);
+        assert!(value[0].is_f64());
+        assert_eq!(value[0], 1.8446744073709552e19);
+        assert!(value[1].is_f64());
+        assert_eq!(value[1], 1e30);
     }
 
     #[test]

@@ -304,6 +304,27 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
     assert defaults == ["test_posthog"]
 
 
+def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The dump comes from a database that routes product apps elsewhere, so it records their
+    # migrations as applied without ever creating their tables. Left in place, the next product
+    # migration is applied for real here and fails on the missing table. Nothing else may go: a
+    # forgotten row outside those apps makes the caller's migrate re-run DDL the dump already holds.
+    schema_path = tmp_path / "schema.sql.gz"
+    _write_schema(schema_path)
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
+    monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: None)
+    monkeypatch.setattr(db_schema, "_ensure_migration_defaults", lambda target_db: None)
+    monkeypatch.setattr(db_schema, "_product_routed_app_labels", lambda: ["stamphog", "visual_review"])
+
+    db_schema.restore_schema_dump(target_db="test_posthog", recreate=False, schema_path=schema_path)
+
+    deletes = [command[-1] for command in commands if "DELETE FROM django_migrations" in command[-1]]
+    assert deletes == ["DELETE FROM django_migrations WHERE app IN ('stamphog', 'visual_review');"]
+    assert not [command for command in commands if command[:3] == ["python", "manage.py", "migrate"]]
+
+
 def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     schema_path = tmp_path / "schema.sql.gz"
     _write_schema(schema_path)

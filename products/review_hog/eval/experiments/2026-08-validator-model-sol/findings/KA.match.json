@@ -1,0 +1,72 @@
+{
+    "KA1": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "Same claim as cluster 31: process_inbox_pr_review trusts the queue-time toggle result and never re-resolves the acting reviewer before creating the run."
+    },
+    "KA2": {
+        "cluster": 75,
+        "confidence": "medium",
+        "reason": "Core claim and fix (any GitHub bot accepted instead of the exact App login, letting a non-self-driving bot PR inherit the review-mode/write-permission bypass) match cluster 75 (E1); the caller-writable-linkage angle overlaps runner-up cluster 73 (branch fallback binds an unrelated run)."
+    },
+    "KA3": {
+        "cluster": 3,
+        "confidence": "high",
+        "reason": "Identical to cluster 3: review_local.py:321 reads self_driving_review with bool() truthiness instead of a strict `is True` check."
+    },
+    "KA4": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Identical to cluster 57: the gate keys on one canonical acting reviewer's toggle, so an opted-in secondary assigned reviewer is ignored on both trigger legs."
+    },
+    "KA5": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Same claim as cluster 39: find_task_run is unscoped and the post-hoc run.team_id recheck can let another team's row shadow the valid run (the exact shadowing mode W8/T8 evaluated)."
+    },
+    "KA6": {
+        "cluster": 6,
+        "confidence": "high",
+        "reason": "Identical to cluster 6: the engine's draft-gate relaxation in review_pr.py is keyed only on self_driving and never coupled to pr.author_is_bot."
+    },
+    "KA7": {
+        "cluster": 35,
+        "confidence": "high",
+        "reason": "Identical to cluster 35: the flag stays true after the PR is marked ready, so the hard-coded 'draft on purpose' provenance text renders on later pushes."
+    },
+    "KA8": {
+        "cluster": 4,
+        "confidence": "high",
+        "reason": "Identical to cluster 4: the engine renders familiarity_block alongside self_driving_block instead of gating familiarity on self_driving, relying on the server omitting author_pr_numbers."
+    },
+    "KA9": {
+        "cluster": 1,
+        "confidence": "high",
+        "reason": "Same stale 'non-internal task' invariant as cluster 1 (production auto-start tasks are internal=True), here surfacing as the AGENTS.md wording, which cluster 1 already absorbed via member O6."
+    },
+    "KA10": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Same claim as cluster 2: the receiver leg stamps inbox_review from a caller-writable TaskRun.output.pr_url with no PR-to-run linkage, bot, or fork verification; the unanchored-regex aside belongs to runner-up cluster 13."
+    },
+    "KA11": {
+        "cluster": 21,
+        "confidence": "high",
+        "reason": "Same claim as cluster 21: find_signal_implementation_run only checks signal_report/internal and still matches failed/cancelled runs and soft-deleted tasks; the team_id-ordering aside belongs to runner-up cluster 39."
+    },
+    "KA12": {
+        "cluster": 25,
+        "confidence": "high",
+        "reason": "Same claim as cluster 25: both on_commit hooks use robust=False so an exception in the first cancels the stamphog hook; the deferred-import-outside-try aside is runner-up cluster 16."
+    },
+    "KA13": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Same claim as cluster 58: the initial inbox review dispatch is fire-and-forget with no durable record or retry, so a broker failure silently drops the review (runner-up cluster 54 is the unguarded .delay raising into the caller)."
+    },
+    "KA14": {
+        "cluster": 23,
+        "confidence": "medium",
+        "reason": "Same code behavior as cluster 23 (find_task_run does full TaskRun scans on every bot PR webhook from the carve-out), attributed to the missing team filter rather than the missing branch index; runner-up cluster 39 shares the call site and the team_ids fix but is a tenant-boundary claim, and cluster 33 is the broader per-event-cost claim."
+    }
+}

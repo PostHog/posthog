@@ -57,7 +57,7 @@ We want to achieve a state of full schema of each env and cluster to be represen
 End state: we have 5 environments schemas as HCL, a golden per cluster, something like:
 
 - local-single (in PostHog/posthog)
-  - schema.hcl
+  - all.hcl (one node hosts every role, so one golden)
 - local-multi (in PostHog/posthog):
   - ops.hcl
   - posthog.hcl
@@ -99,6 +99,8 @@ Each table shall be **defined** once, if there's a difference between envs, it s
 
 `hclexp locate -duplicates` draws exactly this line (verified against the pin: table+`patch_table` → 0, table+`override=true` → 0, `extend` refinements → 0, table+plain redeclaration → 1, abstract+abstract → 1), so it is the enforcement mechanism, not a heuristic. Both repos gate on it against a `duplicates-baseline.txt` that may only shrink.
 
+The same rule holds across **roles**, not just envs, and the guard cannot help you there. When two node classes run the same object — a Kafka consumer that dev runs on `ingestion-apm` and the prod clusters run on `logs`, a `writable_*` proxy the data and ingestion nodes both carry — the declaration moves into a layer both roles compose (`roles/coshared/<thing>`), and each role's own layer carries only its delta as a `patch_*`. Do **not** restate the object in the second role with `override = true`: the guard counts that as zero duplicates and stays green, so nothing will tell you the schema is now authored twice. The symptom is a large block copied into a second layer where only a handful of lines differ; if you are reaching for `override` because the object already exists somewhere else, the answer is almost always a coshared layer plus a patch. Reserve `override` for one name that genuinely denotes two different objects — `channel_definition`, a Distributed proxy on one cluster and a storage table on another.
+
 The patch vocabulary covers tables and materialized views fully, so "express it as a patch" is always available for a content difference. `patch_table` carries `column` and `index` (both with positional `after`), `modify_column` (full replacement column spec — `type` is required), additive `projection`, `engine`, `order_by`, `partition_by`, `ttl` and `settings`; `patch_view` and `patch_dictionary` do the same for views and dictionaries, and `patch_materialized_view` carries `query` (replace) plus the column operations — an MV whose query differs per env stays declared once with per-env query patches. `settings` merge into the target with the patch winning on collision; everything else replaces. Built on demand in PostHog/chschema — #153 (settings merge), #156 (full vocab + `patch_view`/`patch_dictionary`), #159 (positioned column adds), #161 (positioned index adds), #170 (`patch_materialized_view`, MV `override = true`, projections in `patch_table`), #174/#175 (patches resolve with inheritance: a concrete-target patch applies after `extend`, so it can modify, drop, or position against inherited columns; abstract-target patches propagate to every child).
 
 `patch_column` (#165) is the `extend` side of the same idea: a child using `extend` can specialize a single _inherited_ column — type, nullability, default kind, CODEC, TTL, comment — while keeping every unspecified field and the inherited column order. A plain `column` block on a child still means _add_, and still collides with an inherited name. This is what lets one codec-free abstract back both a storage table and its Distributed proxy, with only the storage child declaring CODECs:
@@ -115,7 +117,11 @@ table "sharded_events" {
 
 Before that, the choice was to hang the CODECs on the abstract — forcing them onto the proxy too — or to stop sharing and repeat the column list.
 
-In this repo the cross-_role_ duplicates have been factored into `roles/coshared/<member-set>/` layers (one layer per set of stacks that co-host the objects), with env deltas as `patch_*` blocks in the env layers. The events family itself is the `_event_base` pattern live: `roles/data/shared/` declares the abstract core once, `sharded_events` and the `events` proxy extend it there, `roles/data/local` carries the local delta as `patch_table` blocks, and posthog-cloud-infra's `overrides/data/<env>/` carry the cloud deltas the same way. What keeps the baseline non-empty is only the `mat_`-column-bearing events replicas on the sessions roles, which resolve when those roles' cloud env overlays move to posthog-cloud-infra rather than by any restructure here.
+In this repo the cross-_role_ duplicates have been factored into `roles/coshared/<member-set>/` layers (one layer per set of stacks that co-host the objects), with env deltas as `patch_*` blocks in the env layers. The events family itself is the `_event_base` pattern live: `roles/shared/event_base.hcl` declares the abstract core once, `sharded_events` and the `events` proxy extend it in `roles/data/shared/`, the sessions nodes' replica of that proxy extends it in `roles/sessions/shared/`, `roles/data/local` carries the local delta as `patch_table` blocks, and posthog-cloud-infra's `overrides/data/<env>/` carry the cloud deltas the same way. The abstract sits in `roles/shared/` because that is the only layer every role composes, and an abstract emits nothing on a node that does not extend it.
+
+Positioning is the one thing a refinement cannot do: `after` is rejected on a column declared inside a table block, where declaration order is the order. A child that must interleave its own columns with inherited ones declares the table, then adds them in a `patch_table` with `after`. `roles/sessions/shared` does exactly that, which is why the sessions events proxy reproduces the live physical column order.
+
+What keeps the baseline non-empty is `raw_sessions_v3` and `channel_definition`, where one name covers a different object per cluster (storage on one, a Distributed proxy on the other). They resolve when the sessions cloud env layers move to posthog-cloud-infra rather than by any restructure here.
 
 The purpose of the extension is to making the schema changes uniform across all envs: think adding a column or table shall be possible in one place and affect all envs.
 

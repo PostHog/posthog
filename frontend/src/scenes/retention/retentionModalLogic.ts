@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { retentionToActorsQuery } from 'scenes/retention/queries'
@@ -62,6 +63,7 @@ export interface retentionModalLogicValues {
     results: ProcessedRetentionPayload[] // retentionLogic
     actorsQuery: ActorsQuery | null
     aggregationTargetLabel: Noun
+    canOpenPersonModal: boolean
     exploreUrl: string | null
     insightEventsQueryUrl: string | null
     isCohortModalOpen: boolean
@@ -116,8 +118,10 @@ export interface retentionModalLogicMeta {
                 | WebOverviewQuery
                 | WebStatsTableQuery
                 | null,
+            retentionFilter: RetentionFilter | null,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => Noun
+        canOpenPersonModal: (retentionFilter: RetentionFilter | null) => boolean
         actorsQuery: (
             querySource:
                 | FunnelsQuery
@@ -211,7 +215,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
     }),
     selectors({
         aggregationTargetLabel: [
-            (s) => [s.querySource, s.aggregationLabel],
+            (s) => [s.querySource, s.retentionFilter, s.aggregationLabel],
             (
                 querySource:
                     | RetentionQuery
@@ -223,14 +227,22 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                     | import('~/queries/schema/schema-general').TrendsQuery
                     | import('~/queries/schema/schema-general').WebOverviewQuery
                     | import('~/queries/schema/schema-general').WebStatsTableQuery,
+                retentionFilter: RetentionFilter | null,
                 aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
             ): Noun => {
+                if (retentionFilter?.customAggregationTarget) {
+                    return AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE
+                }
                 const aggregation_group_type_index =
                     isLifecycleQuery(querySource) || isStickinessQuery(querySource)
                         ? undefined
                         : querySource?.aggregation_group_type_index
                 return aggregationLabel(aggregation_group_type_index)
             },
+        ],
+        canOpenPersonModal: [
+            (s) => [s.retentionFilter],
+            (retentionFilter: RetentionFilter | null): boolean => !retentionFilter?.customAggregationTarget,
         ],
         actorsQuery: [
             (s) => [s.querySource, s.selectedInterval, s.selectedBreakdownValue],
@@ -331,9 +343,21 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 actions.closeModal()
             }
         },
+        // Drop the selection rather than just hiding the modal, so switching the target back
+        // can't restore a cohort whose actors were never loaded.
+        canOpenPersonModal: (canOpenPersonModal: boolean) => {
+            if (!canOpenPersonModal && values.selectedInterval !== null) {
+                actions.closeModal()
+            }
+        },
     })),
     listeners(({ actions, values }) => ({
         openModal: ({ rowIndex, breakdownValue }: { rowIndex: number; breakdownValue?: string | number | null }) => {
+            // Backstop for render surfaces that don't check canOpenPersonModal before dispatching:
+            // custom aggregation targets can't resolve actors, so don't fire the query.
+            if (!values.canOpenPersonModal) {
+                return
+            }
             actions.loadPeople(rowIndex, breakdownValue)
         },
         saveAsCohort: async ({ cohortName }) => {

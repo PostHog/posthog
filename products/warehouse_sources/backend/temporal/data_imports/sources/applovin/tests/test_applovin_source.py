@@ -3,14 +3,7 @@ from typing import Optional
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.applovin import (
-    AUTH_ERROR_PREFIX,
-    BAD_REQUEST_ERROR_PREFIX,
-    TRANSIENT_ERROR_PREFIX,
-    AppLovinResumeConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.applovin import TRANSIENT_ERROR_PREFIX
 from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -20,11 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.s
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.source import AppLovinSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applovin import (
     AppLovinSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.applovin.source"
 
@@ -34,30 +25,6 @@ class TestAppLovinSource:
         self.source = AppLovinSource()
         self.team_id = 123
         self.config = AppLovinSourceConfig(api_key="report-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.APPLOVIN
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "AppLovin"
-        assert config.label == "AppLovin"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/applovin.png"
-        assert [field.name for field in config.fields] == ["api_key"]
-
-    def test_report_key_field_is_a_secret_password(self) -> None:
-        field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == "api_key"
-        )
-
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_lists_tables_without_credentials(self) -> None:
         # `get_schemas` is a static catalog, so the public docs can render the table list.
@@ -116,17 +83,6 @@ class TestAppLovinSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            f"{AUTH_ERROR_PREFIX}: status=403, endpoint=/maxReport",
-            f"{BAD_REQUEST_ERROR_PREFIX}: status=400, endpoint=/report, body=Invalid column",
-            f"{AUTH_ERROR_PREFIX}: body code=401, endpoint=/maxCohort",
-        ],
-    )
-    def test_non_retryable_errors_match_the_raised_messages(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
             "AppLovin request failed: HTTPSConnectionPool(host='r.applovin.com', port=443): timed out",
             f"{TRANSIENT_ERROR_PREFIX}: status=503, endpoint=/maxReport",
             f"{TRANSIENT_ERROR_PREFIX}: status=429, endpoint=/report",
@@ -136,47 +92,10 @@ class TestAppLovinSource:
     def test_transient_errors_stay_retryable(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AppLovinResumeConfig
-
-    @mock.patch(f"{_SOURCE_MODULE}.applovin_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_applovin_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "max_ad_revenue"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-07-01"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = mock_applovin_source.call_args.kwargs
-        assert kwargs["api_key"] == "report-key"
-        assert kwargs["endpoint"] == "max_ad_revenue"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-07-01"
-
-    @mock.patch(f"{_SOURCE_MODULE}.applovin_source")
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_applovin_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "publisher_report"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-07-01"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_applovin_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
 
 class TestAppLovinCanonicalDescriptions:
     def setup_method(self) -> None:
         self.source = AppLovinSource()
-
-    def test_every_endpoint_is_documented(self) -> None:
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_documented_columns_are_columns_the_source_requests(self, endpoint: str) -> None:

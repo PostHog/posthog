@@ -152,15 +152,41 @@ describe('notebookAI', () => {
         })
     })
 
-    it('rebases the streamed AI response range after deleting an earlier generated block', () => {
+    it.each([
+        {
+            change: 'deleting an earlier generated block',
+            previousMarkdown: '# Notebook\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph still writing',
+            nextMarkdown: '# Notebook\n\nSecond paragraph\n\nThird paragraph still writing',
+            responseNodeIndex: 3,
+            responseNodeCount: 3,
+            expectedRange: { responseNodeIndex: 2, responseNodeCount: 2 },
+        },
+        {
+            change: 'editing the retained question before the response',
+            previousMarkdown: '# Notebook\n\n**Avery:** What is PostHog?\n\nAnswer still writing',
+            nextMarkdown: '# Notebook\n\n**Avery:** What does PostHog do?\n\nAnswer still writing',
+            responseNodeIndex: 2,
+            responseNodeCount: 1,
+            expectedRange: { responseNodeIndex: 2, responseNodeCount: 1 },
+        },
+        {
+            change: 'inserting a response-equivalent block before the active response',
+            previousMarkdown: '# Notebook\n\n**Avery:** What is PostHog?\n\nAnswer still writing\n\nAfter the answer',
+            nextMarkdown:
+                '# Notebook\n\n**Avery:** What does PostHog do?\n\nAnswer still writing\n\nAnswer still writing\n\nAfter the answer',
+            responseNodeIndex: 2,
+            responseNodeCount: 1,
+            expectedRange: { responseNodeIndex: 3, responseNodeCount: 1 },
+        },
+    ])('rebases the streamed AI response range after $change', (testCase) => {
         expect(
             rebaseNotebookAIResponseRange(
-                '# Notebook\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph still writing',
-                '# Notebook\n\nSecond paragraph\n\nThird paragraph still writing',
-                3,
-                3
+                testCase.previousMarkdown,
+                testCase.nextMarkdown,
+                testCase.responseNodeIndex,
+                testCase.responseNodeCount
             )
-        ).toEqual({ responseNodeIndex: 2, responseNodeCount: 2 })
+        ).toEqual(testCase.expectedRange)
     })
 
     it('replaces the active streamed block when the AI has only written one block so far', () => {
@@ -178,18 +204,59 @@ describe('notebookAI', () => {
         })
     })
 
-    it('normalizes saved insight tags from AI output before insertion', () => {
+    it.each([
+        ['saved insight', '<insight>uONk</insight>', '<Query query={{"kind":"SavedInsightNode","shortId":"uONk"}} />'],
+        ['bare widget', '<Widget prompt="Draw a compass" />', '<Widget prompt="Draw a compass" />'],
+        ['fenced widget', '```\n<Widget prompt="Draw a compass" />\n```', '<Widget prompt="Draw a compass" />'],
+        [
+            'markdown widget',
+            '```markdown\n<Widget prompt="Draw a compass" />\n```',
+            '<Widget prompt="Draw a compass" />',
+        ],
+        ['md widget', '```md\n<Widget prompt="Draw a compass" />\n```', '<Widget prompt="Draw a compass" />'],
+        [
+            'literal widget example',
+            '```text\n<Widget prompt="Draw a compass" />\n```',
+            '```text\n<Widget prompt="Draw a compass" />\n```',
+        ],
+        ['ordinary code', '```\nprint("hello")\n```', '```\nprint("hello")\n```'],
+        [
+            'mixed code',
+            '```\n<Widget prompt="Draw a compass" />\nextra text\n```',
+            '```\n<Widget prompt="Draw a compass" />\nextra text\n```',
+        ],
+        ['incomplete widget', '```\n<Widget prompt="Draw a compass\n```', '```\n<Widget prompt="Draw a compass\n```'],
+    ])('normalizes %s from AI output before insertion', (_name, input, expected) => {
         const markdown = '# Notebook\n\nThinking...'
 
-        expect(
-            replaceMarkdown(
-                markdown,
-                1,
-                '## Browsers in use\n\n<insight>uONk</insight>\n\nThe chart shows browser usage.'
-            )
-        ).toEqual(
-            '# Notebook\n\n## Browsers in use\n\n<Query query={{"kind":"SavedInsightNode","shortId":"uONk"}} />\n\nThe chart shows browser usage.'
+        expect(replaceMarkdown(markdown, 1, `## Result\n\n${input}\n\nNext steps.`)).toEqual(
+            `# Notebook\n\n## Result\n\n${expected}\n\nNext steps.`
         )
+    })
+
+    it('keeps one widget while its fenced AI response streams into follow-up text', () => {
+        const widget = '<Widget title="Compass" prompt="Draw a compass" />'
+        let result = { markdown: '# Notebook\n\nThinking...', responseNodeIndex: 1, responseNodeCount: 1 }
+
+        for (const response of [
+            '```\n<Widget title="Compass" prompt="Draw a compass',
+            `\`\`\`\n${widget}`,
+            `\`\`\`\n${widget}\n\`\`\``,
+            `\`\`\`\n${widget}\n\`\`\`\n\nGenerate it in the widget settings.`,
+        ]) {
+            result = streamNotebookAIResponseMarkdown(
+                result.markdown,
+                result.responseNodeIndex,
+                response,
+                result.responseNodeCount
+            )
+        }
+
+        expect(result).toEqual({
+            markdown: `# Notebook\n\n${widget}\n\nGenerate it in the widget settings.`,
+            responseNodeIndex: 2,
+            responseNodeCount: 2,
+        })
     })
 
     it('defaults AI-inserted query components to results only', () => {

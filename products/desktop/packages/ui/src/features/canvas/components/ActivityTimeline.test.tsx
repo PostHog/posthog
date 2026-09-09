@@ -9,6 +9,7 @@ vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
   }),
 }));
 
+import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { useThreadNavigationStore } from "@posthog/ui/features/sessions/threadNavigationStore";
 import { ActivityTimeline } from "./ActivityTimeline";
 
@@ -37,7 +38,10 @@ const conversationItems = [
   },
 ];
 
-function renderTimeline(canOpenInPlace?: boolean, items = conversationItems) {
+function renderTimeline(
+  canOpenInPlace?: boolean,
+  items: ConversationItem[] = conversationItems,
+) {
   return render(
     <ActivityTimeline
       task={task}
@@ -80,6 +84,31 @@ describe("ActivityTimeline", () => {
     expect(screen.getByText(/and more detail/)).toBeInTheDocument();
   });
 
+  it("places a delayed initial placeholder at task creation", () => {
+    renderTimeline(false, [
+      {
+        type: "user_message",
+        id: "initial-optimistic",
+        content: "initial request",
+        timestamp: Date.parse("2026-07-17T12:00:00Z"),
+        pinToTop: true,
+      },
+      {
+        type: "user_message",
+        id: "later-message",
+        content: "later follow-up",
+        timestamp: Date.parse("2026-07-17T10:00:00Z"),
+      },
+    ]);
+
+    expect(
+      screen.getAllByRole("button").map((button) => button.textContent),
+    ).toEqual([
+      expect.stringContaining("initial request"),
+      expect.stringContaining("later follow-up"),
+    ]);
+  });
+
   it("renders structured references natively in conversation previews", () => {
     renderTimeline(false, [
       {
@@ -117,6 +146,28 @@ describe("ActivityTimeline", () => {
 
     expect(screen.getByText("Saved workspace context")).toBeVisible();
     expect(useThreadNavigationStore.getState().scrollRequests).toEqual({});
+  });
+
+  it("folds injected PostHog app context by default", () => {
+    renderTimeline(true, [
+      {
+        type: "user_message",
+        id: "posthog-context-message",
+        content:
+          '<posthog_untrusted_context>\n- dashboard 42 ("Weekly active users")\n</posthog_untrusted_context>\n\nHow many active users',
+        timestamp: Date.parse("2026-07-17T09:05:00Z"),
+      },
+    ]);
+
+    expect(screen.getByText("How many active users")).toBeInTheDocument();
+    expect(screen.queryByText(/posthog_untrusted_context/)).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: /How many active users/ }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "PostHog context" }));
+
+    expect(screen.getByText(/Weekly active users/)).toBeVisible();
   });
 
   it("hides injected custom instructions from conversation previews", () => {
@@ -296,6 +347,48 @@ describe("ActivityTimeline events and comments", () => {
     });
 
     expect(screen.getByText("resolved a thread on")).toBeInTheDocument();
+  });
+
+  it("collapses a stretch of pushes to one branch into one row", () => {
+    renderRows({
+      messages: [1, 2, 3].map((index) =>
+        threadMessage(
+          `m${index}`,
+          "commits_pushed",
+          {
+            run_id: "run-1",
+            branch: "shy/activity",
+            repository: "PostHog/posthog",
+            commits: [{ sha: `sha${index}`, subject: `work ${index}` }],
+            total: 1,
+          },
+          `2026-07-17T09:2${index}:00Z`,
+        ),
+      ),
+    });
+
+    expect(screen.getByText(/3 commits pushed/)).toBeInTheDocument();
+    expect(screen.queryByText(/1 commit pushed/)).toBeNull();
+    expect(screen.getByText(/to shy\/activity/)).toBeInTheDocument();
+  });
+
+  it("tells grouped pull requests apart by number, not by url", () => {
+    // Every row said "Pull request opened · https://github.com/…", which truncates to the
+    // same string, so four different pull requests read as one repeated four times.
+    renderRows({
+      messages: [11, 12].map((number) =>
+        threadMessage(`m${number}`, "pr_created", {
+          pr_url: `https://github.com/PostHog/posthog/pull/${number}`,
+        }),
+      ),
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /2 pull requests opened/ }),
+    );
+
+    expect(screen.getByText("PostHog/posthog#11")).toBeInTheDocument();
+    expect(screen.getByText("PostHog/posthog#12")).toBeInTheDocument();
   });
 });
 

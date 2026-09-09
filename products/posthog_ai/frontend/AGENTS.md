@@ -21,7 +21,7 @@ import rule, and copy-paste recipes live in the consumer-facing [`README.md`](./
 | Tier                           | Module                                              | What's in it                                                                                                                                                                                |
 | ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts) |
-| **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms, `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces         |
+| **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms, `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question surfaces                  |
 | **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                                              |
 | **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                            |
 
@@ -40,18 +40,18 @@ reached through an `api/<module>` entry; add new exports to the relevant tier mo
 The headline exports per module:
 
 - **`api/readableRun`** — **`ReadonlyRunSurface`**, the lazy, code-split read-only embed: calling
-  `<ReadonlyRunSurface .../>` renders the run thread (and, for a live run, the meta bars) behind a
+  `<ReadonlyRunSurface .../>` renders the run thread (with the context-usage footer for a live run) behind a
   `RunLogSkeleton` Suspense fallback — no composer, no approval prompt. The heavy chunk (the `RunSurface`
   compound — stream logic, virtualized thread, tool/diff renderers) is reached only through its dynamic
   `import()`, so importing this light module never statically pulls the impl. This is the form every **embed**
   uses (the inbox detail views), where the surface is a secondary panel worth splitting out. It streams fresh
   frames while running when `interaction='live'`, and replays the snapshot once when `'read-only'`.
-- **`api/runSurface`** — the **`RunSurface`** compound (`Root` + the `.Thread/.Composer/.Resources/.ContextUsage`
+- **`api/runSurface`** — the **`RunSurface`** compound (`Root` + the `.Thread/.Composer/.ContextUsage`
   slots), **eager**, for consumers that build a **custom layout**. `RunSurface.Root` binds the stream logic and
   bootstraps the run; the slots compose into whatever layout the surface needs. `RunSurface.Composer` is the
   input-region slot — it owns prompt-vs-composer precedence (a pending approval/question replaces the composer)
   and the null-bootstrap gate, and takes the composer UI as `children`; omit it for no input region. The meta
-  slots (`.Resources`/`.ContextUsage`) self-bind and self-hide when empty. There is **no default layout** — the
+  slot (`.ContextUsage`) self-binds and self-hides when empty. There is **no default layout** — the
   prepackaged read-only embed (`ReadonlyRunSurface`) is one concrete composition; the runner scene
   (`scenes/TaskTracker/TaskRunChat`) composes its own live-composer layout. Because the compound is eager, import
   it only from an already route-split scene (the `/tasks` runner) or another lazily-loaded layout module — a
@@ -68,7 +68,7 @@ The headline exports per module:
   `value`/`onChange`/`onSubmit`), **`RunLogSkeleton`** (the shared "run log is loading" loader — the
   `ReadonlyRunSurface` Suspense fallback and the `RunSurface` bootstrap fallback, also used by the runner
   scene), activity primitives, message
-  presenters, and the permission/question/resource surfaces.
+  presenters, and the permission/question surfaces.
 - **`api/logics`** — **`runStreamLogic`** (SSE stream + thread projection, see §3),
   **`runInteractionLogic`** (Max-agnostic follow-up/queue facade), status helpers
   (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers,
@@ -117,7 +117,16 @@ It must stay **free of the Max scene and conversation orchestration**. Do not im
 The heart of the surface:
 
 - **SSE connection** — a `fetch` body reader pumped through `eventsource-parser`; a reconnect resumes after
-  the last Redis stream id via `Last-Event-ID` (capped exponential backoff + cumulative cap).
+  the last Redis stream id via `Last-Event-ID` (capped exponential backoff + cumulative cap). Connection
+  state (the `stream-end` sentinel, the resume cursor, the proxy token budget) belongs to one connection:
+  every `openSseForRun` starts it fresh, and the cursor is dropped when the run being opened differs from
+  the one it came from. A send never revives a dead stream, and three things make that harder than it
+  looks: after the `stream-end` sentinel the run's Redis stream holds a completion entry the server stops
+  at and refuses to write past, so only a successor run can carry the next turn; `sseStatus: 'error'`
+  covers a failed history bootstrap as well as an exhausted reconnect budget, and the bootstrap case has
+  already dropped buffered frames whose ids advanced the resume cursor; and a reopen inherits the spent
+  reconnect budgets, so its first drop gives up at once. A user-initiated recovery needs its own action,
+  its own budgets, and a log-completeness precondition.
 - **Ordered, append-only `log` is the single source of truth** — every wire frame (plus a few synthetic
   client entries) is appended, never keyed or per-entry deduped — with one exception: superseded
   `tool_call_update` frames are field-wise merged per `toolCallId` (`appendToRunLog`). Each update carries
@@ -214,13 +223,13 @@ api/                # public API facade — the contract (import api/<module>, n
   readableRun.ts    #   Tier 1: ReadonlyRunSurface (lazy read-only embed)
   runSurface.ts     #   Tier 1: RunSurface compound (Root + slots, eager) for custom layouts
   runner.ts         #   Tier 1: EmbeddedRunner (lazy TaskTracker product) for inline hosts
-  primitives.ts     #   Tier 2: Composer, Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question/resource
+  primitives.ts     #   Tier 2: Composer, Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question
   logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, context store + hooks, tool-event bus (headless)
   types.ts          #   Tier 3: folded-thread + tool domain types, AttachedContextItem, ToolStreamEvent (pure types)
   tools.ts          #   Tier 4: toolRegistry + registerToolRenderers seam (side-effectful — isolated)
 components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); ReadonlyRunSurfaceImpl (prepackaged
                     #   read-only layout) + ReadonlyRunSurface (its lazy wrapper, replaces the old RunViewer.tsx);
-                    #   RunLogSkeleton (shared loader), Thread, Composer, perm/question/resource surfaces, activity, tool/;
+                    #   RunLogSkeleton (shared loader), Thread, Composer, perm/question surfaces, activity, tool/;
                     #   AttachedContextProvider (render-null context injection wrapper)
   composer/         #   the Composer compound; AttachedContextBar (@-picker + context chips)
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)

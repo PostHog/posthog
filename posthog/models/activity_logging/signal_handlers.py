@@ -30,6 +30,7 @@ from posthog.models.activity_logging.activity_log import (
     LogActivityEntry,
     bulk_log_activity,
     changes_between,
+    field_name_overrides,
     log_activity,
 )
 from posthog.models.activity_logging.model_activity import get_current_trigger, get_current_user, get_was_impersonated
@@ -494,16 +495,19 @@ def handle_oauth_application_scopes_change(
     else:
         if before_update is None or after_update is None:
             return
-        # `scopes` is an ordered ArrayField but semantically a set (a permission ceiling),
-        # so a pure reorder is not an auditable change.
-        if set(before_update.scopes or []) == set(after_update.scopes or []):
-            return
-        # Only the scope ceiling is audited for OAuth apps; other fields changed in the
-        # same save are deliberately left out of the entry.
+        # Only the scope ceiling and the provisioning config (capabilities and rate-limit
+        # overrides) are audited for OAuth apps; other fields changed in the same save are
+        # deliberately left out of the entry. `scopes` is an ordered ArrayField but
+        # semantically a set (a permission ceiling), so a pure reorder is not auditable.
+        scopes_changed = set(before_update.scopes or []) != set(after_update.scopes or [])
+        # Changes carry the display name, not the column name.
+        provisioning_field = field_name_overrides.get("OAuthApplication", {}).get(
+            "_provisioning_config", "_provisioning_config"
+        )
         changes = [
             change
             for change in changes_between(scope, previous=before_update, current=after_update)
-            if change.field == "scopes"
+            if (change.field == "scopes" and scopes_changed) or change.field == provisioning_field
         ]
         if not changes:
             return
@@ -651,15 +655,15 @@ def handle_tagged_item_change(
     if not tagged_item or not tagged_item.tag:
         return
 
-    related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(tagged_item)
+    related_object = get_tagged_item_related_object_info(tagged_item)
 
     context = TaggedItemContext(
         tag_name=tagged_item.tag.name,
         tag_id=str(tagged_item.tag.id),
         team_id=tagged_item.tag.team_id,
-        related_object_type=related_object_type,
-        related_object_id=related_object_id,
-        related_object_name=related_object_name,
+        related_object_type=related_object.type,
+        related_object_id=related_object.id,
+        related_object_name=related_object.name,
     )
 
     team = tagged_item.tag.team
@@ -686,19 +690,19 @@ def handle_tagged_item_change(
 
     # Mirror the tag change onto the related object's own activity stream
     # (e.g. so a tag added to a Ticket shows up on that ticket's timeline).
-    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object_type or "")
-    if related_logger and related_object_id:
+    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object.type or "")
+    if related_logger and related_object.id:
         tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
         log_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
             was_impersonated=was_impersonated,
-            item_id=related_object_id,
+            item_id=related_object.id,
             scope=related_logger.scope,
             activity="updated",
             detail=Detail(
-                name=related_logger.resolve_name(tagged_item, related_object_name),
+                name=related_logger.resolve_name(tagged_item, related_object.name),
                 changes=[
                     Change(
                         type=related_logger.scope,

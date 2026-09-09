@@ -173,15 +173,45 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
 export const MAX_SELECTED_RECORDINGS = 20
 export const DELETE_CONFIRMATION_TEXT = 'delete'
 
+// How long a landed list response answers a repeat of the same request. Two seconds is shorter
+// than the gap the duplicates arrive in, and five seconds gives a person clicking around rows
+// they would call stale, so three seconds covers the repeats and keeps the rows fresh.
+export const LIST_MEMO_WINDOW_MS = 3000
+
+/**
+ * The list responses that landed inside `LIST_MEMO_WINDOW_MS`, keyed by team and request.
+ *
+ * This outlives the logic on purpose. An embedded playlist unmounts with the tab or the page that
+ * holds it, so most repeats arrive on a fresh logic instance and a per-instance memo would miss
+ * them. The team id is part of the key because the request parameters do not carry it, and a team
+ * switch must never answer from another team's rows.
+ */
+const landedListResponses = new Map<string, { response: RecordingsQueryResponse; completedAt: number }>()
+
+const memoizedListResponse = (memoKey: string): RecordingsQueryResponse | undefined => {
+    const landed = landedListResponses.get(memoKey)
+    return landed && performance.now() - landed.completedAt < LIST_MEMO_WINDOW_MS ? landed.response : undefined
+}
+
+const memoizeListResponse = (memoKey: string, response: RecordingsQueryResponse, completedAt: number): void => {
+    // Drop what the window no longer covers, so a long session cannot grow the map.
+    for (const [key, landed] of landedListResponses) {
+        if (completedAt - landed.completedAt >= LIST_MEMO_WINDOW_MS) {
+            landedListResponses.delete(key)
+        }
+    }
+    landedListResponses.set(memoKey, { response, completedAt })
+}
+
+/** The memo outlives a kea context, so a test has to start from an empty one. */
+export const clearMemoizedListResponses = (): void => landedListResponses.clear()
+
 const getDefaultFilterTestAccounts = (): boolean => {
     const stored = localStorage.getItem('default_filter_test_accounts')
     return stored === 'true'
 }
 
-// The sort the user explicitly picked in the list settings. It wins over the relevance
-// rollout/experiment default, so users who prefer another order aren't re-defaulted
-// into relevance on every visit and filter reset. Keyed per team, like the playlist
-// filter persistence below, so the preference doesn't leak across accounts
+// Keyed per team so a sort preference does not leak across accounts.
 export const preferredRecordingsSortStorage = localStorageSlot(
     () => `${getCurrentTeamId()}__replay_list_preferred_sort`,
     z.object({ order: z.enum(VALID_RECORDING_ORDERS), order_direction: z.enum(['ASC', 'DESC']) })
@@ -197,31 +227,27 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     order_direction: 'DESC',
 }
 
+export const getEffectiveRecordingFilters = (
+    filters: RecordingUniversalFilters,
+    featureFlags: FeatureFlagsSet
+): RecordingUniversalFilters =>
+    featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test'
+        ? filters
+        : { ...filters, recommended_only: false }
+
 export const getDefaultFilters = (
     personUUID?: PersonUUID,
     pinnedFilters?: UniversalFiltersGroup,
     urlFilters?: Partial<RecordingUniversalFilters>
 ): RecordingUniversalFilters => {
     const filterTestAccounts = getDefaultFilterTestAccounts()
-    // Person/group pages (personUUID/pinnedFilters) and deep links with pre-applied filters
-    // (urlFilters, e.g. "View recordings" CTAs) come with a specific session in mind,
-    // where recency is the better default than relevance
     const hasSpecificIntent = !!personUUID || !!pinnedFilters || !!urlFilters
-    // A sort the user explicitly picked beats the relevance default, but specific-intent
-    // surfaces keep recency regardless
     const preferredSort = hasSpecificIntent ? null : preferredRecordingsSortStorage.get()
     const defaults: RecordingUniversalFilters = {
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
-        // Default to sorting by relevance for the surfacing-score rollout or the relevance-sort experiment's test arm
-        order:
-            preferredSort?.order ??
-            (!hasSpecificIntent &&
-            (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
-                posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')
-                ? 'surfacing_score'
-                : DEFAULT_RECORDING_FILTERS.order),
+        order: preferredSort?.order ?? DEFAULT_RECORDING_FILTERS.order,
         order_direction: preferredSort?.order_direction ?? DEFAULT_RECORDING_FILTERS.order_direction,
     }
     if (pinnedFilters) {
@@ -297,6 +323,10 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
     }
 
     if ('filter_test_accounts' in filters && typeof filters.filter_test_accounts !== 'boolean') {
+        return false
+    }
+
+    if ('recommended_only' in filters && typeof filters.recommended_only !== 'boolean') {
         return false
     }
 
@@ -461,11 +491,17 @@ export interface SessionRecordingPlaylistLogicProps {
     type?: 'filters' | 'collection'
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
-    /** Called with each freshly loaded page of recordings (not the accumulated list). */
-    onRecordingsLoaded?: (recordings: SessionRecordingType[]) => void
     /**
-     * Called when a recording is selected (clicked, played next, or picked via the URL) —
-     * not for the initial autoplayed recording, which is selected implicitly.
+     * Called with each freshly loaded page of recordings (not the accumulated list). `isFirstPage`
+     * is false for the pages scrolling adds on either end, so a host page can tell the list it
+     * first rendered from the ones paging appended to it.
+     */
+    onRecordingsLoaded?: (recordings: SessionRecordingType[], isFirstPage: boolean) => void
+    /**
+     * Called once each time the recording the player shows changes — clicked, played next,
+     * picked via the URL, or the implicit autoplay fallback to the top of the list (on first
+     * load, and again when a reload changes which recording is at the top). Re-selecting the
+     * recording already shown does not re-fire.
      */
     onRecordingSelected?: (recordingId: SessionRecordingType['id']) => void
     pinnedFilters?: UniversalFiltersGroup
@@ -473,12 +509,50 @@ export interface SessionRecordingPlaylistLogicProps {
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
 
+/**
+ * The most recent recordings list request this logic issued. `promise` is dropped once the response
+ * lands, so only a live request can be waited on, while `selectedRecordingId` outlives it and
+ * records which recording the server was already asked to include. What the request returned goes
+ * to `landedListResponses` instead, which outlives the logic.
+ */
+interface IssuedListRequest {
+    key: string
+    selectedRecordingId: RecordingsQuery['session_recording_id']
+    promise: Promise<RecordingsQueryResponse> | undefined
+}
+
 const isRelativeDate = (x: RecordingUniversalFilters['date_from']): boolean => !!x && x.startsWith('-')
+
+/**
+ * Filter keys a caller scopes the list with, so they never count as viewer edits. A saved filter set
+ * carries `experiment_exposure` through a whole-object dispatch, and marking it would unscope the
+ * experiment tab's list. `session_ids` is how that tab's watch cards scope the list, and the viewer
+ * can clear them from the list header, so the same holds.
+ */
+const CALLER_OWNED_FILTER_KEYS: string[] = ['experiment_exposure', 'session_ids']
+
+/** The filters state `setFilters` produces, so a caller can compare before it dispatches. */
+const applyFilterUpdate = (
+    state: RecordingUniversalFilters,
+    update: Partial<RecordingUniversalFilters>,
+    pinnedFilters?: UniversalFiltersGroup
+): RecordingUniversalFilters => {
+    const newState = {
+        ...state,
+        date_to: update.date_from && isRelativeDate(update.date_from) ? null : state.date_to,
+        ...update,
+    }
+    if (pinnedFilters) {
+        newState.filter_group = mergePinnedFilters(newState.filter_group, pinnedFilters)
+    }
+    return newState
+}
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface sessionRecordingsPlaylistLogicValues {
     deletedRecordingIds: Set<string> // deletedRecordingsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    receivedFeatureFlags: boolean // featureFlagLogic
     autoplayDirection: AutoplayDirection // playerSettingsLogic
     hideViewedRecordings: HideViewedRecordingsOptions // playerSettingsLogic
     activeSessionRecording: SessionRecordingType | undefined
@@ -499,6 +573,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     isCreatingNewCollectionInModal: boolean
     isDeleteSelectedRecordingsDialogOpen: boolean
     isDeletingSelectedRecordings: boolean
+    isScopedByCaller: boolean
     logicProps: SessionRecordingPlaylistLogicProps
     matchingEventsMatchType: MatchingEventsMatchType
     newCollectionName: string
@@ -523,6 +598,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     showSettings: boolean
     totalFiltersCount: number
     unusableEventsInFilter: string[]
+    viewerFilterKeys: string[]
     visiblePinnedRecordings: SessionRecordingType[]
 }
 
@@ -531,6 +607,13 @@ export interface sessionRecordingsPlaylistLogicActions {
     addDeletedRecordings: (ids: string[]) => {
         ids: string[]
     } // deletedRecordingsLogic
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, boolean | string>
+    ) => {
+        flags: string[]
+        variants: Record<string, boolean | string>
+    } // featureFlagLogic
     setHideViewedRecordings: (hideViewedRecordings: HideViewedRecordingsOptions) => {
         hideViewedRecordings: HideViewedRecordingsOptions
     } // playerSettingsLogic
@@ -541,11 +624,21 @@ export interface sessionRecordingsPlaylistLogicActions {
         loadTime: number,
         filters: RecordingUniversalFilters,
         defaultDurationFilter: RecordingDurationFilter,
+        page: {
+            hasNext: boolean
+            isFirstPage: boolean
+            resultCount: number
+        },
         source?: string | undefined
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
         loadTime: number
+        page: {
+            hasNext: boolean
+            isFirstPage: boolean
+            resultCount: number
+        }
         source: string | undefined
     } // sessionRecordingEventUsageLogic
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
@@ -648,9 +741,11 @@ export interface sessionRecordingsPlaylistLogicActions {
     }
     loadSessionRecordings: (
         direction?: 'newer' | 'older',
-        userModifiedFilters?: Record<string, any>
+        userModifiedFilters?: Record<string, any>,
+        forceRefetch?: boolean
     ) => {
         direction: 'newer' | 'older' | undefined
+        forceRefetch: boolean | undefined
         userModifiedFilters: Record<string, any> | undefined
     }
     loadSessionRecordingsFailure: (
@@ -683,6 +778,7 @@ export interface sessionRecordingsPlaylistLogicActions {
         },
         payload?: {
             direction: 'newer' | 'older' | undefined
+            forceRefetch: boolean | undefined
             userModifiedFilters: Record<string, any> | undefined
         }
     ) => {
@@ -708,6 +804,7 @@ export interface sessionRecordingsPlaylistLogicActions {
         }
         payload?: {
             direction: 'newer' | 'older' | undefined
+            forceRefetch: boolean | undefined
             userModifiedFilters: Record<string, any> | undefined
         }
     }
@@ -723,8 +820,12 @@ export interface sessionRecordingsPlaylistLogicActions {
     setDeleteConfirmationText: (deleteConfirmationText: string) => {
         deleteConfirmationText: string
     }
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => {
+    setFilters: (
+        filters: Partial<RecordingUniversalFilters>,
+        userModified?: boolean
+    ) => {
         filters: Partial<RecordingUniversalFilters>
+        userModified: boolean
     }
     setIsAddToCollectionModalOpen: (isAddToCollectionModalOpen: boolean) => {
         isAddToCollectionModalOpen: boolean
@@ -794,6 +895,7 @@ export interface sessionRecordingsPlaylistLogicMeta {
             }
         ) => boolean
         pinnedFilters: (arg: any) => UniversalFiltersGroup | undefined
+        isScopedByCaller: (arg: any) => boolean
         totalFiltersCount: (filters: RecordingUniversalFilters, arg: any, arg2: any) => number
         hiddenRecordings: (
             sessionRecordings: SessionRecordingType[],
@@ -840,6 +942,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     ),
     connect(() => ({
         actions: [
+            featureFlagLogic,
+            ['setFeatureFlags'],
             sessionRecordingEventUsageLogic,
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
             sessionRecordingsListPropertiesLogic,
@@ -853,7 +957,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
         values: [
             featureFlagLogic,
-            ['featureFlags'],
+            ['featureFlags', 'receivedFeatureFlags'],
             playerSettingsLogic,
             ['autoplayDirection', 'hideViewedRecordings'],
             deletedRecordingsLogic,
@@ -862,7 +966,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
 
     actions({
-        setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
+        // `userModified` is false for filters that come from props rather than from the viewer,
+        // so the load they trigger reports no filter edit.
+        setFilters: (filters: Partial<RecordingUniversalFilters>, userModified: boolean = true) => ({
+            filters,
+            userModified,
+        }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
@@ -879,9 +988,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
-        loadSessionRecordings: (direction?: 'newer' | 'older', userModifiedFilters?: Record<string, any>) => ({
+        loadSessionRecordings: (
+            direction?: 'newer' | 'older',
+            userModifiedFilters?: Record<string, any>,
+            /** Issue the request even when an identical one is already in flight. */
+            forceRefetch?: boolean
+        ) => ({
             direction,
             userModifiedFilters,
+            forceRefetch,
         }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
@@ -914,11 +1029,23 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadPinnedRecordings()
         }
         if (props.filters && !objectsEqual(props.filters, oldProps.filters)) {
-            actions.setFilters(props.filters)
+            // A caller can recompute the whole object - the experiment tab does on every variant or
+            // watch card - so dispatch only the keys whose value moved. The rest would overwrite a
+            // viewer's own edit and take back their ownership of a key the caller never changed.
+            const changedFilters = Object.fromEntries(
+                Object.entries(props.filters).filter(
+                    ([filterKey, value]) =>
+                        !oldProps.filters ||
+                        !objectsEqual(value, oldProps.filters[filterKey as keyof RecordingUniversalFilters])
+                )
+            ) as Partial<RecordingUniversalFilters>
+            if (Object.keys(changedFilters).length) {
+                actions.setFilters(changedFilters, false)
+            }
         }
     }),
 
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, values, actions, cache }) => ({
         eventsHaveSessionId: [
             {} as Record<string, boolean>,
             {
@@ -952,11 +1079,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 order_direction: RecordingsQuery['order_direction']
             },
             {
-                loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
+                loadSessionRecordings: async ({ direction, userModifiedFilters, forceRefetch }, breakpoint) => {
                     // Captured before the awaits: `values` reads throw if this logic unmounts
                     // mid-flight, and the fetch report must carry the filters the request was
                     // built from, not whatever they are once the response lands.
-                    const filters = values.filters
+                    const filters = getEffectiveRecordingFilters(values.filters, values.featureFlags)
                     const convertedQuery = convertUniversalFiltersToRecordingsQuery(filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
                         ...convertedQuery,
@@ -1001,18 +1128,71 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         params.after = undefined
                     }
 
-                    await breakpoint(400) // Debounce for lots of quick filter changes
+                    // Each list request is a full ClickHouse read, so two identical ones read the
+                    // same rows twice. The debounce below cannot prevent the second: it discards
+                    // the earlier *result*, but a request already past it has reached the server,
+                    // and cancellation does not reach the query layer. So a repeat waits for a
+                    // request this logic still has in flight, or answers from the response
+                    // `landedListResponses` holds for a few seconds after it landed.
+                    // The comparison ignores `user_modified_filters` because the server only feeds
+                    // it to an analytics event, so it does not change which rows are read.
+                    const requestKey = JSON.stringify({ ...params, user_modified_filters: undefined })
+                    const memoKey = `${getCurrentTeamId()}__${requestKey}`
+                    const lastRequest: IssuedListRequest | undefined = cache.listRequest
+                    // `forceRefetch` skips both paths, because the caller asks for fresh rows.
+                    const memoizedResponse = forceRefetch ? undefined : memoizedListResponse(memoKey)
+                    const requestInFlight =
+                        !forceRefetch && lastRequest?.key === requestKey ? lastRequest.promise : undefined
 
-                    const startTime = performance.now()
-                    const response = await api.recordings.list(params)
-                    const loadTimeMs = performance.now() - startTime
+                    let response: RecordingsQueryResponse
+                    // The first two branches issue no request, so they have no fetch to report.
+                    // The call that did issue it reports the one read they all answer from.
+                    if (memoizedResponse) {
+                        response = memoizedResponse
+                    } else if (requestInFlight) {
+                        response = await requestInFlight
+                    } else {
+                        await breakpoint(400) // Debounce for lots of quick filter changes
 
-                    actions.reportRecordingsListFetched(
-                        loadTimeMs,
-                        filters,
-                        defaultRecordingDurationFilter,
-                        props.analyticsSource
-                    )
+                        const promise = api.recordings.list(params)
+                        const request: IssuedListRequest = {
+                            key: requestKey,
+                            selectedRecordingId: params.session_recording_id,
+                            promise,
+                        }
+                        cache.listRequest = request
+
+                        const startTime = performance.now()
+                        try {
+                            response = await promise
+                        } catch (e) {
+                            // A read that failed says nothing about what the server holds, so drop
+                            // the entry and let the next request for these parameters go out.
+                            if (cache.listRequest === request) {
+                                cache.listRequest = undefined
+                            }
+                            throw e
+                        }
+                        // The response is here, so nothing can wait on this request any more. The
+                        // entry stays, because it records the recording the server was asked for,
+                        // and the rows go to the memo a repeat answers from.
+                        const completedAt = performance.now()
+                        request.promise = undefined
+                        memoizeListResponse(memoKey, response, completedAt)
+                        const loadTimeMs = completedAt - startTime
+
+                        actions.reportRecordingsListFetched(
+                            loadTimeMs,
+                            filters,
+                            defaultRecordingDurationFilter,
+                            {
+                                resultCount: response.results.length,
+                                hasNext: response.has_next,
+                                isFirstPage: !direction,
+                            },
+                            props.analyticsSource
+                        )
+                    }
 
                     // Must run after the fetch report (superseded and abandoned fetches still
                     // count toward load-time metrics) and before the `values` reads below
@@ -1041,6 +1221,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             limit: 30,
                             order: '-last_modified_at',
                             type: 'collection',
+                            // Built-in collections can't be added to, so keep them out of the list.
+                            collection_type: 'custom',
                             search: values.addToCollectionSearch || undefined,
                         })
                     )
@@ -1106,21 +1288,38 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             return getDefaultFilters(props.personUUID, props.pinnedFilters)
                         }
 
-                        const newState = {
-                            ...state,
-                            date_to: filters.date_from && isRelativeDate(filters.date_from) ? null : state.date_to,
-                            ...filters,
-                        }
-                        if (props.pinnedFilters) {
-                            newState.filter_group = mergePinnedFilters(newState.filter_group, props.pinnedFilters)
-                        }
-                        return newState
+                        return applyFilterUpdate(state, filters, props.pinnedFilters)
                     } catch (e) {
                         posthog.captureException(e)
                         return getDefaultFilters(props.personUUID, props.pinnedFilters)
                     }
                 },
                 resetFilters: () => getDefaultFilters(props.personUUID, props.pinnedFilters),
+            },
+        ],
+        /**
+         * The filter keys the viewer set themselves. The filter bar dispatches one narrow partial per
+         * control, so the payload keys of a viewer-modified `setFilters` are the provenance. It
+         * persists next to `filters` so a caller reapplying its own scope at mount leaves what the
+         * viewer chose alone.
+         */
+        viewerFilterKeys: [
+            [] as string[],
+            { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
+            {
+                setFilters: (state, { filters, userModified }) => {
+                    const keys = Object.keys(filters)
+                    if (!userModified) {
+                        // A caller writing a key takes it back, so a filter it now owns reapplies.
+                        const kept = state.filter((viewerKey) => !keys.includes(viewerKey))
+                        return kept.length === state.length ? state : kept
+                    }
+                    const added = keys.filter(
+                        (viewerKey) => !state.includes(viewerKey) && !CALLER_OWNED_FILTER_KEYS.includes(viewerKey)
+                    )
+                    return added.length ? [...state, ...added] : state
+                },
+                resetFilters: () => [],
             },
         ],
         showFilters: [
@@ -1152,10 +1351,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 },
 
                 loadSessionRecordingsSuccess: (state, { sessionRecordingsResponse }) => {
+                    // Dedupe against a Set so a merge stays O(n + m) rather than O(n * m).
+                    const seenIds = new Set(state.map((r) => r.id))
                     const mergedResults: SessionRecordingType[] = [...state]
 
                     sessionRecordingsResponse.results.forEach((recording) => {
-                        if (!state.find((r) => r.id === recording.id)) {
+                        if (!seenIds.has(recording.id)) {
+                            seenIds.add(recording.id)
                             mergedResults.push(recording)
                         }
                     })
@@ -1257,7 +1459,28 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
     })),
-    listeners(({ props, actions, values }) => {
+    listeners(({ props, actions, values, cache }) => {
+        // The player can start showing a recording with no action dispatched: under autoPlay it
+        // falls back to the first in the list, and moves when a reload changes which recording
+        // is first. So selection is reported from the resulting active id after every action
+        // that can move it — deduped, since several of them can land on the same recording.
+        const notifyRecordingSelected = (): void => {
+            const activeId = values.activeSessionRecordingId
+            if (activeId) {
+                if (cache.lastReportedSelectedRecordingId !== activeId) {
+                    cache.lastReportedSelectedRecordingId = activeId
+                    props.onRecordingSelected?.(activeId)
+                }
+            } else if (!values.sessionRecordingsResponseLoading && !values.pinnedRecordingsLoading) {
+                // Settled on the empty state (a reload matched nothing): whatever shows next is
+                // shown afresh — even the recording reported last — so drop the dedupe. While a
+                // load is in flight the empty is transient (one loader's success can observe the
+                // other's reload window), and clearing on it would re-report an unchanged top
+                // recording once the reload lands.
+                cache.lastReportedSelectedRecordingId = undefined
+            }
+        }
+
         // Selection is only ever set by user action, so it can go stale once the underlying
         // list changes shape - keep it intersected with what's actually rendered.
         const pruneSelectedRecordingsIds = (): void => {
@@ -1272,12 +1495,25 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }
 
         return {
+            setFeatureFlags: () => {
+                if (!values.filters.recommended_only) {
+                    return
+                }
+                if (values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test') {
+                    actions.loadSessionRecordings()
+                } else {
+                    // The flag decides this one, so it is not a viewer edit.
+                    actions.setFilters({ recommended_only: false }, false)
+                }
+            },
             loadAllRecordings: () => {
-                actions.loadSessionRecordings()
+                // The manual refresh asks for fresh rows, so it re-reads even when an identical
+                // request is in flight.
+                actions.loadSessionRecordings(undefined, undefined, true)
                 actions.loadPinnedRecordings()
             },
-            setFilters: ({ filters }) => {
-                actions.loadSessionRecordings(undefined, filters)
+            setFilters: ({ filters, userModified }) => {
+                actions.loadSessionRecordings(undefined, userModified ? filters : undefined)
                 props.onFiltersChange?.(values.filters)
                 actions.loadEventsHaveSessionId()
             },
@@ -1474,29 +1710,40 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings(direction)
             },
 
-            loadSessionRecordingsSuccess: ({ sessionRecordingsResponse }) => {
+            loadSessionRecordingsSuccess: ({ sessionRecordingsResponse, payload }) => {
                 actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
-                props.onRecordingsLoaded?.(sessionRecordingsResponse.results)
+                // A load without a direction replaces the list rather than paging it, the same
+                // reading the `sessionRecordings` reducer takes.
+                props.onRecordingsLoaded?.(sessionRecordingsResponse.results, !payload?.direction)
                 pruneSelectedRecordingsIds()
+                notifyRecordingSelected()
             },
 
             loadPinnedRecordingsSuccess: () => {
                 pruneSelectedRecordingsIds()
+                // Pinned recordings sort first, so this load can change which recording the
+                // autoplay fallback shows, just like a list load.
+                notifyRecordingSelected()
             },
 
-            setSelectedRecordingId: ({ id }) => {
+            setSelectedRecordingId: () => {
                 // Close filters when selecting a recording
                 actions.setIsFiltersExpanded(false)
 
-                if (id) {
-                    props.onRecordingSelected?.(id)
-                }
+                notifyRecordingSelected()
 
                 const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
 
-                // If recording not found in current list, reload with the new selected recording
-                // The backend will automatically include it via session_recording_id parameter
-                if (recordingIndex === -1 && values.selectedRecordingId) {
+                // A recording the list does not hold needs a request carrying session_recording_id,
+                // which makes the server include it. Once a request asked for this recording, a
+                // second one reads the whole first page again and adds nothing: that request is
+                // either still in flight, or it already answered without the recording.
+                const lastRequest: IssuedListRequest | undefined = cache.listRequest
+                if (
+                    recordingIndex === -1 &&
+                    values.selectedRecordingId &&
+                    lastRequest?.selectedRecordingId !== values.selectedRecordingId
+                ) {
                     actions.loadSessionRecordings()
                 }
 
@@ -1521,25 +1768,32 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings()
             },
             handleBulkAddToPlaylist: async ({ short_id }: { short_id: string }) => {
+                const requestedCount = values.selectedRecordingsIds.length
+                let addedCount = 0
                 await lemonToast.promise(
                     (async () => {
-                        try {
-                            await api.recordings.bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
-                            actions.setSelectedRecordingsIds([])
-
-                            // Reload the playlist to show the new recordings
-                            handleLoadCollectionRecordings(short_id)
-                        } catch (e) {
-                            posthog.captureException(e)
+                        const result = await api.recordings
+                            .bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
+                            .catch((e) => {
+                                // Report real API or network failures; rethrow so the toast still shows its error state.
+                                posthog.captureException(e)
+                                throw e
+                            })
+                        // The endpoint answers 200 even when it saved nothing, so trust added_count.
+                        if (result.added_count === 0) {
+                            throw new Error('No recordings were added to the collection')
                         }
+                        addedCount = result.added_count
+                        actions.setSelectedRecordingsIds([])
+
+                        // Reload the playlist to show the new recordings
+                        handleLoadCollectionRecordings(short_id)
                     })(),
                     {
-                        success: `${values.selectedRecordingsIds.length} recording${
-                            values.selectedRecordingsIds.length > 1 ? 's' : ''
-                        } added to collection!`,
+                        success: () => `${addedCount} recording${addedCount > 1 ? 's' : ''} added to collection!`,
                         error: 'Failed to add to collection!',
-                        pending: `Adding ${values.selectedRecordingsIds.length} recording${
-                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        pending: `Adding ${requestedCount} recording${
+                            requestedCount > 1 ? 's' : ''
                         } to the collection...`,
                     },
                     {
@@ -1653,7 +1907,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             if (shortId) {
                                 handleLoadCollectionRecordings(shortId)
                             } else {
-                                actions.loadSessionRecordings()
+                                // The request parameters do not change here, but the rows the server
+                                // returns do, so re-read even when an identical request is in flight.
+                                actions.loadSessionRecordings(undefined, undefined, true)
                             }
                         } catch (e) {
                             posthog.captureException(e)
@@ -1681,7 +1937,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             if (shortId) {
                                 handleLoadCollectionRecordings(shortId)
                             } else {
-                                actions.loadSessionRecordings()
+                                // The request parameters do not change here, but the rows the server
+                                // returns do, so re-read even when an identical request is in flight.
+                                actions.loadSessionRecordings(undefined, undefined, true)
                             }
                         } catch (e) {
                             posthog.captureException(e)
@@ -1815,6 +2073,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         pinnedFilters: [
             () => [(_, props) => props.pinnedFilters],
             (pinnedFilters): UniversalFiltersGroup | undefined => pinnedFilters,
+        ],
+
+        // props.filters scopes embedded playlists (experiment tab, group page, notebook node).
+        isScopedByCaller: [
+            () => [(_, props) => props.filters],
+            (filters: RecordingUniversalFilters | undefined): boolean => !!filters,
         ],
 
         totalFiltersCount: [
@@ -2034,20 +2298,25 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
 
             if (quickEventFilter || quickPersonFilter) {
-                actions.setFilters({
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    ...(quickEventFilter ? [quickEventFilter] : []),
-                                    ...(quickPersonFilter ? [quickPersonFilter] : []),
-                                ],
-                            },
-                        ],
+                // A link carries these, not a control the viewer moved in this list, so they do not
+                // become viewer keys. The URL keeps them for as long as it holds them.
+                actions.setFilters(
+                    {
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        ...(quickEventFilter ? [quickEventFilter] : []),
+                                        ...(quickPersonFilter ? [quickPersonFilter] : []),
+                                    ],
+                                },
+                            ],
+                        },
                     },
-                })
+                    false
+                )
                 return
             }
 
@@ -2068,7 +2337,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 }
 
                 if (Object.keys(updatedFilters).length > 0) {
-                    actions.setFilters({ ...values.filters, ...updatedFilters })
+                    // This payload carries the whole set, most of it from defaults rather than from
+                    // the URL, so it claims no viewer keys.
+                    actions.setFilters({ ...values.filters, ...updatedFilters }, false)
                 }
             }
         }
@@ -2091,12 +2362,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             return
         }
 
-        if (props.pinnedFilters) {
-            const merged = mergePinnedFilters(values.filters.filter_group, props.pinnedFilters)
-            if (!equal(merged, values.filters.filter_group)) {
-                actions.setFilters({ filter_group: merged })
-                return
-            }
+        if (
+            values.receivedFeatureFlags &&
+            values.filters.recommended_only &&
+            values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] !== 'test'
+        ) {
+            // The flag decides this one, so it is not a viewer edit.
+            actions.setFilters({ recommended_only: false }, false)
         }
 
         // If updateSearchParams is enabled and URL has filters different from current state,
@@ -2111,6 +2383,32 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 !equal(searchParams.filters, values.filters)
             ) {
                 // URL has valid filters different from current state - let urlToAction handle the initial load
+                return
+            }
+        }
+
+        // A caller scopes the list with `props.filters`, pins filters into it with
+        // `props.pinnedFilters`, or both. The filters reducer persists, so kea rehydrates the stored
+        // value over `props.filters` and the first read would carry a filter set the caller never
+        // asked for. Reapply what the caller owns in one dispatch, and let the `setFilters` listener
+        // issue the one load. A key the viewer set themselves stays theirs, so a scoped list opens
+        // scoped without dropping the range or the property they chose. This sits after the URL
+        // branch, so a shared link still wins.
+        if (props.filters || props.pinnedFilters) {
+            const callerFilters: Partial<RecordingUniversalFilters> = { ...props.filters }
+            for (const viewerKey of values.viewerFilterKeys) {
+                delete callerFilters[viewerKey as keyof RecordingUniversalFilters]
+            }
+            if (props.pinnedFilters) {
+                // Pinned filters are the caller's either way, so they merge over whichever group
+                // survived above.
+                callerFilters.filter_group = mergePinnedFilters(
+                    callerFilters.filter_group ?? values.filters.filter_group,
+                    props.pinnedFilters
+                )
+            }
+            if (!equal(applyFilterUpdate(values.filters, callerFilters, props.pinnedFilters), values.filters)) {
+                actions.setFilters(callerFilters, false)
                 return
             }
         }

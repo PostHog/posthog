@@ -167,6 +167,11 @@ MAX_RETRY_AFTER_SECONDS = 300.0
 # rate-limited endpoint surfaces an error instead of sleeping on `Retry-After`.
 DEFAULT_RETRY_ATTEMPTS = 5
 
+# Ceiling on the exponential backoff between retries when a response carries no server-provided
+# delay. A source whose rate-limit window is longer than this can raise it per client so the retry
+# budget outlasts the window.
+DEFAULT_RETRY_BACKOFF_MAX_SECONDS = 60.0
+
 # Default network ports per scheme, used to compare a request URL's effective port against the
 # base origin's when host-pinning is enabled.
 _DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -259,7 +264,11 @@ def _stop_after_client_attempts(state: RetryCallState) -> bool:
 
 
 def _retry_wait_seconds(state: RetryCallState) -> float:
-    fallback = min(2 ** (state.attempt_number - 1), 60)
+    # Read the backoff ceiling off the bound instance the same way `_stop_after_client_attempts`
+    # reads the attempt cap, so a client with a longer rate-limit window can widen its own backoff.
+    client = state.args[0] if state.args else None
+    ceiling = getattr(client, "_retry_backoff_max", DEFAULT_RETRY_BACKOFF_MAX_SECONDS)
+    fallback = min(2 ** (state.attempt_number - 1), ceiling)
     if state.outcome is None or not state.outcome.failed:
         return float(fallback)
     exc = state.outcome.exception()
@@ -297,15 +306,18 @@ class RESTClient:
         paginator: Optional[BasePaginator] = None,
         session: Optional[Session] = None,
         max_retry_attempts: int = DEFAULT_RETRY_ATTEMPTS,
+        retry_backoff_max_seconds: float = DEFAULT_RETRY_BACKOFF_MAX_SECONDS,
         allowed_hosts: Optional[list[str]] = None,
         allow_redirects: bool = True,
         request_timeout: Optional[float | tuple[float, float]] = None,
+        capture: bool = True,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
         self.auth = auth
         self.paginator = paginator
         self._max_retry_attempts = max_retry_attempts
+        self._retry_backoff_max = retry_backoff_max_seconds
         # Per-request (connect, read) timeout in seconds handed to ``session.send``. Left None,
         # a request can hang forever — a source pointed at a server that accepts the connection
         # then never responds would hold an import worker indefinitely. Sources talking to a
@@ -344,7 +356,14 @@ class RESTClient:
         # `RESTClient` participates in HTTP logging, metrics, and sample
         # capture. Callers can pass a pre-built `Session` for tests or
         # specialized auth (it should still be a tracked one in prod).
-        self.session = session or make_tracked_session(redact_values=self._redact_values)
+        #
+        # `capture` is only forwarded when it opts out of the default, so the call keeps
+        # matching the exact `assert_called_once_with(redact_values=...)` many sources'
+        # existing tests already make against `make_tracked_session`.
+        session_kwargs: dict[str, Any] = {"redact_values": self._redact_values}
+        if not capture:
+            session_kwargs["capture"] = capture
+        self.session = session or make_tracked_session(**session_kwargs)
         if self.headers:
             self.session.headers.update(self.headers)
 

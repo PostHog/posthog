@@ -67,7 +67,9 @@ export function buildThreadTimeline<T extends ThreadMessageLike>(
     const artifact = threadMessageArtifact(message);
     if (artifact) {
       rows.push({ kind: "artifact", timestamp, message, artifact });
-    } else if ((message.author_kind ?? "human") === "human") {
+    } else if (!message.event && (message.author_kind ?? "human") === "human") {
+      // Event-bearing rows (comment announcements) belong to the activity
+      // timeline; drawn here they would read as something the person typed.
       rows.push({ kind: "human", timestamp, message });
     }
   }
@@ -104,14 +106,17 @@ export function deriveThreadAgentStatus({
   isPromptPending?: boolean;
   isInitializing?: boolean;
 }): ThreadAgentStatus | null {
-  if (!hasActivity) return null;
+  if (!hasActivity && !isInitializing) return null;
+  if (isInitializing) {
+    return { phase: "active", label: "Loading" };
+  }
   if (hasError || cloudStatus === "failed") {
     return { phase: "error", label: errorTitle ?? "Failed" };
   }
   if (pendingPermissionCount > 0) {
     return { phase: "needs_input", label: "Needs input" };
   }
-  if (isPromptPending || isInitializing) {
+  if (isPromptPending) {
     return { phase: "active", label: "Working…" };
   }
   return null;

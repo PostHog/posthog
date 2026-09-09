@@ -141,6 +141,23 @@ class TestAgentProxyCallback(TestCase):
         self.assertFalse(response.json()["dispatched"])
         heartbeat.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("command_dispatched", False, "agent_command_dispatched"),
+            ("agent_activity", True, "agent_activity_observed"),
+        ]
+    )
+    def test_boot_milestone_dispatches(self, kind: str, agent_active: bool, milestone: str) -> None:
+        with patch.object(TaskRun, "signal_agent_boot_milestone", return_value=True) as signal_milestone:
+            response = self._post(
+                self._body(kind=kind, agent_active=agent_active),
+                token=self._token(),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["dispatched"])
+        signal_milestone.assert_called_once_with(milestone)
+
     def test_awaiting_input_dispatches_for_interactive_run(self) -> None:
         run = self.task.create_run(mode="interactive")
         with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:

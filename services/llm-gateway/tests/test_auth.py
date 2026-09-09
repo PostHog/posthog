@@ -17,6 +17,7 @@ from llm_gateway.auth.service import (
     InvalidProjectScopeError,
     UnauthorizedProjectScopeError,
     extract_token,
+    upstream_auth_header,
 )
 
 
@@ -87,6 +88,25 @@ class TestExtractToken:
         request = MagicMock(spec=Request)
         request.headers = {}
         assert extract_token(request) is None
+
+
+class TestUpstreamAuthHeader:
+    @pytest.mark.parametrize(
+        "headers,expected",
+        [
+            pytest.param({"authorization": "Bearer tok"}, "Bearer tok", id="standard_bearer"),
+            pytest.param({"authorization": "bearer tok"}, "Bearer tok", id="lowercase_scheme_canonicalized"),
+            pytest.param({"authorization": "BEARER  tok"}, "Bearer tok", id="uppercase_scheme_canonicalized"),
+            pytest.param({"x-api-key": " tok "}, "Bearer tok", id="x_api_key_wrapped"),
+            pytest.param({"x-api-key": "key", "authorization": "Bearer other"}, "Bearer key", id="x_api_key_wins"),
+            pytest.param({"authorization": "Basic abc"}, "Basic abc", id="non_bearer_forwarded_verbatim"),
+            pytest.param({}, "", id="no_credential"),
+        ],
+    )
+    def test_forwarded_header(self, headers: dict[str, str], expected: str) -> None:
+        request = MagicMock(spec=Request)
+        request.headers = headers
+        assert upstream_auth_header(request) == expected
 
 
 def _token_row(**overrides) -> dict:
@@ -691,6 +711,19 @@ class TestPersonalApiKeyAuthenticator:
         assert result.is_staff is False
 
     @pytest.mark.asyncio
+    async def test_query_requires_verified_email(
+        self, authenticator: PersonalApiKeyAuthenticator, mock_pool: MagicMock
+    ) -> None:
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        token_hash = authenticator.hash_token("phx_test_key")
+        await authenticator.authenticate(token_hash, mock_pool)
+
+        query = conn.fetchrow.call_args.args[0]
+        assert "u.is_email_verified IS DISTINCT FROM false" in query
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "db_result",
         [
@@ -906,6 +939,19 @@ class TestOAuthAccessTokenAuthenticator:
         assert result.auth_method == "oauth_access_token"
         assert result.scopes == ["llm_gateway:read"]
         assert result.is_staff is True
+
+    @pytest.mark.asyncio
+    async def test_query_requires_verified_email(
+        self, authenticator: OAuthAccessTokenAuthenticator, mock_pool: MagicMock
+    ) -> None:
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        token_hash = authenticator.hash_token("pha_test_token")
+        await authenticator.authenticate(token_hash, mock_pool)
+
+        query = conn.fetchrow.call_args.args[0]
+        assert "u.is_email_verified IS DISTINCT FROM false" in query
 
     @pytest.mark.asyncio
     async def test_valid_token_with_null_team_id(

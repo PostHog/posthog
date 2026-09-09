@@ -26,12 +26,11 @@ import notebookAddCell from './notebooks/addCell'
 import notebookCreateMarkdown from './notebooks/createMarkdown'
 import notebookDeleteCell from './notebooks/deleteCell'
 import notebookEdit from './notebooks/edit'
+import notebookSetVariables from './notebooks/setVariables'
 import notebookUpdateCell from './notebooks/updateCell'
 // Organizations
 import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
-// PostHog connections (run this project's tools against a connected project in another org/region)
-import { createConnectionCallTool } from './posthogConnections/call'
 // PostHog AI tools
 import {
     EXECUTE_SQL_TOOL_NAME,
@@ -42,14 +41,16 @@ import {
     externalDataSyncLogs,
     readDataSchema,
 } from './posthogAiTools'
+// PostHog connections (run this project's tools against a connected project in another org/region)
+import { createConnectionCallTool } from './posthogConnections/call'
 // Projects
+import createEventDefinition from './projects/createEventDefinition'
 import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 import updatePathCleaning from './projects/updatePathCleaning'
 import updatePropertyDefinition from './projects/updatePropertyDefinition'
 // Replay
-import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
 import { tasksArtifactsList, tasksCommentsList, tasksCommentsRetrieve } from './tasksContext'
@@ -80,6 +81,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Projects
     'projects-get': getProjects,
     'switch-project': setActiveProject,
+    'event-definition-create': createEventDefinition,
     'event-definition-update': updateEventDefinition,
     'property-definition-update': updatePropertyDefinition,
 
@@ -109,6 +111,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-add-cell': notebookAddCell,
     'notebooks-create-markdown': notebookCreateMarkdown,
     'notebooks-delete-cell': notebookDeleteCell,
+    'notebooks-set-variables': notebookSetVariables,
     'notebooks-update-cell': notebookUpdateCell,
 
     // Debug
@@ -128,7 +131,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'read-data-schema': readDataSchema,
 
     // Replay
-    'session-recording-summarize': sessionRecordingSummarize,
 
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,

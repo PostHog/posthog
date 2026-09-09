@@ -1,12 +1,12 @@
 name: Backend CI shadow drift check
 
-# Fails when .github/workflows/ci-backend.yml changes without a matching update
-# to .depot/workflows/ci-backend.yml. The depot file is a hand-maintained shadow
-# of canonical (see header comment in the depot file for the intentional deltas);
-# without this check, canonical drifts silently and the depot timing trial stops
+# Fails when the canonical backend workflow or its paths-filter action changes
+# without a matching update to the Depot shadow. The workflow is hand-maintained
+# (see its header comment for intentional deltas), while the action is vendored;
+# without this check, canonical drifts silently and the Depot timing trial stops
 # measuring the same work.
 #
-# Cheap to run — only triggers when one of the two files changes, so it costs ~nothing.
+# Cheap to run — only triggers when one of the mirrored paths changes, so it costs ~nothing.
 # Always enforced (no variable gate): keeping the depot mirror in sync with canonical is
 # a structural invariant worth holding whether or not the shadow is currently sampling —
 # you want them already in sync the moment the shadow is switched on. The sampling rate
@@ -18,6 +18,8 @@ on:
         paths:
             - .github/workflows/ci-backend.yml
             - .depot/workflows/ci-backend.yml
+            - .github/actions/paths-filter/**
+            - .depot/actions/paths-filter/**
 
 permissions:
     contents: read
@@ -28,7 +30,7 @@ concurrency:
 
 jobs:
     check:
-        name: Both ci-backend files updated together
+        name: Backend CI shadows remain synchronized
         runs-on: ubuntu-latest
         # 5 min absorbs cold-runner startup + the explicit depth=100 fetch of BASE_SHA below.
         # `actions/checkout` defaults to depth=1 (HEAD only); a full-history clone is unnecessary
@@ -47,16 +49,28 @@ jobs:
                   git fetch --no-tags --depth=100 origin "$BASE_SHA"
                   changed=$(git diff --name-only "$BASE_SHA" HEAD -- \
                       .github/workflows/ci-backend.yml \
-                      .depot/workflows/ci-backend.yml)
-                  if echo "$changed" | grep -q '^.github/workflows/ci-backend.yml$' && \
-                     ! echo "$changed" | grep -q '^.depot/workflows/ci-backend.yml$'; then
+                      .depot/workflows/ci-backend.yml \
+                      .github/actions/paths-filter \
+                      .depot/actions/paths-filter)
+                  if echo "$changed" | grep -Fxq '.github/workflows/ci-backend.yml' && \
+                     ! echo "$changed" | grep -Fxq '.depot/workflows/ci-backend.yml'; then
                       echo "::error::Canonical .github/workflows/ci-backend.yml changed without a matching update to .depot/workflows/ci-backend.yml."
                       echo "The depot shadow must stay apples-to-apples with canonical. Mirror the change into the depot file"
                       echo "(or, if the change is one of the intentional deltas listed in the depot file header, document why it is depot-exempt)."
                       exit 1
                   fi
-                  if echo "$changed" | grep -q '^.depot/workflows/ci-backend.yml$' && \
-                     ! echo "$changed" | grep -q '^.github/workflows/ci-backend.yml$'; then
+                  if echo "$changed" | grep -Fxq '.depot/workflows/ci-backend.yml' && \
+                     ! echo "$changed" | grep -Fxq '.github/workflows/ci-backend.yml'; then
                       echo "::notice::Only the depot shadow changed. That is allowed (e.g. tuning a depot-only knob), but worth a glance from the reviewer."
+                  fi
+                  if echo "$changed" | grep -q '^\.github/actions/paths-filter/' && \
+                     ! echo "$changed" | grep -q '^\.depot/actions/paths-filter/'; then
+                      echo "::error::Canonical .github/actions/paths-filter changed without a matching update to .depot/actions/paths-filter."
+                      echo "Mirror the action change so the Depot workflow evaluates the same path filters."
+                      exit 1
+                  fi
+                  if ! diff -qr .github/actions/paths-filter .depot/actions/paths-filter; then
+                      echo "::error::The Depot paths-filter action differs from its canonical copy."
+                      exit 1
                   fi
                   echo "Shadow drift check passed."

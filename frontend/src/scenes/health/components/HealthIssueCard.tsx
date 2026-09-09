@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRevert, IconSparkles, IconX } from '@posthog/icons'
+import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -13,13 +13,17 @@ import { SidePanelTab } from '~/types'
 import { buildHealthIssuePrompt, kindToLabel, severityLabel, severityToTagType } from '../healthUtils'
 import { getIssueRenderer } from '../issueRenderers'
 import type { HealthIssue } from '../types'
+import { HealthIssueActions } from './HealthIssueActions'
+import { HealthIssueSnoozedTag } from './HealthIssueSnoozedTag'
 
 export const HealthIssueCard = ({
     issue,
+    onSnooze,
     onDismiss,
     onUndismiss,
 }: {
     issue: HealthIssue
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
 }): JSX.Element => {
@@ -41,6 +45,7 @@ export const HealthIssueCard = ({
                     <span className="text-xs text-muted shrink-0">
                         <TZLabel time={issue.created_at} />
                     </span>
+                    <HealthIssueSnoozedTag issue={issue} />
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                     {askAiEnabled && (
@@ -52,12 +57,11 @@ export const HealthIssueCard = ({
                             onClick={askMax}
                         />
                     )}
-                    <LemonButton
-                        size="xsmall"
-                        type="tertiary"
-                        icon={issue.dismissed ? <IconRevert /> : <IconX />}
-                        tooltip={issue.dismissed ? 'Undismiss' : 'Dismiss'}
-                        onClick={() => (issue.dismissed ? onUndismiss(issue.id) : onDismiss(issue.id))}
+                    <HealthIssueActions
+                        issue={issue}
+                        onSnooze={onSnooze}
+                        onDismiss={onDismiss}
+                        onUndismiss={onUndismiss}
                     />
                 </div>
             </div>

@@ -401,6 +401,20 @@ function escapeForDescribe(desc: string): string {
 }
 
 /**
+ * Emits a tool's input schema as a builder function. The Orval exports it uses are
+ * builders too (see generate-orval-schemas.mjs); each one is built once into a local
+ * of the same name, so the composed expression reads exactly as it did before.
+ */
+function buildSchemaBuilderDecl(schemaName: string, schemaExpr: string, orvalImports: string[]): string {
+    const used = [...new Set(orvalImports)].filter((name) => new RegExp(`\\b${name}\\b`).test(schemaExpr)).sort()
+    if (used.length === 0) {
+        return `const ${schemaName} = () => ${schemaExpr}`
+    }
+    const locals = used.map((name) => `    const ${name} = orvalSchemas.${name}()`).join('\n')
+    return `const ${schemaName} = () => {\n${locals}\n    return ${schemaExpr}\n}`
+}
+
+/**
  * Parse enrich_url template into prefix, field, and source.
  * '{id}' → { prefix: '', field: 'id', source: 'result' }
  * 'hog-{id}' → { prefix: 'hog-', field: 'id', source: 'result' }
@@ -439,6 +453,12 @@ function operationIdToPascal(operationId: string): string {
 // ------------------------------------------------------------------
 // Schema composition — determine Orval imports and build expressions
 // ------------------------------------------------------------------
+
+/** `param_overrides.cast` value → the helper exported from `@/tools/cast-helpers`. */
+const CAST_HELPERS = {
+    'string-int': 'castStringToInt',
+    'boolean-string': 'castBooleanToString',
+} as const
 
 interface SchemaComposition {
     orvalImports: string[]
@@ -623,6 +643,13 @@ function composeToolSchema(
                 // mapping is tracked in renamedFields for body-building.
                 const alias = renameMap.get(name)
                 const fieldKey = alias ?? name
+                // A body field that shares a path param's name (e.g. PATCH /metrics/{name}/
+                // with a writable `name`) collapses into one input, because the body part is
+                // merged over the path part. Renaming it separates the two, but only if the
+                // body copy is dropped here — otherwise it still overwrites the path param.
+                if (alias && pathParamNames.includes(name)) {
+                    bodyOmitFields.add(name)
+                }
                 bodyFieldNames.push(fieldKey)
                 if (bodyVariantSpecific.has(name)) {
                     variantSpecificBodyFieldNames.add(fieldKey)
@@ -694,7 +721,7 @@ function composeToolSchema(
                 optionalParamNames.add(paramName)
             }
 
-            const castHelper = override.cast === 'string-int' ? 'castStringToInt' : null
+            const castHelper = override.cast ? CAST_HELPERS[override.cast] : null
             if (castHelper) {
                 castHelperImports.add(castHelper)
             }
@@ -776,7 +803,12 @@ function composeToolSchema(
         const bodyImport = `${pascal}Body`
         for (const [original, alias] of renameMap) {
             renamedFields[alias] = original
-            schemaExpr += `\n    .omit({ '${original}': true })`
+            // When the original is also a path param, the body copy was already dropped above
+            // and the surviving key addresses the resource, so omitting it here would leave the
+            // handler with no value for the URL.
+            if (!pathParamNames.includes(original)) {
+                schemaExpr += `\n    .omit({ '${original}': true })`
+            }
             schemaExpr += `\n    .extend({ ${alias}: ${bodyImport}.shape['${original}'] })`
         }
     }
@@ -1062,7 +1094,7 @@ function generateToolCode(
         schemaExpr = `z.preprocess(normalizeParamAliases(${aliasMapLiteral}), ${schemaExpr})`
     }
 
-    const schemaDecl = `const ${schemaName} = ${schemaExpr}`
+    const schemaDecl = buildSchemaBuilderDecl(schemaName, schemaExpr, composition.orvalImports)
 
     const localVarParams = new Set(Object.keys(composition.paramFallbacks))
     const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.', localVarParams)
@@ -1214,7 +1246,7 @@ function generateToolCode(
         composition.pathParamNames.length > 0 ||
         enrichUsesParams ||
         !!selectableExtension
-    const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
+    const paramsName = paramsUsed ? 'params' : '_params'
 
     // When `confirmed_action` is declared, emit TWO factories instead of
     // one — `<name>-prepare` and `<name>-execute`. The prepare tool signs
@@ -1256,8 +1288,8 @@ function generateToolCode(
 
     const toolBody = `{
     name: '${toolName}',
-    schema: ${schemaName},
-    ${unusedParamsComment}handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+    schema: ${schemaName}(),
+    handler: async (context: Context, ${paramsName}: z.infer<ReturnType<typeof ${schemaName}>>) => {
 ${handlerBody}    },
 }`
 
@@ -1266,7 +1298,7 @@ ${handlerBody}    },
     const code = `
 ${schemaDecl}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${factoryBody}
+const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${resultType}> => ${factoryBody}
 `
 
     return {
@@ -1427,7 +1459,7 @@ ${prepareScopeField}        })
     // the signed, verified args under the same `params` name the generated
     // request code expects.
     const executeHandler = `        const __runtime = getConfirmedActionRuntime()
-${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<typeof ${schemaName}>>(context, {
+${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ${schemaName}>>>(context, {
             incomingArgs: confirmationParams,
             purpose: ${JSON.stringify(toolName)},
             codec: __runtime.codec,
@@ -1442,8 +1474,8 @@ ${executeHandlerBody}`
 
     const prepareBody = `{
     name: '${prepareName}',
-    schema: ${schemaName},
-    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+    schema: ${schemaName}(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ${schemaName}>>) => {
 ${prepareHandler}    },
 }`
 
@@ -1459,7 +1491,7 @@ ${schemaDecl}
 
 ${executeSchemaDecl}
 
-const ${prepareFactory} = (): ToolBase<typeof ${schemaName}, PrepareConfirmedActionResult> => (${prepareBody})
+const ${prepareFactory} = (): ToolBase<ReturnType<typeof ${schemaName}>, PrepareConfirmedActionResult> => (${prepareBody})
 
 const ${executeFactory} = (): ToolBase<typeof ${executeSchemaName}, ${resultType}> => (${executeBody})
 `
@@ -1506,7 +1538,7 @@ function generateCustomSchemaToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
-    handlerBody += `        const parsedParams = ${schemaName}.parse(params)\n`
+    handlerBody += `        const parsedParams = ${schemaName}().parse(params)\n`
 
     if (pathParamNames.length > 0) {
         const destructured = pathParamNames.map((p) => `${p}, `).join('')
@@ -1564,12 +1596,12 @@ function generateCustomSchemaToolCode(
     }
 
     const code = `
-const ${schemaName} = ${baseSchemaExpr}
+const ${schemaName} = () => ${baseSchemaExpr}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${customResultType}> => ({
+const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${customResultType}> => ({
     name: '${toolName}',
-    schema: ${schemaName},
-    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+    schema: ${schemaName}(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ${schemaName}>>) => {
 ${handlerBody}    },
 })
 `
@@ -1829,9 +1861,7 @@ function generateCategoryFile(
     const mapEntries = [restMapEntries, wrapperMapEntries].filter(Boolean).join('\n')
 
     const orvalImportLine =
-        allOrvalImports.size > 0
-            ? `\nimport { ${[...allOrvalImports].sort().join(', ')} } from '@/generated/${moduleName}/api'\n`
-            : ''
+        allOrvalImports.size > 0 ? `\nimport * as orvalSchemas from '@/generated/${moduleName}/api'\n` : ''
 
     const schemasImportLine = hasResponseType ? `\nimport type { Schemas } from '@/api/generated'\n` : ''
 
@@ -1946,6 +1976,9 @@ function generateDefinitionsJson(
             const featureEntitlement = toolConfig.feature_entitlement ?? category.feature_entitlement
             const featureFlagBehavior = toolConfig.feature_flag_behavior ?? category.feature_flag_behavior
             const featureFlagVariant = toolConfig.feature_flag_variant ?? category.feature_flag_variant
+            // Successors are per-tool: a category gate says what retires a tool, never what replaces it.
+            const supersededBy = toolConfig.superseded_by
+            const redirectHint = toolConfig.redirect_hint
 
             if (toolConfig.confirmed_action) {
                 // Two-tool typed-confirm paradigm: emit `<name>-prepare` and
@@ -1974,6 +2007,8 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
                 definitions[`${name}-execute`] = {
@@ -1998,6 +2033,8 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
             } else {
@@ -2019,6 +2056,8 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
             }
@@ -2048,6 +2087,8 @@ function generateDefinitionsJson(
                 ...(wrapperConfig.feature_flag_variant
                     ? { feature_flag_variant: wrapperConfig.feature_flag_variant }
                     : {}),
+                ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
+                ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
                 ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
             }
         }
@@ -2223,6 +2264,8 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.feature_entitlement ? { feature_entitlement: toolConfig.feature_entitlement } : {}),
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
+            ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
+            ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
         }
     }
@@ -2365,7 +2408,13 @@ ${spreads}
         ...generatedModules.map((m) => path.join(GENERATED_DIR, `${m}.ts`)),
         path.join(GENERATED_DIR, 'index.ts'),
     ]
-    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:js', ...generatedTsFiles], { stdio: 'pipe', cwd: REPO_ROOT })
+    const format = spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:js', ...generatedTsFiles], {
+        stdio: 'pipe',
+        cwd: REPO_ROOT,
+    })
+    if (format.status !== 0) {
+        console.warn(`hogli format:js failed:\n${format.stderr?.toString() ?? ''}${format.stdout?.toString() ?? ''}`)
+    }
     spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH, ALL_DEFINITIONS_JSON_PATH], {
         stdio: 'pipe',
         cwd: REPO_ROOT,

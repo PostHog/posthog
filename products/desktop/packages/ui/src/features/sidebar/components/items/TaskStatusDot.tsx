@@ -16,14 +16,12 @@ import {
   TONE_ICON_VAR,
   taskBadges,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
-import { DotRingSpinner } from "@posthog/ui/primitives/DotRingSpinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import type { ReactElement, ReactNode } from "react";
 
 const DOT_SIZE = 8;
-// Exactly the plain dot's box. Anything larger and a working row's label starts
-// further right than its neighbours' — the icon column has to hold one width or
-// the list stops looking like a list.
-const SPINNER_SIZE = DOT_SIZE;
+// Keep the status column stable when a dot changes to a larger spinner.
+const SPINNER_BOX = DOT_SIZE;
 // Enough to still find the dot if you look for it, not enough to count as one of
 // the list's live rows.
 const FAINT_OPACITY = 0.4;
@@ -38,13 +36,14 @@ const TOOLTIP_DELAY_MS = 200;
  * that can't receive the pointer can't be hovered, can't swallow a click meant
  * for the row underneath, and can't have its text dragged into a selection.
  */
-function RowTooltip({
+export function RowTooltip({
   label,
   side,
   children,
 }: {
   label: string;
-  side: "top" | "right";
+  /** Where the row sits: `bottom` for the window header, which has no room above. */
+  side: "top" | "right" | "bottom";
   children: ReactElement;
 }) {
   return (
@@ -74,12 +73,17 @@ function dotMark(dot: TaskDot, decorative = false): ReactElement {
     return (
       <span
         {...naming}
-        className="flex shrink-0 items-center justify-center"
-        // The spinner draws its dots in `currentColor`, so the tone is set
-        // here rather than passed down.
-        style={{ color: TONE_ICON_VAR[dot.tone], width: SPINNER_SIZE }}
+        className="relative flex shrink-0 items-center justify-center"
+        style={{
+          color: TONE_ICON_VAR[dot.tone],
+          width: SPINNER_BOX,
+          height: SPINNER_BOX,
+        }}
       >
-        <DotRingSpinner size={SPINNER_SIZE} />
+        <Spinner
+          size="sm"
+          className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2"
+        />
       </span>
     );
   }
@@ -88,9 +92,6 @@ function dotMark(dot: TaskDot, decorative = false): ReactElement {
       {...naming}
       className={cn(
         "block shrink-0 rounded-full",
-        // ph-pulse is the app's existing flash, but it has no reduced-motion
-        // rule of its own — hold a static dot rather than blinking at someone
-        // who asked us not to.
         dot.pulse && "ph-pulse motion-reduce:animate-none",
       )}
       style={{

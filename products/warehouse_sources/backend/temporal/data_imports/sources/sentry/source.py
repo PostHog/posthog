@@ -16,6 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    required_parents_from_endpoint_configs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
@@ -33,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.set
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     REQUIRED_SENTRY_SCOPES,
+    SENTRY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -130,13 +134,23 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # `_request_with_retry` (sentry.py) already retries a dropped connection, read timeout, or
-        # persistent 429/5xx before re-raising once that budget is exhausted. urllib3 wraps all of
-        # those as "... Max retries exceeded with url: ..." regardless of the underlying cause, so
-        # match that stable prefix rather than the per-request URL or nested error detail. Temporal
-        # then retries the whole activity, so the failure is transient and self-recovering. Mirrors
-        # Close's equivalent case.
-        return {"Max retries exceeded with url"}
+        # `_request_with_retry` (sentry.py) retries dropped connections and read timeouts at the
+        # urllib3 level; once that budget is exhausted, urllib3 re-raises with the stable "Max
+        # retries exceeded with url" prefix regardless of the underlying cause.
+        #
+        # HTTP 429s are retried by tenacity (respecting X-Sentry-Rate-Limit-Reset); when that
+        # budget is exhausted, `raise_for_status()` raises `HTTPError: 429 Client Error: Too Many
+        # Requests`, which does NOT contain the "Max retries exceeded" phrase. Match the stable
+        # status-line prefix so persistent rate-limiting lets Temporal retry instead of being
+        # reported to error tracking as a bug.
+        return {"Max retries exceeded with url", "429 Client Error"}
+
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        # issue_tag_values fans out over issues through its custom two-level iterator, so it
+        # carries no DependentEndpointConfig to derive the dependency from.
+        if schema_name == "issue_tag_values":
+            return ["issues"]
+        return required_parents_from_endpoint_configs(SENTRY_ENDPOINTS, schema_name)
 
     def get_schemas(
         self,
@@ -206,4 +220,6 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            source_id=inputs.source_id,
+            use_warehouse_parent=inputs.fanout_warehouse_reuse,
         )

@@ -31,8 +31,6 @@ class StripeProvisioningTestBase(APIBaseTest):
         self._ensure_stripe_oauth_app()
 
     def _ensure_stripe_oauth_app(self):
-        # No provisioning_* flags: this namespace authorizes by identity
-        # (client_id) alone and does not read the app's provisioning config.
         self.stripe_app, _ = OAuthApplication.objects.get_or_create(
             client_id=TEST_STRIPE_OAUTH_CLIENT_ID,
             defaults={
@@ -44,6 +42,7 @@ class StripeProvisioningTestBase(APIBaseTest):
                 "algorithm": "RS256",
             },
         )
+        self.stripe_app.update_provisioning(can_issue_deep_links=True)
 
     def _create_other_partner_app(self, **overrides):
         defaults = {

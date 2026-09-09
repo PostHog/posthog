@@ -49,7 +49,7 @@ Pick a `scanner_type` and write its `scanner_config`. Every type needs a `prompt
 | `monitor`    | Open-ended observation against a prompt (e.g. "flag rage clicks") | `{"prompt": "..."}`; optional `"allow_inconclusive": true` (off by default, so the model must answer yes or no)                                                             |
 | `classifier` | Assigns tags from a fixed label set                               | `{"prompt": "...", "tags": ["tag-a", "tag-b"]}` — `tags` needs ≥1 entry; optional `"multi_label": false` (defaults to true), `"allow_freeform_tags": true` (off by default) |
 | `scorer`     | Numeric score on a rubric                                         | `{"prompt": "...", "scale": {"min": 1, "max": 5, "label": "frustration"}}` — `min` < `max`; `label` optional                                                                |
-| `summarizer` | Free-text summary, plus facet embeddings for search               | `{"prompt": "..."}`; optional `"length": "short" \| "medium" \| "long"` (default `"medium"`). Embeddings are always on                                                      |
+| `summarizer` | Free-text summary                                                 | `{"prompt": "..."}`; optional `"length": "short" \| "medium" \| "long"` (default `"medium"`). Embeddings are always on                                                      |
 
 `scanner_type` is **locked after creation** — to change it you delete and recreate, so confirm the type is
 right up front, and get the `scanner_config` shape right (a wrong shape is a create error, not a silent
@@ -79,8 +79,8 @@ Two levers narrow it further, applied in this order:
 #### Which model?
 
 `model` sets the price of every observation the scanner makes, so it's a cost lever as much as a quality one:
-`gemini-3.5-flash-lite` (2 credits), `gemini-3-flash-preview` (5 credits, the default) and `gemini-3.6-flash`
-(15 credits). Start at the default and only reach for `gemini-3.6-flash` when the cheaper tiers demonstrably
+`gemini-3.5-flash-lite` (2 credits), `gemini-3-flash-preview` (5 credits, the default) and `gemini-3.8-flash`
+(15 credits). Start at the default and only reach for `gemini-3.8-flash` when the cheaper tiers demonstrably
 miss what the scanner is looking for.
 
 ### Step 3: Size it — the gut-check (do not skip)
@@ -121,6 +121,10 @@ Then decide on `rest_of_period` against `remaining`:
   one resets. Mid-period a scanner can fit in `remaining` and still blow the next period's budget.
 - If the org is already `exhausted`, say so. A new enabled scanner won't produce anything until the budget
   resets: its scheduled observations are silently skipped, and on-demand scans are rejected outright.
+- If the estimate is a large fraction of `remaining` but the user still wants the scanner, offer a
+  per-scanner cap: set `credit_limit` on create so this scanner can only ever spend that many credits per
+  billing period. It stops scanning once the credits left can't cover another observation, then resumes
+  when the period resets. Sessions it skipped while capped are not scanned later.
 
 Confirmation here is a conversation step, not an API capability — surface the trade-off and let the user
 choose. When the projected volume is clearly small relative to the budget, you don't need to ask.

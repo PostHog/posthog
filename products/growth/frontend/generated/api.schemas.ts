@@ -193,10 +193,9 @@ export interface ProductPushCampaignApi {
  * * `medium` - medium
  * * `low` - low
  */
-export type IdentityMatchingLinkTierEnumApi =
-    (typeof IdentityMatchingLinkTierEnumApi)[keyof typeof IdentityMatchingLinkTierEnumApi]
+export type ConfidenceTierEnumApi = (typeof ConfidenceTierEnumApi)[keyof typeof ConfidenceTierEnumApi]
 
-export const IdentityMatchingLinkTierEnumApi = {
+export const ConfidenceTierEnumApi = {
     High: 'high',
     Medium: 'medium',
     Low: 'low',
@@ -304,7 +303,7 @@ export interface IdentityMatchingLinkApi {
      * * `high` - high
      * * `medium` - medium
      * * `low` - low */
-    tier: IdentityMatchingLinkTierEnumApi
+    tier: ConfidenceTierEnumApi
     /** When the link was computed (UTC). */
     computed_at: string
     /** Distinct (IP, day) combinations both sides were seen on. */
@@ -429,6 +428,13 @@ export const SdkHealthReportHealthEnumApi = {
  * * `posthog-kmp` - posthog-kmp
  * * `posthog-dotnet` - posthog-dotnet
  * * `posthog-elixir` - posthog-elixir
+ * * `posthog-unity` - posthog-unity
+ * * `posthog-node-mcp` - posthog-node-mcp
+ * * `posthog-python-mcp` - posthog-python-mcp
+ * * `posthog-edge` - posthog-edge
+ * * `posthog-convex` - posthog-convex
+ * * `posthog-rails` - posthog-rails
+ * * `posthog-aspnetcore` - posthog-aspnetcore
  */
 export type LibEnumApi = (typeof LibEnumApi)[keyof typeof LibEnumApi]
 
@@ -448,6 +454,13 @@ export const LibEnumApi = {
     PosthogKmp: 'posthog-kmp',
     PosthogDotnet: 'posthog-dotnet',
     PosthogElixir: 'posthog-elixir',
+    PosthogUnity: 'posthog-unity',
+    PosthogNodeMcp: 'posthog-node-mcp',
+    PosthogPythonMcp: 'posthog-python-mcp',
+    PosthogEdge: 'posthog-edge',
+    PosthogConvex: 'posthog-convex',
+    PosthogRails: 'posthog-rails',
+    PosthogAspnetcore: 'posthog-aspnetcore',
 } as const
 
 /**
@@ -526,7 +539,14 @@ export interface SdkAssessmentApi {
      * * `posthog-react-native` - posthog-react-native
      * * `posthog-kmp` - posthog-kmp
      * * `posthog-dotnet` - posthog-dotnet
-     * * `posthog-elixir` - posthog-elixir */
+     * * `posthog-elixir` - posthog-elixir
+     * * `posthog-unity` - posthog-unity
+     * * `posthog-node-mcp` - posthog-node-mcp
+     * * `posthog-python-mcp` - posthog-python-mcp
+     * * `posthog-edge` - posthog-edge
+     * * `posthog-convex` - posthog-convex
+     * * `posthog-rails` - posthog-rails
+     * * `posthog-aspnetcore` - posthog-aspnetcore */
     lib: LibEnumApi
     /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
     readable_name: string
@@ -655,7 +675,7 @@ export const IdentityMatchingLinksListTier = {
 
 export type SdkHealthReportRetrieveParams = {
     /**
-     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. Use sparingly — data is refreshed every 12 hours by a background job.
+     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. A background job refreshes this data once a day, so the cached answer is usually current. Use sparingly.
      */
     force_refresh?: boolean
 }

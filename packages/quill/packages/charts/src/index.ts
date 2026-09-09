@@ -151,7 +151,7 @@ export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 
 // Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
 export { themeDefaultsFromCssVars, themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
-export { DEFAULT_CHART_CONFIG } from './core/chart-config'
+export { applyChartDefaults, DEFAULT_CHART_CONFIG } from './core/chart-config'
 export type { ThemeFromCssOptions } from './core/theme'
 
 // Built-in tooltip (for reference or extension)
@@ -201,9 +201,13 @@ export { ciRanges, linearRegression, movingAverage, trendLine } from './utils/st
 
 // Generic UI primitives (no canvas) — composed alongside charts by adapters
 export { Legend } from './components/Legend/Legend'
-export type { LegendItem, LegendProps } from './components/Legend/Legend'
+export type { LegendItem, LegendItemClickModifiers, LegendProps } from './components/Legend/Legend'
 export { ChartLegend } from './components/Legend/ChartLegend'
 export type { ChartLegendProps } from './components/Legend/ChartLegend'
 export { legendItemsFromSeries } from './components/Legend/legendItemsFromSeries'
 export { useChartLegend, applyHiddenSeries } from './components/Legend/useChartLegend'
-export type { ChartLegendRenderProps, ChartLegendState } from './components/Legend/useChartLegend'
+export type {
+    ChartLegendRenderProps,
+    ChartLegendState,
+    LegendItemControls,
+} from './components/Legend/useChartLegend'

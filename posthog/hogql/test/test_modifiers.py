@@ -60,6 +60,7 @@ class TestModifiers(BaseTest):
         )
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_team_modifiers_override(self):
         assert self.team.modifiers is None
         modifiers = create_default_modifiers_for_team(self.team)
@@ -82,6 +83,24 @@ class TestModifiers(BaseTest):
         self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+
+    def test_unparseable_custom_bot_definitions_are_dropped(self):
+        # modifiers is hand-editable JSON (e.g. Django admin), so an entry that is not a rule object
+        # can reach here. It has to be dropped, not kept — a non-dict entry would otherwise crash
+        # every classification query when compile_definitions reads its fields.
+        self.team.modifiers = {
+            "customBotDefinitions": [
+                "not-a-rule",
+                {"pattern": "no name so invalid"},
+                {"id": "1", "name": "Acme", "key": "$raw_user_agent", "pattern": "AcmeBot", "matcher": "contains"},
+            ]
+        }
+        self.team.save()
+
+        modifiers = create_default_modifiers_for_team(self.team)
+
+        assert modifiers.customBotDefinitions is not None
+        assert [d.name for d in modifiers.customBotDefinitions] == ["Acme"]
 
     @patch(
         # _person_on_events_person_id_override_properties_on_events is normally determined by feature flag
@@ -303,7 +322,10 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select event from events where person.properties.$browser ilike '%Chrome%'",
             team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=False),
+            modifiers=HogQLQueryModifiers(
+                optimizeJoinedFilters=False,
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            ),
         )
         # "ilike" shows up once in the response
         assert response is not None
@@ -314,7 +336,10 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select event from events where person.properties.$browser ilike '%Chrome%'",
             team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
+            modifiers=HogQLQueryModifiers(
+                optimizeJoinedFilters=True,
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            ),
         )
         # "ilike" shows up twice in the response
         assert response is not None

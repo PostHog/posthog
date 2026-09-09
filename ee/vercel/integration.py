@@ -2,7 +2,7 @@ import copy
 import hmac
 import hashlib
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Union
 from urllib.parse import quote, urlencode
 
@@ -19,6 +19,7 @@ import structlog
 from rest_framework import exceptions
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
@@ -86,9 +87,9 @@ class ResourceConfig:
     protocolSettings: dict[str, Any] | None = None
 
 
-@dataclass
+@frozen
 class InstallationCredentials:
-    access_token: str
+    access_token: str = field(repr=False)
     token_type: str
 
 
@@ -874,6 +875,10 @@ class VercelIntegration:
     @staticmethod
     def _authenticate_and_login_user(request, claims: VercelUserClaims, resource_id: str | None) -> User:
         user = VercelIntegration._find_sso_user(claims)
+        if user.is_email_verified is not True and claims.user_email and claims.user_email.lower() == user.email.lower():
+            # Vercel verified the mailbox before issuing the claim, so this login proves it.
+            user.is_email_verified = True
+            user.save(update_fields=["is_email_verified"])
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         if resource_id:
             VercelIntegration.set_active_project(user, resource_id)

@@ -2,7 +2,7 @@
 name: analyzing-experiment-query-performance
 description: >
   Pull and interpret production experiment query-performance data from the staff-only
-  `/api/debug_ch_queries` endpoints backing the `/instance/query_performance` scene:
+  `/api/debug_ch_queries` endpoints backing the `/experiments/staff` scene:
   slowest experiment queries, precompute read/build health, and preaggregation cache footprint.
   Covers prod-US and prod-EU via a `query_performance:read` personal API key, all query params,
   and response field semantics (exception codes, exposure paths, precompute skip reasons, job states).
@@ -13,7 +13,7 @@ description: >
 
 # Analyzing experiment query performance
 
-The `/instance/query_performance` scene (staff-only UI) is backed by three GET endpoints
+The `/experiments/staff` scene (staff-only UI, "Experiments staff tools") is backed by a set of GET endpoints
 that are also callable directly with a personal API key.
 They return the exact data the UI renders, sourced from ClickHouse `query_log_archive`
 (experiment queries only, `lc_product = 'experiments'`), `system.parts`,
@@ -131,6 +131,19 @@ Aggregate precompute health for the window. One param: `hours` (1–168, default
 
 Duration/bytes percentiles cover **successful** reads only (failed reads have truncated durations).
 
+### GET `/api/debug_ch_queries/precompute_timeseries/`
+
+Bucketed history behind the Trends tab. One param: `hours` (1–504, default 168).
+Returns zero-filled arrays aligned to `buckets` (hourly up to 48h, daily beyond):
+read counts (`total`, `precomputed`, `fallback`),
+latency and cost of the precomputed read path
+(`precomputed_p50_duration_ms`, `precomputed_p90_duration_ms`, `precomputed_avg_read_bytes`;
+successful precomputed reads only).
+The latency and bytes-per-read series should stay flat as the preaggregation tables grow —
+a sustained rise means precomputed reads are scanning more than their own jobs' rows,
+which breaks the core assumption that read cost tracks experiment size, not cache size.
+Also `builds.failed_by_code` and `builds.failed_read_bytes`.
+
 ### GET `/api/debug_ch_queries/cache_health/`
 
 No params.
@@ -141,6 +154,8 @@ Both tables are partitioned by `toYYYYMMDD(expires_at)` with TTL-driven part dro
 so each partition id is the **day that data expires** —
 the partition list doubles as a TTL/growth timeline
 (a bulge N days out means a large recent build; a missing near-term partition means little recent activity).
+Frozen-band chunks get a per-chunk expiry jitter (`PRECOMPUTE_TTL_JITTER_SECONDS`, 14 days),
+so a big build shows up as data spread over up to 14 expiry partitions, not as one large partition.
 
 ### Not available via PAT
 
@@ -229,7 +244,7 @@ re-check the key's scopes before anything else.
    to identify which team, experiment, and metric type is responsible.
 3. **Drill to ground truth**: for a specific `query_id`, the full `query_log` row
    (settings, replica, ProfileEvents) needs ClickHouse —
-   use the `query-clickhouse-via-metabase` skill.
+   use the `querying-production-databases-via-metabase` skill.
 4. **Result-consistency questions** (precomputed vs direct results diverging) are out of scope here —
    these endpoints see performance and failures, not result values.
    That's the precompute result-consistency canary's territory:
@@ -247,7 +262,7 @@ re-check the key's scopes before anything else.
 
 ## Maintenance
 
-This skill documents the `/instance/query_performance` API surface.
+This skill documents the `/experiments/staff` API surface.
 When adding a tab, endpoint, filter, or response field to the scene
-(`posthog/api/debug_ch_queries.py` + `frontend/src/scenes/instance/QueryPerformance/`),
+(`posthog/api/debug_ch_queries.py` + `frontend/src/scenes/experiments/staff/`),
 update this file in the same PR.
