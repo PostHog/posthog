@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { useMocks } from '~/mocks/jest'
@@ -18,11 +18,13 @@ const CHANNEL_HELP = /^PostHog must be in the channel/
 describe('SlackNotificationsSection', () => {
     let autonomyConfig: Record<string, unknown> | null = null
     let saves: Record<string, unknown>[] = []
+    let saveGate: Promise<void> | null = null
 
     beforeEach(() => {
         initKeaTests()
         autonomyConfig = null
         saves = []
+        saveGate = null
         // msw handlers reset between tests, so register per test rather than once per file.
         useMocks({
             get: {
@@ -36,6 +38,7 @@ describe('SlackNotificationsSection', () => {
                 '/api/users/@me/signal_autonomy/': async ({ request }) => {
                     const body = (await request.clone().json()) as Record<string, unknown>
                     saves.push(body)
+                    await saveGate
                     // The client never names the direct message target; the API answers with it.
                     const { slack_notification_direct_message: wantsDm, ...fields } = body
                     autonomyConfig = {
@@ -91,5 +94,33 @@ describe('SlackNotificationsSection', () => {
 
         expect(await screen.findByText(DM_SAVED)).toBeInTheDocument()
         expect(saves).toEqual([{ slack_notification_integration_id: 1, slack_notification_direct_message: true }])
+    })
+
+    it('disables the switch while the direct message is being saved', async () => {
+        let finishSave: () => void = () => {}
+        saveGate = new Promise((resolve) => {
+            finishSave = resolve
+        })
+
+        render(<SlackNotificationsSection />)
+        const toggle = await screen.findByLabelText('Enable Slack notifications')
+        await userEvent.click(toggle)
+
+        expect(toggle).toBeDisabled()
+        finishSave()
+        expect(await screen.findByText(DM_SAVED)).toBeInTheDocument()
+    })
+
+    it('returns to direct message mode after notifications are disabled', async () => {
+        autonomyConfig = { slack_notification_integration_id: 1, slack_notification_channel: DM_TARGET }
+
+        render(<SlackNotificationsSection />)
+        await userEvent.click(await screen.findByText('Channel'))
+        const toggle = screen.getByLabelText('Enable Slack notifications')
+        await userEvent.click(toggle)
+        await waitFor(() => expect(toggle).not.toBeDisabled())
+        await userEvent.click(toggle)
+
+        expect(await screen.findByText(DM_SAVED)).toBeInTheDocument()
     })
 })

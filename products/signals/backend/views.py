@@ -4584,8 +4584,25 @@ class SignalUserAutonomyConfigView(APIView):
                     )
                 integration = candidate
             defaults["slack_notification_integration"] = integration
-        target = defaults.get("slack_notification_channel")
         wants_direct_message = bool(validated.get("slack_notification_direct_message"))
+        existing_config = SignalUserAutonomyConfig.objects.filter(user=user).first() if integration_in_request else None
+        if (
+            integration_in_request
+            and "slack_notification_channel" not in serializer.initial_data
+            and not wants_direct_message
+            and existing_config is not None
+            and existing_config.slack_notification_integration_id
+            != getattr(defaults["slack_notification_integration"], "id", None)
+        ):
+            existing_target = existing_config.slack_notification_channel or ""
+            if is_slack_member_target(existing_target) and defaults["slack_notification_integration"] is not None:
+                defaults["slack_notification_channel"] = resolve_own_direct_message_target(
+                    user, defaults["slack_notification_integration"]
+                )
+            else:
+                defaults["slack_notification_channel"] = None
+
+        target = defaults.get("slack_notification_channel")
         if wants_direct_message or (target and is_slack_member_target(target)):
             # Resolve against the workspace that would deliver it: this request's, or the saved one.
             workspace = (
@@ -4596,7 +4613,7 @@ class SignalUserAutonomyConfigView(APIView):
             if wants_direct_message:
                 defaults["slack_notification_channel"] = resolve_own_direct_message_target(user, workspace)
             elif target:
-                validate_slack_notification_target(target, workspace)
+                validate_slack_notification_target(user, target, workspace)
         config, _created = SignalUserAutonomyConfig.objects.update_or_create(
             user=user,
             defaults=defaults,

@@ -1,10 +1,12 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import serializers, status
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
@@ -34,17 +36,18 @@ class TestSlackNotificationTargets(SimpleTestCase):
 
     def test_channel_target_is_not_resolved_against_slack(self) -> None:
         with patch("products.signals.backend.slack_notification_targets.SlackIntegration") as slack_cls:
-            validate_slack_notification_target("C0123ABC456|#alerts", None)
+            validate_slack_notification_target(MagicMock(), "C0123ABC456|#alerts", None)
         assert slack_cls.call_count == 0
 
     def test_member_target_without_a_workspace_is_rejected(self) -> None:
         with self.assertRaises(serializers.ValidationError):
-            validate_slack_notification_target("U0123ABC456|@sam", None)
+            validate_slack_notification_target(MagicMock(), "U0123ABC456|@sam", None)
 
 
 class TestSlackNotificationTargetAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        cache.clear()
         self.integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -119,3 +122,64 @@ class TestSlackNotificationTargetAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert self._saved_target() is None
+
+    def test_member_target_must_match_the_callers_own_slack_account(self):
+        response, _ = self._post(
+            {"slack_notification_channel": "U0999OTHER|@other"},
+            member={"id": "U0123ABC456", "profile": {"display_name": "sam"}},
+            email_member_id="U0123ABC456",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert self._saved_target() is None
+
+    def test_member_target_can_match_the_callers_own_slack_account(self):
+        response, _ = self._post(
+            {"slack_notification_channel": "U0123ABC456|@sam"},
+            member={"id": "U0123ABC456", "profile": {"display_name": "sam"}},
+            email_member_id="U0123ABC456",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._saved_target() == "U0123ABC456|@sam"
+
+    def test_workspace_change_resolves_a_saved_direct_message_again(self):
+        SignalUserAutonomyConfig.objects.create(
+            user=self.user,
+            slack_notification_integration=self.integration,
+            slack_notification_channel="U0123OLD456|@sam",
+        )
+        next_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T456",
+            config={"team": {"id": "T456"}},
+            sensitive_config={"access_token": "xoxb-next"},
+            created_by=self.user,
+        )
+
+        response, _ = self._post(
+            {"slack_notification_integration_id": next_integration.id},
+            member={"id": "U0456NEW789", "profile": {"display_name": "sam"}},
+            email_member_id="U0456NEW789",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._saved_target() == "U0456NEW789|@sam"
+
+    def test_missing_member_scope_returns_reconnect_guidance(self):
+        with patch("products.signals.backend.slack_notification_targets.SlackIntegration") as slack_cls:
+            slack_cls.return_value.client.users_lookupByEmail.side_effect = SlackApiError(
+                "missing scope", {"error": "missing_scope"}
+            )
+            response = self.client.post(
+                self._url(),
+                {
+                    "slack_notification_integration_id": self.integration.id,
+                    "slack_notification_direct_message": True,
+                },
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert "Reconnect Slack" in str(body), body

@@ -233,9 +233,11 @@ function PerUserNotificationCard({ integrations }: { integrations: IntegrationTy
             // With one workspace there is nothing to pick, so this also sets the direct message up.
             setSlackPickersExpanded(true)
             if (integration && selectedIntegrationId === null) {
+                setPendingMode('dm')
                 updateSlackNotifications({ integrationId: integration.id, directMessage: true })
             }
         } else {
+            setPendingMode(null)
             setSlackPickersExpanded(false)
             updateSlackNotifications({ integrationId: null, channel: null })
         }
@@ -290,7 +292,7 @@ function PerUserNotificationCard({ integrations }: { integrations: IntegrationTy
                 <LemonSwitch
                     checked={showPickers}
                     onChange={onToggleEnabled}
-                    disabled={autonomyConfigLoading && autonomyConfig === null}
+                    disabled={slackNotificationsSaving || (autonomyConfigLoading && autonomyConfig === null)}
                     aria-label="Enable Slack notifications"
                 />
             </div>

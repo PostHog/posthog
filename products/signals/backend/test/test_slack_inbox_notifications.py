@@ -522,8 +522,11 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
         return {"own@example.com": "U_OWN", "fallback@example.com": "U_FALLBACK"}.get(email.strip().lower())
 
     fake_client = MagicMock()
+    capture_context = MagicMock()
+    capture = capture_context.__enter__.return_value
     with (
         patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.ph_scoped_capture", return_value=capture_context),
         patch(
             "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
             side_effect=_slack_id,
@@ -536,6 +539,7 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
     assert fake_client.chat_postMessage.call_count == 1
     body = fake_client.chat_postMessage.call_args.kwargs["blocks"][2]["elements"][0]["text"]
     assert "<@U_OWN>" in body and "<@U_FALLBACK>" in body
+    assert capture.call_args.kwargs["properties"]["destination"] == "team"
 
 
 @pytest.mark.django_db

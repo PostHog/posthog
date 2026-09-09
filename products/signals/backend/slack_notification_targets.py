@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 import logging
 
+from django.core.cache import cache
+
 from rest_framework import serializers
 from slack_sdk.errors import SlackApiError
 
@@ -23,6 +25,9 @@ from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import SignalUserAutonomyConfig
 from products.signals.backend.slack_formatting import slack_channel_id_from_target
+from products.slack_app.backend.services.slack_user_info import (
+    lookup_slack_user_id_by_email as cached_lookup_slack_user_id_by_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +39,11 @@ _UNRESOLVED_SELF_ERROR = (
     "PostHog could not find your account in this Slack workspace. Connect your Slack account, or pick a channel."
 )
 _SLACK_UNAVAILABLE_ERROR = "Slack did not answer. Try saving this again in a moment."
+_SLACK_MISSING_SCOPE_ERROR = (
+    "Your Slack connection cannot list workspace members. Reconnect Slack, and then save this setting again."
+)
 _NO_WORKSPACE_ERROR = "Choose the Slack workspace to send these through."
+_MEMBER_LOOKUPS_PER_MINUTE = 30
 
 
 def is_slack_member_target(target: str) -> bool:
@@ -48,30 +57,35 @@ def saved_notification_integration(user: User) -> Integration | None:
     return config.slack_notification_integration if config else None
 
 
-def lookup_slack_user_id_by_email(slack: SlackIntegration, email: str) -> str | None:
-    normalized_email = email.strip().lower()
-    if not normalized_email:
-        return None
+def lookup_slack_user_id_by_email(
+    slack: SlackIntegration, email: str, integration: Integration | None = None
+) -> str | None:
+    integration = integration or slack.integration
+    return cached_lookup_slack_user_id_by_email(slack, integration, email, raise_on_error=True)
 
+
+def _cached_slack_member(slack: SlackIntegration, integration: Integration, member_id: str) -> dict | None:
+    lookup_key = f"slack/{integration.id}/users/{member_id}"
+    cached_lookup = cache.get(lookup_key)
+    if cached_lookup is not None:
+        return cached_lookup[0] if cached_lookup else None
+
+    budget_key = f"slack/{integration.id}/users_info_budget"
     try:
-        response = slack.client.users_lookupByEmail(email=normalized_email)
-    except SlackApiError as exc:
-        error_code = exc.response.get("error") if exc.response else None
-        if error_code != "users_not_found":
-            logger.warning(
-                "signals_inbox_slack_user_email_lookup_failed",
-                extra={"email": normalized_email, "error": error_code},
-            )
-        return None
+        lookups = 1 if cache.add(budget_key, 1, 60) else cache.incr(budget_key)
+    except ValueError:
+        lookups = 1
+    if lookups > _MEMBER_LOOKUPS_PER_MINUTE:
+        raise serializers.ValidationError({"slack_notification_direct_message": _SLACK_UNAVAILABLE_ERROR})
 
-    data = response.data if hasattr(response, "data") and isinstance(response.data, dict) else response
-    if not isinstance(data, dict) or not data.get("ok"):
-        return None
-
-    slack_user = data.get("user")
-    if not isinstance(slack_user, dict) or not slack_user.get("id"):
-        return None
-    return str(slack_user["id"])
+    member = slack.get_user_by_id(member_id)
+    serialized_lookup = (
+        [{"id": member["id"], "name": member.get("name", ""), "display_name": _member_display_name(member)}]
+        if member
+        else []
+    )
+    cache.set(lookup_key, serialized_lookup, 60 * 60)
+    return serialized_lookup[0] if serialized_lookup else None
 
 
 def resolve_own_direct_message_target(user: User, integration: Integration | None) -> str:
@@ -86,18 +100,20 @@ def resolve_own_direct_message_target(user: User, integration: Integration | Non
     slack = SlackIntegration(integration)
     try:
         member_id = _linked_slack_member_id(user, integration) or (
-            lookup_slack_user_id_by_email(slack, user.email) if user.email else None
+            lookup_slack_user_id_by_email(slack, user.email, integration) if user.email else None
         )
-        member = slack.get_user_by_id(member_id) if member_id else None
-    except SlackApiError:
+        member = _cached_slack_member(slack, integration, member_id) if member_id else None
+    except SlackApiError as exc:
         logger.warning("signals_slack_self_lookup_failed", extra={"integration_id": integration.id})
-        raise serializers.ValidationError({"slack_notification_direct_message": _SLACK_UNAVAILABLE_ERROR})
+        error_code = exc.response.get("error") if exc.response else None
+        message = _SLACK_MISSING_SCOPE_ERROR if error_code == "missing_scope" else _SLACK_UNAVAILABLE_ERROR
+        raise serializers.ValidationError({"slack_notification_direct_message": message})
     if member is None:
         raise serializers.ValidationError({"slack_notification_direct_message": _UNRESOLVED_SELF_ERROR})
     return f"{member['id']}|@{_member_display_name(member)}"
 
 
-def validate_slack_notification_target(target: str, integration: Integration | None) -> None:
+def validate_slack_notification_target(user: User, target: str, integration: Integration | None) -> None:
     """Resolve a member target a caller sent itself, or raise.
 
     A channel target needs no lookup: the picker already warns when the app is missing from the
@@ -109,12 +125,8 @@ def validate_slack_notification_target(target: str, integration: Integration | N
         return
     if integration is None:
         raise serializers.ValidationError({"slack_notification_channel": _NO_WORKSPACE_ERROR})
-    try:
-        member = SlackIntegration(integration).get_user_by_id(slack_channel_id_from_target(target))
-    except SlackApiError:
-        logger.warning("signals_slack_member_target_lookup_failed", extra={"integration_id": integration.id})
-        raise serializers.ValidationError({"slack_notification_channel": _SLACK_UNAVAILABLE_ERROR})
-    if member is None:
+    resolved_target = resolve_own_direct_message_target(user, integration)
+    if slack_channel_id_from_target(resolved_target) != slack_channel_id_from_target(target):
         raise serializers.ValidationError({"slack_notification_channel": _UNRESOLVED_MEMBER_ERROR})
 
 
@@ -133,4 +145,10 @@ def _linked_slack_member_id(user: User, integration: Integration) -> str | None:
 
 def _member_display_name(member: dict) -> str:
     profile = member.get("profile") or {}
-    return profile.get("display_name") or profile.get("real_name") or member.get("name") or "you"
+    return (
+        profile.get("display_name")
+        or profile.get("real_name")
+        or member.get("display_name")
+        or member.get("name")
+        or "you"
+    )

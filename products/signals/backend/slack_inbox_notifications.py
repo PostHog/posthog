@@ -24,7 +24,7 @@ from django.conf import settings
 from posthog.event_usage import groups
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.ph_client import ph_background_capture
+from posthog.ph_client import ph_scoped_capture
 
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS
 from products.signals.backend.models import (
@@ -542,6 +542,8 @@ def _build_reviewer_routes(
         if route is None:
             route = _ChannelRoute(integration, channel, is_team_channel=is_team_channel)
             routes[key] = route
+        elif is_team_channel:
+            route.is_team_channel = True
         return route
 
     for user_id in sorted(reviewer_user_ids):
@@ -641,20 +643,21 @@ def _capture_notification_delivered(
     """
     try:
         team = report.team
-        ph_background_capture()(
-            distinct_id=str(team.uuid),
-            event="signals_inbox_notification_delivered",
-            properties={
-                "team_id": report.team_id,
-                "report_id": str(report.id),
-                "trigger": trigger,
-                "destination": "team" if route.is_team_channel else "user",
-                "target_kind": "direct_message" if route.is_direct_message else "channel",
-                "reviewer_count": len(route.users),
-                "delivered": delivered,
-            },
-            groups=groups(team.organization, team),
-        )
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=str(team.uuid),
+                event="signals_inbox_notification_delivered",
+                properties={
+                    "team_id": report.team_id,
+                    "report_id": str(report.id),
+                    "trigger": trigger,
+                    "destination": "team" if route.is_team_channel else "user",
+                    "target_kind": "direct_message" if route.is_direct_message else "channel",
+                    "reviewer_count": len(route.users),
+                    "delivered": delivered,
+                },
+                groups=groups(team.organization, team),
+            )
     except Exception:
         logger.exception("Failed to capture signals_inbox_notification_delivered for report %s", report.id)
 
