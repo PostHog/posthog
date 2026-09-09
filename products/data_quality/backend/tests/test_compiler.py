@@ -80,6 +80,11 @@ class TestCheckCompiler:
                 ["customers", "orders"],
                 False,
             ),
+            (
+                "SELECT * FROM {metric} UNION ALL SELECT * FROM customers",
+                ["customers", "orders"],
+                False,
+            ),
         ],
     )
     def test_custom_sql_references_respect_cte_scope(
@@ -102,6 +107,68 @@ class TestCheckCompiler:
                 CustomSqlSpec().referenced_table_names_for_subject(subject, config)
             return
         assert sorted(CustomSqlSpec().referenced_table_names_for_subject(subject, config)) == references
+
+    @parameterized.expand(
+        [
+            (
+                "hogqlx_relation",
+                SubjectType.TABLE,
+                "SELECT * FROM <HogQLQuery query='SELECT * FROM customers' />",
+                "SELECT * FROM orders",
+            ),
+            (
+                "hogqlx_join",
+                SubjectType.VIEW,
+                "SELECT * FROM orders JOIN <HogQLQuery query='SELECT * FROM customers' /> ON 1 = 1",
+                "SELECT * FROM orders",
+            ),
+            (
+                "hogqlx_cte",
+                SubjectType.VIEW,
+                "WITH failures AS (SELECT * FROM <HogQLQuery query='SELECT * FROM customers' />) "
+                "SELECT * FROM failures",
+                "SELECT * FROM orders",
+            ),
+            (
+                "hogqlx_metric_definition",
+                SubjectType.METRIC,
+                "SELECT * FROM {metric}",
+                "SELECT * FROM <HogQLQuery query='SELECT * FROM customers' />",
+            ),
+            (
+                "hogqlx_metric_check",
+                SubjectType.METRIC,
+                "SELECT * FROM {metric} JOIN <HogQLQuery query='SELECT * FROM customers' /> ON 1 = 1",
+                "SELECT * FROM orders",
+            ),
+            (
+                "table_function",
+                SubjectType.TABLE,
+                "SELECT * FROM numbers(10)",
+                "SELECT * FROM orders",
+            ),
+        ]
+    )
+    def test_custom_sql_rejects_unenumerable_table_expressions(
+        self, _name: str, subject_type: SubjectType, query: str, metric_query: str
+    ) -> None:
+        subject = SubjectRef(
+            subject_type,
+            "1cd4a1ef-0000-0000-0000-000000000003",
+            "orders",
+            "orders",
+            exists=True,
+            metric_definition=HogQLMetricDefinition(query=metric_query, values={}),
+        )
+        spec = CustomSqlSpec()
+        config = CustomSqlConfig(query=query)
+
+        with pytest.raises(CheckConfigError, match="table expression"):
+            spec.referenced_table_names_for_subject(subject, config)
+        with pytest.raises(CheckConfigError, match="table expression"):
+            spec.validate_for_subject(config, subject)
+        with pytest.raises(CheckConfigError, match="table expression"):
+            compile_check(check_type=CheckType.CUSTOM_SQL, subject=subject, column_name="", config={"query": query})
 
     def test_custom_sql_is_the_only_metric_check_type(self) -> None:
         """Catches registry filtering custom SQL out of the metric check catalog."""

@@ -9,11 +9,15 @@ from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
+from posthog.schema import CachedHogQLQueryResponse, CacheMissResponse, HogQLQuery
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -101,7 +105,8 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
 
         assert rows == [("orders_status_accepted", "orders", "accepted_values", '{"values": ["paid"]}', "error")]
 
-    def test_catalog_denial_hides_metric_definitions_history_and_health(self) -> None:
+    @parameterized.expand([("data_quality_checks",), ("data_quality_check_runs",), ("data_quality_health",)])
+    def test_catalog_denial_hides_metric_definitions_history_and_health(self, table: str) -> None:
         metric = Metric.objects.for_team(self.team.id).create(
             team=self.team,
             name="signups",
@@ -118,19 +123,37 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
             config={"query": "SELECT * FROM {metric}"},
         )
         self._run_for(check, referenced_subjects=[])
-        for table in ("data_quality_checks", "data_quality_check_runs", "data_quality_health"):
-            assert len(self._query(f"SELECT subject_name FROM system.information_schema.{table}")) == 1
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
         self.organization.save(update_fields=["available_product_features"])
+        denied_user = self._create_user("catalog-denied@example.com")
         AccessControl.objects.create(
             team=self.team,
             resource="data_catalog",
-            organization_member=self.organization_membership,
+            organization_member=denied_user.organization_memberships.get(organization=self.organization),
             access_level="none",
         )
-        cache.clear()
-        for table in ("data_quality_checks", "data_quality_check_runs", "data_quality_health"):
-            assert self._query(f"SELECT subject_name FROM system.information_schema.{table}") == []
+        query = HogQLQuery(query=f"SELECT subject_name FROM system.information_schema.{table}")
+        allowed_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        denied_runner = HogQLQueryRunner(query=query, team=self.team, user=denied_user)
+        allowed_response = allowed_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(allowed_response, CachedHogQLQueryResponse)
+        assert allowed_response.is_cached is False
+        assert allowed_response.results == [("signups",)]
+        allowed_cached_response = allowed_runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        assert isinstance(allowed_cached_response, CachedHogQLQueryResponse)
+        assert allowed_cached_response.is_cached is True
+        assert allowed_cached_response.results == [["signups"]]
+
+        denied_cache_miss = denied_runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        assert isinstance(denied_cache_miss, CacheMissResponse)
+        denied_response = denied_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(denied_response, CachedHogQLQueryResponse)
+        assert denied_response.results == []
+        assert denied_response.is_cached is False
+        denied_cached_response = denied_runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        assert isinstance(denied_cached_response, CachedHogQLQueryResponse)
+        assert denied_cached_response.is_cached is True
+        assert denied_cached_response.results == []
 
     def test_catalog_only_member_can_discover_only_metric_checks(self) -> None:
         self._check()

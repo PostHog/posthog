@@ -3,6 +3,8 @@ from dataclasses import replace
 from posthog.hogql import ast
 from posthog.hogql.visitor import TraversingVisitor
 
+from .errors import CheckConfigError
+
 
 class ScopedQueryVisitor(TraversingVisitor):
     def __init__(self) -> None:
@@ -46,6 +48,10 @@ class _TableReferences(ScopedQueryVisitor):
         self.table_names: set[str] = set()
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if node.table_args is not None or not isinstance(node.table, ast.Field | ast.SelectQuery | ast.SelectSetQuery):
+            raise CheckConfigError(
+                "Custom SQL checks cannot use this table expression. Use a table name or a SELECT subquery."
+            )
         if isinstance(node.table, ast.Field):
             name = ".".join(str(part) for part in node.table.chain)
             if name not in self.cte_names:

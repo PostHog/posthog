@@ -7,16 +7,15 @@ run after run is already known about; re-notifying every run is how an inbox get
 from collections.abc import Sequence
 from typing import cast
 from urllib.parse import quote
+from uuid import UUID
 
 import structlog
 
 from posthog.models import Team, User
 from posthog.scopes import APIScopeObject
 
-from products.access_control.backend.facade.user_access_control import (
-    UserAccessControl,
-    access_level_satisfied_for_resource,
-)
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -25,6 +24,7 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
+from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ..facade.enums import CheckRunStatus, SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
@@ -34,8 +34,6 @@ from .subject_access import (
     SubjectMetadata,
     caller_denial_context,
     can_be_object_denied,
-    denied_subject_names,
-    is_subject_denied,
     referenced_subject_names,
     referencing_check_types,
     subject_metadata,
@@ -113,15 +111,20 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         resource = _SUBJECT_RESOURCE.get(SubjectType(self._subject_type))
         if resource is None:
             return user_ids
-        object_id = self._subject_uuid
+        object_id = UUID(self._subject_uuid)
 
         if not self._access_controls_supported(user_ids):
             return user_ids
 
         allowed: list[int] = []
         for user in User.objects.filter(id__in=user_ids):
-            level = self._access_of(user).bulk_object_access_levels(resource, [(object_id, None)]).get(object_id)
-            if level is not None and access_level_satisfied_for_resource(resource, level, "viewer"):
+            access = self._access_of(user)
+            allowed_ids = (
+                warehouse_facade.allowed_table_ids(self._team.id, access)
+                if self._subject_type == SubjectType.TABLE
+                else data_modeling_facade.allowed_saved_query_ids(self._team.id, access)
+            )
+            if object_id in allowed_ids:
                 allowed.append(user.id)
         return allowed
 
@@ -141,21 +144,14 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         for user in User.objects.filter(id__in=user_ids):
             if self._executed_references is None and can_be_object_denied(self._access_of(user)):
                 continue
-            if self._executed_references:
-                if self._subject_metadata is None:
-                    self._subject_metadata = subject_metadata(self._team.id)
-                context = caller_denial_context(
-                    self._team, user, self._access_of(user), metadata=self._subject_metadata
-                )
-                if not all(
-                    context.readable.contains(ref["subject_type"], ref["subject_uuid"])
-                    for ref in self._executed_references
-                ):
-                    continue
-                denied = context.denied
-            else:
-                denied = denied_subject_names(self._team, user, self._access_of(user))
-            if not any(is_subject_denied(name, denied) for name in self._referenced_names):
+            if self._subject_metadata is None:
+                self._subject_metadata = subject_metadata(self._team.id)
+            context = caller_denial_context(self._team, user, self._access_of(user), metadata=self._subject_metadata)
+            if self._executed_references and not all(
+                context.readable.contains(ref["subject_type"], ref["subject_uuid"]) for ref in self._executed_references
+            ):
+                continue
+            if not context.matcher.matches(self._referenced_names):
                 allowed.append(user.id)
         return allowed
 

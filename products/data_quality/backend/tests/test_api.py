@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -26,6 +27,10 @@ from products.data_quality.backend.presentation.serializers import DataQualitySu
 from products.data_quality.backend.presentation.views import SavedQueryCheckViewSet
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+    from posthog.models.user import User
 
 START_SUITE = "products.data_quality.backend.logic.checks.sync_connect"
 FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_enabled"
@@ -147,6 +152,58 @@ class TestMetricCheckAPI(APIBaseTest):
         assert self.client.get(f"{self.url}/").status_code == 403
         assert self.client.get(f"{self.suites_url}/").status_code == 403
         assert self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/").json()["results"] == []
+
+    @parameterized.expand([("check_assertion", False), ("metric_definition", True)])
+    def test_saved_expandable_sources_are_hidden_and_cannot_be_edited_or_run(
+        self, _name: str, in_metric_definition: bool
+    ) -> None:
+        created = self._create()
+        source = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS total"}
+        )
+        expandable_source = "<HogQLQuery query='SELECT * FROM orders' />"
+        if in_metric_definition:
+            self.metric.definition = {"kind": "HogQLQuery", "query": f"SELECT * FROM {expandable_source}"}
+            self.metric.save(update_fields=["definition"])
+        else:
+            DataQualityCheck.objects.for_team(self.team.id).filter(id=created["id"]).update(
+                config={"query": f"SELECT * FROM {{metric}} JOIN {expandable_source} ON 1 = 1"}
+            )
+        check = DataQualityCheck.objects.for_team(self.team.id).get(id=created["id"])
+        original_config = check.config
+        original_fingerprint = check.fingerprint
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(source.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+
+        for url in (f"{self.url}/", f"/api/projects/{self.team.id}/data_quality_checks/"):
+            listed = self.client.get(url)
+            assert listed.status_code == status.HTTP_200_OK, listed.content
+            assert listed.json()["results"] == []
+            assert listed.json()["count"] == 0
+
+        assert self.client.get(f"{self.url}/{check.id}/").status_code == status.HTTP_403_FORBIDDEN
+        edited = self.client.patch(f"{self.url}/{check.id}/", {"enabled": False})
+        assert edited.status_code == status.HTTP_403_FORBIDDEN, edited.content
+        with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):
+            nested_run = self.client.post(f"{self.url}/{check.id}/run/")
+            project_run = self.client.post(
+                f"/api/projects/{self.team.id}/data_quality_runs/", {"check_ids": [str(check.id)]}
+            )
+        assert nested_run.status_code == status.HTTP_403_FORBIDDEN, nested_run.content
+        assert project_run.status_code == status.HTTP_403_FORBIDDEN, project_run.content
+        assert not DataQualitySuiteRun.objects.for_team(self.team.id).exists()
+        check.refresh_from_db()
+        assert check.config == original_config
+        assert check.fingerprint == original_fingerprint
+        assert check.enabled
 
     def test_nested_cte_cannot_expose_history_after_metric_source_changes(self) -> None:
         source = DataWarehouseSavedQuery.objects.create(
@@ -849,9 +906,11 @@ class TestDataQualityCheckAPI(APIBaseTest):
             last_succeeded_at=ran_at,
             failing_since=ran_at,
         )
+        url = f"{self._checks_url(allowed.id)}/{check.id}"
+        authorized_edit = self.client.patch(url + "/", {"config": {"query": "SELECT 1 FROM customers"}})
+        assert authorized_edit.status_code == status.HTTP_200_OK, authorized_edit.json()
         self._deny_the_view()
 
-        url = f"{self._checks_url(allowed.id)}/{check.id}"
         edited = self.client.patch(url + "/", {"check_type": CheckType.NOT_NULL, "column_name": "id", "config": {}})
         history = self.client.get(f"{url}/runs/")
 
@@ -1020,14 +1079,15 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert DataQualityCheck.objects.for_team(self.team.id).count() == 0
 
-    def test_editing_a_check_to_read_a_denied_subject_writes_nothing(self) -> None:
+    @parameterized.expand([("patch",), ("put",)])
+    def test_editing_a_check_to_read_a_denied_subject_writes_nothing(self, method: str) -> None:
         # The stored definition cleared the denial; the candidate one has to clear it too, or an edit
         # is the way to point a visible check at a table the member cannot read.
         allowed = self._make_view("customers")
         check = self._create_check(url=self._checks_url(allowed.id), column_name="id")
         self._deny_the_view()
 
-        response = self.client.patch(
+        response = getattr(self.client, method)(
             f"{self._checks_url(allowed.id)}/{check.id}/",
             {"check_type": CheckType.CUSTOM_SQL, "column_name": "", "config": {"query": "SELECT 1 FROM orders"}},
         )
@@ -1035,6 +1095,77 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         check.refresh_from_db()
         assert check.check_type == CheckType.NOT_NULL
+
+    @parameterized.expand([("patch",), ("put",), ("presentation",)])
+    def test_editing_a_check_with_an_unreadable_stored_definition_writes_nothing(self, method: str) -> None:
+        allowed = self._make_view("customers")
+        check = self._create_check(
+            url=self._checks_url(allowed.id),
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+        )
+        original_fingerprint = check.fingerprint
+        self._deny_the_view()
+        changes = (
+            {"enabled": False}
+            if method == "presentation"
+            else {"check_type": CheckType.CUSTOM_SQL, "column_name": "", "config": {"query": "SELECT 1"}}
+        )
+
+        response = getattr(self.client, "patch" if method == "presentation" else method)(
+            f"{self._checks_url(allowed.id)}/{check.id}/", changes
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        check.refresh_from_db()
+        assert check.config == {"query": "SELECT 1 FROM orders"}
+        assert check.fingerprint == original_fingerprint
+        assert check.enabled
+
+    def test_editing_rechecks_access_when_the_stored_definition_changes_before_locking(self) -> None:
+        allowed = self._make_view("customers")
+        check = self._create_check(
+            url=self._checks_url(allowed.id),
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM customers"},
+        )
+        concurrent_config = {"query": "SELECT 1 FROM orders"}
+        concurrent_fingerprint = api.compute_fingerprint(
+            subject_type=check.subject_type,
+            subject_uuid=str(check.subject_uuid),
+            check_type=check.check_type,
+            column_name=check.column_name,
+            config=concurrent_config,
+        )
+        self._deny_the_view()
+        build_candidate = checks_logic._candidate_definition
+        definition_changed = False
+
+        def replace_definition_before_lock(
+            team: "Team", current: DataQualityCheck, requested: dict[str, object], editor: "User | None"
+        ) -> checks_logic._CandidateDefinition:
+            nonlocal definition_changed
+            if not definition_changed:
+                DataQualityCheck.objects.for_team(team.id).filter(id=current.id).update(
+                    config=concurrent_config, fingerprint=concurrent_fingerprint
+                )
+                definition_changed = True
+            return build_candidate(team, current, requested, editor)
+
+        with patch.object(checks_logic, "_candidate_definition", side_effect=replace_definition_before_lock):
+            response = self.client.patch(
+                f"{self._checks_url(allowed.id)}/{check.id}/",
+                {"config": {"query": "SELECT 1"}, "description": "proposed change"},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        check.refresh_from_db()
+        assert check.config == concurrent_config
+        assert check.fingerprint == concurrent_fingerprint
+        assert check.description == ""
+        assert check.definition_author is None
 
     def _suite_with_two_runs(self, allowed: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
         suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(

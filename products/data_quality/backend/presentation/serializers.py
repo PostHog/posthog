@@ -190,6 +190,7 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
                 team=self.context["get_team"](),
                 check=instance,
                 editor=getattr(request, "user", None) if request else None,
+                authorize=self.context.get("authorize_check_edit"),
                 **validated_data,
             )
         except api.CheckEditConflict as conflict:

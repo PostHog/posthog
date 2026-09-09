@@ -2,11 +2,14 @@ from collections.abc import Collection
 from dataclasses import replace
 from typing import TYPE_CHECKING, Literal
 
+from products.data_modeling.backend.facade import api as data_modeling_facade
+from products.warehouse_sources.backend.facade import api as warehouse_facade
+
 from ..facade.enums import SubjectType
 from .subject_access import DenialContext, ReadableSubjects
 
 if TYPE_CHECKING:
-    from posthog.scopes import APIScopeObject
+    from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -18,14 +21,46 @@ _SUBJECT_RESOURCES: dict[SubjectType, "APIScopeObject"] = {
 
 
 def authorized_subject_types(
-    access: "UserAccessControl", scopes: Collection[str] | None, *, write: bool = False
+    access: "UserAccessControl",
+    scopes: Collection[str] | None,
+    *,
+    write: bool = False,
+    route_scope: "APIScopeObjectOrNotSupported | None" = None,
 ) -> frozenset[SubjectType]:
     level: Literal["editor", "viewer"] = "editor" if write else "viewer"
     return frozenset(
         kind
         for kind, resource in _SUBJECT_RESOURCES.items()
-        if access.check_access_level_for_resource(resource, level)
-        and _scope_allows(scopes, "data_catalog" if kind == SubjectType.METRIC else "warehouse_objects", write)
+        if _scope_allows(
+            scopes,
+            resource if kind == SubjectType.METRIC or resource == route_scope else "warehouse_objects",
+            write,
+        )
+        and _has_subject_access(access, kind, level)
+    )
+
+
+def _has_subject_access(access: "UserAccessControl", kind: SubjectType, level: Literal["editor", "viewer"]) -> bool:
+    if access.check_access_level_for_resource(_SUBJECT_RESOURCES[kind], level):
+        return True
+    if access.team is None or kind == SubjectType.METRIC:
+        return False
+    if kind == SubjectType.TABLE:
+        return bool(warehouse_facade.allowed_table_ids(access.team.id, access, required_level=level))
+    return bool(data_modeling_facade.allowed_saved_query_ids(access.team.id, access, required_level=level))
+
+
+def writable_subjects(context: DenialContext, access: "UserAccessControl") -> ReadableSubjects:
+    if access.team is None:
+        return ReadableSubjects(table_ids=frozenset(), view_ids=frozenset())
+    return ReadableSubjects(
+        table_ids=context.readable.table_ids
+        & warehouse_facade.allowed_table_ids(access.team.id, access, required_level="editor"),
+        view_ids=context.readable.view_ids
+        & data_modeling_facade.allowed_saved_query_ids(access.team.id, access, required_level="editor"),
+        metric_ids=context.readable.metric_ids
+        if access.check_access_level_for_resource("data_catalog", "editor")
+        else frozenset(),
     )
 
 

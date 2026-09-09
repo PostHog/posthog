@@ -17,6 +17,7 @@ import json
 import uuid
 import hashlib
 from collections import defaultdict
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
 import structlog
@@ -950,6 +951,21 @@ _RELATIONSHIP_PROPOSALS_DESCRIPTION = (
 )
 
 
+class DeniedTableMatcher:
+    def __init__(self, denied: Iterable[str]) -> None:
+        normalized_names = {name.lower() for name in denied}
+        self._denied_names = frozenset(normalized_names | {name.rsplit(".", 1)[-1] for name in normalized_names})
+
+    def matches(self, referenced_table_names: Iterable[str] | None) -> bool:
+        if not self._denied_names or referenced_table_names is None:
+            return False
+        for name in referenced_table_names:
+            normalized = name.lower()
+            if normalized in self._denied_names or normalized.rsplit(".", 1)[-1] in self._denied_names:
+                return True
+        return False
+
+
 def _references_denied_table(referenced_table_names: Optional[list[str]], denied: set[str]) -> bool:
     """Whether any of a metric's referenced tables is in the caller's denied set.
 
@@ -961,13 +977,7 @@ def _references_denied_table(referenced_table_names: Optional[list[str]], denied
     """
     if not denied or not referenced_table_names:
         return False
-    denied_norm = {name.lower() for name in denied}
-    denied_norm |= {name.rsplit(".", 1)[-1] for name in denied_norm}
-    for name in referenced_table_names:
-        normalized = name.lower()
-        if normalized in denied_norm or normalized.rsplit(".", 1)[-1] in denied_norm:
-            return True
-    return False
+    return DeniedTableMatcher(denied).matches(referenced_table_names)
 
 
 def references_denied_table(referenced_table_names: Optional[list[str]], denied: set[str]) -> bool:
@@ -1007,7 +1017,7 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
 
     record_catalog_read("metrics")
     try:
-        denied = context.database._denied_tables if context.database is not None else set()
+        denied_matcher = DeniedTableMatcher(context.database._denied_tables if context.database is not None else ())
         queryset = (
             Metric.objects.for_team(team_id).filter(deleted=False).select_related("owner").order_by("-created_at")
         )
@@ -1017,7 +1027,7 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
         drift = compute_drift(metrics)
         rows: list[list[Any]] = []
         for metric in metrics:
-            if _references_denied_table(metric.referenced_table_names, denied):
+            if denied_matcher.matches(metric.referenced_table_names):
                 continue
             rows.append(
                 [
@@ -1052,13 +1062,12 @@ def _can_read_data_quality(context: "HogQLContext") -> bool:
     reading them is warehouse read access (either resource resolves through warehouse_objects).
     Fails closed with no access-control context (service tokens, shared links).
     """
+    from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
+
     access_control = _access_control(context)
     if access_control is None:
         return False
-    return any(
-        access_control.check_access_level_for_resource(resource, "viewer")
-        for resource in ("warehouse_view", "warehouse_table", "data_catalog")
-    )
+    return bool(data_quality.authorized_subject_types(access_control, None))
 
 
 def _access_control(context: "HogQLContext") -> Any:

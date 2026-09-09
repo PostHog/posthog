@@ -22,12 +22,12 @@ from ..logic.checks import (
 )
 from ..logic.compiler import compile_check, related_subject_ref
 from ..logic.config import get_gate_config, set_gate_materialization_on_checks
-from ..logic.contracts import CompiledCheck, SubjectRef
+from ..logic.contracts import CompiledCheck, SubjectIdentity, SubjectRef
 from ..logic.errors import CheckConfigError, CheckEditConflict, SubjectUnresolvableError
 from ..logic.health import CheckStatusRow, roll_up_health
 from ..logic.navigation import SubjectKey, SubjectLocation, subject_locations
 from ..logic.notifications import notify_materialization_blocked
-from ..logic.permissions import authorized_subject_types, restrict_subject_types
+from ..logic.permissions import authorized_subject_types, restrict_subject_types, writable_subjects
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.run_records import record_check_run
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
@@ -40,12 +40,14 @@ from ..logic.subject_access import (
     definition_reads_unreadable_subject,
     denial_context,
     denied_subject_names,
+    readable_check_subjects,
     suites_backing_unreadable_runs_q,
     unreadable_suites_q,
+    visible_check_queryset,
     visible_checks,
     without_denied_runs,
 )
-from ..logic.subjects import resolve_subject
+from ..logic.subjects import resolve_metric_subjects, resolve_subject
 from ..logic.triggers import materialization_audit_mode as quality_audit_mode
 from .contracts import CheckTypeInfo
 
@@ -59,6 +61,7 @@ __all__ = [
     "ReadableSubjects",
     "ReferencedSubjects",
     "SubjectKey",
+    "SubjectIdentity",
     "SubjectLocation",
     "SubjectRef",
     "SubjectUnresolvableError",
@@ -74,6 +77,7 @@ __all__ = [
     "definition_reads_unreadable_subject",
     "denial_context",
     "denied_subject_names",
+    "readable_check_subjects",
     "edit_check",
     "edits_the_assertion",
     "empty_check_suite",
@@ -86,6 +90,7 @@ __all__ = [
     "record_check_run",
     "related_subject_ref",
     "resolve_subject",
+    "resolve_metric_subjects",
     "roll_up_health",
     "set_gate_materialization_on_checks",
     "soft_delete_check",
@@ -98,5 +103,7 @@ __all__ = [
     "upsert_check",
     "validate_check",
     "visible_checks",
+    "visible_check_queryset",
     "without_denied_runs",
+    "writable_subjects",
 ]

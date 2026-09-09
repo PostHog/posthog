@@ -33,6 +33,7 @@ from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.logic.subject_access import referenced_subject_names
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.notifications.backend.facade.enums import TargetType
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 CREATE_NOTIFICATION = "products.data_quality.backend.logic.notifications.create_notification"
@@ -271,6 +272,38 @@ class TestDataQualityNotifications(BaseTest):
         assert allowed.id in resolved
         assert blocked.id not in resolved
 
+    @parameterized.expand([("table",), ("source",)])
+    def test_table_notifications_preserve_object_and_source_grants(self, granted_resource: str) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        allowed = self._create_user("allowed@example.com")
+        blocked = self._create_user("blocked@example.com")
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="orders_table",
+            format="Parquet",
+            url_pattern="s3://bucket/orders",
+            external_data_source=source,
+            created_by=self.user,
+        )
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source" if granted_resource == "source" else "warehouse_table",
+            resource_id=str(source.id if granted_resource == "source" else table.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=allowed),
+            access_level="viewer",
+        )
+        check = self._check(
+            subject_type=SubjectType.TABLE, saved_query_id=None, table_id=table.id, subject_name=table.name
+        )
+        resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+
+        assert allowed.id in resolved
+        assert self.user.id in resolved
+        assert blocked.id not in resolved
+
     def _deny_view_for_member(self, view, member: User) -> None:
         # Deny one member object-level access to a view the way the HogQL database sees it, so
         # denied_subject_names() picks it up -- the same setup the REST run-history tests use.
@@ -295,12 +328,14 @@ class TestDataQualityNotifications(BaseTest):
 
     @parameterized.expand(
         [
-            ("custom_sql", CheckType.CUSTOM_SQL, "", {"query": "SELECT 1 FROM orders"}),
-            ("relationships", CheckType.RELATIONSHIPS, "customer_id", None),
+            ("custom_sql", CheckType.CUSTOM_SQL, "", {"query": "SELECT 1 FROM orders"}, True),
+            ("relationships", CheckType.RELATIONSHIPS, "customer_id", None, True),
+            ("custom_sql_without_enforcement", CheckType.CUSTOM_SQL, "", {"query": "SELECT 1 FROM orders"}, False),
+            ("relationships_without_enforcement", CheckType.RELATIONSHIPS, "customer_id", None, False),
         ]
     )
     def test_members_denied_a_referenced_subject_do_not_get_the_notification(
-        self, _name, check_type, column_name, config
+        self, _name, check_type, column_name, config, enforce_warehouse_access: bool
     ) -> None:
         # A relationships check reads a target subject and a custom_sql check reads arbitrary tables,
         # so the failing-row count is a count oracle over those too. A member allowed the declared
@@ -321,7 +356,13 @@ class TestDataQualityNotifications(BaseTest):
             config=config,
         )
 
-        resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda name, *args, **kwargs: (
+                enforce_warehouse_access and name == "hogql-warehouse-access-control"
+            ),
+        ):
+            resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
 
         assert self.user.id in resolved
         assert blocked.id not in resolved

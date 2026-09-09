@@ -6,7 +6,7 @@ the composed SQL without executing the query.
 """
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
@@ -216,7 +216,14 @@ class _CandidateDefinition:
     fingerprint: str
 
 
-def edit_check(*, team: Team, check: DataQualityCheck, editor: User | None, **fields: Any) -> DataQualityCheck:
+def edit_check(
+    *,
+    team: Team,
+    check: DataQualityCheck,
+    editor: User | None,
+    authorize: Callable[[DataQualityCheck], None] | None = None,
+    **fields: Any,
+) -> DataQualityCheck:
     """Save a complete definition change, or none of it. The owning subject never moves.
 
     Two edits to the same check serialize on the row lock, so the loser recomputes against what the
@@ -227,6 +234,8 @@ def edit_check(*, team: Team, check: DataQualityCheck, editor: User | None, **fi
     requested = {key: value for key, value in fields.items() if key in _EDITABLE_FIELDS}
     while True:
         current = DataQualityCheck.objects.for_team(team.id).get(id=check.id)
+        if authorize is not None:
+            authorize(current)
         candidate = _candidate_definition(team, current, requested, editor)
         try:
             with transaction.atomic():

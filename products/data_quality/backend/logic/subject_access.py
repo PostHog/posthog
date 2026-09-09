@@ -13,13 +13,15 @@ know is absent from that snapshot and therefore out of reach.
 
 import json
 from collections.abc import Sequence
+from dataclasses import field
+from itertools import batched
 from typing import TYPE_CHECKING, Any, Optional, TypeVar
 from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.schema.information_schema import references_denied_table
+from posthog.hogql.database.schema.information_schema import DeniedTableMatcher, references_denied_table
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -45,6 +47,8 @@ if TYPE_CHECKING:
 _SUBJECT_TYPE_KEY = "subject_type"
 _SUBJECT_UUID_KEY = "subject_uuid"
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
+_CHECK_VISIBILITY_BATCH_SIZE = 200
+_CHECK_VISIBILITY_FIELDS = ("id", "subject_type", "table_id", "saved_query_id", "metric_id", "check_type", "config")
 
 
 def denied_subject_names(
@@ -121,6 +125,10 @@ class DenialContext:
     denied: set[str]
     database: Database
     metadata: "SubjectMetadata | None" = None
+    matcher: DeniedTableMatcher = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "matcher", DeniedTableMatcher(self.denied))
 
 
 @frozen
@@ -158,21 +166,20 @@ def readable_subjects(
     it safe to hold a whole page of run history up against.
     """
     metadata = metadata if metadata is not None else subject_metadata(team_id)
+    matcher = DeniedTableMatcher(denied)
     return ReadableSubjects(
         table_ids=frozenset(
             table_id
             for table_id, name in metadata.table_names.items()
-            if can_read_tables and not is_subject_denied(name, denied)
+            if can_read_tables and not matcher.matches([name])
         ),
         view_ids=frozenset(
-            view_id
-            for view_id, name in metadata.view_names.items()
-            if can_read_views and not is_subject_denied(name, denied)
+            view_id for view_id, name in metadata.view_names.items() if can_read_views and not matcher.matches([name])
         ),
         metric_ids=frozenset(
             metric.id
             for metric in metadata.metrics
-            if can_read_catalog and not references_denied_table(metric.referenced_table_names, denied)
+            if can_read_catalog and not matcher.matches(metric.referenced_table_names)
         ),
     )
 
@@ -183,13 +190,15 @@ def denial_context(team_id: int, database: Database, *, metadata: SubjectMetadat
     denied = set(database._denied_tables)
     access = database.user_access_control
     can_read_catalog = access is not None and access.check_access_level_for_resource("data_catalog", "viewer")
+    allowed_tables = warehouse_facade.allowed_table_ids(team_id, access) if access is not None else frozenset()
+    allowed_views = data_modeling_facade.allowed_saved_query_ids(team_id, access) if access is not None else frozenset()
+    denied.update(name for identifier, name in metadata.table_names.items() if identifier not in allowed_tables)
+    denied.update(name for identifier, name in metadata.view_names.items() if identifier not in allowed_views)
     return DenialContext(
         readable=readable_subjects(
             team_id,
             denied,
             can_read_catalog=can_read_catalog,
-            can_read_tables=access is not None and access.check_access_level_for_resource("warehouse_table", "viewer"),
-            can_read_views=access is not None and access.check_access_level_for_resource("warehouse_view", "viewer"),
             metadata=metadata,
         ),
         denied=denied,
@@ -307,6 +316,29 @@ def visible_checks(team_id: int, checks: Sequence[DataQualityCheck], context: De
     return [check for check in checks if check.id not in hidden]
 
 
+def readable_check_subjects(
+    queryset: QuerySet[DataQualityCheck], readable: ReadableSubjects
+) -> QuerySet[DataQualityCheck]:
+    return queryset.filter(
+        Q(subject_type=SubjectType.TABLE, table_id__in=readable.table_ids)
+        | Q(subject_type=SubjectType.VIEW, saved_query_id__in=readable.view_ids)
+        | Q(subject_type=SubjectType.METRIC, metric_id__in=readable.metric_ids)
+    )
+
+
+def visible_check_queryset(
+    team_id: int, queryset: QuerySet[DataQualityCheck], context: DenialContext
+) -> QuerySet[DataQualityCheck]:
+    queryset = readable_check_subjects(queryset, context.readable)
+    candidates = queryset.select_related(None).prefetch_related(None).only(*_CHECK_VISIBILITY_FIELDS)
+    hidden: set[UUID] = set()
+    for batch in batched(
+        candidates.iterator(chunk_size=_CHECK_VISIBILITY_BATCH_SIZE), _CHECK_VISIBILITY_BATCH_SIZE, strict=False
+    ):
+        hidden.update(hidden_check_ids(team_id, batch, context))
+    return queryset.exclude(id__in=hidden)
+
+
 def definition_reads_unreadable_subject(
     team_id: int, check_type: str, config: dict[str, Any], context: DenialContext, *, subject: SubjectRef | None = None
 ) -> bool:
@@ -330,7 +362,7 @@ def definition_reads_unreadable_subject(
         refs.related_subject.subject_type, refs.related_subject.subject_uuid
     ):
         return True
-    if any(is_subject_denied(name, context.denied) for name in refs.names):
+    if context.matcher.matches(refs.names):
         return True
     return bool(unconfirmable_subject_names(refs.names, context.database))
 

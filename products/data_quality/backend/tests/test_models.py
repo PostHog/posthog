@@ -119,6 +119,7 @@ class TestDataQualityModels(BaseTest):
             check.save()
 
         entry = ActivityLog.objects.get(scope="DataQualityCheck", item_id=str(check.id), activity="updated")
+        assert entry.detail is not None
         assert [change["field"] for change in entry.detail["changes"]] == ["description"]
 
     def test_blank_names_coexist_but_set_names_are_unique(self) -> None:

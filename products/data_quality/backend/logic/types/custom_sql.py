@@ -81,14 +81,15 @@ class CustomSqlSpec(QueryCheckTypeSpec):
         return referenced_table_names(build_failing_rows(subject, config))
 
     def validate_for_subject(self, config: CheckConfig, subject: SubjectRef) -> None:
-        assert isinstance(config, CustomSqlConfig)
-        build_failing_rows(subject, config)
+        self.referenced_table_names_for_subject(subject, config)
 
     def build(
         self, subject: SubjectRef, column_name: str, config: CheckConfig, related: SubjectRef | None = None
     ) -> CheckPlan:
         assert isinstance(config, CustomSqlConfig)
-        return CheckPlan(failing_rows=build_failing_rows(subject, config))
+        failing_rows = build_failing_rows(subject, config)
+        referenced_table_names(failing_rows)
+        return CheckPlan(failing_rows=failing_rows)
 
 
 SPEC = CustomSqlSpec()

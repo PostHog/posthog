@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+from dataclasses import replace
 from types import SimpleNamespace
 
 from posthog.test.base import BaseTest
@@ -17,14 +18,18 @@ from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.api import upsert_metric
+from products.data_catalog.backend.facade.models import Metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.logic.checks import upsert_check
+from products.data_quality.backend.logic.permissions import writable_subjects
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.logic.subject_access import (
     DenialContext,
     definition_reads_unreadable_subject,
+    denial_context,
     hidden_check_ids,
     pin_referenced_subjects,
     readable_subjects,
@@ -33,7 +38,7 @@ from products.data_quality.backend.logic.subject_access import (
 )
 from products.data_quality.backend.logic.subjects import resolve_subject
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 
 class TestMetricSubjectAccess(BaseTest):
@@ -69,6 +74,93 @@ class TestMetricSubjectAccess(BaseTest):
             definition_reads_unreadable_subject(self.team.id, "custom_sql", self.config, context, subject=self.subject)
             is expected
         )
+
+    @parameterized.expand(
+        [
+            ("disabled_viewer", False, "viewer"),
+            ("disabled_editor", False, "editor"),
+            ("enabled_viewer", True, "viewer"),
+            ("enabled_editor", True, "editor"),
+        ]
+    )
+    def test_context_preserves_specific_grants_and_denies_ungranted_dependencies(
+        self, _name: str, enforce_warehouse_access: bool, access_level: str
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        member = self._create_user("member@example.com")
+        membership = member.organization_memberships.get(organization=self.organization)
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+        self.metric_table.external_data_source = source
+        self.metric_table.save(update_fields=["external_data_source"])
+        granted_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="granted_rows",
+            format="Parquet",
+            url_pattern="s3://bucket/granted",
+            columns={"amount": {"clickhouse": "Int64", "hogql": "integer"}},
+        )
+        ungranted_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="ungranted_rows",
+            format="Parquet",
+            url_pattern="s3://bucket/ungranted",
+            columns={"amount": {"clickhouse": "Int64", "hogql": "integer"}},
+        )
+        ungranted_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="ungranted_view", query={"kind": "HogQLQuery", "query": "SELECT 1 AS amount"}
+        )
+        for name in ["ungranted_rows", "ungranted_view"]:
+            Metric.objects.for_team(self.team.id).create(
+                team=self.team,
+                name=f"metric_{name}",
+                definition={"kind": "HogQLQuery", "query": f"SELECT 1 AS amount FROM {name}"},
+                referenced_table_names=[name],
+            )
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+        for resource, identifier in [
+            ("warehouse_table", granted_table.id),
+            ("warehouse_view", self.extra_view.id),
+            ("external_data_source", source.id),
+        ]:
+            AccessControl.objects.create(
+                team=self.team,
+                resource=resource,
+                resource_id=str(identifier),
+                organization_member=membership,
+                access_level=access_level,
+            )
+        cache.clear()
+        access = UserAccessControl(member, team=self.team)
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda name, *args, **kwargs: (
+                enforce_warehouse_access and name == "hogql-warehouse-access-control"
+            ),
+        ):
+            database = Database.create_for(team=self.team, user=member, user_access_control=access)
+            context = denial_context(self.team.id, database)
+
+        assert context.readable.table_ids == frozenset({self.metric_table.id, granted_table.id})
+        assert context.readable.view_ids == frozenset({self.extra_view.id})
+        assert context.readable.metric_ids == frozenset({self.metric.id})
+        assert {ungranted_table.name, ungranted_view.name} <= context.denied
+        assert not definition_reads_unreadable_subject(
+            self.team.id, "custom_sql", self.config, context, subject=self.subject
+        )
+        for name in [ungranted_table.name, ungranted_view.name]:
+            assert definition_reads_unreadable_subject(
+                self.team.id,
+                "custom_sql",
+                {"query": f"SELECT * FROM {{metric}} WHERE amount < (SELECT 1 FROM {name})"},
+                context,
+                subject=self.subject,
+            )
+        writable = writable_subjects(context, access)
+        assert writable.table_ids == (context.readable.table_ids if access_level == "editor" else frozenset())
+        assert writable.view_ids == (context.readable.view_ids if access_level == "editor" else frozenset())
 
     def test_pins_both_saved_metric_and_check_references(self) -> None:
         assert set(referenced_subject_names(self.team.id, "custom_sql", self.config, subject=self.subject)) == {
@@ -116,7 +208,7 @@ class TestMetricSubjectAccess(BaseTest):
         )
         with self.assertNumQueries(4):
             assert hidden_check_ids(self.team.id, [check] * 20, context) == set()
-        context.denied.add("thresholds")
+        context = replace(context, denied=context.denied | {"thresholds"})
         with self.assertNumQueries(2):
             assert hidden_check_ids(self.team.id, [check] * 20, context) == {check.id}
 
