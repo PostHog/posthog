@@ -13,19 +13,21 @@ export interface LogsImpactStripProps {
  */
 export function LogsImpactStrip({ id }: LogsImpactStripProps): JSX.Element | null {
     const { impact } = useValues(logsImpactLogic({ id }))
-    const { groupBySessions, groupByUsers } = useActions(logsImpactLogic({ id }))
+    const { pivotToGroupBy } = useActions(logsImpactLogic({ id }))
 
     if (!impact) {
         return null
     }
 
-    // The pivot needs the backend-named dimension; a response without one (an older backend
-    // during a deploy) hides the action instead of guessing a dimension.
+    // The backend names the dimension carrying the ID on most matching logs, so the pivot groups
+    // by the key the data uses. It names none when no matching log carries that ID at all.
+    const { sessionGroupKey, personGroupKey } = impact
+
     return (
         <LogsImpactCounts
             impact={impact}
-            onGroupBySessions={impact.sessionGroupKey ? groupBySessions : undefined}
-            onGroupByUsers={impact.personGroupKey ? groupByUsers : undefined}
+            onGroupBySessions={sessionGroupKey ? () => pivotToGroupBy(sessionGroupKey) : undefined}
+            onGroupByUsers={personGroupKey ? () => pivotToGroupBy(personGroupKey) : undefined}
         />
     )
 }

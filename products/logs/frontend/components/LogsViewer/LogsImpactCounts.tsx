@@ -82,20 +82,9 @@ export function LogsImpactCounts({
                                     data-attr="logs-impact-top-session"
                                 />
                             )}
-                            action={
-                                onGroupBySessions && (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        fullWidth
-                                        center
-                                        onClick={onGroupBySessions}
-                                        data-attr="logs-impact-group-by-sessions"
-                                    >
-                                        Group logs by session ID
-                                    </LemonButton>
-                                )
-                            }
+                            onGroupBy={onGroupBySessions}
+                            groupByLabel="Group logs by session ID"
+                            groupByDataAttr="logs-impact-group-by-sessions"
                         />
                     }
                 >
@@ -121,20 +110,9 @@ export function LogsImpactCounts({
                                     <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
                                 </span>
                             )}
-                            action={
-                                onGroupByUsers && (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        fullWidth
-                                        center
-                                        onClick={onGroupByUsers}
-                                        data-attr="logs-impact-group-by-users"
-                                    >
-                                        Group logs by distinct ID
-                                    </LemonButton>
-                                )
-                            }
+                            onGroupBy={onGroupByUsers}
+                            groupByLabel="Group logs by distinct ID"
+                            groupByDataAttr="logs-impact-group-by-users"
                         />
                     }
                 >
@@ -153,11 +131,20 @@ interface TopValuesOverlayProps {
     caption: string
     entries: _LogsImpactTopValueApi[]
     renderValue: (value: string) => JSX.Element
-    action?: React.ReactNode
+    onGroupBy?: () => void
+    groupByLabel: string
+    groupByDataAttr: string
 }
 
 /** Top identity values behind one impact count, each with its approximate log count. */
-function TopValuesOverlay({ caption, entries, renderValue, action }: TopValuesOverlayProps): JSX.Element {
+function TopValuesOverlay({
+    caption,
+    entries,
+    renderValue,
+    onGroupBy,
+    groupByLabel,
+    groupByDataAttr,
+}: TopValuesOverlayProps): JSX.Element {
     return (
         <div className="flex flex-col gap-1 p-1 max-w-160">
             <span className="text-muted text-xs">{caption}</span>
@@ -169,7 +156,18 @@ function TopValuesOverlay({ caption, entries, renderValue, action }: TopValuesOv
                     </span>
                 </div>
             ))}
-            {action}
+            {onGroupBy && (
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    fullWidth
+                    center
+                    onClick={onGroupBy}
+                    data-attr={groupByDataAttr}
+                >
+                    {groupByLabel}
+                </LemonButton>
+            )}
         </div>
     )
 }

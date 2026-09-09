@@ -13,11 +13,7 @@ import {
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsImpactCreate } from 'products/logs/frontend/generated/api'
-import type {
-    _LogsCountBodyApi,
-    _LogsImpactGroupKeyApi,
-    _LogsImpactResponseApi,
-} from 'products/logs/frontend/generated/api.schemas'
+import type { _LogsCountBodyApi, _LogsImpactResponseApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { LogsQuery } from '../../../../../frontend/src/queries/schema/schema-general'
 
@@ -52,11 +48,8 @@ export interface logsImpactLogicActions {
     runQuery: (debounce?: number | undefined) => {
         debounce: number | undefined
     } // logsViewerDataLogic
-    groupBySessions: () => {
-        value: true
-    }
-    groupByUsers: () => {
-        value: true
+    pivotToGroupBy: (dimension: LogsViewerGroupBy) => {
+        dimension: LogsViewerGroupBy
     }
     loadImpact: (_: any) => any
     loadImpactFailure: (
@@ -106,8 +99,7 @@ export const logsImpactLogic = kea<logsImpactLogicType>([
         ],
     })),
     actions({
-        groupBySessions: true,
-        groupByUsers: true,
+        pivotToGroupBy: (dimension: LogsViewerGroupBy) => ({ dimension }),
     }),
     loaders(({ cache, values }) => ({
         impact: [
@@ -160,28 +152,18 @@ export const logsImpactLogic = kea<logsImpactLogicType>([
             loadImpact: () => null,
         },
     }),
-    listeners(({ actions, values }) => {
-        // The backend names the (source, key) dimension that carries the ID on most matching
-        // logs, so the pivot groups by the key the data actually uses. Without a named
-        // dimension there is nothing correct to group by, so the pivot is a no-op (the strip
-        // also hides the action then).
-        const pivotToGroup = (groupKey: _LogsImpactGroupKeyApi | null | undefined): void => {
-            if (!groupKey) {
-                return
-            }
-            const dimension: LogsViewerGroupBy = { key: groupKey.key, source: groupKey.source }
+    listeners(({ actions }) => ({
+        // runQuery is the viewer's execute-this-query entrypoint, so the strip refreshes with
+        // the query rather than coupling to the sparkline loader's schedule. Bursts (typing)
+        // collapse in loadImpact's own breakpoint.
+        runQuery: () => actions.loadImpact(null),
+        // Set the dimension before the view mode: logsGroupByLogic mounts with Group view and
+        // loads on mount, so switching first would run a query against the old group-bys.
+        pivotToGroupBy: ({ dimension }) => {
             actions.setGroupBys([dimension])
             actions.setViewMode('group')
-        }
-        return {
-            // runQuery is the viewer's execute-this-query entrypoint, so the strip refreshes with
-            // the query rather than coupling to the sparkline loader's schedule. Bursts (typing)
-            // collapse in loadImpact's own breakpoint.
-            runQuery: () => actions.loadImpact(null),
-            groupBySessions: () => pivotToGroup(values.impact?.sessionGroupKey),
-            groupByUsers: () => pivotToGroup(values.impact?.personGroupKey),
-        }
-    }),
+        },
+    })),
     afterMount(({ actions }) => {
         // The data logic usually mounts (and fires its initial runQuery) before this logic
         // exists, so the first load has to be explicit.
