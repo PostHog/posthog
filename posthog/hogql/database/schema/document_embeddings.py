@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
+from posthog.hogql.errors import QueryError
 from posthog.hogql.transforms.order_by_pushdown import push_down_order_by, resolve_alias, unwrap_alias
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
@@ -112,6 +113,18 @@ def extract_model_name_from_where(node: Optional[ast.Expr]) -> Optional[str]:
     return None
 
 
+def _resolve_model_name(node: Optional[ast.SelectQuery], context: HogQLContext) -> Optional[str]:
+    # The `model_name` filter routes to the model-specific table. The query that holds the table wins,
+    # so check it first; only fall back to the ancestors when the table is wrapped in an unfiltered
+    # subquery. Checking ancestors first would let an outer filter override an explicit inner one.
+    candidate_queries = [node, *(context.lazy_table_ancestors or [])]
+    for query in candidate_queries:
+        model_name = extract_model_name_from_where(query.where if query else None)
+        if model_name is not None:
+            return model_name
+    return None
+
+
 class ModelSpecificEmbeddingTable(Table):
     description: str = "Document embeddings for a single embedding model; the `model_name` column is fixed per table."
     model_name: str = ""
@@ -154,37 +167,45 @@ class DocumentEmbeddingsTable(LazyTable):
         if "document_id" not in requested_fields:
             requested_fields = {**requested_fields, "document_id": ["document_id"]}
 
-        model_name = extract_model_name_from_where(node.where if node else None)
+        model_name = _resolve_model_name(node, context)
 
-        if model_name and model_name in HOGQL_EMBEDDING_TABLES:
-            model_table = HOGQL_EMBEDDING_TABLES[model_name]
-            table_name = model_table.to_printed_hogql()
+        # A placeholder can bind any JSON value to `model_name`, so guard on `str` before the dict
+        # lookup: an unhashable value (list/object) would otherwise raise a TypeError and 500.
+        if not isinstance(model_name, str) or model_name not in HOGQL_EMBEDDING_TABLES:
+            valid_names = ", ".join(f"'{name}'" for name in HOGQL_EMBEDDING_TABLES)
+            if model_name is None:
+                raise QueryError(
+                    "Queries against `document_embeddings` must filter on `model_name` to route to the "
+                    f"correct embedding table. Add a `model_name = ...` condition. Valid model names: {valid_names}."
+                )
+            raise QueryError(f"Invalid `model_name` '{model_name}'. Valid model names: {valid_names}.")
 
-            exprs: list[ast.Expr] = []
-            for name, chain in requested_fields.items():
-                if name == "model_name":
-                    exprs.append(ast.Alias(alias="model_name", expr=ast.Constant(value=model_table.model_name)))
-                else:
-                    exprs.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain])))
+        model_table = HOGQL_EMBEDDING_TABLES[model_name]
+        table_name = model_table.to_printed_hogql()
 
-            inner_query = ast.SelectQuery(
-                select=exprs,
-                select_from=ast.JoinExpr(
-                    table=ast.Field(chain=[table_name]),
-                ),
-            )
+        exprs: list[ast.Expr] = []
+        for name, chain in requested_fields.items():
+            if name == "model_name":
+                exprs.append(ast.Alias(alias="model_name", expr=ast.Constant(value=model_table.model_name)))
+            else:
+                exprs.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain])))
 
-            push_down_order_by(
-                outer_query=node,
-                inner_query=inner_query,
-                outer_table_alias="document_embeddings",
-                inner_table_name=table_name,
-                should_push_down=is_vector_distance_order_by,
-            )
+        inner_query = ast.SelectQuery(
+            select=exprs,
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=[table_name]),
+            ),
+        )
 
-            return inner_query
-        else:
-            raise ValueError(f"Invalid model name: {model_name}")
+        push_down_order_by(
+            outer_query=node,
+            inner_query=inner_query,
+            outer_table_alias="document_embeddings",
+            inner_table_name=table_name,
+            should_push_down=is_vector_distance_order_by,
+        )
+
+        return inner_query
 
     def to_printed_clickhouse(self, context: HogQLContext):
         raise NotImplementedError("LazyTables cannot be printed to ClickHouse SQL")
