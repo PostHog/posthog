@@ -9,11 +9,16 @@ import {
   SpacePreview,
   type SpacePreviewPayload,
 } from "@posthog/ui/features/canvas/components/SpacePreview";
+import {
+  createSafeTriangleGuard,
+  type SafeTriangleGuard,
+} from "@posthog/ui/features/canvas/components/safeTriangle";
 import type { TaskRowMenuProps } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { useIsPinDragging } from "@posthog/ui/features/sidebar/pinDragStore";
 import {
   createContext,
   type ReactNode,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useContext,
   useEffect,
@@ -65,6 +70,11 @@ interface ChannelPreviewCard {
   closeFromKeyboard: (triggerId: string) => void;
   /** The pointer is driving now; the keyboard no longer owns what it opened. */
   releaseKeyboard: () => void;
+  /**
+   * A row has been left. If it was the row holding the card, guard the run to
+   * the card, so the rows crossed on the way can't take it off the pointer.
+   */
+  guardRunToCard: (event: ReactPointerEvent<HTMLElement>) => void;
 }
 
 const ChannelItemPreviewHandleContext =
@@ -83,6 +93,11 @@ const ChannelItemPreviewHandleContext =
  * Sharing the handle is also what makes sliding down the list feel like one
  * card moving: Base UI skips the open delay when the pointer crosses to another
  * trigger of an already-open popup.
+ *
+ * That instant swap is also why the run to the card needs a safe triangle. A
+ * diagonal from a row toward the card crosses the rows underneath, and each one
+ * takes the card the moment it is touched, so the card you arrive at belongs to
+ * the last row you clipped. See `safeTriangle.ts`.
  */
 export function ChannelItemPreviewCardProvider({
   children,
@@ -94,10 +109,22 @@ export function ChannelItemPreviewCardProvider({
   );
   const [open, setOpen] = useState(false);
   const [submenuOpen, setSubmenuOpen] = useState(false);
+  // The card the safe triangle is aimed at. Read at the moment a row is left,
+  // so an unmounted card simply means there is nothing to guard.
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [guard] = useState<SafeTriangleGuard>(createSafeTriangleGuard);
   const close = useCallback(() => {
     setSubmenuOpen(false);
+    guard.disarm();
     handle.close();
-  }, [handle]);
+  }, [guard, handle]);
+
+  // No card, nothing to run to. `release` rather than `disarm` because a row
+  // held back on the way here is owed the hover the guard swallowed.
+  useEffect(() => {
+    if (!open) guard.release();
+  }, [open, guard]);
+  useEffect(() => () => guard.disarm(), [guard]);
 
   // A drag passes the pointer over row after row, each handing the card to the
   // next, until a card this size sits over the list. It stands down instead.
@@ -123,8 +150,21 @@ export function ChannelItemPreviewCardProvider({
       releaseKeyboard: () => {
         keyboardTrigger.current = null;
       },
+      guardRunToCard: (event) => {
+        const trigger = event.currentTarget;
+        const card = cardRef.current;
+        // `data-popup-open` is Base UI's mark for the row the card belongs to.
+        // Every other row is one the pointer merely passed through.
+        if (!card || !trigger.hasAttribute("data-popup-open")) return;
+        guard.arm({
+          trigger,
+          card,
+          x: event.clientX,
+          y: event.clientY,
+        });
+      },
     }),
-    [handle],
+    [guard, handle],
   );
 
   return (
@@ -155,6 +195,7 @@ export function ChannelItemPreviewCardProvider({
                     what lets the rules run edge to edge and the action rows
                     highlight full width. */}
                 <PreviewCard.Popup
+                  ref={cardRef}
                   render={
                     <Card
                       size="sm"
@@ -216,6 +257,28 @@ function useKeyboardPreview(
 }
 
 /**
+ * The element a row's trigger renders as, the same for a space and a session.
+ *
+ * `data-preview-card-trigger` is what tells the safe triangle a row from the
+ * scenery the pointer crosses on its way to the card; it is read through
+ * `PREVIEW_TRIGGER_SELECTOR` in `safeTriangle.ts` and nowhere else.
+ */
+function previewRow(card: ChannelPreviewCard | null, children: ReactNode) {
+  return (
+    <div
+      data-preview-card-trigger=""
+      className="flex min-w-0"
+      // Pointing at any row hands the card to the pointer, so the row the
+      // keyboard opened it on stops trying to close it.
+      onPointerEnter={card?.releaseKeyboard}
+      onPointerLeave={card?.guardRunToCard}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
  * A row that shows the shared preview card while it is pointed at. Shared by
  * the channel sidebar's rows and the space tree's session rows so the two can't
  * drift into showing different facts or actions for one task.
@@ -246,13 +309,7 @@ export function ChannelItemHoverCard({
   // naming the trigger to open.
   const triggerId = useId();
   useKeyboardPreview(card, triggerId, highlighted);
-  const row = (
-    // Pointing at any row hands the card to the pointer, so the row the
-    // keyboard opened it on stops trying to close it.
-    <div className="flex min-w-0" onPointerEnter={card?.releaseKeyboard}>
-      {children}
-    </div>
-  );
+  const row = previewRow(card, children);
 
   // No provider, no card. A row still has its right-click menu, and every fact
   // the card names is on the row itself.
@@ -299,11 +356,7 @@ export function SpaceHoverCard({
   );
   const triggerId = useId();
   useKeyboardPreview(card, triggerId, highlighted);
-  const row = (
-    <div className="flex min-w-0" onPointerEnter={card?.releaseKeyboard}>
-      {children}
-    </div>
-  );
+  const row = previewRow(card, children);
 
   if (!card) return row;
 

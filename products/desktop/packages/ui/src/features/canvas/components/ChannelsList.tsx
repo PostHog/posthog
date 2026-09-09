@@ -508,7 +508,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       {/* The dot belongs to the title, not to the row: its own tighter gap
           keeps them one mark rather than two columns. */}
       <span className="flex min-w-0 items-center gap-1.5">
-        <TaskStatusDot dot={taskDot(status ?? {})} />
+        <TaskStatusDot dot={taskDot(status ?? {})} hitArea="row" />
         <span
           className={cn(
             "truncate text-[13px]",
