@@ -27,14 +27,17 @@ const comment = (id: string, overrides: Record<string, any> = {}): Record<string
 describe('replayCommentsLogic', () => {
     let logic: ReturnType<typeof replayCommentsLogic.build>
     let requestedUrls: string[]
+    let responseStatus: number
 
-    const mockComments = (status: number = 200): void => {
+    beforeEach(() => {
+        requestedUrls = []
+        responseStatus = 200
         useMocks({
             get: {
                 '/api/projects/:team_id/comments/': ({ request }) => {
                     requestedUrls.push(request.url)
-                    if (status !== 200) {
-                        return [status, { detail: 'nope' }]
+                    if (responseStatus !== 200) {
+                        return [responseStatus, { detail: 'nope' }]
                     }
                     const cursor = new URL(request.url).searchParams.get('cursor')
                     if (cursor === 'page-2') {
@@ -51,10 +54,6 @@ describe('replayCommentsLogic', () => {
                 },
             },
         })
-    }
-
-    beforeEach(() => {
-        requestedUrls = []
         initKeaTests()
         logic = replayCommentsLogic()
     })
@@ -62,7 +61,6 @@ describe('replayCommentsLogic', () => {
     // The whole point of the tab: dropping either filter would show every team member's
     // comments from every product, not the person's own replay comments.
     it("asks only for the current user's replay comments", async () => {
-        mockComments()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -72,7 +70,6 @@ describe('replayCommentsLogic', () => {
     })
 
     it('links each comment to its moment in the recording', async () => {
-        mockComments()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -87,7 +84,6 @@ describe('replayCommentsLogic', () => {
     })
 
     it('appends the next page instead of replacing the loaded one', async () => {
-        mockComments()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.hasMoreComments).toBe(true)
@@ -103,7 +99,7 @@ describe('replayCommentsLogic', () => {
     // A failed load leaves no rows, so without this flag the tab would tell the person
     // they have never commented.
     it('reports a failed load instead of reading as an empty list', async () => {
-        mockComments(500)
+        responseStatus = 500
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
