@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import type { FetchResponse } from '~/common/utils/request'
 import { ProcessedPluginEvent, RetryError } from '~/plugin-scaffold'
 
@@ -167,11 +169,59 @@ async function syncCustomerMetadata(meta: CustomerIoMeta, event: ProcessedPlugin
         await storage.set(customerStatusKey, Array.from(customerStatus))
     }
 
-    return {
+    const customer: Customer = {
         status: customerStatus,
         existsAlready: customerExistsAlready,
         email,
     }
+
+    compareAgainstStatelessCustomer(meta, event, customer)
+
+    return customer
+}
+
+const statelessComparisonCounter = new Counter({
+    name: 'cdp_customerio_stateless_customer_comparison_total',
+    help: 'Compares the PluginStorage-backed customer status against one derived only from the event and person',
+    labelNames: ['field', 'result'],
+})
+
+// Candidate replacement for the PluginStorage-backed status, which only knows events seen since the config was enabled
+function statelessCustomer(meta: CustomerIoMeta, event: ProcessedPluginEvent): Customer {
+    const personProperties = meta.person?.properties ?? {}
+    const personEmail = isEmail(personProperties.email) ? (personProperties.email as string) : null
+    const email = getEmailFromEvent(event) ?? personEmail
+
+    const status = new Set(['seen']) as Customer['status']
+    if (email) {
+        status.add('with_email')
+    }
+    // posthog-js keeps the anonymous id in $device_id, so a differing distinct_id means an identify happened
+    const deviceId = event.properties?.$device_id
+    if (event.event === '$identify' || (typeof deviceId === 'string' && deviceId !== event.distinct_id)) {
+        status.add('identified')
+    }
+
+    // No event-derived signal for this, and it only drives the `_update` flag
+    return { status, existsAlready: true, email }
+}
+
+function compareAgainstStatelessCustomer(meta: CustomerIoMeta, event: ProcessedPluginEvent, stored: Customer): void {
+    const stateless = statelessCustomer(meta, event)
+
+    const observe = (field: string, storedValue: boolean, statelessValue: boolean): void => {
+        const result = storedValue === statelessValue ? 'match' : statelessValue ? 'stateless_only' : 'stored_only'
+        statelessComparisonCounter.labels({ field, result }).inc()
+    }
+
+    observe('with_email', stored.status.has('with_email'), stateless.status.has('with_email'))
+    observe('identified', stored.status.has('identified'), stateless.status.has('identified'))
+    observe('exists_already', stored.existsAlready, stateless.existsAlready)
+    observe(
+        'tracked',
+        shouldCustomerBeTracked(stored, meta.global.eventsConfig),
+        shouldCustomerBeTracked(stateless, meta.global.eventsConfig)
+    )
 }
 
 function shouldCustomerBeTracked(customer: Customer, eventsConfig: EventsConfig): boolean {

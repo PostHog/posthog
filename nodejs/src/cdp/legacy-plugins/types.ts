@@ -1,7 +1,7 @@
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
 import { PluginEvent, ProcessedPluginEvent, StorageExtension } from '~/plugin-scaffold'
 
-import { HogFunctionTemplate } from '../types'
+import { CyclotronPerson, HogFunctionTemplate } from '../types'
 
 export type LegacyPluginLogger = {
     debug: (...args: any[]) => void
@@ -25,6 +25,7 @@ export type LegacyTransformationPluginMeta = LegacyPluginMeta & {
 export type LegacyDestinationPluginMeta = LegacyTransformationPluginMeta & {
     fetch: (url: string, fetchParams: FetchOptions) => Promise<FetchResponse>
     storage: Pick<StorageExtension, 'get' | 'set'>
+    person?: CyclotronPerson
 }
 
 export type LegacyDestinationPlugin = {

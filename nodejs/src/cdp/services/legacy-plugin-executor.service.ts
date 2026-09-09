@@ -300,6 +300,8 @@ export class LegacyPluginExecutorService {
                     logger: pluginLogger,
                     fetch: request,
                     storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
+                    // Not on state.meta because state is cached across invocations
+                    person: globals.person,
                 })
 
                 addLog('info', `Function completed in ${performance.now() - start}ms.`)
