@@ -95,6 +95,14 @@ export {
   pickAllowedModel,
 } from "./cloud-task-models";
 export {
+  type CustomCloud,
+  configureCustomCloud,
+  customCloudSchema,
+  getCustomCloud,
+  isCustomCloudHost,
+  normalizeCustomCloud,
+} from "./custom-cloud";
+export {
   buildLoopDeeplink,
   buildScoutDeeplink,
   decodePlanBase64,
@@ -225,6 +233,8 @@ export {
   selectOptionHarness,
 } from "./models";
 export {
+  DEV_CALLBACK_PORT,
+  DEV_REDIRECT_URI,
   getOauthClientIdFromRegion,
   OAUTH_SCOPE_VERSION,
   OAUTH_SCOPES,
@@ -280,7 +290,9 @@ export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
   CLOUD_REGIONS,
   type CloudRegion,
+  describeRegion,
   REGION_LABELS,
+  type RegionLabel,
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
