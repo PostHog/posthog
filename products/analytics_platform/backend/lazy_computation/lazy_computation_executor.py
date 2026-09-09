@@ -722,19 +722,29 @@ def find_missing_contiguous_windows(
 
     If no jobs exist for Jan 1-4, it returns: [(Jan 1, Jan 4)]
     """
+    # Some callers pass naive datetimes; window bounds and job rows are aware UTC.
+    if end_timestamp.tzinfo is None:
+        end_timestamp = end_timestamp.replace(tzinfo=UTC)
+
     # Step 1: Generate daily windows for the range
     daily_windows = get_daily_windows(start_timestamp, end_timestamp)
 
     # Step 2: Find missing daily windows
     missing = []
     for window_start, window_end in daily_windows:
+        # The final window is rounded up to a full day, but the query only reads
+        # data up to end_timestamp. Requiring coverage past end_timestamp would
+        # reject a job whose claim was clamped to the data horizon (see the
+        # claimed_end clamp in execute()) and rebuild the same window on every
+        # read at the same `end`.
+        required_end = min(window_end, end_timestamp)
         # Check if this window is covered by any READY or PENDING job
         is_covered = False
         for job in existing_jobs:
             if (
                 job.status in (PreaggregationJob.Status.READY, PreaggregationJob.Status.PENDING)
                 and job.time_range_start <= window_start
-                and job.time_range_end >= window_end
+                and job.time_range_end >= required_end
             ):
                 is_covered = True
                 break
@@ -764,6 +774,48 @@ def find_missing_contiguous_windows(
     merged.append((current_start, current_end))
 
     return merged
+
+
+def clamp_ranges_to_data_horizon(
+    ttl_ranges: list[tuple[datetime, datetime, int]],
+    horizon: datetime,
+) -> list[tuple[datetime, datetime, int]]:
+    """
+    Clamp build ranges so no created job claims time past `horizon`, the point
+    up to which the INSERT actually stores data.
+
+    Daily windows round the final day up to midnight, so a build whose data
+    horizon (the caller's `end`, derived from a historical as_of) falls mid-day
+    would otherwise create a job that claims hours it never stored. Coverage
+    checks key on the job row, so every later read would treat the unstored
+    tail as covered until the job expires (up to 60 days in the frozen band).
+
+    A range that crosses the horizon splits at the horizon's day boundary
+    instead of only shrinking: the day-aligned part keeps a full-day claim, and
+    the partial tail becomes its own job claiming `[day_start, horizon)`. This
+    keeps jobs tiled. A later read with a later `end` rebuilds the partial day
+    in full, and `filter_overlapping_jobs` then evicts only the tail job. A
+    single clamped multi-day job would partially overlap that rebuild and be
+    evicted whole, dropping its complete days from reads.
+
+    Callers must not pass a horizon on the current UTC day: today's data is
+    still arriving, the same-day TTL already refreshes it, and a clamped claim
+    would force a rebuild on every read.
+    """
+    clamped: list[tuple[datetime, datetime, int]] = []
+    horizon_day_start = datetime(horizon.year, horizon.month, horizon.day, tzinfo=UTC)
+    for range_start, range_end, ttl in ttl_ranges:
+        if range_end <= horizon:
+            clamped.append((range_start, range_end, ttl))
+            continue
+        if range_start > horizon_day_start:
+            clamped.append((range_start, horizon, ttl))
+            continue
+        if horizon_day_start > range_start:
+            clamped.append((range_start, horizon_day_start, ttl))
+        if horizon > horizon_day_start:
+            clamped.append((horizon_day_start, horizon, ttl))
+    return clamped
 
 
 def create_lazy_computation_job(
@@ -1028,6 +1080,14 @@ class LazyComputationExecutor:
 
         had_ready_at_start: bool | None = None
 
+        # Set when `end` falls on a past UTC day; the create loop then clamps job
+        # claims to it so a truncated build cannot mark unstored hours as covered.
+        # Some callers pass a naive `end`; treat it as UTC like the window math does.
+        now_utc = django_timezone.now()
+        today_start_utc = datetime(now_utc.year, now_utc.month, now_utc.day, tzinfo=UTC)
+        end_utc = end if end.tzinfo is not None else end.replace(tzinfo=UTC)
+        historical_end = end_utc if end_utc < today_start_utc else None
+
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
             if outcome == "check_miss":
                 # Check-only misses return before any job is created or waited on,
@@ -1076,6 +1136,8 @@ class LazyComputationExecutor:
                 # Step 2: Find missing ranges, split at TTL boundaries
                 missing_ranges = find_missing_contiguous_windows(fresh_jobs, start, end)
                 ttl_ranges = split_ranges_by_ttl(missing_ranges, self.ttl_schedule)
+                if historical_end is not None:
+                    ttl_ranges = clamp_ranges_to_data_horizon(ttl_ranges, historical_end)
 
                 if had_ready_at_start is None:
                     had_ready_at_start = any(j.status == PreaggregationJob.Status.READY for j in fresh_jobs)

@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.db import IntegrityError
+from django.test import SimpleTestCase
 from django.utils import timezone as django_timezone
 
 from clickhouse_driver.errors import ServerException
@@ -45,6 +46,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     _get_insert_settings,
     _written_rows,
     build_lazy_computation_insert_sql,
+    clamp_ranges_to_data_horizon,
     compute_query_hash,
     create_lazy_computation_job,
     ensure_precomputed,
@@ -225,6 +227,73 @@ class TestFindMissingContiguousWindows(BaseTest):
         assert len(missing) == 2
         assert missing[0] == (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC))
         assert missing[1] == (datetime(2024, 1, 3, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))
+
+    @parameterized.expand(
+        [
+            ("same_end_covered", datetime(2024, 1, 3, 12, tzinfo=UTC), []),
+            (
+                "later_end_rebuilds_final_day",
+                datetime(2024, 1, 4, tzinfo=UTC),
+                [(datetime(2024, 1, 3, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))],
+            ),
+        ]
+    )
+    def test_final_window_only_requires_coverage_up_to_requested_end(self, _name, end, expected_missing):
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        full_days_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 3, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+        tail_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 3, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 3, 12, tzinfo=UTC),
+            status=PreaggregationJob.Status.READY,
+        )
+
+        missing = find_missing_contiguous_windows([full_days_job, tail_job], start, end)
+
+        assert missing == expected_missing
+
+
+class TestClampRangesToDataHorizon(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "range_before_horizon_unchanged",
+                [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC), 60)],
+                datetime(2024, 1, 3, 12, tzinfo=UTC),
+                [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC), 60)],
+            ),
+            (
+                "crossing_multi_day_range_splits_at_day_boundary",
+                [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC), 60)],
+                datetime(2024, 1, 3, 12, tzinfo=UTC),
+                [
+                    (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC), 60),
+                    (datetime(2024, 1, 3, tzinfo=UTC), datetime(2024, 1, 3, 12, tzinfo=UTC), 60),
+                ],
+            ),
+            (
+                "crossing_single_day_range_clamps_without_split",
+                [(datetime(2024, 1, 3, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC), 60)],
+                datetime(2024, 1, 3, 12, tzinfo=UTC),
+                [(datetime(2024, 1, 3, tzinfo=UTC), datetime(2024, 1, 3, 12, tzinfo=UTC), 60)],
+            ),
+            (
+                "midnight_horizon_is_noop",
+                [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC), 60)],
+                datetime(2024, 1, 3, tzinfo=UTC),
+                [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC), 60)],
+            ),
+        ]
+    )
+    def test_clamps_and_splits(self, _name, ttl_ranges, horizon, expected):
+        assert clamp_ranges_to_data_horizon(ttl_ranges, horizon) == expected
 
 
 class TestFilterOverlappingJobs(BaseTest):
@@ -653,6 +722,69 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         assert ch_results[0][4] == 1  # Jan 1: user1
         assert ch_results[1][4] == 1  # Jan 2: user2
         assert ch_results[2][4] == 1  # Jan 3: user3
+
+    def test_historical_mid_day_end_claims_only_stored_hours_then_heals(self):
+        self._create_pageview_events()
+        query_info = LazyComputationQuery(
+            query=self._make_computation_query(), table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
+        mid_day_end = datetime(2024, 1, 3, 12, tzinfo=UTC)
+
+        first = LazyComputationExecutor().execute(
+            team=self.team, query_info=query_info, start=datetime(2024, 1, 1, tzinfo=UTC), end=mid_day_end
+        )
+
+        assert first.ready is True
+        first_claims = sorted(
+            (j.time_range_start, j.time_range_end) for j in PreaggregationJob.objects.filter(id__in=first.job_ids)
+        )
+        assert first_claims == [
+            (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC)),
+            (datetime(2024, 1, 3, tzinfo=UTC), mid_day_end),
+        ]
+
+        second = LazyComputationExecutor().execute(
+            team=self.team, query_info=query_info, start=datetime(2024, 1, 1, tzinfo=UTC), end=mid_day_end
+        )
+
+        assert second.ready is True
+        assert set(second.job_ids) == set(first.job_ids)
+
+        third = LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 4, tzinfo=UTC),
+        )
+
+        assert third.ready is True
+        third_claims = sorted(
+            (j.time_range_start, j.time_range_end) for j in PreaggregationJob.objects.filter(id__in=third.job_ids)
+        )
+        assert third_claims == [
+            (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC)),
+            (datetime(2024, 1, 3, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC)),
+        ]
+        ch_results = self._query_computation_results(third.job_ids)
+        assert len(ch_results) == 3
+
+    def test_current_day_end_keeps_full_day_claim(self):
+        query_info = LazyComputationQuery(
+            query=self._make_computation_query(), table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
+
+        with freeze_time(datetime(2024, 1, 3, 12, tzinfo=UTC)):
+            result = LazyComputationExecutor().execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2024, 1, 1, tzinfo=UTC),
+                end=datetime(2024, 1, 3, 12, tzinfo=UTC),
+            )
+
+        assert result.ready is True
+        assert len(result.job_ids) == 1
+        job = PreaggregationJob.objects.get(id=result.job_ids[0])
+        assert job.time_range_end == datetime(2024, 1, 4, tzinfo=UTC)
 
     def test_takes_over_expired_pending_job(self):
         self._create_pageview_events()
