@@ -23,21 +23,44 @@ export const TRIGGER_VOLUME_DAYS = 7
  */
 export const DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY = 100
 
-// Function steps that start an agent run. Volume matters far more for these than for a send, so
-// they are what turns the estimate from a note into a warning.
-const AI_RUN_TEMPLATE_IDS = ['template-posthog-create-task', 'template-posthog-run-scout']
+const AI_TASK_TEMPLATE_ID = 'template-posthog-create-task'
+const SCOUT_TEMPLATE_ID = 'template-posthog-run-scout'
+
+function countStepsOfTemplate(workflow: { actions?: HogFlowAction[] } | null | undefined, templateId: string): number {
+    return (workflow?.actions ?? []).filter(
+        (action) => action.type === 'function' && action.config.template_id === templateId
+    ).length
+}
 
 /**
- * Steps of this workflow that start an AI agent run.
+ * Steps of this workflow that create an AI task, which is what the daily task cap counts.
  *
- * A count rather than a flag, because every step a run reaches creates its own task: two AI steps
- * reach the daily cap at half the runs. Branches mean a run does not always reach all of them, so
- * the count is a ceiling, which is the safe side for a cost warning.
+ * A count rather than a flag, because every step a run reaches creates its own task: two steps
+ * reach the cap at half the runs. Branches mean a run does not always reach all of them, so the
+ * count is a ceiling, which is the safe side for a cost warning.
  */
-export function countAiRunSteps(workflow?: { actions?: HogFlowAction[] } | null): number {
-    return (workflow?.actions ?? []).filter(
-        (action) => action.type === 'function' && AI_RUN_TEMPLATE_IDS.includes(action.config.template_id)
-    ).length
+export function countAiTaskSteps(workflow?: { actions?: HogFlowAction[] } | null): number {
+    return countStepsOfTemplate(workflow, AI_TASK_TEMPLATE_ID)
+}
+
+/**
+ * Steps of this workflow that start a Signals scout run.
+ *
+ * Counted apart from AI tasks: a scout run goes to its own endpoint, with its own pause, cooldown
+ * and throttle, so it costs AI usage but never counts against the task cap.
+ */
+export function countScoutSteps(workflow?: { actions?: HogFlowAction[] } | null): number {
+    return countStepsOfTemplate(workflow, SCOUT_TEMPLATE_ID)
+}
+
+/**
+ * Whether the busiest day in the window would pass the default daily task cap.
+ *
+ * The busiest day, not the weekly average: the backend counts tasks over a trailing 24 hours, so
+ * one busy day can break the cap while the average stays under it.
+ */
+export function exceedsAiTaskLimit(peakPerDay: number, taskSteps: number): boolean {
+    return taskSteps > 0 && peakPerDay * taskSteps > DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY
 }
 
 /**

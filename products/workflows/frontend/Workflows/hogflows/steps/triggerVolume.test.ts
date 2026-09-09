@@ -1,9 +1,12 @@
 import { HogFlowAction } from '../types'
 import {
+    DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY,
     TRIGGER_VOLUME_DAYS,
-    countAiRunSteps,
+    countAiTaskSteps,
+    countScoutSteps,
     eventTriggerVolumeFilters,
     eventTriggerVolumeQuery,
+    exceedsAiTaskLimit,
 } from './triggerVolume'
 
 function functionAction(templateId: string, id: string = 'function_1'): HogFlowAction {
@@ -49,32 +52,54 @@ describe('triggerVolume', () => {
         })
     })
 
-    describe('countAiRunSteps', () => {
+    describe('step counts', () => {
+        // A scout run goes to its own endpoint with its own throttle, so counting it against the
+        // task cap would warn a scout-only workflow about a limit it never reaches.
         it.each([
-            ['an AI task step', 'template-posthog-create-task', 1],
-            ['a scout step', 'template-posthog-run-scout', 1],
-            ['a webhook step', 'template-webhook', 0],
-        ])('%s', (_name, templateId, expected) => {
-            expect(countAiRunSteps({ actions: [functionAction(templateId as string)] })).toBe(expected)
+            ['an AI task step', 'template-posthog-create-task', 1, 0],
+            ['a scout step', 'template-posthog-run-scout', 0, 1],
+            ['a webhook step', 'template-webhook', 0, 0],
+        ])('%s', (_name, templateId, tasks, scouts) => {
+            const workflow = { actions: [functionAction(templateId as string)] }
+
+            expect(countAiTaskSteps(workflow)).toBe(tasks)
+            expect(countScoutSteps(workflow)).toBe(scouts)
         })
 
         // Each step a run reaches creates its own task, so two steps reach the daily cap at half
         // the runs. A flag here would leave the warning silent at that volume.
-        it('counts every AI step, not just the first', () => {
+        it('counts every task step, not just the first', () => {
             expect(
-                countAiRunSteps({
+                countAiTaskSteps({
                     actions: [
                         functionAction('template-posthog-create-task', 'task_1'),
                         functionAction('template-webhook', 'webhook_1'),
-                        functionAction('template-posthog-run-scout', 'scout_1'),
+                        functionAction('template-posthog-create-task', 'task_2'),
                     ],
                 })
             ).toBe(2)
         })
 
         it('is zero for a workflow with no steps', () => {
-            expect(countAiRunSteps({ actions: [] })).toBe(0)
-            expect(countAiRunSteps(null)).toBe(0)
+            expect(countAiTaskSteps({ actions: [] })).toBe(0)
+            expect(countAiTaskSteps(null)).toBe(0)
+            expect(countScoutSteps(null)).toBe(0)
+        })
+    })
+
+    describe('exceedsAiTaskLimit', () => {
+        const cap = DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY
+
+        it.each([
+            // The backend counts tasks over a trailing 24 hours, so one busy day breaches the cap
+            // even when the weekly average sits far below it.
+            ['a burst day above the cap', cap * 5, 1, true],
+            // Two steps double the tasks per run, so half the runs reach the same cap.
+            ['half the runs with two task steps', cap * 0.6, 2, true],
+            ['a quiet trigger', cap - 10, 1, false],
+            ['a workflow with no task step', cap * 50, 0, false],
+        ])('%s', (_name, peakPerDay, taskSteps, expected) => {
+            expect(exceedsAiTaskLimit(peakPerDay as number, taskSteps as number)).toBe(expected)
         })
     })
 

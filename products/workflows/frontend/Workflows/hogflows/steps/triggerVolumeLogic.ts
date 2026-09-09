@@ -16,6 +16,8 @@ export type TriggerVolume = {
     labels: string[]
     /** Average matches per day over the window. */
     perDay: number
+    /** Matches on the busiest day of the window. */
+    peakPerDay: number
 }
 
 export interface TriggerVolumeLogicProps {
@@ -107,6 +109,7 @@ export const triggerVolumeLogic = kea<triggerVolumeLogicType>([
                         daily,
                         labels: series?.labels ?? [],
                         perDay: Math.round(total / days),
+                        peakPerDay: daily.length ? Math.max(...daily) : 0,
                     }
                 },
             },

@@ -14,8 +14,10 @@ import { HogFlowAction } from '../../types'
 import {
     DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY,
     TRIGGER_VOLUME_DAYS,
-    countAiRunSteps,
+    countAiTaskSteps,
+    countScoutSteps,
     eventTriggerVolumeFilters,
+    exceedsAiTaskLimit,
 } from '../triggerVolume'
 import { triggerVolumeLogic } from '../triggerVolumeLogic'
 
@@ -35,12 +37,14 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
         return null
     }
 
-    const aiSteps = countAiRunSteps(workflow)
-    // Every AI step a run reaches creates its own task, so the tasks a day is the runs a day times
-    // the steps, not the runs alone.
-    const aiTasksPerDay = volume != null ? volume.perDay * aiSteps : 0
-    const overAiLimit = aiSteps > 0 && aiTasksPerDay > DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY
-    const perRunCopy = aiSteps > 1 ? `Each run can start up to ${aiSteps} AI tasks` : 'Each run starts an AI task'
+    const taskSteps = countAiTaskSteps(workflow)
+    const scoutSteps = countScoutSteps(workflow)
+    // Every step a run reaches creates its own task, so the tasks a day is the runs a day times the
+    // steps, not the runs alone.
+    const aiTasksPerDay = volume != null ? volume.perDay * taskSteps : 0
+    const overAiLimit = volume != null && exceedsAiTaskLimit(volume.peakPerDay, taskSteps)
+    const perRunCopy =
+        taskSteps > 1 ? `Each run can start up to ${taskSteps} AI tasks` : 'Each run can start an AI task'
 
     return (
         <div className="flex flex-col gap-2 w-full">
@@ -96,8 +100,12 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
                                 ? 'Narrow the trigger with filters, set a frequency limit, or ask PostHog to raise the limit.'
                                 : 'Narrow the trigger with filters, or set a frequency limit.'}
                         </LemonBanner>
-                    ) : aiSteps > 0 ? (
+                    ) : taskSteps > 0 ? (
                         <p className="mb-0 text-secondary">{perRunCopy}. AI tasks count toward your AI usage.</p>
+                    ) : scoutSteps > 0 ? (
+                        <p className="mb-0 text-secondary">
+                            Each run can start a scout run, which counts toward your AI usage.
+                        </p>
                     ) : null}
                 </>
             )}
