@@ -2045,6 +2045,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def relay_message(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        trace_id = request.validated_data.get("trace_id")
         relay_status, relay_id = tasks_facade.relay_task_run_message(
             pk,
             task_id,
@@ -2052,6 +2053,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             text=request.validated_data["text"],
             text_parts=request.validated_data.get("text_parts"),
             message_id=request.validated_data.get("message_id"),
+            # Validated as a UUID, carried on as the string form the events it ends up on use.
+            trace_id=str(trace_id) if trace_id else None,
         )
         if relay_status == "failed":
             return Response(
