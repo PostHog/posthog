@@ -74,6 +74,25 @@ def _record_migration(cursor, filename: str) -> None:
     cursor.execute(f"INSERT INTO {TRACKING_TABLE} (filename) VALUES (%s)", [filename])
 
 
+def _apply_migration(conn, cursor, sql_content: str, filename: str) -> None:
+    """Run one migration file and record it in the tracking table.
+
+    A file that begins with ``-- no-transaction`` holds a statement Postgres
+    rejects inside a transaction block, such as ``DROP INDEX CONCURRENTLY``.
+    psycopg opens a real transaction in ``conn.transaction()`` even on an
+    autocommit connection, so those files run directly on the autocommit
+    connection instead. The detection matches sqlx (``starts_with``) so both
+    migration paths treat the same files as transactional.
+    """
+    if sql_content.startswith("-- no-transaction"):
+        cursor.execute(sql_content)
+        _record_migration(cursor, filename)
+    else:
+        with conn.transaction():
+            cursor.execute(sql_content)
+            _record_migration(cursor, filename)
+
+
 def _ensure_database_exists(persons_url: str) -> None:
     """Create the persons database named in ``persons_url`` if it doesn't already exist.
 
@@ -190,9 +209,7 @@ class Command(BaseCommand):
 
                 sql_content = sql_file.read_text()
                 self.stdout.write(f"  Applying {sql_file.name}...")
-                with conn.transaction():
-                    cursor.execute(sql_content)
-                    _record_migration(cursor, sql_file.name)
+                _apply_migration(conn, cursor, sql_content, sql_file.name)
                 applied_count += 1
 
         action = "Would apply" if dry_run else "Applied"

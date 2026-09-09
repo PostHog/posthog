@@ -134,16 +134,6 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
     class Meta:
         # migrations managed via rust/persons_migrations
         managed = False
-        indexes = [
-            models.Index(
-                fields=("project", "group_type"),
-                name="posthog_group_type_proj_idx",
-            ),
-            models.Index(
-                fields=("project", "group_type_index"),
-                name="posthog_group_type_i_proj_idx",
-            ),
-        ]
         constraints = [
             models.UniqueConstraint(fields=("project", "group_type"), name="unique group types for project"),
             models.UniqueConstraint(
