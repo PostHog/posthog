@@ -395,10 +395,32 @@ tools:
         enabled: false
     tasks-config-create:
         operation: tasks_config_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set project task run defaults
+        description: >
+            Set the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task
+            runs created without an explicit runtime selection. Requires project admin. `runtime_adapter` and `model`
+            must be set together; send all three fields as null to clear the project default. Use tasks-models-retrieve
+            to list valid model identifiers.
     tasks-config-list:
         operation: tasks_config_list
-        enabled: false
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get project task run defaults
+        description: >
+            Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task
+            runs created without an explicit runtime selection. All fields are null when no project default is stored.
     tasks-create:
         operation: tasks_create
         enabled: true
@@ -482,13 +504,47 @@ tools:
                 - updated_at
     tasks-me-config-create:
         operation: tasks_me_config_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set my task run defaults
+        description: >
+            Set the caller's per-project default AI run preferences (runtime adapter, model, reasoning effort). They
+            override the project default wholesale. `runtime_adapter` and `model` must be set together; send all three
+            fields as null to clear and inherit the project default. Returns the stored preferences plus the resolved
+            defaults a new run will use. Use tasks-models-retrieve to list valid model identifiers.
     tasks-me-config-list:
         operation: tasks_me_config_list
-        enabled: false
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get my task run defaults
+        description: >
+            Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when
+            no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says
+            which level supplied it).
     tasks-models-retrieve:
         operation: tasks_models_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List available task run models
+        description: >
+            List the models a task run may use, each with its runtime adapter and the reasoning efforts it supports.
+            Use the returned identifiers when setting task run default preferences or creating a run. An empty list
+            means the model catalogue is temporarily unavailable, not that no models exist.
     tasks-partial-update:
         operation: tasks_partial_update
         enabled: false
