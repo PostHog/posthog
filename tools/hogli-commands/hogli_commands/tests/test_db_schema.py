@@ -295,6 +295,7 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
         lambda gzip_path, target_db: restored.append((gzip_path, target_db)),
     )
     monkeypatch.setattr(db_schema, "_ensure_migration_defaults", lambda target_db: defaults.append(target_db))
+    monkeypatch.setattr(db_schema, "_psql_rows", lambda target_db, sql: [])
 
     db_schema.restore_schema_dump(target_db="test_posthog", recreate=True, schema_path=schema_path)
 
@@ -304,12 +305,46 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
     assert defaults == ["test_posthog"]
 
 
+_RECORDED = [
+    ("stamphog", "0001_squash_2026_09_07_initial"),
+    ("stamphog", "0002_later"),
+    ("posthog", "0001_squash_2026_09_07_initial"),
+    ("posthog", "1345_squash_2026_09_07_schema_addons"),
+    ("posthog", "1346_untrack_organization_is_hipaa"),
+    ("posthog", "1347_add_a_column"),
+    ("cdp", "0005_no_addons_migration_here"),
+]
+
+
+@pytest.mark.parametrize(
+    "attribute,expected",
+    [
+        (
+            "forget",
+            (
+                # A product-routed app is replayed in full under the consumer's own routing.
+                ("posthog", "1345_squash_2026_09_07_schema_addons"),
+                ("posthog", "1346_untrack_organization_is_hipaa"),
+                ("posthog", "1347_add_a_column"),
+                ("stamphog", "0001_squash_2026_09_07_initial"),
+                ("stamphog", "0002_later"),
+            ),
+        ),
+        # The addons migration probes the schema, so replaying it for real is safe.
+        ("replay", (("posthog", "1345_squash_2026_09_07_schema_addons"),)),
+        # Its descendants are already in the restored schema, so they are re-recorded, not re-run.
+        ("refake", (("posthog", "1347_add_a_column"),)),
+    ],
+)
+def test_plan_migration_records(attribute: str, expected: tuple[tuple[str, str], ...]) -> None:
+    plan = db_schema.plan_migration_records(_RECORDED, ["stamphog"])
+
+    assert getattr(plan, attribute) == expected
+
+
 def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # The dump comes from a database that routes product apps elsewhere, so it records their
-    # migrations as applied without ever creating their tables. Left in place, the next product
-    # migration is applied for real here and fails on the missing table. The squash schema-addons
-    # rows must go too: they depend on the product apps' leaf squashes, so keeping them while the
-    # product rows are gone fails Django's migration consistency check.
+    # Every migration the plan forgets has to leave the table, or the restored database asserts a
+    # migration applied before its dependency and Django refuses to migrate at all.
     schema_path = tmp_path / "schema.sql.gz"
     _write_schema(schema_path)
     commands: list[list[str]] = []
@@ -317,16 +352,20 @@ def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monk
     monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
     monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: None)
     monkeypatch.setattr(db_schema, "_ensure_migration_defaults", lambda target_db: None)
+    monkeypatch.setattr(db_schema, "_product_routed_app_labels", lambda: ["stamphog"])
+    monkeypatch.setattr(db_schema, "_psql_rows", lambda target_db, sql: [list(row) for row in _RECORDED])
 
     db_schema.restore_schema_dump(target_db="test_posthog", recreate=False, schema_path=schema_path)
 
     deletes = [command[-1] for command in commands if "DELETE FROM django_migrations" in command[-1]]
     assert len(deletes) == 1
-    app_labels = db_schema._product_routed_app_labels()
-    assert app_labels, "expected products/db_routing.yaml to route at least one app"
-    for app_label in app_labels:
-        assert f"'{app_label}'" in deletes[0]
-    assert r"name LIKE '%\_squash\_%\_schema\_addons'" in deletes[0]
+    for app, name in db_schema.plan_migration_records(_RECORDED, ["stamphog"]).forget:
+        assert f"('{app}', '{name}')" in deletes[0]
+    migrates = [command for command in commands if command[:3] == ["python", "manage.py", "migrate"]]
+    assert migrates == [
+        ["python", "manage.py", "migrate", "posthog", "1345_squash_2026_09_07_schema_addons", "--noinput"],
+        ["python", "manage.py", "migrate", "posthog", "1347_add_a_column", "--noinput", "--fake"],
+    ]
 
 
 def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -372,6 +411,7 @@ def test_restore_schema_dump_without_recreate_does_not_drop(tmp_path: Path, monk
     monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
     monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: None)
     monkeypatch.setattr(db_schema, "_ensure_migration_defaults", lambda target_db: None)
+    monkeypatch.setattr(db_schema, "_psql_rows", lambda target_db, sql: [])
 
     db_schema.restore_schema_dump(target_db="posthog", recreate=False, schema_path=schema_path)
 
