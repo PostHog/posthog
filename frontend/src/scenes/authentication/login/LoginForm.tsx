@@ -11,6 +11,7 @@ import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/Socia
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { usePrevious } from 'lib/hooks/usePrevious'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -45,6 +46,17 @@ function loginMethodLabel(method: LoginMethod): string {
         return 'passkey'
     }
     return method ? SSO_PROVIDER_NAMES[method] : ''
+}
+
+// A disjunction, because the person only needs one of the linked providers to get in. One string
+// rather than JSX: a lone text child is safe from the in-page translation crash described below.
+function linkedProviderHint(providers: SSOProvider[]): string {
+    const names = new Intl.ListFormat('en', { type: 'disjunction' }).format(
+        providers.map((provider) => SSO_PROVIDER_NAMES[provider])
+    )
+    // The button row is not limited to this account's providers, so name the button that works.
+    const action = providers.length > 1 ? 'Use one of the buttons below.' : `Use the ${names} button below.`
+    return `This account can also sign in with ${names}. ${action}`
 }
 
 // The support form starts empty for the person, so a login-error ticket loses the context the page
@@ -118,6 +130,9 @@ export function LoginForm(): JSX.Element {
         restrictToProviders,
         autoRedirectingToProvider,
         availableLoginMethods,
+        precheckTrusted,
+        showsSocialLoginButtons,
+        linkedSocialProviders,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -212,13 +227,6 @@ export function LoginForm(): JSX.Element {
                                     data-attr="login-error-contact-support"
                                     onClick={(e) => {
                                         e.preventDefault()
-                                        // Trust the precheck only when it resolved for the email now
-                                        // in the form: a failed precheck reports permissive defaults,
-                                        // and a stale one still holds the previous email's account.
-                                        const precheckTrusted =
-                                            precheckResponse.status === 'completed' &&
-                                            !precheckResponse.precheckFailed &&
-                                            precheckResponse.email === login.email
                                         openSupportForm({
                                             kind: 'support',
                                             email: login.email,
@@ -247,7 +255,14 @@ export function LoginForm(): JSX.Element {
                 )}
                 {generalError?.code === 'invalid_credentials' && (
                     <div className="mb-4">
-                        <OtherRegionHint />
+                        {/* A linked provider is an answer, so it replaces the region hint's guess. It
+                            discloses nothing new: the precheck endpoint already reports this account's
+                            providers for any address. */}
+                        {linkedSocialProviders.length ? (
+                            <LemonBanner type="info">{linkedProviderHint(linkedSocialProviders)}</LemonBanner>
+                        ) : (
+                            <OtherRegionHint />
+                        )}
                     </div>
                 )}
                 {isCodeSent ? (
@@ -416,22 +431,18 @@ export function LoginForm(): JSX.Element {
                         )}
                     </Form>
                 )}
-                {/* Normally SAML replaces this row, but when the account has no password we need to
-                    show whatever it does have. */}
-                {!isCodeSent &&
-                    !precheckResponse.sso_enforcement &&
-                    (!precheckResponse.saml_available || isPasswordLoginUnavailable) && (
-                        <SocialLoginButtons
-                            topDivider
-                            caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
-                            captionLocation="top"
-                            lastUsedProvider={lastLoginMethod}
-                            restrictToProviders={restrictToProviders}
-                            // Once we know the account's methods, only offer a passkey if it actually has
-                            // one — otherwise this is the same dead button we're removing.
-                            showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
-                        />
-                    )}
+                {showsSocialLoginButtons && (
+                    <SocialLoginButtons
+                        topDivider
+                        caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
+                        captionLocation="top"
+                        lastUsedProvider={lastLoginMethod}
+                        restrictToProviders={restrictToProviders}
+                        // Once we know the account's methods, only offer a passkey if it actually has
+                        // one — otherwise this is the same dead button we're removing.
+                        showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
+                    />
+                )}
             </AuthSceneCard>
         </AuthScene>
     )

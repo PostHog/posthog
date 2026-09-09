@@ -199,6 +199,7 @@ export interface loginLogicValues {
     isLoginSubmitting: boolean
     isLoginValid: boolean
     isPasswordLoginUnavailable: boolean
+    linkedSocialProviders: SSOProvider[]
     login: LoginForm
     loginAllErrors: Record<string, any>
     loginChanged: boolean
@@ -210,6 +211,7 @@ export interface loginLogicValues {
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     precheckResponse: PrecheckResponseType
     precheckResponseLoading: boolean
+    precheckTrusted: boolean
     resendResponse: {
         message: string
         success: boolean
@@ -218,6 +220,7 @@ export interface loginLogicValues {
     restrictToProviders: SSOProvider[] | null
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
+    showsSocialLoginButtons: boolean
     signupUrl: string
     wasSignedOutForSessionRisk: boolean
 }
@@ -382,8 +385,20 @@ export interface loginLogicMeta {
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean
         ) => SSOProvider[] | null
+        showsSocialLoginButtons: (
+            precheckResponse: PrecheckResponseType,
+            isPasswordLoginUnavailable: boolean,
+            codeVerificationRequired: boolean
+        ) => boolean
         signupUrl: (searchParams: Record<string, any>) => string
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
+        precheckTrusted: (precheckResponse: PrecheckResponseType, login: LoginForm) => boolean
+        linkedSocialProviders: (
+            precheckResponse: PrecheckResponseType,
+            precheckTrusted: boolean,
+            showsSocialLoginButtons: boolean,
+            preflight: PreflightStatus | null
+        ) => SSOProvider[]
     }
 }
 
@@ -566,6 +581,19 @@ export const loginLogic = kea<loginLogicType>([
             (precheckResponse: PrecheckResponseType, isPasswordLoginUnavailable: boolean): SSOProvider[] | null =>
                 isPasswordLoginUnavailable ? (precheckResponse.social_providers ?? []) : null,
         ],
+        // Normally SAML replaces the social button row, but when the account has no password we need
+        // to show whatever it does have.
+        showsSocialLoginButtons: [
+            (s) => [s.precheckResponse, s.isPasswordLoginUnavailable, s.codeVerificationRequired],
+            (
+                precheckResponse: PrecheckResponseType,
+                isPasswordLoginUnavailable: boolean,
+                codeVerificationRequired: boolean
+            ): boolean =>
+                !codeVerificationRequired &&
+                !precheckResponse.sso_enforcement &&
+                (!precheckResponse.saml_available || isPasswordLoginUnavailable),
+        ],
         signupUrl: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>) => {
@@ -654,6 +682,36 @@ export const loginLogic = kea<loginLogicType>([
                 }
             },
         },
+    })),
+    // Depends on the login form, which is only built above by `forms()`.
+    selectors(() => ({
+        // True when the precheck resolved for the email now in the form. A failed precheck reports
+        // permissive defaults, and a stale one still holds the previous email's account.
+        precheckTrusted: [
+            (s) => [s.precheckResponse, s.login],
+            (precheckResponse: PrecheckResponseType, login: LoginForm): boolean =>
+                precheckResponse.status === 'completed' &&
+                !precheckResponse.precheckFailed &&
+                precheckResponse.email === login.email,
+        ],
+        // Providers this account is proven to have, and can reach from the page as it stands. Copy
+        // that points at the social button row must not outlive that row, so apply the check the row
+        // itself makes: a provider needs an enabled button, and a failed preflight request leaves the
+        // row with no buttons at all.
+        linkedSocialProviders: [
+            (s) => [s.precheckResponse, s.precheckTrusted, s.showsSocialLoginButtons, s.preflight],
+            (
+                precheckResponse: PrecheckResponseType,
+                precheckTrusted: boolean,
+                showsSocialLoginButtons: boolean,
+                preflight: PreflightStatus | null
+            ): SSOProvider[] =>
+                precheckTrusted && showsSocialLoginButtons
+                    ? (precheckResponse.social_providers ?? []).filter(
+                          (provider) => preflight?.available_social_auth_providers[provider]
+                      )
+                    : [],
+        ],
     })),
     listeners(({ values, actions }) => ({
         submitLoginSuccess: () => {

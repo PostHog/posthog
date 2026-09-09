@@ -16,6 +16,7 @@ type StoryArgs = {
     samlAvailable: boolean
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
     generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
+    linkedSocialProviders: string[]
 }
 
 const meta: Meta<StoryArgs> = {
@@ -37,6 +38,7 @@ const meta: Meta<StoryArgs> = {
             name: 'SSO enforcement',
             options: ['none', 'google-oauth2', 'github', 'gitlab', 'saml'],
         },
+        linkedSocialProviders: { control: 'object', name: 'Linked social providers' },
         generalError: {
             control: 'select',
             name: 'General error',
@@ -52,6 +54,7 @@ const meta: Meta<StoryArgs> = {
         samlAvailable: false,
         ssoEnforcement: 'none',
         generalError: 'none',
+        linkedSocialProviders: [],
     },
 }
 export default meta
@@ -65,6 +68,7 @@ const Template: StoryFn<StoryArgs> = ({
     samlAvailable,
     ssoEnforcement,
     generalError,
+    linkedSocialProviders,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
 
@@ -86,16 +90,22 @@ const Template: StoryFn<StoryArgs> = ({
             },
         },
         post: {
-            '/api/login/precheck': { sso_enforcement: enforcement, saml_available: samlAvailable },
+            '/api/login/precheck': {
+                sso_enforcement: enforcement,
+                saml_available: samlAvailable,
+                password_login_available: true,
+                social_providers: linkedSocialProviders,
+                email: 'test@posthog.com',
+            },
         },
     })
 
     useEffect(() => {
-        if (enforcement) {
+        if (enforcement || linkedSocialProviders.length) {
             loginLogic.actions.setLoginValue('email', 'test@posthog.com')
             loginLogic.actions.precheck({ email: 'test@posthog.com' })
         }
-    }, [enforcement])
+    }, [enforcement, linkedSocialProviders])
 
     useEffect(() => {
         if (generalError !== 'none') {
@@ -128,6 +138,9 @@ SAMLAvailable.args = { samlAvailable: true }
 
 export const LoginError: StoryFn<StoryArgs> = Template.bind({})
 LoginError.args = { generalError: 'invalid_credentials' }
+
+export const LoginErrorWithLinkedProvider: StoryFn<StoryArgs> = Template.bind({})
+LoginErrorWithLinkedProvider.args = { generalError: 'invalid_credentials', linkedSocialProviders: ['google-oauth2'] }
 
 export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
 EmailVerification.args = { generalError: 'code_based_verification_sent' }
