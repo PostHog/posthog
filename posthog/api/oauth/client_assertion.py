@@ -133,15 +133,45 @@ def _unverified_subject(assertion: str) -> str:
     return subject if isinstance(subject, str) else ""
 
 
+def _unverified_audience(assertion: str) -> str:
+    """Read ``aud`` without verifying, to report what a rejected assertion was addressed to.
+
+    Safe to log: the audience names this server, while the credential is the signature.
+    """
+    try:
+        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
+        claims = jwt.decode(assertion, options={"verify_signature": False})
+    except jwt.PyJWTError:
+        return ""
+    audience = claims.get("aud") or ""
+    if isinstance(audience, str):
+        return audience
+    if isinstance(audience, list):
+        return ", ".join(str(entry) for entry in audience)
+    return ""
+
+
 def expected_assertion_audiences(*token_endpoint_paths: str) -> list[str]:
     """Audiences we accept, kept to an explicit set so an assertion minted for another
     service can't be replayed against us.
 
     RFC 7523 section 3 lets a client address either the issuer or the endpoint it is calling,
     so both are accepted. Callers pass the paths their own endpoint answers on.
+
+    A client mints ``aud`` from the issuer it discovered, which is not necessarily SITE_URL: on
+    Cloud the advertised authorization server is the OAuth proxy, and an assertion addressed to
+    it would fail here against SITE_URL alone. The extra issuers come from settings rather than
+    from the request, so the accepted set stays a fixed allowlist.
     """
-    site_url = settings.SITE_URL.rstrip("/")
-    return [site_url, *(f"{site_url}{path}" for path in token_endpoint_paths)]
+    issuers = [
+        settings.SITE_URL.rstrip("/"),
+        *(issuer.rstrip("/") for issuer in settings.OAUTH_CLIENT_ASSERTION_ALLOWED_AUDIENCES if issuer),
+    ]
+    audiences: list[str] = []
+    for issuer in dict.fromkeys(issuers):
+        audiences.append(issuer)
+        audiences.extend(f"{issuer}{path}" for path in token_endpoint_paths)
+    return audiences
 
 
 AGENTIC_TOKEN_ENDPOINT_PATH = "/api/agentic/oauth/token"
@@ -279,13 +309,16 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
 
     key = _select_key_allowing_rotation(app.jwks_uri, assertion)
     client_identifier = app.client_id
+    accepted_audiences = (
+        audiences if audiences is not None else expected_assertion_audiences(AGENTIC_TOKEN_ENDPOINT_PATH)
+    )
 
     try:
         claims = jwt.decode(
             assertion,
             key=key,
             algorithms=ALLOWED_ASSERTION_ALGORITHMS,
-            audience=audiences if audiences is not None else expected_assertion_audiences(AGENTIC_TOKEN_ENDPOINT_PATH),
+            audience=accepted_audiences,
             issuer=client_identifier,
             leeway=ASSERTION_CLOCK_SKEW_SECONDS,
             options={
@@ -299,7 +332,18 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
     except jwt.PyJWTError as e:
         # The reason is logged rather than returned: which check failed is useful to us and
         # not something an unauthenticated caller needs.
-        logger.warning("client_assertion_rejected", app_id=str(app.id), error=str(e), error_type=type(e).__name__)
+        addressing = (
+            {"presented_audience": _unverified_audience(assertion), "expected_audiences": accepted_audiences}
+            if isinstance(e, jwt.InvalidAudienceError)
+            else {}
+        )
+        logger.warning(
+            "client_assertion_rejected",
+            app_id=str(app.id),
+            error=str(e),
+            error_type=type(e).__name__,
+            **addressing,
+        )
         raise ClientAssertionError("Client assertion is invalid") from e
 
     # RFC 7523 section 3: for client authentication both iss and sub are the client_id.
