@@ -12,6 +12,7 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.event_usage import EventSource
 from posthog.models.team import Team
 
 import products.replay_vision.backend.max_tools as max_tools_module
@@ -1147,6 +1148,37 @@ class TestReplayVisionLifecycleTools(BaseTest):
         label = await sync_to_async(ReplayObservationLabel.objects.get)(observation_id=observation.id)
         assert label.is_correct is False
         assert label.feedback == "it missed the coupon step"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_labelling_reports_the_rating_against_posthog_ai(self):
+        scanner = await sync_to_async(self._scanner)()
+        observation = await sync_to_async(ReplayObservation.objects.create)(
+            scanner=scanner,
+            session_id="s1",
+            scanner_snapshot={"scanner_type": "monitor"},
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+        tool = self._tool(LabelReplayVisionObservationTool)
+
+        with patch("posthoganalytics.capture") as capture:
+            await tool._arun_impl(observation_id=str(observation.id), is_correct=True)
+            rated = self._captured(capture, "replay_vision_observation_rated")
+            # A re-rate that changes nothing must not count a second time, the same gate the API uses.
+            await tool._arun_impl(observation_id=str(observation.id), is_correct=True)
+            after_resave = self._captured(capture, "replay_vision_observation_rated")
+
+        assert len(rated) == 1
+        assert len(after_resave) == 1
+        assert rated[0].kwargs["properties"]["source"] == EventSource.POSTHOG_AI
+        assert rated[0].kwargs["properties"]["is_new"] is True
+        assert rated[0].kwargs["properties"]["scanner_id"] == str(scanner.id)
+
+    @staticmethod
+    def _captured(capture, event: str) -> list:
+        return [call for call in capture.call_args_list if call.kwargs.get("event") == event]
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
