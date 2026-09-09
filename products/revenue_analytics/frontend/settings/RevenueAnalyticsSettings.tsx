@@ -92,7 +92,6 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                     <SceneDivider />
 
                     <ProductIntroduction
-                        productName="Revenue tracking"
                         thingName="revenue source"
                         description=""
                         isEmpty={hasNoEvents && hasNoDataWarehouseSources}

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, NoReturn
 
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.db import IntegrityError
@@ -6,7 +6,7 @@ from django.db.models import Q, QuerySet
 from django.http import Http404
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS
@@ -21,6 +21,15 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import ColumnConfiguration
 
 logger = structlog.get_logger(__name__)
+
+TEAM_EDITABLE_VIEW_CONTEXT_KEYS = {"customer_analytics_accounts_columns"}
+
+
+class ColumnConfigurationListQuerySerializer(serializers.Serializer):
+    context_key = serializers.CharField(
+        required=False,
+        help_text="Return saved views for this context only.",
+    )
 
 
 class ColumnConfigurationSerializer(serializers.ModelSerializer):
@@ -79,6 +88,7 @@ class ColumnConfigurationSerializer(serializers.ModelSerializer):
         return values
 
 
+@extend_schema_view(list=extend_schema(parameters=[ColumnConfigurationListQuerySerializer]))
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
@@ -130,7 +140,14 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # view, or a wrong id) is a 404 — not an unhandled 500.
             raise NotFound("View not found")
 
-        if self.request.method not in SAFE_METHODS and object.created_by != self.request.user:
+        if (
+            self.request.method not in SAFE_METHODS
+            and (
+                object.visibility == ColumnConfiguration.Visibility.PRIVATE
+                or object.context_key not in TEAM_EDITABLE_VIEW_CONTEXT_KEYS
+            )
+            and object.created_by != self.request.user
+        ):
             raise PermissionDenied("You do not have permission to change this view")
 
         return object
@@ -178,18 +195,31 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             instance = serializer.save(team=self.team, created_by=self.request.user)
             self._log_activity(instance=instance, previous=None)
-        except IntegrityError as e:
-            error_str = str(e)
-            if "unique_user_view_name" in error_str:
-                raise Conflict(detail="A private view with this name already exists")
-            elif "unique_team_view_name" in error_str:
-                raise Conflict(detail="A shared view with this name already exists")
-            raise
+        except IntegrityError as error:
+            self._raise_name_conflict(error)
 
     def perform_update(self, serializer):
         previous = self.get_object()
-        instance = serializer.save()
-        self._log_activity(instance=instance, previous=previous)
+        target_visibility = serializer.validated_data.get("visibility", previous.visibility)
+        save_kwargs = (
+            {"created_by": self.request.user}
+            if previous.visibility == ColumnConfiguration.Visibility.SHARED
+            and target_visibility == ColumnConfiguration.Visibility.PRIVATE
+            else {}
+        )
+        try:
+            instance = serializer.save(**save_kwargs)
+            self._log_activity(instance=instance, previous=previous)
+        except IntegrityError as error:
+            self._raise_name_conflict(error)
+
+    def _raise_name_conflict(self, error: IntegrityError) -> NoReturn:
+        error_str = str(error)
+        if "unique_user_view_name" in error_str:
+            raise Conflict(detail="A private view with this name already exists")
+        if "unique_team_view_name" in error_str:
+            raise Conflict(detail="A shared view with this name already exists")
+        raise error
 
     def _log_activity(self, instance, previous):
         log_activity_from_viewset(

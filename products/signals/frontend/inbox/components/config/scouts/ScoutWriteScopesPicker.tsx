@@ -75,8 +75,9 @@ export function ScoutWriteScopesPicker({
                 <p className="text-[11.5px] text-warning mb-0">
                     Write access covers the whole project. A scout that can write dashboards can change or delete any
                     dashboard here, not only ones it created. Annotations also include organization-wide ones that other
-                    projects see. Deleted dashboards, insights, and annotations can be restored. Deleted alerts cannot.
-                    Changes apply from the scout's next run.
+                    projects see, and skills include the ones your other scouts run from. Most deletes here can be
+                    undone. Deleted alerts and deleted data quality checks cannot. Changes apply from the scout's next
+                    run.
                 </p>
             )}
         </div>

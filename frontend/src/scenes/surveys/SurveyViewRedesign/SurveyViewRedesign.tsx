@@ -38,6 +38,7 @@ import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { getSurveyStatus, isSurveyDraft, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveySQLHelper } from 'scenes/surveys/SurveySQLHelper'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
+import { transformSurveyResponseRows } from 'scenes/surveys/utils'
 import { canUseSurveyWizard } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
@@ -696,14 +697,17 @@ function SurveyResponsesContent(): JSX.Element {
                     aria-busy={isRefreshingResults}
                     className={
                         isRefreshingResults
-                            ? 'survey-table-results opacity-75 transition-opacity duration-200 ease-out'
-                            : 'survey-table-results opacity-100 transition-opacity duration-200 ease-out'
+                            ? 'survey-table-results space-y-4 opacity-75 transition-opacity duration-200 ease-out'
+                            : 'survey-table-results space-y-4 opacity-100 transition-opacity duration-200 ease-out'
                     }
                 >
+                    <SurveyStatsSummary />
                     <Query
                         query={dataTableQuery}
                         context={{
                             columns: surveyColumnRenderers,
+                            dataTableExportExcludedColumns: ['response', 'actions'],
+                            dataTableRowsTransformer: (rows) => transformSurveyResponseRows(rows, survey),
                             rowProps: (record: unknown) => {
                                 if (typeof record !== 'object' || !record || !('result' in record)) {
                                     return {}

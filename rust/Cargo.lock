@@ -2224,6 +2224,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "capture-apm-metrics"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "capture",
+ "capture-logs",
+ "common-alloc",
+ "common-metrics",
+ "health",
+ "limiters",
+ "tokio",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "capture-load-gen"
 version = "0.1.0"
 dependencies = [
@@ -9301,7 +9318,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.4.7"
+version = "0.6.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",

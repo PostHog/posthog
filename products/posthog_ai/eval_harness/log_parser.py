@@ -22,6 +22,7 @@ from .acp_log import parse_log
 
 SKILL_TOOL_NAME = "Skill"
 EXEC_TOOL_NAME = "exec"
+EXECUTE_SQL_TOOL_NAME = "execute-sql"
 INFO_SYNTHETIC_PREFIX = "__info__:"
 """Synthetic name assigned when ``exec {command: "info <tool>"}`` is unwrapped.
 
@@ -101,6 +102,27 @@ class ToolCall(BaseModel):
     Python/Bash post-processing); ``"optimized"`` or ``None`` is the default
     token-efficient view. ``None`` for non-``exec`` calls and for unwrapped
     discovery commands. See ``services/mcp/src/tools/exec.ts`` for the schema."""
+
+
+def is_schema_discovery_call(call: ToolCall) -> bool:
+    """True when an ``execute-sql`` call is a catalog lookup rather than an answer query.
+
+    The MCP instructions make catalog lookups mandatory and route them through
+    ``execute-sql`` against ``system.information_schema.*``: table and column
+    discovery (``sections/schema-discovery.md``), the metric catalog
+    (``sections/metric-discovery.md``), and join validation
+    (``sections/catalog-trust-discovery.md``). Those calls land in the same
+    ``execute-sql`` call list as the query that answers the user, so a scorer
+    that grades SQL usage must drop them first, otherwise it grades the
+    instructions the agent was told to follow instead of the route it chose.
+
+    Non-``execute-sql`` calls are never discovery, so callers can apply this to
+    a mixed call list.
+    """
+    if call.name != EXECUTE_SQL_TOOL_NAME:
+        return False
+    query = call.input.get("query")
+    return isinstance(query, str) and "information_schema" in query.lower()
 
 
 class SkillCall(BaseModel):
