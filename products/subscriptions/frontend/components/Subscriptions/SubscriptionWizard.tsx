@@ -32,12 +32,14 @@ import { urls } from 'scenes/urls'
 
 import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
+import type { ProactiveConfigurationOptionsApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'
 import { InsightSelector } from './InsightSelector'
 import { SubscriptionActionsStep } from './SubscriptionActionsStep'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
 import { subscriptionLogic, SubscriptionWizardStep } from './subscriptionLogic'
-import type { SubscriptionLogicProps } from './subscriptionLogic'
+import type { SubscriptionForm, SubscriptionLogicProps } from './subscriptionLogic'
 import { SubscriptionTimePicker } from './SubscriptionTimePicker'
 import {
     frequencyOptionsPlural,
@@ -677,23 +679,49 @@ function formatAiAnalysisWindow(subscription: SubscriptionType): string {
     return 'Since last report'
 }
 
-function SubscriptionReviewStep({
+function formatProactiveActions(
+    subscription: SubscriptionForm,
+    options: ProactiveConfigurationOptionsApi | null
+): string | null {
+    const config = subscription.proactive_config
+
+    if (!config?.enabled || !options?.proactive_available) {
+        return null
+    }
+
+    const actions = ['Follow-up recommendations']
+    if (config.allow_public_web_research && options.public_web_research_available) {
+        actions.push('Public web research')
+    }
+    if (config.create_draft_pr && options.draft_pr_available) {
+        actions.push(config.repository ? `Draft pull request: ${config.repository}` : 'Draft pull request')
+    }
+    return actions.join(' · ')
+}
+
+export function SubscriptionReviewStep({
     logicProps,
     subscription,
     dashboard,
     insightShortId,
 }: {
     logicProps: SubscriptionLogicProps
-    subscription: SubscriptionType
+    subscription: SubscriptionForm
     dashboard?: DashboardType<any> | null
     insightShortId?: InsightShortId
 }): JSX.Element {
-    const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
+    const { previewLoading, previewError, previewImageUrl, proactiveConfigurationOptions } = useValues(
+        subscriptionLogic(logicProps)
+    )
     const { generatePreview } = useActions(subscriptionLogic(logicProps))
     const selectedInsightsCount = subscription.dashboard_export_insights?.length ?? 0
     const advancedSettings = getSubscriptionAdvancedSettings(subscription)
     const nextDeliveryDate = getNextDeliveryDate(subscription)
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
+    const proactiveActions =
+        isAiPrompt && logicProps.proactiveSettingsEnabled
+            ? formatProactiveActions(subscription, proactiveConfigurationOptions)
+            : null
     let reviewNotice: JSX.Element
 
     if (subscription.send_test_now) {
@@ -720,6 +748,7 @@ function SubscriptionReviewStep({
             ? [
                   { label: 'Prompt', value: subscription.prompt ?? '' },
                   { label: 'Analysis window', value: formatAiAnalysisWindow(subscription) },
+                  ...(proactiveActions ? [{ label: 'Actions', value: proactiveActions }] : []),
               ]
             : []),
         { label: 'Sends to', value: subscription.target_value },

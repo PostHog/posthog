@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -1013,6 +1013,16 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             }
         },
     })),
+
+    propsChanged(({ actions, props, values }, oldProps) => {
+        if (
+            !oldProps.proactiveSettingsEnabled &&
+            props.proactiveSettingsEnabled &&
+            values.subscription?.resource_type === SubscriptionResourceTypes.AiPrompt
+        ) {
+            actions.loadProactiveConfigurationOptions()
+        }
+    }),
 
     events(({ actions, values, props }) => ({
         afterMount: () => {

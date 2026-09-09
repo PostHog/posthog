@@ -90,7 +90,7 @@ export function ProactiveSubscriptionFields({
                             <div className="flex flex-col gap-1 py-1">
                                 <div className="leading-tight">Look for follow-up recommendations</div>
                                 <div className="text-xs text-secondary font-normal leading-tight">
-                                    After each report, investigate changes and suggest a next step.
+                                    After each report, PostHog investigates changes and suggests a next step.
                                 </div>
                             </div>
                         }

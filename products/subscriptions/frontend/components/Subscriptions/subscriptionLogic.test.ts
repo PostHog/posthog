@@ -328,6 +328,41 @@ describe('subscriptionLogic', () => {
         pulseLogic.unmount()
     })
 
+    it('loads proactive settings when Pulse becomes enabled after the AI subscription loads', async () => {
+        let proactiveOptionsRequests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team/subscriptions/proactive_options/': () => {
+                    proactiveOptionsRequests += 1
+                    return [
+                        200,
+                        {
+                            proactive_available: true,
+                            public_web_research_available: true,
+                            draft_pr_available: true,
+                            repositories: [],
+                        },
+                    ]
+                },
+            },
+        })
+        const props = { id: 'new' as const, proactiveSettingsEnabled: false }
+        const pulseLogic = subscriptionLogic(props)
+        pulseLogic.mount()
+
+        router.actions.push('/subscriptions/new')
+        await expectLogic(pulseLogic).toFinishAllListeners()
+        expect(pulseLogic.values.subscription.resource_type).toBe('ai_prompt')
+        expect(proactiveOptionsRequests).toBe(0)
+
+        subscriptionLogic({ ...props, proactiveSettingsEnabled: true })
+        await expectLogic(pulseLogic).toFinishAllListeners()
+
+        expect(proactiveOptionsRequests).toBe(1)
+        expect(pulseLogic.values.proactiveConfigurationOptions).toMatchObject({ proactive_available: true })
+        pulseLogic.unmount()
+    })
+
     it('requires a repository before saving draft pull request preparation', async () => {
         const pulseLogic = subscriptionLogic({
             insightShortId: '4' as InsightShortId,
