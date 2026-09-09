@@ -34,7 +34,6 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     store_report_run_activity,
 )
 from posthog.temporal.ai_observability.eval_reports.constants import (
-    COUNT_TRIGGER_MAX_LOOKBACK,
     COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR,
@@ -54,12 +53,6 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 
 
 def _scanned_window(query: ast.SelectQuery) -> list[dt.datetime]:
-    """Return the timestamp bounds a count query puts in its WHERE clause, oldest first.
-
-    These bounds decide how many rows ClickHouse reads, which is what the lookback clamp and
-    the time split control, so the tests assert on the query the code sends.
-    """
-
     class CollectTimestamps(TraversingVisitor):
         def __init__(self) -> None:
             self.timestamps: list[dt.datetime] = []
@@ -728,20 +721,22 @@ class TestCountTriggeredReportChecks(BaseTest):
 
     @parameterized.expand(
         [
-            ("anchor_older_than_lookback", COUNT_TRIGGER_MAX_LOOKBACK * 12, COUNT_TRIGGER_MAX_LOOKBACK),
-            ("anchor_inside_lookback", dt.timedelta(days=2), dt.timedelta(days=2)),
+            ("created_at",),
+            ("starts_at",),
+            ("last_delivered_at",),
         ]
     )
-    def test_count_window_never_reaches_further_back_than_the_lookback(self, _name, anchor_age, expected_age):
-        # Catches a clamp that stops reaching the query, which returns the scan to unbounded.
+    def test_count_window_preserves_older_report_anchor(self, anchor_field: str) -> None:
         now = timezone.now()
-        report = self._create_report(starts_at=now - anchor_age)
+        since = now - dt.timedelta(days=10)
+        report = self._create_report()
+        EvaluationReport.objects.filter(id=report.id).update(**{anchor_field: since})
 
         with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
             execute_hogql_query.return_value = Mock(results=[[1]])
             _check_count_triggered_eval_report_sync(str(report.id), now)
 
-        self.assertEqual(_scanned_window(execute_hogql_query.call_args.kwargs["query"]), [now - expected_age])
+        self.assertEqual(_scanned_window(execute_hogql_query.call_args.kwargs["query"]), [since])
 
 
 class TestCountEvalResultsForReportsSplitRetry(BaseTest):
@@ -969,13 +964,16 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
                 properties={"$ai_evaluation_id": evaluation_id, **(extra_properties or {})},
             )
 
-    def test_counts_respect_since_evaluation_and_threshold(self):
+    @parameterized.expand([("same_day", dt.timedelta(hours=3)), ("over_seven_days", dt.timedelta(days=10))])
+    def test_counts_respect_since_evaluation_and_threshold(self, _name: str, window: dt.timedelta) -> None:
+        now = self.T0 + window
+        in_window = [self.T0 + dt.timedelta(hours=1), now - dt.timedelta(hours=1)]
         # A: 2 events in-window (threshold 2) -> due. One event before `since` must be excluded.
         report_a = self._create_report(self.team, threshold=2, since=self.T0, name="A")
         self._emit_eval_events(
             self.team,
             str(report_a.evaluation_id),
-            [self.T0 - dt.timedelta(hours=1), self.T0 + dt.timedelta(hours=1), self.T0 + dt.timedelta(hours=2)],
+            [self.T0 - dt.timedelta(hours=1), *in_window],
         )
         # B: same window as A but threshold 5 with only 2 events -> not due. Guards against
         # B's count picking up A's events (evaluation isolation).
@@ -983,7 +981,7 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
         self._emit_eval_events(
             self.team,
             str(report_b.evaluation_id),
-            [self.T0 + dt.timedelta(hours=1), self.T0 + dt.timedelta(hours=2)],
+            in_window,
         )
         # C: later `since` (11:00) than A/B — its only event (10:00) predates its window, so 0 -> not due.
         # This proves each report applies its OWN since, not a shared one.
@@ -991,7 +989,7 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
         self._emit_eval_events(self.team, str(report_c.evaluation_id), [self.T0 + dt.timedelta(hours=1)])
 
         report_ids = [str(report_a.id), str(report_b.id), str(report_c.id)]
-        results = _check_count_triggered_eval_reports_batch(report_ids, self.NOW)
+        results = _check_count_triggered_eval_reports_batch(report_ids, now)
 
         due_by_id = {r.report_id: r.due for r in results}
         self.assertEqual([r.report_id for r in results], report_ids)

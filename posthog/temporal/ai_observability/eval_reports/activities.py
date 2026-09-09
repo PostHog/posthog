@@ -19,7 +19,6 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.constants import (
-    COUNT_TRIGGER_MAX_LOOKBACK,
     COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE,
@@ -190,8 +189,7 @@ def _count_triggered_pg_gate(
     """Postgres-only eligibility checks shared by the single and batched count paths.
 
     Returns (skipped_reason, since). When skipped_reason is None the report is eligible
-    for a count check and `since` is the lower bound of its count window, clamped to
-    COUNT_TRIGGER_MAX_LOOKBACK so the window cannot grow without bound.
+    for a count check and `since` is the lower bound of its count window.
     """
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
 
@@ -211,7 +209,7 @@ def _count_triggered_pg_gate(
         return "daily_cap", None
 
     since = report.last_delivered_at or report.starts_at or report.created_at
-    return None, max(since, now - COUNT_TRIGGER_MAX_LOOKBACK)
+    return None, since
 
 
 def _check_count_triggered_eval_report_sync(

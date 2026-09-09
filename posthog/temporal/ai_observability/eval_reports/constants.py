@@ -34,11 +34,6 @@ COUNT_TRIGGER_QUERY_WIDTH = 20
 # same ceiling as the legacy per-report path.
 COUNT_TRIGGER_MAX_CONCURRENT_CHECKS = 5
 COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT = timedelta(seconds=120)
-# Oldest events a count check considers. A report that never reaches its threshold keeps its
-# window anchor forever, so without this bound its scan grows on every 5-minute poll. A report
-# that cannot collect trigger_threshold results inside this window asks for more than its
-# evaluation produces, so a wider scan would not make it fire either.
-COUNT_TRIGGER_MAX_LOOKBACK = timedelta(days=7)
 # Per-attempt ClickHouse budget. A too-slow count query fails with a catchable
 # ClickHouseQueryTimeOut the activity can split-and-retry, unlike a Temporal activity
 # timeout, which kills the split midway and replays the same sequence on every retry.
