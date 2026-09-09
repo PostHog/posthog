@@ -47,7 +47,7 @@ use hogvm::Operation;
 use serde_json::Value;
 
 pub use decode::DecodeError;
-pub use plan::{GlobalsPlan, RootSet};
+pub use plan::{GlobalsBuild, GlobalsPlan};
 pub use projection::AnalysisBudget;
 
 /// What a static pass could establish about one condition's bytecode.
@@ -309,7 +309,7 @@ impl GlobalRoot {
         }
     }
 
-    pub const COUNT: u8 = 14 + 2 * GroupIndex::COUNT;
+    pub const COUNT: u8 = FIRST_GROUP_ORDINAL + 2 * GroupIndex::COUNT;
 
     /// A dense index into `0..COUNT`, never persisted, that [`GlobalRoot::from_ordinal`] inverts.
     pub fn ordinal(self) -> u8 {
@@ -331,6 +331,11 @@ impl GlobalRoot {
             Self::DollarGroup(index) => FIRST_GROUP_ORDINAL + index.get(),
             Self::Group(index) => FIRST_GROUP_ORDINAL + GroupIndex::COUNT + index.get(),
         }
+    }
+
+    /// Every root, in ordinal order.
+    pub fn all() -> impl Iterator<Item = Self> {
+        (0..Self::COUNT).filter_map(Self::from_ordinal)
     }
 
     pub fn from_ordinal(ordinal: u8) -> Option<Self> {
@@ -493,7 +498,7 @@ mod tests {
     }
 
     /// The compiler forces a new variant to take an ordinal, but not to update
-    /// [`GlobalRoot::COUNT`], and a stale one leaves `RootSet::ALL` short of a root.
+    /// [`GlobalRoot::COUNT`], and a stale one leaves `GlobalsPlan::FULL` short of a root.
     #[test]
     fn every_global_root_round_trips_through_its_name_and_ordinal() {
         let by_ordinal: Vec<GlobalRoot> = (0..GlobalRoot::COUNT)
@@ -511,7 +516,7 @@ mod tests {
         assert_eq!(
             GlobalRoot::from_ordinal(GlobalRoot::COUNT),
             None,
-            "COUNT is not past the last ordinal, so `RootSet::ALL` would be short a root",
+            "COUNT is not past the last ordinal, so `GlobalsPlan::FULL` would be short a root",
         );
         for root in &by_ordinal {
             assert_eq!(GlobalRoot::from_ordinal(root.ordinal()), Some(*root));

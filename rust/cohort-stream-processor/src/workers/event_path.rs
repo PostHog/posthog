@@ -18,10 +18,10 @@ use metrics::{counter, histogram};
 use uuid::Uuid;
 
 use crate::consumers::events::CohortStreamEvent;
-use crate::filters::reverse_index::TeamFilters;
+use crate::filters::reverse_index::{BehavioralCandidates, TeamFilters};
 use crate::filters::TeamId;
 use crate::hogvm::{
-    build_behavioral_globals, build_person_property_globals, CohortEvaluator, GlobalsPlan,
+    build_behavioral_globals, build_person_property_globals, CohortEvaluator, GlobalsBuild,
 };
 use crate::observability::metrics::{
     STAGE1_BEHAVIORAL_APPLIES, STAGE1_CONDITIONS_EVALUATED, STAGE1_CONDITIONS_SKIPPED,
@@ -407,33 +407,14 @@ pub(crate) fn plan_event(
         .as_deref()
         .and_then(|raw| Uuid::parse_str(raw).ok());
 
-    let has_behavioral = !filters.behavioral_conditions.is_empty();
+    let has_behavioral = !filters.behavioral.conditions.is_empty();
     let has_person = !filters.person_property_conditions.is_empty();
     if !has_behavioral && !has_person {
         return EventPlan::Skip(SkipReason::NoConditions);
     }
 
-    // Resolve the candidates first, so an event no condition roots at pays for neither JSON parse.
     let mut behavioral: Vec<BehavioralApply> = Vec::new();
-    match BehavioralCandidates::resolve(filters, &event.event, event_name_gating) {
-        None => counter!(STAGE1_GLOBALS_BUILDS, "result" => "no_candidates").increment(1),
-        Some(candidates) => match build_behavioral_globals(event, candidates.plan) {
-            // Skipping the whole event here would make the gating flag a correctness switch: an
-            // empty bucket is never parsed and so never skipped, while the sweep parses and skips.
-            Err(_) => counter!(STAGE1_GLOBALS_BUILDS, "result" => "parse_error").increment(1),
-            Ok(globals) => {
-                counter!(STAGE1_GLOBALS_BUILDS, "result" => "built").increment(1);
-                let mut evaluator = CohortEvaluator::new();
-                evaluator.set_globals(globals);
-                collect_behavioral_applies(
-                    filters,
-                    candidates.conditions,
-                    &mut evaluator,
-                    &mut behavioral,
-                );
-            }
-        },
-    }
+    collect_behavioral_applies(filters, event, event_name_gating, &mut behavioral);
 
     // Fingerprints are computed here; the record read and evaluation happen in the fold.
     let person = match active_person_props(filters, event) {
@@ -795,54 +776,63 @@ fn active_person_props<'a>(filters: &TeamFilters, event: &'a CohortStreamEvent) 
         .filter(|raw| !raw.is_empty())
 }
 
-/// What one event can match under `gating`, resolved before the globals are built.
-struct BehavioralCandidates<'a> {
-    conditions: &'a [[u8; 16]],
-    plan: GlobalsPlan,
-}
-
-impl<'a> BehavioralCandidates<'a> {
-    /// `None` when nothing can match, the case that skips both JSON parses. The `event_name_gate`
-    /// count is emitted either way, so a gated-out condition still counts on an unparsed event.
-    fn resolve(
-        filters: &'a TeamFilters,
-        event_name: &str,
-        gating: EventNameGating,
-    ) -> Option<Self> {
-        match gating {
-            EventNameGating::Disabled => {
-                (!filters.behavioral_conditions.is_empty()).then(|| Self {
-                    conditions: &filters.behavioral_conditions,
-                    plan: filters.behavioral_plan,
-                })
-            }
-            EventNameGating::Enabled => {
-                let bucket = filters.behavioral_by_event_name.get(event_name);
-                let gated_out = filters
-                    .behavioral_conditions
-                    .len()
-                    .saturating_sub(bucket.map_or(0, |bucket| bucket.conditions.len()));
-                if gated_out > 0 {
-                    counter!(STAGE1_CONDITIONS_SKIPPED, "reason" => "event_name_gate")
-                        .increment(gated_out as u64);
-                }
-                bucket.map(|bucket| Self {
-                    conditions: &bucket.conditions,
-                    plan: bucket.plan,
-                })
-            }
-        }
+/// Evaluate this event's behavioral conditions, pushing a [`BehavioralApply`] per matching leaf.
+///
+/// The candidates resolve before the globals are built, so an event no condition roots at pays for
+/// neither JSON parse. A malformed payload drops the behavioral side and leaves the person side to
+/// run: skipping the whole event here would make the gating flag a correctness switch, because an
+/// event outside every bucket is never parsed and so never skipped, while the sweep parses it,
+/// fails, and skips.
+fn collect_behavioral_applies(
+    filters: &TeamFilters,
+    event: &CohortStreamEvent,
+    gating: EventNameGating,
+    applies: &mut Vec<BehavioralApply>,
+) {
+    let Some(candidates) = behavioral_candidates(filters, &event.event, gating) else {
+        counter!(STAGE1_GLOBALS_BUILDS, "result" => "no_candidates").increment(1);
+        return;
+    };
+    // The whole team's plan decides which payloads are parsed, so the two gating arms agree on
+    // whether this event's payloads are malformed even though they materialize different roots.
+    let build = GlobalsBuild::narrowed(candidates.plan, filters.behavioral.plan);
+    let Ok(globals) = build_behavioral_globals(event, build) else {
+        counter!(STAGE1_GLOBALS_BUILDS, "result" => "parse_error").increment(1);
+        return;
+    };
+    counter!(STAGE1_GLOBALS_BUILDS, "result" => "built").increment(1);
+    let mut evaluator = CohortEvaluator::new();
+    evaluator.set_globals(globals);
+    for &hash in &candidates.conditions {
+        eval_behavioral_condition(filters, hash, &mut evaluator, applies);
     }
 }
 
-fn collect_behavioral_applies(
-    filters: &TeamFilters,
-    conditions: &[[u8; 16]],
-    evaluator: &mut CohortEvaluator,
-    applies: &mut Vec<BehavioralApply>,
-) {
-    for &hash in conditions {
-        eval_behavioral_condition(filters, hash, evaluator, applies);
+/// What one event can match under `gating`, or `None` when nothing can — the case that skips both
+/// JSON parses. The `event_name_gate` count is emitted either way, so a gated-out condition still
+/// counts on an unparsed event.
+fn behavioral_candidates<'a>(
+    filters: &'a TeamFilters,
+    event_name: &str,
+    gating: EventNameGating,
+) -> Option<&'a BehavioralCandidates> {
+    match gating {
+        EventNameGating::Disabled => {
+            (!filters.behavioral.conditions.is_empty()).then_some(&filters.behavioral)
+        }
+        EventNameGating::Enabled => {
+            let bucket = filters.behavioral_by_event_name.get(event_name);
+            let gated_out = filters
+                .behavioral
+                .conditions
+                .len()
+                .saturating_sub(bucket.map_or(0, |bucket| bucket.conditions.len()));
+            if gated_out > 0 {
+                counter!(STAGE1_CONDITIONS_SKIPPED, "reason" => "event_name_gate")
+                    .increment(gated_out as u64);
+            }
+            bucket
+        }
     }
 }
 

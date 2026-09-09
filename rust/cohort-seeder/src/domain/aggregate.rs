@@ -10,7 +10,7 @@ use cohort_core::events::CohortStreamEvent;
 use cohort_core::filters::{TeamFilters, TeamId};
 use cohort_core::hogvm::{
     build_behavioral_globals, classify_vm_error, CohortEvaluator, ConditionProgram, EvalOutcome,
-    GlobalsPlan, VmErrorClass,
+    GlobalsBuild, VmErrorClass,
 };
 use uuid::Uuid;
 
@@ -75,6 +75,9 @@ struct ActiveCandidate {
 pub struct ChunkAccumulator {
     team_id: TeamId,
     active_by_event_name: HashMap<String, Vec<ActiveCandidate>>,
+    /// The team's whole behavioral plan, the same one the live path parses under — a seed that
+    /// parsed a payload live never reads would diverge from live on a malformed one.
+    globals_build: GlobalsBuild,
     evaluator: CohortEvaluator,
     counts: HashMap<(Uuid, ConditionHash), NonZeroU32>,
 }
@@ -112,6 +115,7 @@ impl ChunkAccumulator {
         Ok(Self {
             team_id,
             active_by_event_name,
+            globals_build: GlobalsBuild::whole(filters.behavioral.plan),
             evaluator: CohortEvaluator::new(),
             counts: HashMap::new(),
         })
@@ -136,7 +140,7 @@ impl ChunkAccumulator {
         if self.active_by_event_name.is_empty() {
             return Ok(RecordOutcome::Evaluated(RecordStats::default()));
         }
-        let Ok(globals) = build_behavioral_globals(event, GlobalsPlan::FULL) else {
+        let Ok(globals) = build_behavioral_globals(event, self.globals_build) else {
             return Ok(RecordOutcome::SkippedGlobals);
         };
         self.evaluator.set_globals(globals);
@@ -294,6 +298,26 @@ mod tests {
         builder.freeze(UTC)
     }
 
+    /// The same catalog, with condition `a` also reading `properties`. A team whose conditions name
+    /// no payload never parses one, so only this catalog can fail on a malformed `properties`.
+    fn filters_reading_properties() -> TeamFilters {
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(2),
+                &json!({
+                    "properties": { "type": "AND", "values": [
+                        // event == "a" AND properties.x == "1"
+                        { "type": "behavioral", "value": "performed_event", "key": "a", "conditionHash": HASH_A, "time_value": 7, "time_interval": "day", "bytecode": ["_H", 1, 32, "a", 32, "event", 1, 1, 11, 32, "1", 32, "x", 32, "properties", 1, 2, 11, 3, 2] },
+                        { "type": "behavioral", "value": "performed_event", "key": "b", "conditionHash": HASH_B, "time_value": 7, "time_interval": "day", "bytecode": ["_H", 1, 32, "b", 32, "event", 1, 1, 11] },
+                    ]}
+                }),
+            )
+            .unwrap();
+        builder.freeze(UTC)
+    }
+
     fn event(person: Uuid, event_name: &str) -> CohortStreamEvent {
         CohortStreamEvent {
             team_id: 2,
@@ -438,12 +462,16 @@ mod tests {
 
     #[test]
     fn malformed_globals_skip_only_that_event_and_leave_counts_unchanged() {
-        let filters = filters();
+        let filters = filters_reading_properties();
         let active = active();
         let mut accumulator = ChunkAccumulator::new(TeamId(2), &filters, &active).unwrap();
         let person = Uuid::from_u128(1);
+        let matching = || CohortStreamEvent {
+            properties: Some(r#"{"x":"1"}"#.to_string()),
+            ..event(person, "a")
+        };
         assert_eq!(
-            evaluated(accumulator.record_event(&event(person, "a")).unwrap()).matched,
+            evaluated(accumulator.record_event(&matching()).unwrap()).matched,
             1
         );
 
@@ -455,7 +483,7 @@ mod tests {
         );
         assert_eq!(accumulator.entry_count(), 1);
         assert_eq!(
-            evaluated(accumulator.record_event(&event(person, "a")).unwrap()).matched,
+            evaluated(accumulator.record_event(&matching()).unwrap()).matched,
             1
         );
 

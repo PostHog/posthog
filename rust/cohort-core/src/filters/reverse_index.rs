@@ -27,12 +27,30 @@ use crate::metrics::{
 };
 use crate::seed::{BehavioralShapeHash, PersonShapeHash};
 
-/// One plan serves the whole bucket because one globals dict does.
+/// The behavioral conditions one globals dict has to serve, and the plan that builds it. One plan
+/// per set because one dict is.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EventNameBucket {
+pub struct BehavioralCandidates {
     /// Sorted, so the evaluation order is deterministic.
     pub conditions: Vec<[u8; 16]>,
     pub plan: GlobalsPlan,
+}
+
+impl BehavioralCandidates {
+    /// Derives the plan from the conditions, so the pair cannot drift: a condition added to the
+    /// list without its roots claimed would read a root the dict omits, and the VM raises
+    /// `VmError::UnknownGlobal` on an absent root.
+    fn new(conditions: Vec<[u8; 16]>, plan_of: impl Fn(&[u8; 16]) -> GlobalsPlan) -> Self {
+        let plan = conditions.iter().map(plan_of).collect();
+        Self { conditions, plan }
+    }
+
+    fn empty() -> Self {
+        Self {
+            conditions: Vec::new(),
+            plan: GlobalsPlan::NONE,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -57,15 +75,13 @@ pub struct TeamFilters {
     pub by_condition_to_program: HashMap<[u8; 16], ConditionProgram>,
     pub unique_condition_hashes: HashSet<[u8; 16]>,
     pub by_lsk: HashMap<LeafStateKey, LeafStateMeta>,
-    /// conditionHashes whose leaves are behavioral. Disjoint from person-property conditions.
-    /// Sorted, so neither the shared analysis budget nor the ungated fan-out depends on hash order.
-    pub behavioral_conditions: Vec<[u8; 16]>,
+    /// Every conditionHash whose leaves are behavioral, for the ungated fan-out. Disjoint from the
+    /// person-property conditions, and sorted, so neither the shared analysis budget nor the
+    /// fan-out depends on hash order.
+    pub behavioral: BehavioralCandidates,
     /// Event name → the behavioral conditions whose bytecode roots at `event == <name>`; the
     /// fan-out gate evaluates only the incoming event's bucket.
-    pub behavioral_by_event_name: HashMap<String, EventNameBucket>,
-    /// The union over [`TeamFilters::behavioral_conditions`], for the ungated fan-out. One
-    /// invariant with that field: adding a condition without recomputing this makes it raise.
-    pub behavioral_plan: GlobalsPlan,
+    pub behavioral_by_event_name: HashMap<String, BehavioralCandidates>,
     pub person_property_conditions: HashSet<[u8; 16]>,
     /// `person_property_conditions` sorted — the stable order the person record's catalog fingerprint
     /// is computed over.
@@ -102,9 +118,8 @@ impl Default for TeamFilters {
             by_condition_to_program: HashMap::new(),
             unique_condition_hashes: HashSet::new(),
             by_lsk: HashMap::new(),
-            behavioral_conditions: Vec::new(),
+            behavioral: BehavioralCandidates::empty(),
             behavioral_by_event_name: HashMap::new(),
-            behavioral_plan: GlobalsPlan::NONE,
             person_property_conditions: HashSet::new(),
             person_conditions_ordered: Vec::new(),
             // Fingerprint of the empty condition set, matching a `freeze` of no person conditions.
@@ -347,18 +362,14 @@ impl TeamFiltersBuilder {
         // One leaf populates both maps, so a miss is unreachable. `FULL` is the answer that would
         // be slow rather than wrong if that ever stopped holding.
         let plan_of = |hash: &[u8; 16]| plans.get(hash).copied().unwrap_or(GlobalsPlan::FULL);
-        let behavioral_plan = behavioral_conditions
-            .iter()
-            .map(plan_of)
-            .collect::<GlobalsPlan>();
+        let behavioral = BehavioralCandidates::new(behavioral_conditions, plan_of);
 
         let behavioral_by_event_name = behavioral_by_event_name
             .into_iter()
             .map(|(name, hashes)| {
                 let mut conditions: Vec<[u8; 16]> = hashes.into_iter().collect();
                 conditions.sort_unstable();
-                let plan = conditions.iter().map(plan_of).collect();
-                (name, EventNameBucket { conditions, plan })
+                (name, BehavioralCandidates::new(conditions, plan_of))
             })
             .collect();
         let mut behavioral_shape_hashes = self.behavioral_shape_hashes;
@@ -372,9 +383,8 @@ impl TeamFiltersBuilder {
             by_condition_to_program: self.by_condition_to_program,
             unique_condition_hashes: self.unique_condition_hashes,
             by_lsk,
-            behavioral_conditions,
+            behavioral,
             behavioral_by_event_name,
-            behavioral_plan,
             person_property_conditions,
             person_conditions_ordered,
             catalog_fingerprint,
@@ -902,7 +912,7 @@ mod tests {
         assert_eq!(meta.window_days, Some(7));
         assert_eq!(meta.predicate_op, Some(PredicateOp::Gte(3)));
         assert_eq!(
-            frozen.behavioral_conditions,
+            frozen.behavioral.conditions,
             vec![HASH],
             "the multiple leaf's conditionHash is behavioral",
         );
@@ -928,7 +938,7 @@ mod tests {
         assert_eq!(meta.window, None, "compressed carries no relative window");
         assert_eq!(meta.window_days, Some(365), "year = 365 days");
         assert_eq!(meta.predicate_op, Some(PredicateOp::Gte(3)));
-        assert_eq!(frozen.behavioral_conditions, vec![HASH]);
+        assert_eq!(frozen.behavioral.conditions, vec![HASH]);
     }
 
     #[test]
@@ -1066,7 +1076,7 @@ mod tests {
         let frozen = builder.freeze(UTC);
 
         assert_eq!(
-            frozen.behavioral_conditions,
+            frozen.behavioral.conditions,
             vec![HASH],
             "the performed_event conditionHash is behavioral",
         );
@@ -1076,7 +1086,8 @@ mod tests {
             "the person conditionHash is person-property",
         );
         assert!(!frozen
-            .behavioral_conditions
+            .behavioral
+            .conditions
             .iter()
             .any(|hash| frozen.person_property_conditions.contains(hash)));
     }
@@ -1236,7 +1247,7 @@ mod tests {
             .collect();
         union.sort_unstable();
         assert_eq!(
-            union, frozen.behavioral_conditions,
+            union, frozen.behavioral.conditions,
             "the buckets partition exactly the behavioral conditions",
         );
     }
@@ -1284,12 +1295,12 @@ mod tests {
         );
         assert!(pageview.reads(GlobalRoot::Event));
         assert!(
-            frozen.behavioral_plan.reads(GlobalRoot::Pdi)
-                && frozen.behavioral_plan.reads(GlobalRoot::Event),
+            frozen.behavioral.plan.reads(GlobalRoot::Pdi)
+                && frozen.behavioral.plan.reads(GlobalRoot::Event),
             "the sweep evaluates every condition, so its plan is the union of the buckets'",
         );
         assert!(
-            frozen.behavioral_conditions.is_sorted(),
+            frozen.behavioral.conditions.is_sorted(),
             "the sweep order and the shared analysis budget both depend on this order",
         );
 
@@ -1310,7 +1321,7 @@ mod tests {
             GlobalsPlan::FULL,
             "a condition the analysis cannot narrow has to claim every root",
         );
-        assert_eq!(frozen.behavioral_plan, GlobalsPlan::FULL);
+        assert_eq!(frozen.behavioral.plan, GlobalsPlan::FULL);
     }
 
     #[test]
@@ -1345,7 +1356,7 @@ mod tests {
             GlobalsPlan::FULL,
             "the condition the spent budget refuses takes every root",
         );
-        assert_eq!(frozen.behavioral_plan, GlobalsPlan::FULL);
+        assert_eq!(frozen.behavioral.plan, GlobalsPlan::FULL);
 
         let mut builder = TeamFiltersBuilder::default();
         builder.add_cohort(CohortId(1), TeamId(7), &cohort).unwrap();
@@ -1406,7 +1417,7 @@ mod tests {
         let frozen = builder.freeze(UTC);
 
         assert_eq!(frozen.by_lsk.len(), 1);
-        assert_eq!(frozen.behavioral_conditions, vec![HASH]);
+        assert_eq!(frozen.behavioral.conditions, vec![HASH]);
     }
 
     fn cohort_ref() -> Value {

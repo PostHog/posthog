@@ -413,7 +413,7 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
     let lsks = &filters.by_condition_to_lsk[&BEHAVIORAL_HASH];
     assert_eq!(lsks.len(), 2, "two distinct LSKs under one conditionHash");
     assert_eq!(
-        filters.behavioral_conditions.len(),
+        filters.behavioral.conditions.len(),
         1,
         "one unique conditionHash → one HogVM eval that fans out",
     );
@@ -918,54 +918,88 @@ fn out_of_order_person_events_keep_the_latest_by_event_time() {
 #[test]
 fn whole_event_skips_carry_distinct_reasons() {
     let (_dir, store) = temp_store();
-    let filters = build_team_filters(vec![(
-        CohortId(1),
-        cohort(vec![behavioral_leaf(7), person_leaf()]),
-    )]);
+    // `event == "$pageview" AND properties.x == "1"`. The behavioral condition has to read
+    // `properties` for the build to parse that payload at all, so that a malformed one can fail.
+    let mut behavioral = behavioral_leaf(7);
+    behavioral["bytecode"] = json!([
+        "_H",
+        1,
+        32,
+        "$pageview",
+        32,
+        "event",
+        1,
+        1,
+        11,
+        32,
+        "1",
+        32,
+        "x",
+        32,
+        "properties",
+        1,
+        2,
+        11,
+        3,
+        2,
+    ]);
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral, person_leaf()]))]);
 
-    type SkipCase = (&'static str, fn(&mut CohortStreamEvent), Option<SkipReason>);
+    type SkipCase = (
+        &'static str,
+        fn(&mut CohortStreamEvent),
+        Option<SkipReason>,
+        &'static [[u8; 16]],
+    );
     let cases: [SkipCase; 5] = [
         (
             "empty person id",
             |e| e.person_id = String::new(),
             Some(SkipReason::NullPersonId),
+            &[],
         ),
         (
             "non-uuid person id",
             |e| e.person_id = "not-a-uuid".to_string(),
             Some(SkipReason::UnparseablePersonId),
+            &[],
         ),
         (
             "unparseable timestamp",
             |e| e.timestamp = "nonsense".to_string(),
             Some(SkipReason::BadTimestamp),
+            &[],
         ),
         // `properties` is behavioral-only data, so a malformed payload drops the behavioral side
-        // and lets the person side run.
+        // and lets the person side run — the event's `person_properties` match the person leaf.
         (
             "malformed properties",
             |e| e.properties = Some("{not json".to_string()),
             None,
+            &[PERSON_HASH],
         ),
         (
             "malformed person_properties",
             |e| e.person_properties = Some("nope".to_string()),
             Some(SkipReason::GlobalsParseError),
+            &[],
         ),
     ];
 
     // One person and one offset per case: the malformed-`properties` case writes a person record,
     // which would make the next case a replay and send it down an arm that never parses.
-    for (index, (name, mutate, expected)) in cases.into_iter().enumerate() {
+    for (index, (name, mutate, expected, transitions)) in cases.into_iter().enumerate() {
         let mut ev = event(person(index as u128 + 1), 1, index as i64);
         mutate(&mut ev);
         let out = process_event(PARTITION_ID, &store, &filters, &ev).unwrap();
         assert_eq!(out.skipped, expected, "{name}");
-        assert!(
-            !out.transitions
+        assert_eq!(
+            out.transitions
                 .iter()
-                .any(|transition| transition.condition_hash == BEHAVIORAL_HASH),
-            "{name}: a behavioral leaf flipped on an event that could not be evaluated",
+                .map(|transition| transition.condition_hash)
+                .collect::<Vec<_>>(),
+            transitions,
+            "{name}",
         );
     }
 

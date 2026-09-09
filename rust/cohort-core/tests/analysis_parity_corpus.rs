@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use cohort_core::hogvm::analysis::{analyze_condition, GlobalRoot, Projection, ReadPath};
 use cohort_core::{
     build_behavioral_globals, classify_vm_error, evaluate_detailed, CohortStreamEvent, EvalOutcome,
-    GlobalsPlan, VmErrorClass,
+    GlobalsBuild, GlobalsPlan, VmErrorClass,
 };
 use serde_json::{json, Map, Value};
 
@@ -307,7 +307,7 @@ fn an_absent_group_type_root_claims_no_reads_and_raises_either_way() {
         paths.iter().map(ReadPath::render).collect::<Vec<_>>()
     );
 
-    let full = build_behavioral_globals(&event(), GlobalsPlan::FULL)
+    let full = build_behavioral_globals(&event(), GlobalsBuild::whole(GlobalsPlan::FULL))
         .expect("the event's payloads are valid JSON");
     let projected = project_globals(&full, &paths);
     assert_eq!(

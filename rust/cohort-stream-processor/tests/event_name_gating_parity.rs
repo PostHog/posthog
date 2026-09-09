@@ -13,6 +13,7 @@ use cohort_stream_processor::filters::{CohortId, TeamFilters, TeamFiltersBuilder
 use cohort_stream_processor::stage1::LeafTransition;
 use cohort_stream_processor::store::{CohortStore, StoreConfig};
 use cohort_stream_processor::workers::{process_event_gated, EventNameGating, EventOutcome};
+use metrics_exporter_prometheus::PrometheusBuilder;
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -88,6 +89,45 @@ fn catalog() -> TeamFilters {
                     ],
                 }
             }),
+        )
+        .unwrap();
+    builder.freeze(UTC)
+}
+
+/// A catalog whose behavioral condition reads `properties`, so a build parses that payload at all:
+/// a team whose conditions name no payload never parses one, and so can never fail on a malformed
+/// one.
+fn properties_reading_catalog() -> TeamFilters {
+    let mut leaf = behavioral_leaf("$pageview", "pageviewhash0001");
+    // event == "$pageview" AND properties.x == "1"
+    leaf["bytecode"] = json!([
+        "_H",
+        1,
+        32,
+        "$pageview",
+        32,
+        "event",
+        1,
+        1,
+        11,
+        32,
+        "1",
+        32,
+        "x",
+        32,
+        "properties",
+        1,
+        2,
+        11,
+        3,
+        2,
+    ]);
+    let mut builder = TeamFiltersBuilder::default();
+    builder
+        .add_cohort(
+            CohortId(1),
+            TeamId(TEAM),
+            &json!({ "properties": { "type": "AND", "values": [leaf, person_leaf()] } }),
         )
         .unwrap();
     builder.freeze(UTC)
@@ -218,6 +258,10 @@ struct GatingParity {
     _off_dir: TempDir,
     on_store: CohortStore,
     off_store: CohortStore,
+    /// What each arm emitted on the last [`Self::feed`]. Two arms that agree on every output can
+    /// still disagree on the work they did to get there, and only the counters show that.
+    on_metrics: String,
+    off_metrics: String,
 }
 
 impl GatingParity {
@@ -229,6 +273,8 @@ impl GatingParity {
             _off_dir: off_dir,
             on_store,
             off_store,
+            on_metrics: String::new(),
+            off_metrics: String::new(),
         }
     }
 
@@ -238,22 +284,33 @@ impl GatingParity {
         event: &CohortStreamEvent,
         label: &str,
     ) -> EventOutcome {
-        let on = process_event_gated(
-            PARTITION,
-            &self.on_store,
-            filters,
-            event,
-            EventNameGating::Enabled,
-        )
+        let on_recorder = PrometheusBuilder::new().build_recorder();
+        let on_handle = on_recorder.handle();
+        let on = metrics::with_local_recorder(&on_recorder, || {
+            process_event_gated(
+                PARTITION,
+                &self.on_store,
+                filters,
+                event,
+                EventNameGating::Enabled,
+            )
+        })
         .unwrap();
-        let off = process_event_gated(
-            PARTITION,
-            &self.off_store,
-            filters,
-            event,
-            EventNameGating::Disabled,
-        )
+        self.on_metrics = on_handle.render();
+
+        let off_recorder = PrometheusBuilder::new().build_recorder();
+        let off_handle = off_recorder.handle();
+        let off = metrics::with_local_recorder(&off_recorder, || {
+            process_event_gated(
+                PARTITION,
+                &self.off_store,
+                filters,
+                event,
+                EventNameGating::Disabled,
+            )
+        })
         .unwrap();
+        self.off_metrics = off_handle.render();
 
         assert_eq!(on.skipped, off.skipped, "{label}: skip reason");
         assert_eq!(on.event_ms, off.event_ms, "{label}: event_ms");
@@ -376,10 +433,14 @@ fn gating_matches_full_sweep_on_a_multi_condition_event_name_bucket() {
 /// Were a malformed payload to skip the whole event, the gate would become a correctness switch:
 /// with gating on an unbucketed event is never parsed and so never skipped, while the ungated sweep
 /// parses it, fails, and skips it, leaving the person record on one side only.
+///
+/// The counters carry the other half. The outcomes here are equal whether the gated arm skipped the
+/// parse or ran it and failed, so only `stage1_globals_builds_total` distinguishes them — and
+/// skipping the parse on an event nothing can match is the saving this gate exists for.
 #[test]
 fn a_malformed_properties_payload_keeps_both_arms_identical() {
     let mut p = GatingParity::new();
-    let filters = catalog();
+    let filters = properties_reading_catalog();
     let alice = Uuid::from_u128(1);
 
     let mut broken = event(alice, "no_such_event", 0, "2026-05-26 10:00:00.000000");
@@ -402,6 +463,24 @@ fn a_malformed_properties_payload_keeps_both_arms_identical() {
     assert!(
         dump_stage1(&p.on_store).is_empty(),
         "the behavioral side staged a row from a payload that never parsed",
+    );
+
+    assert!(
+        p.on_metrics
+            .contains("stage1_globals_builds_total{result=\"no_candidates\"} 1"),
+        "the gated arm built globals for an event no bucket holds: {}",
+        p.on_metrics,
+    );
+    assert!(
+        !p.on_metrics.contains("result=\"parse_error\""),
+        "the gated arm parsed the payload it was supposed to skip: {}",
+        p.on_metrics,
+    );
+    assert!(
+        p.off_metrics
+            .contains("stage1_globals_builds_total{result=\"parse_error\"} 1"),
+        "the ungated sweep has to parse, and this payload has to fail: {}",
+        p.off_metrics,
     );
 }
 

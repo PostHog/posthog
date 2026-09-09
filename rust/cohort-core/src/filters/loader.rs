@@ -107,12 +107,19 @@ fn build_catalog_within(
 
     let mut teams: Vec<(TeamId, (TeamFiltersBuilder, Tz))> = builders.into_iter().collect();
     teams.sort_unstable_by_key(|(team, _)| *team);
-    let catalog =
-        FilterCatalog::from_teams(teams.into_iter().map(|(team, (builder, tz))| {
-            (team, builder.freeze_within(tz, cascade_enabled, budget))
-        }));
-    if budget.steps == 0 || budget.cells == 0 {
+    // The team the budget ran out on, so an operator chasing a widened catalog has a place to start:
+    // it and every team after it in id order carry the conditions the budget refused.
+    let mut spent_on: Option<TeamId> = None;
+    let catalog = FilterCatalog::from_teams(teams.into_iter().map(|(team, (builder, tz))| {
+        let filters = builder.freeze_within(tz, cascade_enabled, budget);
+        if spent_on.is_none() && (budget.steps == 0 || budget.cells == 0) {
+            spent_on = Some(team);
+        }
+        (team, filters)
+    }));
+    if let Some(team_id) = spent_on {
         warn!(
+            team_id = team_id.0,
             steps_left = budget.steps,
             cells_left = budget.cells,
             "filter catalog analysis budget spent; the conditions it refused take every global root",
@@ -319,7 +326,8 @@ mod tests {
             catalog
                 .team(TeamId(team))
                 .expect("team present")
-                .behavioral_plan
+                .behavioral
+                .plan
         };
         assert!(
             plan(3).reads(GlobalRoot::Event) && !plan(3).reads(GlobalRoot::Pdi),

@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::events::CohortStreamEvent;
 use crate::filters::TeamId;
-use crate::hogvm::analysis::{GlobalRoot, GlobalsPlan, GroupIndex};
+use crate::hogvm::analysis::{GlobalRoot, GlobalsBuild, GlobalsPlan, GroupIndex};
 use crate::metrics::STAGE1_GLOBALS_PARSE_ERROR;
 
 /// A malformed `properties`/`person_properties` JSON payload.
@@ -19,24 +19,34 @@ pub struct GlobalsError {
     pub source: serde_json::Error,
 }
 
-/// Holds every root `plan` says the conditions can name; see [`GlobalsPlan`] for why omitting one
-/// they do read raises rather than reads null.
+/// Holds every root `build` says the conditions can name; see [`crate::GlobalsPlan`] for why
+/// omitting one they do read raises rather than reads null.
 ///
-/// Both parses run whatever `plan` says, which is load-bearing: two callers evaluating one event
-/// against different plans must agree on whether its payloads are malformed.
+/// A payload no condition of the team reads is never parsed, so it can also never be malformed. The
+/// parse side of `build` is the team's whole behavioral plan rather than this dict's, which is what
+/// keeps two callers evaluating one event against different plans agreeing on that.
 pub fn build_behavioral_globals(
     event: &CohortStreamEvent,
-    plan: GlobalsPlan,
+    build: GlobalsBuild,
 ) -> Result<Value, GlobalsError> {
-    let properties = parse_optional_json(event.properties.as_deref(), "properties")?;
-    let person_properties =
-        parse_optional_json(event.person_properties.as_deref(), "person_properties")?;
+    // An unparsed payload stands in as the empty object, which no root can reach: a root that would
+    // read one is in the materialize plan, and that is a subset of the parse plan.
+    let properties = if build.parses_properties() {
+        parse_optional_json(event.properties.as_deref(), "properties")?
+    } else {
+        Value::Object(Map::new())
+    };
+    let person_properties = if build.parses_person_properties() {
+        parse_optional_json(event.person_properties.as_deref(), "person_properties")?
+    } else {
+        Value::Object(Map::new())
+    };
     let person = object([
         ("id", text(&event.person_id)),
         ("properties", person_properties),
     ]);
 
-    let mut roots = Roots::new(plan);
+    let mut roots = Roots::new(build.materialize());
     roots.set(GlobalRoot::Event, || text(&event.event));
     roots.set(GlobalRoot::Uuid, || text(&event.uuid));
     // Reads `properties`, which the `Properties` root below moves away.
@@ -200,7 +210,7 @@ mod tests {
 
     use hogvm::stl_map;
 
-    use crate::hogvm::analysis::{Projection, ReadPath, RootSet};
+    use crate::hogvm::analysis::{Projection, ReadPath};
 
     use super::*;
 
@@ -231,12 +241,12 @@ mod tests {
     #[test]
     fn a_full_plan_rebuilds_the_pinned_dict_and_a_narrower_plan_drops_only_its_roots() {
         let event = event();
-        let full = build_behavioral_globals(&event, GlobalsPlan::FULL).unwrap();
+        let full =
+            build_behavioral_globals(&event, GlobalsBuild::whole(GlobalsPlan::FULL)).unwrap();
         assert_eq!(serde_json::to_string(&full).unwrap(), PINNED_FULL_GLOBALS);
 
         let reads_every_root_but_pdi = GlobalsPlan::of(&Projection::Reads(
-            RootSet::ALL
-                .iter()
+            GlobalRoot::all()
                 .filter(|root| *root != GlobalRoot::Pdi)
                 .map(|root| ReadPath::new(root, Vec::new()))
                 .collect::<BTreeSet<_>>(),
@@ -244,14 +254,48 @@ mod tests {
         let mut expected = full.as_object().unwrap().clone();
         expected.remove("pdi").expect("the full dict carries `pdi`");
         assert_eq!(
-            build_behavioral_globals(&event, reads_every_root_but_pdi).unwrap(),
+            build_behavioral_globals(&event, GlobalsBuild::whole(reads_every_root_but_pdi))
+                .unwrap(),
             Value::Object(expected),
             "dropping `pdi` from the plan changed more than the `pdi` key",
         );
 
         assert_eq!(
-            build_behavioral_globals(&event, GlobalsPlan::NONE).unwrap(),
+            build_behavioral_globals(&event, GlobalsBuild::whole(GlobalsPlan::NONE)).unwrap(),
             json!({}),
+        );
+    }
+
+    /// The parse is the bulk of a build's cost, and a payload no root reaches cannot change the
+    /// dict — so an unreadable one must not fail the build either.
+    #[test]
+    fn a_plan_that_reaches_no_payload_parses_neither_and_cannot_fail_on_one() {
+        let mut e = event();
+        e.properties = Some("{not json".to_string());
+        e.person_properties = Some("nope".to_string());
+
+        let reads_event_only =
+            GlobalsPlan::of(&Projection::Reads(BTreeSet::from([ReadPath::new(
+                GlobalRoot::Event,
+                Vec::new(),
+            )])));
+        assert_eq!(
+            build_behavioral_globals(&e, GlobalsBuild::whole(reads_event_only)).unwrap(),
+            json!({ "event": "$pageview" }),
+        );
+
+        // The same event under a plan that does reach `properties` still fails, so the gate is what
+        // spared it and not a swallowed parse error.
+        let reads_properties =
+            GlobalsPlan::of(&Projection::Reads(BTreeSet::from([ReadPath::new(
+                GlobalRoot::Properties,
+                vec!["$browser".to_owned()],
+            )])));
+        assert_eq!(
+            build_behavioral_globals(&e, GlobalsBuild::whole(reads_properties))
+                .unwrap_err()
+                .field,
+            "properties",
         );
     }
 
@@ -261,7 +305,7 @@ mod tests {
     #[test]
     fn no_global_root_name_is_also_a_native_function() {
         let natives = stl_map();
-        for root in RootSet::ALL.iter() {
+        for root in GlobalRoot::all() {
             assert!(
                 !natives.contains_key(root.as_str()),
                 "the native `{}` shadows a globals root, so omitting that root would push a \
@@ -273,7 +317,8 @@ mod tests {
 
     #[test]
     fn behavioral_globals_emit_the_full_node_key_set() {
-        let globals = build_behavioral_globals(&event(), GlobalsPlan::FULL).unwrap();
+        let globals =
+            build_behavioral_globals(&event(), GlobalsBuild::whole(GlobalsPlan::FULL)).unwrap();
         let obj = globals.as_object().unwrap();
         for key in [
             "event",
@@ -318,7 +363,7 @@ mod tests {
         // `scan_globals_are_byte_equal_to_event_globals_for_equal_inputs` already pins its output
         // to `build_person_property_globals`, so its key set is covered here.
         for globals in [
-            build_behavioral_globals(&event, GlobalsPlan::FULL).unwrap(),
+            build_behavioral_globals(&event, GlobalsBuild::whole(GlobalsPlan::FULL)).unwrap(),
             build_person_property_globals(&event).unwrap(),
         ] {
             for key in globals.as_object().unwrap().keys() {
@@ -333,7 +378,8 @@ mod tests {
 
     #[test]
     fn behavioral_globals_shape_matches_node() {
-        let globals = build_behavioral_globals(&event(), GlobalsPlan::FULL).unwrap();
+        let globals =
+            build_behavioral_globals(&event(), GlobalsBuild::whole(GlobalsPlan::FULL)).unwrap();
         assert_eq!(globals["event"], json!("$pageview"));
         assert_eq!(
             globals["uuid"],
@@ -373,7 +419,7 @@ mod tests {
         let mut e = event();
         e.properties = None;
         e.person_properties = None;
-        let globals = build_behavioral_globals(&e, GlobalsPlan::FULL).unwrap();
+        let globals = build_behavioral_globals(&e, GlobalsBuild::whole(GlobalsPlan::FULL)).unwrap();
         assert_eq!(globals["properties"], json!({}));
         assert_eq!(globals["person"]["properties"], json!({}));
 
@@ -398,7 +444,7 @@ mod tests {
         let mut e = event();
         e.properties = Some(String::new());
         e.person_properties = Some(String::new());
-        let globals = build_behavioral_globals(&e, GlobalsPlan::FULL).unwrap();
+        let globals = build_behavioral_globals(&e, GlobalsBuild::whole(GlobalsPlan::FULL)).unwrap();
         assert_eq!(globals["properties"], json!({}));
         assert_eq!(globals["person"]["properties"], json!({}));
         assert_eq!(globals["pdi"]["person"]["properties"], json!({}));
@@ -440,7 +486,7 @@ mod tests {
     fn malformed_properties_is_an_error() {
         let mut e = event();
         e.properties = Some("{not json".to_string());
-        let err = build_behavioral_globals(&e, GlobalsPlan::FULL).unwrap_err();
+        let err = build_behavioral_globals(&e, GlobalsBuild::whole(GlobalsPlan::FULL)).unwrap_err();
         assert_eq!(err.field, "properties");
     }
 
@@ -449,7 +495,7 @@ mod tests {
         let mut e = event();
         e.person_properties = Some("nope".to_string());
         assert_eq!(
-            build_behavioral_globals(&e, GlobalsPlan::FULL)
+            build_behavioral_globals(&e, GlobalsBuild::whole(GlobalsPlan::FULL))
                 .unwrap_err()
                 .field,
             "person_properties"
@@ -464,7 +510,7 @@ mod tests {
     fn non_object_properties_pass_through_as_is() {
         let mut e = event();
         e.properties = Some("[1, 2, 3]".to_string());
-        let globals = build_behavioral_globals(&e, GlobalsPlan::FULL).unwrap();
+        let globals = build_behavioral_globals(&e, GlobalsBuild::whole(GlobalsPlan::FULL)).unwrap();
         assert_eq!(globals["properties"], json!([1, 2, 3]));
     }
 
@@ -473,11 +519,11 @@ mod tests {
         let mut e = event();
         e.elements_chain = None;
         e.properties = Some(r#"{"$elements_chain":"from-props"}"#.to_string());
-        let globals = build_behavioral_globals(&e, GlobalsPlan::FULL).unwrap();
+        let globals = build_behavioral_globals(&e, GlobalsBuild::whole(GlobalsPlan::FULL)).unwrap();
         assert_eq!(globals["elements_chain"], json!("from-props"));
 
         e.properties = Some("{}".to_string());
-        let globals = build_behavioral_globals(&e, GlobalsPlan::FULL).unwrap();
+        let globals = build_behavioral_globals(&e, GlobalsBuild::whole(GlobalsPlan::FULL)).unwrap();
         assert_eq!(globals["elements_chain"], Value::Null);
     }
 
@@ -503,7 +549,8 @@ mod tests {
 
     #[test]
     fn timestamp_in_built_globals_is_normalized() {
-        let globals = build_behavioral_globals(&event(), GlobalsPlan::FULL).unwrap();
+        let globals =
+            build_behavioral_globals(&event(), GlobalsBuild::whole(GlobalsPlan::FULL)).unwrap();
         assert_eq!(globals["timestamp"], json!("2026-05-26T12:34:56.789Z"));
     }
 }
