@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
@@ -11,20 +10,28 @@ import { asDisplay } from './person-utils'
 const DELETE_CONFIRMATION_TEXT = 'delete'
 
 export function PersonDeleteModal(): JSX.Element | null {
-    const { personDeleteModal, deleteConfirmationText, deletedPersonLoading } = useValues(personDeleteModalLogic)
-    const [alsoDeleteEvents, setAlsoDeleteEvents] = useState(false)
-    const [alsoDeleteRecordings, setAlsoDeleteRecordings] = useState(false)
-    const { deletePerson, showPersonDeleteModal, setDeleteConfirmationText } = useActions(personDeleteModalLogic)
+    const { personDeleteModal, deleteConfirmationText, deletedPersonLoading, alsoDeleteEvents, alsoDeleteRecordings } =
+        useValues(personDeleteModalLogic)
+    const {
+        deletePerson,
+        showPersonDeleteModal,
+        setDeleteConfirmationText,
+        setAlsoDeleteEvents,
+        setAlsoDeleteRecordings,
+    } = useActions(personDeleteModalLogic)
 
     const handleClose = (): void => {
         showPersonDeleteModal(null)
-        setDeleteConfirmationText('')
-        setAlsoDeleteEvents(false)
-        setAlsoDeleteRecordings(false)
     }
 
     return (
-        <LemonModal isOpen={!!personDeleteModal} onClose={handleClose} title="Confirm deletion" maxWidth="500px">
+        <LemonModal
+            isOpen={!!personDeleteModal}
+            onClose={handleClose}
+            closable={!deletedPersonLoading}
+            title="Confirm deletion"
+            maxWidth="500px"
+        >
             <div className="space-y-4">
                 <h4>Are you sure you want to delete "{asDisplay(personDeleteModal)}"?</h4>
 
@@ -75,7 +82,12 @@ export function PersonDeleteModal(): JSX.Element | null {
                 )}
             </div>
             <div className="flex justify-end gap-2 mt-4">
-                <LemonButton type="secondary" onClick={handleClose} data-attr="delete-person-cancel">
+                <LemonButton
+                    type="secondary"
+                    onClick={handleClose}
+                    disabledReason={deletedPersonLoading ? 'Waiting for the delete to finish' : undefined}
+                    data-attr="delete-person-cancel"
+                >
                     Cancel
                 </LemonButton>
                 <LemonButton

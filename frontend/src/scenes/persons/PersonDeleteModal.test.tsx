@@ -58,4 +58,40 @@ describe('<PersonDeleteModal />', () => {
         expect(api.delete).toHaveBeenCalledTimes(1)
         expect(posthog.captureException).not.toHaveBeenCalled()
     })
+
+    // The loader closes the modal itself, so the confirmation state used to outlive a successful
+    // delete and the next person opened pre-confirmed, with the event checkbox still ticked.
+    it('clears the confirmation text and the delete options when the delete succeeds', async () => {
+        const user = userEvent.setup()
+        logic.actions.showPersonDeleteModal(PERSON)
+        render(<PersonDeleteModal />)
+
+        await user.type(screen.getByPlaceholderText('delete'), 'delete')
+        await user.click(screen.getByText('Also delete all corresponding events.'))
+        await user.click(screen.getByText('Delete person'))
+        releaseDelete()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(logic.values.deleteConfirmationText).toBe('')
+        expect(logic.values.alsoDeleteEvents).toBe(false)
+        expect(logic.values.alsoDeleteRecordings).toBe(false)
+    })
+
+    // Cancel offered to stop a delete it cannot stop, and closing mid-request let the settling
+    // request close a modal the user had since opened for someone else.
+    it('keeps the modal open while the delete is in flight', async () => {
+        const user = userEvent.setup()
+        logic.actions.showPersonDeleteModal(PERSON)
+        render(<PersonDeleteModal />)
+
+        await user.type(screen.getByPlaceholderText('delete'), 'delete')
+        await user.click(screen.getByText('Delete person'))
+
+        await user.click(screen.getByText('Cancel'))
+        expect(logic.values.personDeleteModal).toEqual(PERSON)
+
+        releaseDelete()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(logic.values.personDeleteModal).toBeNull()
+    })
 })
