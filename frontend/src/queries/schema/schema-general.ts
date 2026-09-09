@@ -158,7 +158,6 @@ export enum NodeKind {
     MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
     MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
     MarketingAnalyticsRetentionQuery = 'MarketingAnalyticsRetentionQuery',
-    NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -241,7 +240,6 @@ export type AnyDataNode =
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
-    | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -357,7 +355,6 @@ export type QuerySchema =
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
-    | NonIntegratedConversionsTableQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -722,6 +719,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     comment_text?: RecordingPropertyFilter // search comments by text content
     filter_test_accounts?: boolean
+    /** Restrict results to recordings above the replay relevance threshold. */
+    recommended_only?: boolean
     /**
      * @default "AND"
      * */
@@ -1230,7 +1229,6 @@ export type DataTableNodeSourceUnion =
     | SessionsQuery
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
-    | NonIntegratedConversionsTableQuery
     | ErrorTrackingQuery
     | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
@@ -1266,7 +1264,6 @@ export interface DataTableNode
                     | SessionsQuery
                     | MarketingAnalyticsTableQuery
                     | MarketingAnalyticsAggregatedQuery
-                    | NonIntegratedConversionsTableQuery
                     | ErrorTrackingQuery
                     | ErrorTrackingIssueCorrelationQuery
                     | ExperimentFunnelsQuery
@@ -1924,6 +1921,8 @@ export interface CompareFilter {
 export interface IntegrationFilter {
     /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
     integrationSourceIds?: string[]
+    /** Keep rows that no integration reports cost for, such as organic, email or an unmapped source. Defaults to true. */
+    includeNonIntegrated?: boolean
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
@@ -2772,6 +2771,8 @@ export type QueryStatus = {
     task_id?: string
     query_progress?: ClickhouseQueryProgress
     labels?: string[]
+    bytes_read?: integer
+    budget_remaining_bytes?: integer
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
@@ -7650,47 +7651,6 @@ export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQuery
 export type CachedMarketingAnalyticsRetentionQueryResponse =
     CachedQueryResponse<MarketingAnalyticsRetentionQueryResponse>
 
-/** Columns for non-integrated conversions table */
-export enum NonIntegratedConversionsColumnsSchemaNames {
-    Source = 'Source',
-    Campaign = 'Campaign',
-}
-
-export interface NonIntegratedConversionsTableQuery extends Omit<
-    WebAnalyticsQueryBase<NonIntegratedConversionsTableQueryResponse>,
-    'orderBy'
-> {
-    kind: NodeKind.NonIntegratedConversionsTableQuery
-    /** Return a limited set of data. Will use default columns if empty. */
-    select?: HogQLExpression[]
-    /** Columns to order by */
-    orderBy?: MarketingAnalyticsOrderBy[]
-    /** Number of rows to return */
-    limit?: integer
-    /** Number of rows to skip before returning rows */
-    offset?: integer
-    /** Filter test accounts */
-    filterTestAccounts?: boolean
-    /** Compare to date range */
-    compareFilter?: CompareFilter
-    /** Draft conversion goal that can be set in the UI without saving */
-    draftConversionGoal?: ConversionGoalFilter | null
-}
-
-export interface NonIntegratedConversionsTableQueryResponse extends AnalyticsQueryResponseBase {
-    results: MarketingAnalyticsItem[][]
-    types?: unknown[]
-    columns?: unknown[]
-    hogql?: string
-    samplingRate?: SamplingRate
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-}
-
-export type CachedNonIntegratedConversionsTableQueryResponse =
-    CachedQueryResponse<NonIntegratedConversionsTableQueryResponse>
-
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string
     date_to: string
@@ -7867,6 +7827,7 @@ export interface MarketingAnalyticsConfig {
     conversion_goals?: ConversionGoalFilter[]
     attribution_window_days?: number
     attribution_mode?: AttributionMode
+    filter_test_accounts?: boolean
     campaign_name_mappings?: Record<string, Record<string, string[]>>
     custom_source_mappings?: Record<string, string[]>
     campaign_field_preferences?: Record<string, CampaignFieldPreference>

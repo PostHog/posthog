@@ -312,6 +312,43 @@ class TestHealthIssueAPI(APIBaseTest):
         issue.refresh_from_db()
         self.assertIsNone(issue.snoozed_until)
 
+    @parameterized.expand(
+        [
+            ("dismiss", {}, {"dismissed": True}, "health issue dismissed", {}),
+            ("undismiss", {"dismissed": True}, {"dismissed": False}, "health issue undismissed", {}),
+            ("snooze", {}, {"snoozed_until": "7d"}, "health issue snoozed", {"snooze_duration": "7d"}),
+            (
+                "unsnooze",
+                {"snoozed_until": datetime.now(UTC) + timedelta(days=7)},
+                {"snoozed_until": None},
+                "health issue unsnoozed",
+                {},
+            ),
+            ("dismiss_unchanged", {}, {"dismissed": False}, None, {}),
+            ("unsnooze_unsnoozed", {}, {"snoozed_until": None}, None, {}),
+        ]
+    )
+    @patch("posthog.api.health_issue.report_user_action")
+    def test_patch_reports_triage_action(
+        self, _name, initial, payload, expected_event, expected_properties, mock_report
+    ):
+        issue = self._create_issue(**initial)
+
+        response = self.client.patch(self._url(f"/{issue.id}/"), payload, content_type="application/json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        if expected_event is None:
+            mock_report.assert_not_called()
+            return
+
+        mock_report.assert_called_once()
+        _user, event, properties = mock_report.call_args.args
+        self.assertEqual(event, expected_event)
+        self.assertEqual(properties["issue_kind"], "sdk_outdated")
+        self.assertEqual(properties["issue_severity"], HealthIssue.Severity.WARNING)
+        for key, value in expected_properties.items():
+            self.assertEqual(properties[key], value)
+
     def test_patch_invalid_snooze_returns_400(self):
         issue = self._create_issue()
 

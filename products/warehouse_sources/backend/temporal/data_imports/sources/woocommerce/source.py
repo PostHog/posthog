@@ -267,7 +267,7 @@ class WooCommerceSource(
             ),
             iconPath="/static/services/woocommerce.png",
             docsUrl="https://posthog.com/docs/cdp/sources/woocommerce",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

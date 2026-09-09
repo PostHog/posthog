@@ -208,6 +208,9 @@ class SignalUserAutonomyConfig(UUIDModel):
     # When null, every prioritized report notifies. A report with no priority then
     # notifies only on the reviewer-added path (see slack_inbox_notifications).
     slack_notification_min_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
+    # Off by default because assignment is visible to everyone on the pull request, so a reviewer
+    # has to ask for it rather than be volunteered.
+    github_assign_on_pull_request = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1495,10 +1498,13 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # doesn't bake it in (most callers don't need it).
     all_teams = models.Manager()  # noqa: DJ012
 
+    # No single-column index: the constraint and index below both lead with team_id,
+    # so a team-scoped read is already served.
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         related_name="signal_scout_configs",
+        db_index=False,
     )
     # The LLMSkill this row references (controlling only its scheduling /
     # enablement, not the skill itself). The coordinator auto-creates a

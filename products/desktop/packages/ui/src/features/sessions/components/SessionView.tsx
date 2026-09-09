@@ -12,7 +12,7 @@ import {
 } from "@posthog/core/task-detail/previewConfig";
 import { useService } from "@posthog/di/react";
 import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
-import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import type { Task } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
   useSpendStop,
@@ -48,10 +48,7 @@ import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStat
 import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/QueuedMessagesDock";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
-import {
-  SessionInitializingView,
-  sessionInitializingCopy,
-} from "@posthog/ui/features/sessions/components/SessionInitializingView";
+import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
 import { SessionSummaryPanel } from "@posthog/ui/features/sessions/components/SessionSummaryPanel";
 import { SideQuestionCard } from "@posthog/ui/features/sessions/components/SideQuestionCard";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
@@ -75,6 +72,7 @@ import {
   useModelConfigOptionForTask,
   usePendingPermissionsForTask,
   useSessionSelector,
+  useSessionStore,
   useThoughtLevelConfigOptionForTask,
 } from "@posthog/ui/features/sessions/sessionStore";
 import {
@@ -132,7 +130,6 @@ interface SessionViewProps {
   onNewSession?: () => void;
   isInitializing?: boolean;
   isCloud?: boolean;
-  cloudStatus?: TaskRunStatus | null;
   slackThreadUrl?: string;
   compact?: boolean;
   isActiveSession?: boolean;
@@ -169,7 +166,6 @@ export function SessionView({
   onNewSession,
   isInitializing = false,
   isCloud = false,
-  cloudStatus = null,
   slackThreadUrl,
   compact = false,
   isActiveSession = true,
@@ -204,6 +200,9 @@ export function SessionView({
   const showInlineBanner = hasError && errorRetryable && events.length > 0;
   const olderHistoryCursor = useSessionSelector(taskId, (session) =>
     isCloud ? (session?.transcriptWindowStart ?? 0) : 0,
+  );
+  const startupPhase = useSessionStore((state) =>
+    taskId ? state.startingTaskIds[taskId]?.phase : undefined,
   );
   const isLoadingOlderHistory = useSessionSelector(
     taskId,
@@ -670,7 +669,7 @@ export function SessionView({
                         >
                           {isRestoring ? (
                             <>
-                              <Spinner size={14} />
+                              <Spinner size="md" />
                               Restoring...
                             </>
                           ) : (
@@ -685,29 +684,18 @@ export function SessionView({
             ) : isInitializing ? (
               pendingTaskPrompt?.promptText ? (
                 <PendingChatView
+                  executionTarget={isCloud ? "cloud" : "local"}
+                  phase={startupPhase}
                   content={
                     pendingTaskPrompt.contentXml ?? pendingTaskPrompt.promptText
                   }
                   attachments={pendingTaskPrompt.attachments}
-                  statusText={
-                    isCloud
-                      ? sessionInitializingCopy("cloud", cloudStatus).heading
-                      : undefined
-                  }
-                />
-              ) : isCloud ? (
-                <SessionInitializingView
-                  executionTarget="cloud"
-                  cloudStatus={cloudStatus}
                 />
               ) : (
-                <Flex
-                  align="center"
-                  justify="center"
-                  className="absolute inset-0 bg-background"
-                >
-                  <Spinner size={32} className="text-gray-9" />
-                </Flex>
+                <SessionInitializingView
+                  phase={startupPhase}
+                  executionTarget={isCloud ? "cloud" : "local"}
+                />
               )
             ) : (
               <>

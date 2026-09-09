@@ -3,7 +3,7 @@ from collections.abc import Callable
 from functools import partial
 from uuid import UUID
 
-from kombu.exceptions import OperationalError
+from django.db import DatabaseError
 
 from products.wizard.backend.facade.contracts import WizardRunArtifactDTO, WizardRunDTO, WizardRunPullRequestArtifactDTO
 from products.wizard.backend.facade.enums import WizardRunStatus
@@ -41,7 +41,7 @@ class WizardObservability:
         if event is not None:
             try:
                 event()
-            except OperationalError:
+            except (DatabaseError, ValueError):
                 logger.exception(event_error or f"{name}_event_failed", extra=context)
 
         if level is not None:

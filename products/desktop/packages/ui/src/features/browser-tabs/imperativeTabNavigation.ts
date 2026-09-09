@@ -1,8 +1,11 @@
 import {
+  type BrowserTab,
+  primaryWindow,
   setTabTarget as setTabTargetLocal,
   type TabIdentity,
 } from "@posthog/shared";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
+import { pushTabHistoryEntry } from "./tabHistory";
 import { applyLocalTransform, persistTabTarget, readMirror } from "./tabsSync";
 
 export interface BrowserTabDestination extends Partial<TabIdentity> {
@@ -24,6 +27,40 @@ export function getCurrentBrowserTabId(): string | null {
 export function isBrowserTabOpen(tabId: string | null): boolean {
   if (!tabId) return true;
   return readMirror().tabs.some((candidate) => candidate.id === tabId);
+}
+
+function tabShowsDestination(
+  tab: BrowserTab,
+  dest: BrowserTabDestination,
+): boolean {
+  if (dest.taskId) return tab.taskId === dest.taskId;
+  if (dest.dashboardId) return tab.dashboardId === dest.dashboardId;
+  return tab.href === dest.href;
+}
+
+export function focusExistingTab(destination: BrowserTabDestination): boolean {
+  const mirror = readMirror();
+  const window = primaryWindow(mirror);
+  const history = getRouterOrNull()?.history;
+  if (!window || !history) return false;
+
+  const matchesDestination = (candidate: BrowserTab) =>
+    candidate.windowId === window.id &&
+    tabShowsDestination(candidate, destination);
+
+  // Tabs are not deduplicated, so several tabs can show one target. Keep the
+  // active tab when it is one of them, instead of a switch to an older twin.
+  const activeTabId = history.location.state.tabId;
+  const activeTab = mirror.tabs.find(
+    (candidate) => candidate.id === activeTabId,
+  );
+  if (activeTab && matchesDestination(activeTab)) return true;
+
+  const tab = mirror.tabs.find(matchesDestination);
+  if (!tab) return false;
+
+  pushTabHistoryEntry(history, tab.href ?? destination.href, tab.id);
+  return true;
 }
 
 /**

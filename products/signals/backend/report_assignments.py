@@ -17,6 +17,7 @@ from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import InvalidStatusTransition, SignalReport, SignalReportAssignment
+from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 
 logger = structlog.get_logger(__name__)
 
@@ -283,6 +284,7 @@ def sync_task_pull_request_to_assignments(
             if not changed:
                 continue
 
+            pr_url_is_new = assignment.pr_url != pr_url
             assignment.pr_url = pr_url
             assignment.repository = repository
             assignment.pr_number = parsed.number
@@ -290,6 +292,13 @@ def sync_task_pull_request_to_assignments(
             assignment.pr_merged = assignment_merged
             assignment.save()
             _apply_pr_report_state(report, assignment_state)
+            if pr_url_is_new:
+                schedule_reviewer_pr_assignment(
+                    team_id=team_id,
+                    report_id=str(report_id),
+                    pr_url=pr_url,
+                    pr_state=assignment_state,
+                )
             updated += 1
     return updated
 
@@ -401,6 +410,13 @@ def claim_report(
             activity="assignment_changed",
             detail=Detail(name=locked_report.title, changes=changes),
         )
+        if before["implementation_pr"] != after["implementation_pr"]:
+            schedule_reviewer_pr_assignment(
+                team_id=locked_report.team_id,
+                report_id=str(locked_report.id),
+                pr_url=assignment.pr_url,
+                pr_state=assignment.pr_state,
+            )
         return assignment
 
 
@@ -464,5 +480,12 @@ def update_assignments_for_pull_request(
             if changed or missing_pr or assignment._state.adding:
                 assignment.save()
             _apply_pr_report_state(report, pr_state)
+            if missing_pr:
+                schedule_reviewer_pr_assignment(
+                    team_id=report.team_id,
+                    report_id=str(report.id),
+                    pr_url=assignment.pr_url,
+                    pr_state=pr_state,
+                )
             updated += 1
     return updated

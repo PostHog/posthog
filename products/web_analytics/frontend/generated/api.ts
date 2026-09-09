@@ -21,6 +21,7 @@ import type {
     ContentAutopilotSiteDiscoveryRequestApi,
     ContentAutopilotSiteDiscoveryResponseApi,
     ContentAutopilotSiteProfileApi,
+    CustomBotRuleApi,
     GeneratePathCleaningSuggestionResponseApi,
     HeatmapEventsResponseApi,
     HeatmapPreflightRequestApi,
@@ -577,6 +578,64 @@ export const webAnalyticsAchievementsRecordVisit = async (
     })
 }
 
+export const getWebAnalyticsBotRulesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_bot_rules/`
+}
+
+/**
+ * The project's own bot rules, in the order they are checked at query time.
+ * @summary List custom bot rules
+ */
+export const webAnalyticsBotRulesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CustomBotRuleApi[]> => {
+    return apiMutator<CustomBotRuleApi[]>(getWebAnalyticsBotRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsBotRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_bot_rules/`
+}
+
+/**
+ * Add one bot rule to the project. The pattern is rejected if it cannot run, because a broken rule would break every query that classifies traffic for the project.
+ * @summary Create a custom bot rule
+ */
+export const webAnalyticsBotRulesCreate = async (
+    projectId: string,
+    customBotRuleApi: NonReadonly<CustomBotRuleApi>,
+    options?: RequestInit
+): Promise<CustomBotRuleApi> => {
+    return apiMutator<CustomBotRuleApi>(getWebAnalyticsBotRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customBotRuleApi),
+    })
+}
+
+export const getWebAnalyticsBotRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_bot_rules/${id}/`
+}
+
+/**
+ * Remove one bot rule by its id. The built-in bot list is unaffected.
+ * @summary Delete a custom bot rule
+ */
+export const webAnalyticsBotRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWebAnalyticsBotRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getWebAnalyticsContentAutopilotProfilesListUrl = (
     projectId: string,
     params?: WebAnalyticsContentAutopilotProfilesListParams
@@ -664,6 +723,21 @@ export const webAnalyticsContentAutopilotProfilesPartialUpdate = async (
             body: JSON.stringify(patchedContentAutopilotSiteProfileApi),
         }
     )
+}
+
+export const getWebAnalyticsContentAutopilotProfilesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProfilesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWebAnalyticsContentAutopilotProfilesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
 export const getWebAnalyticsContentAutopilotProfilesDiscoverUrl = (projectId: string) => {
