@@ -1,3 +1,5 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -11,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 
 import { wizardRegistryList, wizardRunsCreate } from './generated/api'
 import type { WizardProgramApi, WizardRunApi } from './generated/api.schemas'
+import { WizardRunsEmptyState } from './runs/WizardRunsEmptyState'
 import { wizardLibraryLogic } from './wizardLibraryLogic'
 import { wizardRunDetailsLogic } from './wizardRunDetailsLogic'
 
@@ -93,6 +96,7 @@ describe('wizardLibraryLogic', () => {
     })
 
     afterEach(() => {
+        cleanup()
         logic.unmount()
         jest.restoreAllMocks()
     })
@@ -123,9 +127,30 @@ describe('wizardLibraryLogic', () => {
         }
     })
 
+    it('creates a serializable cloud request after opening the Library from the empty state', async () => {
+        render(
+            <Provider>
+                <WizardRunsEmptyState onOpenLibrary={logic.actions.openLibrary} />
+            </Provider>
+        )
+        fireEvent.click(screen.getByText('Open Wizard Library'), { view: window })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectProgram(program)
+        logic.actions.setRepository('example/project')
+        logic.actions.createRun()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockWizardRunsCreate).toHaveBeenCalledTimes(1)
+        const body = mockWizardRunsCreate.mock.calls[0][1]
+        expect(typeof body.idempotency_key).toBe('string')
+        expect(() => JSON.stringify(body)).not.toThrow()
+    })
+
     it('reuses the idempotency key after a failed cloud request', async () => {
         mockWizardRunsCreate.mockRejectedValue(new ApiError('private response content', 429))
-        logic.actions.openLibrary('stable-key')
+        logic.actions.openLibrary()
+        const idempotencyKey = logic.values.createRunIdempotencyKey
+        expect(typeof idempotencyKey).toBe('string')
         logic.actions.selectProgram(program)
         logic.actions.setRepository('posthog/posthog')
 
@@ -135,8 +160,8 @@ describe('wizardLibraryLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockWizardRunsCreate).toHaveBeenCalledTimes(2)
-        expect(mockWizardRunsCreate.mock.calls[0][1].idempotency_key).toBe('stable-key')
-        expect(mockWizardRunsCreate.mock.calls[1][1].idempotency_key).toBe('stable-key')
+        expect(mockWizardRunsCreate.mock.calls[0][1].idempotency_key).toBe(idempotencyKey)
+        expect(mockWizardRunsCreate.mock.calls[1][1].idempotency_key).toBe(idempotencyKey)
         const events = jest
             .mocked(posthog.capture)
             .mock.calls.filter(([event]) => event.startsWith('wizard run create'))
@@ -154,7 +179,7 @@ describe('wizardLibraryLogic', () => {
     })
 
     it('does not create a server run for local execution', async () => {
-        logic.actions.openLibrary('stable-key')
+        logic.actions.openLibrary()
         logic.actions.selectProgram(program)
         logic.actions.setLibraryEnvironment('local')
 
@@ -166,7 +191,7 @@ describe('wizardLibraryLogic', () => {
     })
 
     it('runs the program version shown in the Library', async () => {
-        logic.actions.openLibrary('stable-key')
+        logic.actions.openLibrary()
         logic.actions.selectProgram(program)
         logic.actions.setRepository('posthog/posthog')
 
@@ -179,7 +204,7 @@ describe('wizardLibraryLogic', () => {
     it('does not open the cloud-only Library when cloud runs are unavailable', async () => {
         preflightLogic.actions.loadPreflightSuccess({ wizard_cloud_run_available: false } as any)
 
-        logic.actions.openLibrary('stable-key')
+        logic.actions.openLibrary()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.isLibraryOpen).toBe(false)
@@ -191,7 +216,7 @@ describe('wizardLibraryLogic', () => {
         mockWizardRunsCreate.mockResolvedValueOnce(createdRun)
         const detailsLogic = wizardRunDetailsLogic()
         detailsLogic.mount()
-        logic.actions.openLibrary('stable-key')
+        logic.actions.openLibrary()
         logic.actions.selectProgram(program)
         logic.actions.setRepository('posthog/posthog')
 
