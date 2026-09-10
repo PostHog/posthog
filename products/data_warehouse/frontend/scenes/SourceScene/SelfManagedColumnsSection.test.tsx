@@ -105,6 +105,31 @@ describe('SelfManagedColumnsSection', () => {
         await waitFor(() => expect(updateSchema).toHaveBeenCalledWith('table-1', { total: 'integer' }))
     })
 
+    it('locks the type dropdowns while a save is in flight', async () => {
+        let releaseSave = (): void => {}
+        updateSchema.mockReturnValue(
+            new Promise<void>((resolve) => {
+                releaseSave = () => resolve()
+            })
+        )
+
+        render(<SelfManagedColumnsSection table={TABLE} />)
+        await waitFor(() => expect(screen.getByText('total')).toBeInTheDocument())
+
+        await userEvent.click(screen.getByRole('button', { name: 'Edit column types' }))
+        await userEvent.click(screen.getByRole('button', { name: 'String' }))
+        await userEvent.click(await screen.findByText('Integer'))
+        await userEvent.click(screen.getByRole('button', { name: 'Save types' }))
+
+        // The save reads the pending types once, so a type picked after it starts is dropped by
+        // the refresh that follows.
+        await waitFor(() =>
+            expect(screen.getByRole('button', { name: 'Integer' })).toHaveAttribute('aria-disabled', 'true')
+        )
+
+        releaseSave()
+    })
+
     it('drops an abandoned type change when the edit is canceled', async () => {
         render(<SelfManagedColumnsSection table={TABLE} />)
         await waitFor(() => expect(screen.getByText('total')).toBeInTheDocument())

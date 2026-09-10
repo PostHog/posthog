@@ -115,7 +115,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
 
 export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange }: DatabaseTableProps): JSX.Element {
     const dataSource = Object.values(tables.find(({ name }) => name === table)?.fields ?? {})
-    const { dataWarehouseTables, databaseLoading } = useValues(dataWarehouseSettingsSceneLogic)
+    const { dataWarehouseTables, databaseLoading, editSchemaIsLoading } = useValues(dataWarehouseSettingsSceneLogic)
 
     return (
         <LemonTable
@@ -141,6 +141,10 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                                 <LemonSelect
                                     options={editSchemaOptionsAsArray}
                                     value={type}
+                                    // The save reads the pending types once, and the refresh that
+                                    // follows it drops whatever arrived later, so nothing may be
+                                    // picked while a save is in flight.
+                                    disabledReason={editSchemaIsLoading ? 'Wait for the save to finish' : undefined}
                                     onChange={(newValue) => {
                                         if (schemaOnChange) {
                                             schemaOnChange(name, newValue as DatabaseSerializedFieldType)
