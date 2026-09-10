@@ -39,7 +39,7 @@ from products.signals.backend.scout_harness.limits import (
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
 )
-from products.signals.backend.scout_harness.model_selection import resolve_scout_model
+from products.signals.backend.scout_harness.model_selection import RUNTIME_ADAPTER_CODEX, resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
     SignalScoutRunSummary,
@@ -323,20 +323,25 @@ async def arun_signals_scout(
         runtime_adapter: str | None = scout_model.runtime_adapter
         model: str | None = scout_model.model
         reasoning_effort: str | None = scout_model.reasoning_effort
+        service_tier: str | None = scout_model.service_tier
     elif agent_runtime.runtime_adapter:
         runtime_adapter = agent_runtime.runtime_adapter
         model = agent_runtime.model
         reasoning_effort = agent_runtime.reasoning_effort
+        service_tier = agent_runtime.service_tier
     else:
         runtime_adapter = None
         model = None
         reasoning_effort = None
-    # The tier only picks which OpenAI queue a Codex turn joins, so unlike the triple above it is
-    # resolved in every branch: pairing it with a configured model can't mis-route the way a
-    # mismatched runtime/model would. A tier pinned on the selected slice wins, else the pipeline
-    # pin's, so one slice can trial `flex` against the fleet's standard queue on the same model.
-    # A claude-runtime run ignores it.
-    service_tier: str | None = scout_model.service_tier or agent_runtime.service_tier
+        service_tier = None
+    # The OpenAI queue travels with the model it was configured beside, like the rest of the
+    # triple: a slice's own tier, or the pipeline pin's when the pin's model runs. It never crosses
+    # to a model the operator did not pair it with (some reject the field outright), which is what
+    # lets one slice trial `flex` against the remainder's standard queue on the same model. Only a
+    # Codex turn joins an OpenAI queue, so a claude runtime drops it rather than stamping a tier the
+    # run never asked for onto the A/B readout.
+    if runtime_adapter != RUNTIME_ADAPTER_CODEX:
+        service_tier = None
     # Resolved here rather than inside `_spawn_and_run` so the failure and cancellation paths below
     # can report the same prompt shape the run actually got: a spawn that raises never returns, so a
     # value resolved in there would be unavailable to exactly the runs whose shape matters most.

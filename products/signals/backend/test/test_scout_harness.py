@@ -1678,9 +1678,10 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
         ),
         # Neither configured: agent-server default.
         (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None, None),
-        # The tier is the one pin resolved in every branch: a slice pinned to flex wins over the
-        # pipeline pin's tier, so a same-model flex arm can run against the fleet's standard queue.
-        # Dropping this leaves the arm on standard and the comparison measures nothing.
+        # The tier travels with the model it was configured beside. A slice pinned to flex asks for
+        # flex even when the pipeline pin names the same model untiered, so a same-model flex arm can
+        # run against the remainder's standard queue. Dropping this leaves the arm on standard and the
+        # comparison measures nothing.
         (
             ScoutModel(model="gpt-5.6-terra", runtime_adapter="codex", reasoning_effort="medium", service_tier="flex"),
             AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium"),
@@ -1689,14 +1690,34 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "medium",
             "flex",
         ),
-        # A slice with no tier of its own, and the unallocated remainder, both take the pin's tier.
+        # The unallocated remainder runs the pin's model, so it takes the pin's tier with it.
+        (
+            ScoutModel(model=None, runtime_adapter=None),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="flex"),
+            "gpt-5.6-terra",
+            "codex",
+            None,
+            "flex",
+        ),
+        # A slice with no tier of its own does NOT inherit the pin's: the pin's tier was paired with
+        # the pin's model, and some models reject the field outright.
         (
             ScoutModel(model="gpt-5.6-luna", runtime_adapter="codex"),
             AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="priority"),
             "gpt-5.6-luna",
             "codex",
             None,
-            "priority",
+            None,
+        ),
+        # A claude runtime joins no OpenAI queue: a tier on its slice (or the pin) is dropped rather
+        # than stamped, so the flex readout never counts a Claude run as a flex run.
+        (
+            ScoutModel(model="claude-sonnet-5", runtime_adapter="claude", service_tier="flex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="flex"),
+            "claude-sonnet-5",
+            "claude",
+            None,
+            None,
         ),
     ],
 )
@@ -1712,8 +1733,8 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
 ):
     # The `scouts-model-selection` gate is the per-run experiment layer and wins when it resolves a
     # model; the `signals-pipeline-models` pin is the default layer beneath it. Either way one
-    # source supplies the whole runtime/model/effort triple. The OpenAI service tier sits beside
-    # the triple: the selected slice's tier when it has one, else the pin's.
+    # source supplies the whole runtime/model/effort triple. The OpenAI service tier travels with
+    # it: the selected slice's own tier, or the pin's when the pin's model runs, codex only.
     # The routed model must also ride on both lifecycle events (omitted on the default path), so
     # run outcomes are sliceable by model without joining through $ai_generation.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)

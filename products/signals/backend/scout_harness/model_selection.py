@@ -65,9 +65,11 @@ from dataclasses import dataclass
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 
+from products.signals.backend.agent_runtime import KNOWN_SERVICE_TIERS
 from products.tasks.backend.facade.run_config import get_models_for_runtime_adapter
 
 SCOUTS_MODEL_FLAG = "scouts-model-selection"
@@ -129,8 +131,8 @@ _KNOWN_REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 
 # The OpenAI service tiers a payload may pin, mirroring the agent server's `ServiceTier` enum. Same
 # defensive posture again: an unknown value is dropped (tier unset, standard queue) rather than
-# threaded into the run state where it could fail the run.
-_KNOWN_SERVICE_TIERS = frozenset({"default", "priority", "flex"})
+# threaded into the run state where it could fail the run. Shared with the pipeline pin parser.
+_KNOWN_SERVICE_TIERS = KNOWN_SERVICE_TIERS
 
 
 @dataclass(frozen=True)
@@ -144,8 +146,9 @@ class ScoutModel:
     (it silently falls back to the server default, which is the bug this resolution exists to
     avoid). `reasoning_effort` is the optional per-model effort pin from the payload's object form;
     `None` keeps the agent-server default effort. `service_tier` is the optional OpenAI queue pin
-    from the same form (`flex` / `priority` / `default`); `None` leaves the run on whatever the
-    `signals-pipeline-models` step pin says, so a slice can A/B queueing against the fleet default.
+    from the same form (`flex` / `priority` / `default`); `None` means the slice asked for no queue,
+    and the tier never crosses from another model's pin, so a slice can A/B queueing against the
+    unallocated remainder running the same model on the `signals-pipeline-models` pin's tier.
     """
 
     model: str | None
@@ -268,7 +271,7 @@ def _team_scouts(payload: object, team_id: int, canonical_team_id: int) -> dict:
     return scouts if isinstance(scouts, dict) else {}
 
 
-@dataclass(frozen=True)
+@frozen
 class _ModelSpec:
     """One parsed model entry: its fraction plus whichever pins the object form carried.
 
@@ -359,21 +362,27 @@ def _bucket(run_id: str) -> float:
     return int.from_bytes(hashlib.sha256(run_id.encode()).digest()[:8], "big") / 2**64
 
 
-def _select_model(run_id: str, specs: dict[str, _ModelSpec], default_model: str | None) -> str | None:
+def _select_model(
+    run_id: str, specs: dict[str, _ModelSpec], default_model: str | None
+) -> tuple[str | None, _ModelSpec | None]:
     """Pick a model for this run from the scout's distribution, deterministically on `run_id`.
 
     Walks the models in sorted-id order accumulating their fractions; the run's bucket falls into
     exactly one model's slice, or past them all into the remainder → `default_model`. Sorted order
     makes the assignment stable across runs/processes. If the fractions sum to ≥ 1 the remainder is
-    empty and `default_model` simply never runs.
+    empty and `default_model` simply never runs. Returns the selected slice's spec alongside the
+    model, and `None` for the remainder: which branch picked the model is decided here, not
+    recovered from the model id, so a remainder that names the same model as a weighted slice
+    (`{"gpt-5.6-terra": {"fraction": 0.05, "service_tier": "flex"}, "default": "gpt-5.6-terra"}`)
+    stays the pin-free control instead of inheriting the slice's tier.
     """
     cumulative = 0.0
     for model_id in sorted(specs):
-        fraction = specs[model_id].fraction
-        cumulative += fraction if fraction is not None else 0.0
+        spec = specs[model_id]
+        cumulative += spec.fraction if spec.fraction is not None else 0.0
         if _bucket(run_id) < cumulative:
-            return model_id
-    return default_model
+            return model_id, spec
+    return default_model, None
 
 
 def resolve_scout_model(team: Team, skill_name: str, run_id: str, configured_model: str | None = None) -> ScoutModel:
@@ -394,11 +403,12 @@ def resolve_scout_model(team: Team, skill_name: str, run_id: str, configured_mod
     payload = _read_payload()
     scouts = _team_scouts(payload, team.id, team.parent_team_id or team.id)
     specs, default_model = _scout_config(scouts, skill_name)
-    model = _select_model(run_id, specs, default_model)
+    model, spec = _select_model(run_id, specs, default_model)
     if model is None:
         return ScoutModel(model=None, runtime_adapter=None)
-    # The `default` remainder model has no entry of its own, so it carries no pins.
-    spec = specs.get(model, _ModelSpec(fraction=None))
+    if spec is None:
+        # The `default` remainder carries no pins, even when a weighted slice names the same model.
+        return ScoutModel(model=model, runtime_adapter=_infer_runtime_adapter(model))
     return ScoutModel(
         model=model,
         runtime_adapter=spec.runtime_adapter or _infer_runtime_adapter(model),

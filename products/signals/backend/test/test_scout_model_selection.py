@@ -136,6 +136,27 @@ class TestResolveScoutModel:
         resolved = _resolve_full(payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": 1, key: bad_value}}}))
         assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex")
 
+    def test_remainder_carries_no_pins_even_when_it_names_a_sliced_model(self) -> None:
+        # The flex trial's shape: a 5% slice of a model on flex, the remainder the same model on the
+        # standard queue. Recovering the spec by model id would put the whole fleet on flex and read
+        # the control arm as the treatment; the remainder must stay pin-free.
+        payload = _scouts(
+            {
+                _SKILL: {
+                    GLM_MODEL: {"fraction": 0.05, "runtime_adapter": "codex", "service_tier": "flex"},
+                    "default": GLM_MODEL,
+                }
+            }
+        )
+        tiers: dict[str | None, int] = {}
+        for i in range(400):
+            resolved = _resolve_full(run_id=f"run-{i}", payload=payload)
+            assert resolved.model == GLM_MODEL
+            assert resolved.runtime_adapter == "codex"
+            tiers[resolved.service_tier] = tiers.get(resolved.service_tier, 0) + 1
+        assert set(tiers) == {"flex", None}
+        assert 5 <= tiers["flex"] <= 45  # ~5% of 400, loose enough not to flake
+
     def test_object_form_drops_malformed_fraction(self) -> None:
         # A pinned runtime can't rescue a malformed fraction — the entry is dropped, agent default kept.
         resolved = _resolve_full(
