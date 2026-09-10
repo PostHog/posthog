@@ -14,7 +14,7 @@ import { resolveAggregationGroupTypeIndex } from './aggregation'
 /** Flag state as projected after a scheduled change occurrence has applied. */
 export interface ScheduleProjectedState {
     active: boolean
-    /** Max rollout percentage across release condition sets. Null when no condition sets exist. */
+    /** What the flag reaches on its own aggregation target. See maxUntargetedRolloutPercentage. */
     rolloutPercentage: number | null
     /** Null for flags with no variants. */
     variantCount: number | null
@@ -224,7 +224,14 @@ export function expandScheduleOccurrences(
     // Grows as each add applies, the way add_release_condition appends its sets to the flag's, so a
     // later add is judged against everything the flag holds by then.
     let conditionSets = flag.filters.groups ?? []
-    let rolloutPercentage = maxRolloutPercentage(conditionSets)
+    // The projected level is what the flag reaches on its own aggregation target, so a condition set
+    // that a property filter narrows contributes nothing to it. A set narrowed to a segment serves
+    // its percentage of that segment, and the flag definition does not say how large the segment is,
+    // so counting one at 100% pins the level at 100% while the flag still reaches almost nobody.
+    const flagTarget = resolveAggregationGroupTypeIndex(undefined, flag.filters.aggregation_group_type_index)
+    const projectedRollout = (groups: FeatureFlagGroupType[]): number | null =>
+        maxUntargetedRolloutPercentage(groups, flag.filters.aggregation_group_type_index, flagTarget)
+    let rolloutPercentage = projectedRollout(conditionSets)
     let variantCount = flag.filters.multivariate?.variants.length ?? null
 
     return raw.slice(0, OCCURRENCE_CAP).map(({ at, schedule, isFirst }) => {
@@ -246,7 +253,7 @@ export function expandScheduleOccurrences(
             rolloutUnchanged =
                 addedRolloutPercentage !== null && servedAlready !== null && addedRolloutPercentage <= servedAlready
             conditionSets = [...conditionSets, ...(addedGroups ?? [])]
-            rolloutPercentage = maxRolloutPercentage(conditionSets)
+            rolloutPercentage = projectedRollout(conditionSets)
         } else if (payload.operation === ScheduledChangeOperationType.UpdateVariants) {
             variantCount = payload.value.variants.length
         }

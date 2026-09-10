@@ -112,9 +112,10 @@ describe('expandScheduleOccurrences', () => {
         expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual(expected)
     })
 
-    it('ignores property-narrowed condition sets when marking an add as no change', () => {
+    it('ignores property-narrowed condition sets in the projected reach and the no-change flag', () => {
         // A narrowed set serves its percentage of one segment (internal emails, a beta cohort), not
-        // of everyone, so it cannot prove that a wider condition reaches nobody new.
+        // of everyone, so it cannot prove that a wider condition reaches nobody new. Counting one at
+        // 100% as full reach also pins the projection at 100% and flattens a staged ramp.
         const schedules = [
             change({ payload: conditionPayload(100, [PERSON_FILTER]), scheduled_at: NOW.add(1, 'day').toISOString() }),
             change({ payload: conditionPayload(50), scheduled_at: NOW.add(2, 'day').toISOString() }),
@@ -135,6 +136,9 @@ describe('expandScheduleOccurrences', () => {
         )
 
         expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual([false, false])
+        // The flag's own untargeted 10% holds while a targeted condition lands, then the 50% add
+        // raises it.
+        expect(occurrences.map((o) => o.projected.rolloutPercentage)).toEqual([10, 50])
     })
 
     const aggregationCases: {

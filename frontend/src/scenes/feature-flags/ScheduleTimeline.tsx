@@ -235,134 +235,140 @@ export function ScheduleTimeline({
         .join(', then ')}`
 
     return (
-        // The chart scrolls horizontally rather than scale its 9-unit labels below legibility. The
-        // minimum width is WIDTH itself, so at the floor one viewBox unit is one pixel and the
-        // labels hold at 9px. A smaller floor would scale them down by the same ratio.
-        // A plain div with overflow takes no focus and no arrow keys, so the scroll region needs a
-        // focus stop of its own to be reachable without a mouse.
-        <div
-            className="flex flex-col gap-1 overflow-x-auto"
-            tabIndex={0}
-            role="group"
-            aria-label="Scrollable schedule timeline"
-            data-attr="feature-flag-schedule-timeline"
-        >
-            <svg
-                viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-                className="w-full max-w-3xl"
-                style={{ minWidth: WIDTH }}
-                role="img"
-                aria-label={chartLabel}
+        <div className="flex flex-col gap-1">
+            {/* The chart scrolls horizontally rather than scale its 9-unit labels below legibility.
+                The minimum width is WIDTH itself, so at the floor one viewBox unit is one pixel and
+                the labels hold at 9px. A smaller floor would scale them down by the same ratio.
+                A plain div with overflow takes no focus and no arrow keys, so the scroll region
+                needs a focus stop of its own to be reachable without a mouse. */}
+            <div
+                className="overflow-x-auto"
+                tabIndex={0}
+                role="group"
+                aria-label="Scrollable schedule timeline"
+                data-attr="feature-flag-schedule-timeline"
             >
-                {[0, 50, 100].map((rollout) => (
-                    <g key={rollout}>
-                        <line
-                            x1={MARGIN.left}
-                            x2={MARGIN.left + PLOT_WIDTH}
-                            y1={yForRollout(rollout)}
-                            y2={yForRollout(rollout)}
-                            stroke="var(--color-border-primary)"
-                            strokeWidth={rollout === 0 ? 1 : 0.5}
-                        />
-                        <text
-                            x={MARGIN.left - 4}
-                            y={yForRollout(rollout) + 3}
-                            textAnchor="end"
-                            fontSize={9}
-                            fill="var(--color-text-secondary)"
-                        >
-                            {rollout}%
-                        </text>
-                    </g>
-                ))}
-
-                {stepSegments.map((segment, index) => (
-                    <path
-                        key={index}
-                        d={segment.path}
-                        fill="none"
-                        stroke="var(--data-color-1)"
-                        strokeWidth={2}
-                        strokeDasharray={segment.blocked ? '4 3' : undefined}
-                        opacity={segment.blocked ? 0.5 : 1}
-                    />
-                ))}
-
-                {occurrences.map((occurrence, index) => {
-                    const { x, timeLabel, topLabelY } = layouts[index]
-                    const blocked = occurrence.needsApproval
-                    const isRolloutStep = occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition
-                    const rollout = occurrence.projected.rolloutPercentage
-                    // One <title> per mark: a second one is never read out.
-                    const title = markTitle(occurrence)
-                    return (
-                        <g key={`${occurrence.schedule.id}-${occurrence.timestamp}`} opacity={blocked ? 0.5 : 1}>
-                            {title && <title>{title}</title>}
+                <svg
+                    viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+                    className="w-full max-w-3xl"
+                    style={{ minWidth: WIDTH }}
+                    role="img"
+                    aria-label={chartLabel}
+                >
+                    {[0, 50, 100].map((rollout) => (
+                        <g key={rollout}>
                             <line
-                                x1={x}
-                                x2={x}
-                                y1={BASELINE_Y}
-                                y2={BASELINE_Y + 4}
+                                x1={MARGIN.left}
+                                x2={MARGIN.left + PLOT_WIDTH}
+                                y1={yForRollout(rollout)}
+                                y2={yForRollout(rollout)}
                                 stroke="var(--color-border-primary)"
+                                strokeWidth={rollout === 0 ? 1 : 0.5}
                             />
-                            {isRolloutStep && rollout !== null ? (
-                                <>
-                                    <circle
-                                        cx={x}
-                                        cy={yForRollout(rollout)}
-                                        r={3.5}
-                                        fill="var(--data-color-1)"
-                                        stroke="var(--color-bg-surface-primary)"
-                                        strokeWidth={1.5}
-                                        strokeDasharray={blocked ? '2 2' : undefined}
-                                    />
+                            <text
+                                x={MARGIN.left - 4}
+                                y={yForRollout(rollout) + 3}
+                                textAnchor="end"
+                                fontSize={9}
+                                fill="var(--color-text-secondary)"
+                            >
+                                {rollout}%
+                            </text>
+                        </g>
+                    ))}
+
+                    {stepSegments.map((segment, index) => (
+                        <path
+                            key={index}
+                            d={segment.path}
+                            fill="none"
+                            stroke="var(--data-color-1)"
+                            strokeWidth={2}
+                            strokeDasharray={segment.blocked ? '4 3' : undefined}
+                            opacity={segment.blocked ? 0.5 : 1}
+                        />
+                    ))}
+
+                    {occurrences.map((occurrence, index) => {
+                        const { x, timeLabel, topLabelY } = layouts[index]
+                        const blocked = occurrence.needsApproval
+                        const isRolloutStep = occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition
+                        const rollout = occurrence.projected.rolloutPercentage
+                        // One <title> per mark: a second one is never read out.
+                        const title = markTitle(occurrence)
+                        return (
+                            <g key={`${occurrence.schedule.id}-${occurrence.timestamp}`} opacity={blocked ? 0.5 : 1}>
+                                {title && <title>{title}</title>}
+                                <line
+                                    x1={x}
+                                    x2={x}
+                                    y1={BASELINE_Y}
+                                    y2={BASELINE_Y + 4}
+                                    stroke="var(--color-border-primary)"
+                                />
+                                {isRolloutStep && rollout !== null ? (
+                                    <>
+                                        <circle
+                                            cx={x}
+                                            cy={yForRollout(rollout)}
+                                            r={3.5}
+                                            fill="var(--data-color-1)"
+                                            stroke="var(--color-bg-surface-primary)"
+                                            strokeWidth={1.5}
+                                            strokeDasharray={blocked ? '2 2' : undefined}
+                                        />
+                                        <text
+                                            x={x}
+                                            y={yForRollout(rollout) - 7}
+                                            textAnchor={stepLabelAnchor(x)}
+                                            fontSize={9}
+                                            fill="var(--color-text-secondary)"
+                                        >
+                                            {stepLabel(occurrence, rollout)}
+                                        </text>
+                                    </>
+                                ) : (
+                                    <>
+                                        <line
+                                            x1={x}
+                                            x2={x}
+                                            y1={MARGIN.top - 4}
+                                            y2={BASELINE_Y}
+                                            stroke="var(--color-border-primary)"
+                                            strokeDasharray="2 3"
+                                        />
+                                        <text
+                                            x={x}
+                                            y={topLabelY}
+                                            textAnchor="middle"
+                                            fontSize={9}
+                                            fill="var(--color-text-secondary)"
+                                        >
+                                            {markerLabel(occurrence)}
+                                            {blocked ? ' (needs approval)' : ''}
+                                        </text>
+                                    </>
+                                )}
+                                {timeLabel && (
                                     <text
                                         x={x}
-                                        y={yForRollout(rollout) - 7}
-                                        textAnchor={stepLabelAnchor(x)}
-                                        fontSize={9}
-                                        fill="var(--color-text-secondary)"
-                                    >
-                                        {stepLabel(occurrence, rollout)}
-                                    </text>
-                                </>
-                            ) : (
-                                <>
-                                    <line
-                                        x1={x}
-                                        x2={x}
-                                        y1={MARGIN.top - 4}
-                                        y2={BASELINE_Y}
-                                        stroke="var(--color-border-primary)"
-                                        strokeDasharray="2 3"
-                                    />
-                                    <text
-                                        x={x}
-                                        y={topLabelY}
+                                        y={BASELINE_Y + 15}
                                         textAnchor="middle"
                                         fontSize={9}
                                         fill="var(--color-text-secondary)"
                                     >
-                                        {markerLabel(occurrence)}
-                                        {blocked ? ' (needs approval)' : ''}
+                                        {timeLabel}
                                     </text>
-                                </>
-                            )}
-                            {timeLabel && (
-                                <text
-                                    x={x}
-                                    y={BASELINE_Y + 15}
-                                    textAnchor="middle"
-                                    fontSize={9}
-                                    fill="var(--color-text-secondary)"
-                                >
-                                    {timeLabel}
-                                </text>
-                            )}
-                        </g>
-                    )
-                })}
-            </svg>
+                                )}
+                            </g>
+                        )
+                    })}
+                </svg>
+            </div>
+            <p className="text-xs text-muted m-0">
+                The line shows how much of your audience the flag reaches. Conditions that target specific users are not
+                counted, because their reach depends on how many users match them.
+            </p>
         </div>
     )
 }
