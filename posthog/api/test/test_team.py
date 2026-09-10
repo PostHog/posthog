@@ -24,6 +24,7 @@ from posthog.api.team import (
     _reset_default_data_color_theme_id_cache,
 )
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
@@ -821,6 +822,43 @@ def team_api_test_factory():
                     },
                 ]
             )
+
+        def test_rotate_heatmaps_screenshot_secret(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.assertIsNone(self.team.heatmaps_screenshot_secret)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            first_secret = response.json()["heatmaps_screenshot_secret"]
+            self.assertTrue(first_secret.startswith("phh_"))
+            self.assertEqual(first_secret, self.team.heatmaps_screenshot_secret)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.assertNotEqual(response.json()["heatmaps_screenshot_secret"], first_secret)
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team").order_by("created_at")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "heatmaps_screenshot_secret"
+            ]
+            self.assertEqual([change["action"] for change in changes], ["created", "changed"])
+            self.assertNotIn(first_secret, str(changes))
+            self.assertNotIn(response.json()["heatmaps_screenshot_secret"], str(changes))
+
+            self.client.patch(f"/api/environments/{self.team.id}/", {"heatmaps_screenshot_secret": "phh_chosen"})
+            self.team.refresh_from_db()
+            self.assertNotEqual(self.team.heatmaps_screenshot_secret, "phh_chosen")
+
+        def test_rotate_heatmaps_screenshot_secret_insufficient_privileges(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.team.refresh_from_db()
+            self.assertIsNone(self.team.heatmaps_screenshot_secret)
 
         def test_rotate_secret_token_insufficient_privileges(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -3402,6 +3440,32 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         assert self.team.timezone != "Europe/Lisbon"
         # Even the safe field must not be applied when the request is rejected.
         assert self.team.surveys_opt_in is not True
+
+    def test_member_cannot_read_heatmaps_screenshot_secret(self) -> None:
+        self.team.rotate_heatmaps_screenshot_secret_and_save(user=self.user, is_impersonated_session=False)
+        self.team.refresh_from_db()
+        assert self.team.heatmaps_screenshot_secret
+
+        for url in (f"/api/environments/{self.team.id}/", f"/api/projects/{self.project.id}/"):
+            response = self.client.get(url)
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["heatmaps_screenshot_secret"] is None, (
+                f"MEMBER read the admin-only screenshot secret via {url}"
+            )
+
+    def test_admin_can_read_heatmaps_screenshot_secret(self) -> None:
+        self.team.rotate_heatmaps_screenshot_secret_and_save(user=self.user, is_impersonated_session=False)
+        self.team.refresh_from_db()
+        secret = self.team.heatmaps_screenshot_secret
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        for url in (f"/api/environments/{self.team.id}/", f"/api/projects/{self.project.id}/"):
+            response = self.client.get(url)
+            assert response.json()["heatmaps_screenshot_secret"] == secret, (
+                f"ADMIN could not read the screenshot secret via {url}"
+            )
 
     def _enable_access_control_with_member_level(self) -> None:
         self.organization.available_product_features = [
