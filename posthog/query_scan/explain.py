@@ -14,7 +14,6 @@ from posthog.dataclasses import frozen
 # and the native-JSON schema has its own pair (see events_table_clickhouse_table_ref). Spelled out
 # rather than imported, because the schema modules would pull the model layer into this parser.
 _EVENTS_TABLE_NAMES = ("events", "events_json", "sharded_events", "sharded_events_json")
-_PERSON_DESCRIPTION_SUFFIX = ".person"
 
 _PRIMARY_KEY_INDEX_TYPE = "PrimaryKey"
 _READ_NODE_TYPE = "ReadFromMergeTree"
@@ -48,9 +47,6 @@ class PlanTableRead:
         # a different table.
         return any(self.description == name or self.description.endswith(f".{name}") for name in _EVENTS_TABLE_NAMES)
 
-    def reads_persons(self) -> bool:
-        return self.description.endswith(_PERSON_DESCRIPTION_SUFFIX)
-
 
 @frozen
 class QueryPlan:
@@ -58,9 +54,6 @@ class QueryPlan:
 
     def events_reads(self) -> tuple[PlanTableRead, ...]:
         return tuple(read for read in self.reads if read.reads_events())
-
-    def persons_reads(self) -> tuple[PlanTableRead, ...]:
-        return tuple(read for read in self.reads if read.reads_persons())
 
     def event_key_used(self) -> bool | None:
         """Whether ClickHouse put the ``event`` column in the primary key condition.
