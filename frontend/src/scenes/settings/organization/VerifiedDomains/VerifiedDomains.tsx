@@ -301,11 +301,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                   ? 'OIDC is enabled'
                                   : 'OIDC is not enabled'
                         }
-                        to={
-                            !isOIDCAvailable
-                                ? billingLink
-                                : urls.identityProviderConfig(ConfigScopeEnumApi.Oidc, oidcConfig?.id ?? 'new')
-                        }
+                        to={!isOIDCAvailable ? billingLink : undefined}
                     />
                 )
 
