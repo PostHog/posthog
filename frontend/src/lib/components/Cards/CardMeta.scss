@@ -169,6 +169,16 @@
     }
 }
 
+// The header does not shrink, so an unclamped description pushes the chart out of the card.
+// The title and the eyebrow heading above it already truncate; this extends the same guard.
+.CardMeta__description {
+    display: -webkit-box;
+    max-height: 3lh; // Line clamp only bounds text lines; this also caps block content (images, tables)
+    overflow: hidden;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+}
+
 .CardMeta__main {
     display: flex;
     flex-direction: column;
