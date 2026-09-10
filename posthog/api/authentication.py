@@ -47,6 +47,7 @@ from two_factor.views.utils import get_remember_device_cookie, validate_remember
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
+from posthog.api.credential_reconciliation import reconcile_email_claim_credentials
 from posthog.api.email_verification import (
     SIGNUP_EMAIL_PROOF_SESSION_KEY,
     email_verification_code_verifier,
@@ -1196,13 +1197,14 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         except ValidationError as e:
             raise serializers.ValidationError({"password": e.messages})
 
+        was_unverified = user.is_email_verified is False
         with transaction.atomic():
             user.set_password(password)
             user.requested_password_reset_at = None
-            # Possessing the unique reset token (only ever delivered by email via
-            # send_password_reset) proves the user owns this address, regardless of
-            # whether they came in as None (legacy / agentic-provisioned), False
-            # (invite-accept, Vercel-provisioned), or True.
+            # The reset token proves address ownership. Treat the new password as the
+            # trusted credential when clearing credentials from an unverified account.
+            if was_unverified:
+                reconcile_email_claim_credentials(user, trusted_password=True)
             user.is_email_verified = True
             user.save()
 

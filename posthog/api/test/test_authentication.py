@@ -1979,7 +1979,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.assertEqual(self.user.is_email_verified, True)
 
-    def test_password_reset_preserves_existing_credentials_for_unverified_account(self):
+    def test_password_reset_clears_untrusted_credentials_for_unverified_account(self):
         self.user.is_email_verified = False
         self.user.requested_password_reset_at = datetime.now()
         self.user.passkeys_enabled_for_2fa = True
@@ -2005,9 +2005,9 @@ class TestPasswordResetAPI(APIBaseTest):
 
         self.user.refresh_from_db()
         self.assertEqual(self.user.is_email_verified, True)
-        self.assertTrue(WebauthnCredential.objects.filter(user=self.user).exists())
-        self.assertTrue(UserSocialAuth.objects.filter(id=social_auth.id).exists())
-        self.assertTrue(self.user.passkeys_enabled_for_2fa)
+        self.assertFalse(WebauthnCredential.objects.filter(user=self.user).exists())
+        self.assertFalse(UserSocialAuth.objects.filter(id=social_auth.id).exists())
+        self.assertFalse(self.user.passkeys_enabled_for_2fa)
 
     def test_password_reset_does_not_clear_pending_email(self):
         self.user.is_email_verified = False

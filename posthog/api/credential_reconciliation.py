@@ -2,6 +2,8 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from social_django.models import UserSocialAuth
 
+from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 
@@ -37,8 +39,15 @@ def reconcile_email_claim_credentials(
         social_auth = social_auth.exclude(id=trusted_social_auth_id)
     social_auth.delete()
 
-    TOTPDevice.objects.filter(user=user).delete()
-    StaticDevice.objects.filter(user=user).delete()
+    has_trusted_credential = trusted_password or trusted_passkey_exists or trusted_social_auth_id is not None
+    if not has_trusted_credential:
+        PersonalAPIKey.objects.filter(user=user).delete()
+        OAuthGrant.objects.filter(user=user).delete()
+        OAuthIDToken.objects.filter(user=user).delete()
+        OAuthRefreshToken.objects.filter(user=user).delete()
+        OAuthAccessToken.objects.filter(user=user).delete()
+        TOTPDevice.objects.filter(user=user).delete()
+        StaticDevice.objects.filter(user=user).delete()
 
     if update_fields:
         user.save(update_fields=update_fields)

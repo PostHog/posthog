@@ -2005,14 +2005,19 @@ class TestPasskeySignupAPI(APIBaseTest):
             verified=False,
         )
         stale_social_auth = UserSocialAuth.objects.create(user=user, provider="github", uid="stale-github")
+        totp_device = TOTPDevice.objects.create(user=user, name="default", confirmed=True)
+        static_device = StaticDevice.objects.create(user=user, name="backup", confirmed=True)
 
         response = self.client.post("/api/users/verify_email/", {"uuid": user.uuid, "code": self.verification_code})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["requires_2fa"])
 
         credential.refresh_from_db()
         self.assertTrue(credential.verified)
         self.assertFalse(WebauthnCredential.objects.filter(id=unrelated_passkey.id).exists())
         self.assertFalse(UserSocialAuth.objects.filter(id=stale_social_auth.id).exists())
+        self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
+        self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
         user.refresh_from_db()
         self.assertTrue(user.is_email_verified)
 
@@ -2055,7 +2060,7 @@ class TestPasskeySignupAPI(APIBaseTest):
         self.assertFalse(UserSocialAuth.objects.filter(id=stale_social_auth.id).exists())
         self.assertFalse(TOTPDevice.objects.filter(id=totp_device.id).exists())
         self.assertFalse(StaticDevice.objects.filter(id=static_device.id).exists())
-        self.assertTrue(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
+        self.assertFalse(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
 
     @pytest.mark.skip_on_multitenancy
     def test_password_signup_generates_random_uuid(self):
