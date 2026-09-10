@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 
 from posthog.schema import (
@@ -23,7 +23,7 @@ from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_ba
 
 class TestWebStatsTablePreAggregatedConversions(WebAnalyticsPreAggregatedTestBase):
     def _setup_test_data(self, user_prefix="user"):
-        with freeze_time("2024-01-01T09:00:00Z"):
+        with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=[f"{user_prefix}1"])
             _create_person(team_id=self.team.pk, distinct_ids=[f"{user_prefix}2"])
 
@@ -82,7 +82,7 @@ class TestWebStatsTablePreAggregatedConversions(WebAnalyticsPreAggregatedTestBas
         )
         sync_execute(f"INSERT INTO web_pre_aggregated_stats {sql}")
 
-        with freeze_time("2024-01-02T00:00:00Z"):
+        with time_machine.travel("2024-01-02T00:00:00Z", tick=False):
             modifiers = HogQLQueryModifiers(
                 sessionTableVersion=SessionTableVersion.V2,
                 useWebAnalyticsPreAggregatedTables=True,
@@ -172,7 +172,7 @@ class TestWebStatsTablePreAggregatedConversions(WebAnalyticsPreAggregatedTestBas
             )
             sync_execute(f"INSERT INTO web_pre_aggregated_stats {sql}")
 
-            with freeze_time("2024-01-02T00:00:00Z"):
+            with time_machine.travel("2024-01-02T00:00:00Z", tick=False):
                 modifiers = HogQLQueryModifiers(
                     sessionTableVersion=SessionTableVersion.V2,
                     useWebAnalyticsPreAggregatedTables=True,
