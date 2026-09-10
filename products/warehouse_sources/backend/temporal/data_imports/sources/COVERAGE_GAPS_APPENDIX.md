@@ -341,14 +341,14 @@ Note: Deliberately scoped: the connector takes a single user-supplied dataset_id
 
 ## Apollo — gaps
 
-Today (3): `accounts`, `contacts`, `opportunities`
+Today (7): `account_stages`, `accounts`, `contacts`, `contact_stages`, `opportunities`, `opportunity_stages`, `users`
 
 Diffed against: <https://docs.apollo.io/reference/organization-search>
 
-- [ ] `/opportunity_stages (list deal stages)` — lookup resolving the stage IDs already carried on the opportunities we sync (high)
-- [ ] `/contact_stages` — lookup resolving contact_stage_id on synced contacts (high)
-- [ ] `/account_stages` — lookup resolving account_stage_id on synced accounts (high)
-- [ ] `/users/search` — lookup resolving owner/user IDs on accounts, contacts and deals (high)
+- [x] `/opportunity_stages (list deal stages)` — lookup resolving the stage IDs already carried on the opportunities we sync (high)
+- [x] `/contact_stages` — lookup resolving contact_stage_id on synced contacts (high)
+- [x] `/account_stages` — lookup resolving account_stage_id on synced accounts (high)
+- [x] `/users/search` — lookup resolving owner/user IDs on accounts, contacts and deals (high)
 - [ ] `/emailer_messages/search (outreach emails)` — per-message email send/open/reply activity, the core sequence funnel (high)
 - [ ] `/phone_calls/search` — call activity records tied to contacts and accounts (high)
 - [ ] `/emailer_campaigns/search (sequences)` — lookup resolving sequence IDs on email activity and contact status (medium)
