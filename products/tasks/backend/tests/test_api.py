@@ -3710,9 +3710,15 @@ class TestTaskAPI(BaseTaskAPITest):
             ("glm_5_2_max", "claude", "@cf/zai-org/glm-5.2", "max", "anthropic"),
         ]
     )
+    # GLM 5.2 is gated, and this case is about the metadata a run persists rather than about
+    # entitlement, so the flag is granted here and gating is covered in `test_feature_flags`.
+    @patch(
+        "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
+        side_effect=lambda flag, *args, **kwargs: flag == "posthog-code-glm-model",
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_runtime_metadata(
-        self, _case_name, runtime_adapter, model, reasoning_effort, provider, mock_workflow
+        self, _case_name, runtime_adapter, model, reasoning_effort, provider, mock_workflow, _mock_flag
     ):
         task = self.create_task()
 
@@ -5658,6 +5664,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "provider": "anthropic",
                 "model": "claude-sonnet-5",
                 "reasoning_effort": "low",
+                "service_tier": "default",
                 "rtk_effective": True,
                 "benjamin_effective": True,
                 "usage_metrics_recorded": True,
@@ -5728,6 +5735,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "provider": "openai",
                     "model": "claude-opus-4-8",
                     "reasoning_effort": "high",
+                    # the premium queue costs more; a writable tier is a spend escalation
+                    "service_tier": "priority",
                     "rtk_effective": False,
                     "benjamin_effective": False,
                     "usage_metrics_recorded": False,
@@ -5783,6 +5792,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["provider"] == "anthropic"
         assert run.state["model"] == "claude-sonnet-5"
         assert run.state["reasoning_effort"] == "low"
+        assert run.state["service_tier"] == "default"
         assert run.state["rtk_effective"] is True
         assert run.state["benjamin_effective"] is True
         assert run.state["usage_metrics_recorded"] is True
@@ -5823,6 +5833,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "provider",
                     "model",
                     "reasoning_effort",
+                    "service_tier",
                     "rtk_effective",
                     "benjamin_effective",
                     "usage_metrics_recorded",

@@ -286,6 +286,9 @@ const inboxReportsList = (): ToolBase<
                     'implementation_pr_url',
                     'implementation_pr_state',
                     'implementation_pr_merged',
+                    'tracker_issue_url',
+                    'tracker_issue_reference',
+                    'tracker_issue_error',
                     'work_state',
                     'assignee',
                     'created_at',
@@ -929,6 +932,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
         }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
@@ -1674,6 +1680,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
         }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
