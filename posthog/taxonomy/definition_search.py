@@ -2,8 +2,6 @@ from typing import Literal
 
 from django.db import connections
 
-from opentelemetry import trace
-
 from posthog.utils import get_safe_cache, safe_cache_set
 
 DefinitionTable = Literal["posthog_eventdefinition", "posthog_propertydefinition"]
@@ -23,7 +21,12 @@ LARGE_PROJECT_COUNT_CAP = 10_000
 
 
 def is_large_project(table: DefinitionTable, project_id: int, db_alias: str) -> bool:
-    """Whether the project holds more than PROJECT_SCAN_MAX_DEFINITIONS rows of `table` (cached for a day)."""
+    """Whether the project holds more than PROJECT_SCAN_MAX_DEFINITIONS rows of `table` (cached for a day).
+
+    The list endpoints use this to pick their search index, their sort statement and their count:
+    Postgres cannot scope the trigram GIN index on `name` to one project, so a small project is faster
+    to scan through its own scoped index, and a large project is too expensive to sort or count in full.
+    """
     return _cached_search_plan(table, project_id, db_alias) == "trigram"
 
 
@@ -38,20 +41,8 @@ def bounded_count_sql(source_sql: str, order_by: str) -> str:
     return f"SELECT count(*) FROM (SELECT 1 {source_sql} ORDER BY {order_by} LIMIT %(count_cap)s) bounded"
 
 
-def search_plan(table: DefinitionTable, project_id: int, db_alias: str) -> SearchPlan:
-    """Picks how a `?search=` on a definitions table should reach the project's rows.
-
-    Postgres cannot scope the trigram GIN index on `name` to one project, so for the common small
-    project it reads posting lists for every project before intersecting. Small projects are
-    faster to scan through their own unique index and filter in place; only the few huge projects
-    are better off with the trigram index. The count is bounded so it stays cheap for those.
-    """
-    plan = _cached_search_plan(table, project_id, db_alias)
-    trace.get_current_span().set_attribute("taxonomy_search_plan", plan)
-    return plan
-
-
 def _cached_search_plan(table: DefinitionTable, project_id: int, db_alias: str) -> SearchPlan:
+    # The cached value stays a plan name so entries written before `is_large_project` existed still read.
     cache_key = f"taxonomy_search_plan:{table}:{project_id}"
     # A cache outage must only cost the count query, never the search itself.
     cached = get_safe_cache(cache_key)

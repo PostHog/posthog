@@ -4,6 +4,7 @@ from typing import Any, Optional, Union, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.core.cache import cache
 from django.db import OperationalError
 from django.test import SimpleTestCase
 
@@ -11,6 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team
+from posthog.taxonomy import definition_search
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
     PropertyDefinitionViewSet,
@@ -244,6 +246,25 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             db_results = self._exclude_virtual(response.json()["results"])
             assert len(db_results) == (100 if i < 2 else 10)
             assert response.json()["results"][0]["name"] == f"z_property_{property_checkpoints[i]}"
+
+    def test_large_project_caps_the_count(self):
+        PropertyDefinition.objects.bulk_create(
+            [
+                PropertyDefinition(team=self.team, name=f"session_prop_{i}", type=PropertyDefinition.Type.SESSION)
+                for i in range(5)
+            ]
+        )
+        # The large-project flag is cached per project, so an earlier request in this class must not decide it.
+        cache.clear()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch("posthog.taxonomy.property_definition_api.LARGE_PROJECT_COUNT_CAP", 3),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=session")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 3
+        assert [r["name"] for r in response.json()["results"]] == [f"session_prop_{i}" for i in range(5)]
 
     def test_cant_see_property_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")
@@ -813,6 +834,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
 
+        # The large-project probe is cached per project, so warm it to capture only the list's own statements.
+        definition_search.is_large_project("posthog_propertydefinition", self.team.project_id, "default")
         with CaptureQueriesContext(connection) as ctx:
             response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{query_string}")
 
@@ -1131,6 +1154,50 @@ class TestIsQueryCanceled(SimpleTestCase):
         error.sqlstate = "57014"  # type: ignore[attr-defined]
 
         assert is_query_canceled(error) is True
+
+
+class TestQueryContextLargeProjectSql(SimpleTestCase):
+    def _context(self, large_project: bool) -> QueryContext:
+        return (
+            QueryContext(
+                project_id=1,
+                table=(
+                    "posthog_propertydefinition LEFT JOIN ee_enterprisepropertydefinition"
+                    " ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
+                ),
+                property_definition_fields='posthog_propertydefinition."id", posthog_propertydefinition."name"',
+                property_definition_table="posthog_propertydefinition",
+                limit=100,
+                offset=0,
+            )
+            .with_type_filter("event", None)
+            .with_large_project(large_project)
+        )
+
+    def test_large_project_pages_verified_rows_first_from_two_ordered_branches(self) -> None:
+        sql = self._context(True).as_sql(order_by_verified=True)
+
+        assert "UNION ALL" in sql
+        assert "AND verified = true" in sql
+        assert "AND verified IS NOT TRUE" in sql
+        assert "LIMIT %(limit)s + %(offset)s" in sql
+        assert sql.strip().endswith("LIMIT %(limit)s OFFSET %(offset)s")
+
+    @parameterized.expand(
+        [
+            ("small_project", False, True),
+            ("large_project_without_a_verified_sort", True, False),
+        ]
+    )
+    def test_single_statement_otherwise(self, _name: str, large_project: bool, order_by_verified: bool) -> None:
+        assert "UNION ALL" not in self._context(large_project).as_sql(order_by_verified=order_by_verified)
+
+    def test_large_project_count_is_bounded(self) -> None:
+        assert (
+            "ORDER BY posthog_propertydefinition.name LIMIT %(count_cap)s) bounded"
+            in self._context(True).as_count_sql()
+        )
+        assert "bounded" not in self._context(False).as_count_sql()
 
 
 class TestPropertyDefinitionQuerySerializer(SimpleTestCase):

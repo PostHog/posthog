@@ -144,6 +144,16 @@ class PropertyDefinition(UUIDTModel):
                 condition=models.Q(name__startswith="$feature/"),
                 name="index_propdef_feature_flag",
             ),
+            # Lists page in name order within one project and type. The unique index cannot serve that
+            # order because it puts `name` before `type`, and `index_property_def_query_proj` sorts on the
+            # deprecated `query_usage_30_day` first.
+            models.Index(
+                Coalesce(F("project_id"), F("team_id")),
+                F("type"),
+                Coalesce(F("group_type_index"), -1),
+                F("name"),
+                name="index_propdef_proj_type_name",
+            ),
         ]
         constraints = [
             models.CheckConstraint(
