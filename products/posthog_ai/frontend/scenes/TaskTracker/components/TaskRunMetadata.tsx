@@ -4,12 +4,13 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
+import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { modelCatalogueLogic } from '../../../logics/modelCatalogueLogic'
 import { getEffortLabel, getModelLabel } from '../../../utils/composerModels'
-import type { SelectedTaskRun } from '../taskDetailSceneLogic'
 
 /** Created / completed / duration / model row shown above the run log for the selected run. */
-export function TaskRunMetadata({ selectedRun }: { selectedRun: SelectedTaskRun }): JSX.Element {
+export function TaskRunMetadata({ selectedRun }: { selectedRun: TaskRunDetailDTOApi }): JSX.Element {
     const { catalogue } = useValues(modelCatalogueLogic)
 
     return (

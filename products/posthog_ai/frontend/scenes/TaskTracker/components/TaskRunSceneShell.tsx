@@ -23,8 +23,9 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 
-import { Task } from '../../../types/taskTypes'
-import type { SelectedTaskRun } from '../taskDetailSceneLogic'
+import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+
+import type { Task } from '../../../types/taskTypes'
 import { TaskDebugLogsMenu } from './TaskDebugLogsMenu'
 import { TaskDebugLogsPanelToggle } from './TaskDebugLogsPanelToggle'
 import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
@@ -35,11 +36,11 @@ export interface TaskRunSceneShellProps {
     /** The loaded task, or `null` while loading (or during an optimistic create, before it exists). */
     task: Task | null
     /** The run whose metadata heads the thread, or `null` while loading. */
-    selectedRun: SelectedTaskRun | null
+    selectedRun: TaskRunDetailDTOApi | null
     /** Drives the title/panel/metadata skeletons — the single unified loading affordance for the header. */
-    isHeaderLoading: boolean
+    isHeaderLoading?: boolean
     /** Title-bar action buttons (or their skeleton). Supplied by the caller so the shell stays presentational. */
-    titleActions: JSX.Element
+    titleActions?: JSX.Element
     sceneMenuBarEnabled: boolean
     onArchive: () => void
     taskError: string | null
@@ -58,7 +59,7 @@ export interface TaskRunSceneShellProps {
 export function TaskRunSceneShell({
     task,
     selectedRun,
-    isHeaderLoading,
+    isHeaderLoading = false,
     titleActions,
     sceneMenuBarEnabled,
     onArchive,

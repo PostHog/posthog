@@ -137,7 +137,7 @@ describe('ThreadView connection state', () => {
             )
         })
         await waitFor(() => expect(screen.getByText('Starting agent', { exact: true })).toBeVisible())
-        expect(screen.getByLabelText('Collapse history')).toHaveAttribute('aria-expanded', 'true')
+        expect(screen.getByLabelText('Expand history')).toHaveAttribute('aria-expanded', 'false')
         expect(screen.queryByText('Setting up sandbox')).toBeNull()
 
         act(() => {

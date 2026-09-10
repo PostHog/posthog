@@ -46,9 +46,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
     const prUrl = selectedRun?.output?.pr_url as string | undefined
     const titleActions =
         isHeaderLoading || !task ? (
-            isActiveCreation ? (
-                <></>
-            ) : (
+            isActiveCreation ? undefined : (
                 <TaskHeaderActionsSkeleton />
             )
         ) : (

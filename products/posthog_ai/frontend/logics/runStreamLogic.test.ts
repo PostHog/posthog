@@ -13,7 +13,7 @@ import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/t
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { AttachedContextItem } from '../types/contextTypes'
-import { type TaskRun, TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
+import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { computeTurnTrailers } from '../utils/turnTrailers'
@@ -1999,7 +1999,7 @@ describe('runStreamLogic', () => {
                     created_at: '2026-01-01T00:00:00Z',
                     updated_at: '2026-01-01T00:00:00Z',
                     completed_at: null,
-                } satisfies TaskRun & TaskRunDetailDTOApi
+                } satisfies TaskRunDetailDTOApi
                 const history = [
                     notification('_posthog/run_started', { runId: 'run-1' }),
                     notification('_posthog/user_message', { content: 'continue' }),
@@ -2053,7 +2053,7 @@ describe('runStreamLogic', () => {
                 created_at: '2026-01-01T00:00:00Z',
                 updated_at: '2026-01-01T00:00:00Z',
                 completed_at: '2026-01-01T00:00:01Z',
-            } satisfies TaskRun & TaskRunDetailDTOApi
+            } satisfies TaskRunDetailDTOApi
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue(run)
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
                 notification('_posthog/run_started', { runId: 'run-1' }),

@@ -32,8 +32,6 @@ export function TaskCreateThread({ streamKey, isMobile }: TaskCreateThreadProps)
         <TaskRunSceneShell
             task={null}
             selectedRun={null}
-            isHeaderLoading={false}
-            titleActions={<></>}
             sceneMenuBarEnabled={false}
             onArchive={() => {}}
             taskError={null}
