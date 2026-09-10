@@ -96,6 +96,12 @@ export function NotebookScene(): JSX.Element {
         return <AccessDenied object="notebook" />
     }
 
+    // `new` is a placeholder the scene swaps for a real id, so nothing ever loads for it. That
+    // makes `notebookMissing` true, and this branch has to win before the not-found check.
+    if (notebookId === 'new') {
+        return <NotebookLoadingState />
+    }
+
     // Only a notebook that is really absent gets the not-found screen. A failed load keeps the
     // notebook view, which offers a retry instead of a dead end.
     if (notebookMissing && !loading) {
@@ -122,10 +128,6 @@ export function NotebookScene(): JSX.Element {
     }
 
     const isTemplate = notebook?.is_template
-
-    if (notebookId === 'new') {
-        return <NotebookLoadingState />
-    }
 
     return (
         <>
