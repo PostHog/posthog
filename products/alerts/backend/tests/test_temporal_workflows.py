@@ -2,12 +2,14 @@ import uuid
 import asyncio
 import logging
 import datetime as dt
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from typing import Literal
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.db import OperationalError
 
 import pytest_asyncio
 from opentelemetry import trace
@@ -16,10 +18,17 @@ from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
-from temporalio.exceptions import ApplicationError, TerminatedError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    CancelledError,
+    TerminatedError,
+    TimeoutError,
+    TimeoutType,
+)
 from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.alerts.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
@@ -28,6 +37,7 @@ from products.alerts.backend.facade.temporal import (
     EVALUATION_WORKFLOWS,
     AlertsProductTelemetryInterceptor,
 )
+from products.alerts.backend.temporal import postgres
 from products.alerts.backend.temporal.workflows import AlertsProductCheckDueWorkflow, AlertsProductInputs
 
 
@@ -58,14 +68,27 @@ async def environment(
         yield env
 
 
+@pytest.fixture(autouse=True)
+def postgres_cursor() -> Iterator[MagicMock]:
+    with patch.object(postgres, "execute_with_timeout") as execute:
+        cursor = execute.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (1,)
+        yield cursor
+
+
 @pytest.mark.asyncio
+@pytest.mark.parametrize("database_error", [False, True])
 async def test_each_tick_starts_independent_delivery(
     environment: WorkflowEnvironment,
     caplog: pytest.LogCaptureFixture,
     sdk_metrics: MetricBuffer,
     span_exporter: InMemorySpanExporter,
     activity_logs,
+    postgres_cursor: MagicMock,
+    database_error: bool,
 ) -> None:
+    if database_error:
+        postgres_cursor.execute.side_effect = OperationalError("sensitive connection details")
     caplog.set_level(logging.INFO, logger="temporalio.activity")
     caplog.set_level(logging.INFO, logger="temporalio.workflow")
     client = environment.client
@@ -97,6 +120,18 @@ async def test_each_tick_starts_independent_delivery(
             )
             assert await parent.result() is None
             history = await parent.fetch_history()
+            scheduled = [
+                event.activity_task_scheduled_event_attributes
+                for event in history.events
+                if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+            ]
+            assert len(scheduled) == 1
+            assert scheduled[0].retry_policy.maximum_attempts == 1
+            failures = [
+                event for event in history.events if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED
+            ]
+            assert len(failures) == int(database_error)
+            assert "sensitive" not in str(history)
             children = [
                 event.child_workflow_execution_started_event_attributes
                 for event in history.events
@@ -108,11 +143,13 @@ async def test_each_tick_starts_independent_delivery(
             assert parent.first_execution_run_id in child_id
             assert children[0].workflow_type.name == "alerts-product-deliver"
             child_ids.add(child_id)
-            child = await client.get_workflow_handle(child_id).describe()
-            assert child.task_queue == settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE
-            assert child.status == WorkflowExecutionStatus.RUNNING
+            child_description = await client.get_workflow_handle(child_id).describe()
+            assert child_description.task_queue == settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE
+            assert child_description.status == WorkflowExecutionStatus.RUNNING
 
     assert len(child_ids) == 2
+    assert postgres_cursor.execute.call_count == 2
+    assert "sensitive" not in caplog.text
     async with Worker(
         client,
         task_queue=settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
@@ -122,7 +159,16 @@ async def test_each_tick_starts_independent_delivery(
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         for child_id in child_ids:
-            assert await client.get_workflow_handle(child_id).result() is None
+            child = client.get_workflow_handle(child_id)
+            assert await child.result() is None
+            history = await child.fetch_history()
+            scheduled = [
+                event.activity_task_scheduled_event_attributes
+                for event in history.events
+                if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+            ]
+            assert len(scheduled) == 1
+            assert scheduled[0].retry_policy.maximum_attempts == 3
 
     updates = sdk_metrics.retrieve_updates()
     for metric_name in ("temporal_activity_schedule_to_start_latency", "temporal_activity_execution_latency"):
@@ -178,7 +224,10 @@ async def test_each_tick_starts_independent_delivery(
         assert entries[0]["attempt"] == entries[1]["attempt"]
         assert entries[1]["outcome"] == (
             "failure"
-            if attempt_span.name == "RunActivity:alerts_product_deliver_activity" and entries[1]["attempt"] == 1
+            if (
+                (attempt_span.name == "RunActivity:alerts_product_deliver_activity" and entries[1]["attempt"] == 1)
+                or (attempt_span.name == "RunActivity:alerts_product_check_due_activity" and database_error)
+            )
             else "success"
         )
     assert "sensitive" not in str(activity_logs)
@@ -231,3 +280,94 @@ async def test_delivery_survives_parent_closure(
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         assert await child.result() is None
+
+
+@pytest.mark.parametrize("timeout_type", [TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE])
+async def test_probe_timeout_still_starts_independent_delivery(
+    environment: WorkflowEnvironment, caplog: pytest.LogCaptureFixture, timeout_type: TimeoutType
+) -> None:
+    caplog.set_level(logging.WARNING, logger="temporalio.workflow")
+
+    @activity.defn(name="alerts_product_check_due_activity")
+    async def blocked_probe() -> None:
+        await asyncio.Event().wait()
+
+    client = environment.client
+    async with Worker(
+        client,
+        task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+        workflows=EVALUATION_WORKFLOWS,
+        activities=[blocked_probe] if timeout_type == TimeoutType.START_TO_CLOSE else [],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        parent = await client.start_workflow(
+            AlertsProductCheckDueWorkflow.run,
+            AlertsProductInputs(),
+            id=str(uuid.uuid4()),
+            task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+            execution_timeout=dt.timedelta(seconds=50),
+        )
+        await parent.result()
+        history = await parent.fetch_history()
+        timeouts = [
+            event.activity_task_timed_out_event_attributes
+            for event in history.events
+            if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT
+        ]
+        assert len(timeouts) == 1
+        assert timeouts[0].failure.timeout_failure_info.timeout_type == int(timeout_type)
+        child = client.get_workflow_handle(f"alerts-product-deliver-{parent.first_execution_run_id}")
+        assert (await child.describe()).status == WorkflowExecutionStatus.RUNNING
+
+    observation = "Postgres probe timed out; database outcome unknown; delivery is continuing"
+    assert caplog.text.count(observation) == 1
+    await Replayer(workflows=EVALUATION_WORKFLOWS, workflow_runner=UnsandboxedWorkflowRunner()).replay_workflow(history)
+    assert caplog.text.count(observation) == 1
+    async with Worker(
+        client,
+        task_queue=settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
+        workflows=DELIVERY_WORKFLOWS,
+        activities=DELIVERY_ACTIVITIES,
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        assert await child.result() is None
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [
+        ApplicationError("Unrelated failure", type="OtherFailure"),
+        CancelledError(),
+        TimeoutError("Heartbeat timeout", type=TimeoutType.HEARTBEAT, last_heartbeat_details=[]),
+        TimeoutError("Schedule-to-start timeout", type=TimeoutType.SCHEDULE_TO_START, last_heartbeat_details=[]),
+    ],
+)
+async def test_probe_unrelated_activity_failures_do_not_start_delivery(cause: Exception) -> None:
+    error = ActivityError(
+        "Activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="test-worker",
+        activity_type="alerts_product_check_due_activity",
+        activity_id="1",
+        retry_state=None,
+    )
+    error.__cause__ = cause
+    with (
+        patch.object(workflow, "execute_activity", AsyncMock(side_effect=error)),
+        patch.object(workflow, "start_child_workflow", AsyncMock()) as start_delivery,
+    ):
+        with pytest.raises(ActivityError) as caught:
+            await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+        assert caught.value is error
+        start_delivery.assert_not_awaited()
+
+
+async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
+    with (
+        patch.object(workflow, "execute_activity", AsyncMock(side_effect=asyncio.CancelledError)),
+        patch.object(workflow, "start_child_workflow", AsyncMock()) as start_delivery,
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+        start_delivery.assert_not_awaited()
