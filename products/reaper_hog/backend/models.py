@@ -3,6 +3,7 @@ import uuid
 from django.db import models
 
 from posthog.models.scoping.product_mixin import ProductTeamModel
+from posthog.models.utils import uuid7
 
 from products.reaper_hog.backend.facade.enums import (
     ArtefactType,
@@ -20,7 +21,7 @@ def reaper_artefact_type_choices() -> list[tuple[str, str]]:
 
 
 class ReaperInventory(ProductTeamModel):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     repository = models.CharField(max_length=255)
     scope = models.CharField(max_length=255)
     status = models.CharField(
@@ -41,7 +42,7 @@ class ReaperInventory(ProductTeamModel):
 
 
 class ReaperCluster(ProductTeamModel):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     inventory = models.ForeignKey(ReaperInventory, on_delete=models.CASCADE, related_name="clusters")
     hash = models.CharField(max_length=16)
     root_kind = models.CharField(max_length=32, choices=[(k.value, k.value) for k in RootKind])
@@ -80,7 +81,7 @@ class ReaperCluster(ProductTeamModel):
 
 
 class ReaperArtefact(ProductTeamModel):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     inventory = models.ForeignKey(ReaperInventory, on_delete=models.CASCADE, related_name="artefacts")
     cluster = models.ForeignKey(
         ReaperCluster, on_delete=models.CASCADE, related_name="artefacts", null=True, blank=True
