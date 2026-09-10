@@ -396,14 +396,14 @@ Note: The v2 reference index lists the complete resource set; each candidate bel
 
 ## Appfollow — gaps
 
-Today (5): `app_collections`, `app_lists`, `ratings_history`, `reviews`, `users`
+Today (9): `app_collections`, `app_lists`, `app_versions`, `keywords`, `rankings`, `ratings_history`, `reviews`, `reviews_stats`, `users`
 
 Diffed against: <https://docs.api.appfollow.io/reference/app_collections_list_api_v2_account_apps_get-1>
 
-- [ ] `/api/v2/meta/rankings` — category ranking history — the headline ASO metric, complements ratings_history (high)
-- [ ] `/api/v2/aso/keywords` — tracked keyword positions per app and country (high)
-- [ ] `/api/v2/meta/versions` — app version release history; lookup resolving the version field on synced reviews (high)
-- [ ] `/api/v2/reviews/stats` — aggregate review counts and sentiment without re-aggregating raw reviews (medium)
+- [x] `/api/v2/meta/rankings` — category ranking history — the headline ASO metric, complements ratings_history (high) — synced as `rankings`. v2 takes a single `date`, not a range, so it is a daily snapshot rather than backfillable history.
+- [x] `/api/v2/aso/keywords` — tracked keyword positions per app and country (high) — synced as `keywords`, also a daily snapshot.
+- [x] `/api/v2/meta/versions` — app version release history; lookup resolving the version field on synced reviews (high) — synced as `app_versions`.
+- [x] `/api/v2/reviews/stats` — aggregate review counts and sentiment without re-aggregating raw reviews (medium) — synced as `reviews_stats`, incremental on `date`. Counts only; sentiment lives on `/reviews/semantic`.
 - [ ] `/api/v2/reviews/stats/version` — review breakdown by app version, the standard release-quality view (medium)
 - [ ] `/api/v2/reviews/stats/ratings` — rating distribution over time (medium)
 - [ ] `/api/v2/reviews/stats/replies, /reviews/stats/replies/count, /reviews/stats/replies/speed` — reply coverage and response-time SLA metrics for support teams (medium)

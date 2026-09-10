@@ -23,9 +23,10 @@ import AlphaRelease from "../\_snippets/alpha-release.mdx"
 <AlphaRelease />
 
 [AppFollow](https://appfollow.io) aggregates App Store and Google Play data for app analytics, review
-management, and app store optimization. This connector pulls your tracked apps, their reviews, and their
-rating history into the PostHog Data warehouse, where you can join them with product analytics, build
-insights, and monitor review sentiment over time.
+management, and app store optimization. This connector pulls your tracked apps, their reviews, their
+rating history, and their app store optimization data (category ranks, tracked keyword positions,
+release history, and review statistics) into the PostHog Data warehouse, where you can join them with
+product analytics, build insights, and monitor review sentiment over time.
 
 ## Prerequisites
 
@@ -49,8 +50,12 @@ through the `X-AppFollow-API-Token` header.
 <SyncModes />
 
 The `reviews` table syncs incrementally on each review's last-modified timestamp, and `ratings_history`
-syncs incrementally by date, so after the first backfill only new and changed rows are fetched. The
-`app_collections`, `app_lists`, and `users` tables are small and sync as full refresh.
+and `reviews_stats` sync incrementally by date, so after the first backfill only new and changed rows
+are fetched. Every other table syncs as full refresh.
+
+The `rankings` and `keywords` tables are the exception worth knowing about. AppFollow returns rank and
+keyword positions for a single day at a time, with no way to ask for a range, so each sync adds that
+day's snapshot. Their history builds up from the days you sync rather than being backfilled.
 
 ## Configuration
 
@@ -60,10 +65,13 @@ syncs incrementally by date, so after the first backfill only new and changed ro
 
 <SourceTables />
 
-The `reviews` and `ratings_history` tables are queried per app using the app's store `ext_id`, which is
-discovered by walking your collections (`app_collections`) and their apps (`app_lists`). Because those
-requests cost credits, `ratings_history` and `users` are off by default — enable them in the table
-picker if you want them.
+Every table except `app_collections`, `app_lists`, and `users` is queried per app using the app's store
+`ext_id`, which is discovered by walking your collections (`app_collections`) and their apps
+(`app_lists`). Because those requests cost credits, only `app_collections`, `app_lists`, and `reviews`
+are on by default — enable the rest in the table picker if you want them.
+
+`app_versions` needs a store country, which AppFollow does not always record on an app. We use the
+country your collection tracks, and fall back to `us` when your collection does not name one.
 
 ## Troubleshooting
 
