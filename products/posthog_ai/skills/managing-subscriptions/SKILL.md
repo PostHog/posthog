@@ -1,12 +1,12 @@
 ---
 name: managing-subscriptions
-description: 'Manage PostHog subscriptions — scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots, optionally with an AI-written summary attached to each delivery. Use when the user wants to subscribe to an insight or dashboard, get an AI summary attached to those deliveries, check existing subscriptions, change delivery frequency, add or remove recipients, or stop receiving updates.'
+description: 'Manage PostHog subscriptions — scheduled email, Slack, or Microsoft Teams deliveries of insight or dashboard snapshots, optionally with an AI-written summary attached to each delivery. Use when the user wants to subscribe to an insight or dashboard, get an AI summary attached to those deliveries, check existing subscriptions, change delivery frequency, add or remove recipients, or stop receiving updates.'
 ---
 
 # Managing subscriptions
 
 This skill guides you through managing PostHog subscriptions.
-Subscriptions deliver scheduled snapshots of insights or dashboards via email, Slack, or webhook.
+Subscriptions deliver scheduled snapshots of insights or dashboards via email, Slack, or Microsoft Teams.
 
 ## When to use this skill
 
@@ -53,18 +53,19 @@ Use `subscriptions-list` with optional filters:
 
 - Filter by insight: pass the `insight` query parameter with the insight ID
 - Filter by dashboard: pass the `dashboard` query parameter with the dashboard ID
-- Filter by channel: pass `target_type` as `email`, `slack`, or `webhook`
+- Filter by channel: pass `target_type` as `email`, `slack`, or `teams`
 
 ### Creating a subscription
 
 #### Step 1: Ask the user how they want to receive it
 
-**Always ask the user whether they want email or Slack delivery** before creating a subscription.
+**Always ask the user which channel they want** before creating a subscription.
 Do not assume a channel — ask explicitly:
 
-> Would you like to receive this via **email** or **Slack**?
+> Would you like to receive this via **email**, **Slack**, or **Microsoft Teams**?
 
 If the user says Slack, you must verify the integration is available (see step 2).
+If the user says Teams, you must collect a webhook URL (see step 2).
 If the user doesn't have a preference, suggest email as the simplest option.
 
 #### Step 2: Verify channel availability
@@ -83,7 +84,10 @@ Get it from the user context or from `org-members-list`.
 
 Slack setup requires an OAuth flow in the browser — it cannot be done via MCP.
 
-**Webhook** requires the user to provide a URL. Verify it looks like a valid URL before submitting.
+**Microsoft Teams** requires the full webhook URL of the target channel in `target_value`.
+The user creates that URL with the Workflows app in the channel they want reports in.
+There is no Teams integration to look up — no `integration_id` is needed.
+A saved URL only ever reads back as its host, so you cannot copy one from an existing subscription.
 
 #### Step 3: Identify the target
 
@@ -124,6 +128,18 @@ For a dashboard subscription (requires selecting which insights to include, max 
   "target_value": "user@example.com",
   "frequency": "weekly",
   "byweekday": ["monday"],
+  "start_date": "2025-01-01T09:00:00Z"
+}
+```
+
+For Microsoft Teams delivery, pass the webhook URL as `target_value`:
+
+```json
+{
+  "insight": 12345,
+  "target_type": "teams",
+  "target_value": "https://example.webhook.office.com/webhookb2/...",
+  "frequency": "daily",
   "start_date": "2025-01-01T09:00:00Z"
 }
 ```
@@ -203,6 +219,9 @@ When the user doesn't specify details:
 - **Duplicate check**: If a subscription already exists for the same insight/dashboard and channel, inform the user and offer to update it rather than creating a duplicate
 - **Slack not connected**: If a Slack subscription is requested but no Slack integration exists, explain that Slack must be connected in [Project settings > Integrations](/settings/integrations) first, then offer email as an alternative. Do not attempt to create the subscription — it will fail with a validation error
 - **Slack integration wrong team**: The Slack integration must belong to the same PostHog team. If `integrations-list` returns Slack integrations but creation still fails, the integration may be misconfigured
+- **Teams webhook URL rejected**: The URL must be an `https` Microsoft Teams webhook URL. If creation fails on `target_value`, ask the user to create the webhook again with the Workflows app in the target channel and paste the full URL
+- **Teams URL on update**: To keep the saved URL, leave `target_value` out. To change it, send the full new URL — the masked host value is rejected
+- **Webhook delivery**: Generic webhook delivery is not a supported channel. `target_type` accepts only `email`, `slack`, and `teams`. If the user asks to post to their own webhook, offer Teams when that is the destination, or email or Slack otherwise
 - **Dashboard insights**: Dashboard subscriptions require at least 1 and at most 10 insights selected via `dashboard_export_insights`. If the user doesn't specify which insights, fetch the dashboard with `dashboard-get` and select up to the first 10 insights from its tiles
 
 ## Related skills

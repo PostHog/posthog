@@ -84,8 +84,8 @@ or delete one. A `subscription:write`-only token is rejected with a 403.
 
 ```yaml
 prompt: "..."                         # ≤4000 chars; setting this (with no insight/dashboard) makes it a prompt sub → resource_type "ai_prompt"
-target_type: "email" | "slack"        # webhook is rejected for prompt subs
-target_value: "..."                   # comma-separated emails, or "<channel_id>|<channel_name>"
+target_type: "email" | "slack" | "teams"  # the only delivery channels the API accepts
+target_value: "..."                   # comma-separated emails, "<channel_id>|<channel_name>", or a Microsoft Teams webhook URL
 frequency: "daily" | "weekly" | "monthly" | "yearly"
 interval: 1                            # 1 = every tick; 2 = every other tick; etc.
 start_date: "2026-09-15T09:30:00Z"   # anchors the recurrence + time-of-day; hour and half-hour slots are supported; need not be in the future
