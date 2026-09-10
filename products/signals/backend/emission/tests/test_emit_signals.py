@@ -560,20 +560,40 @@ class TestSummarizeDescription:
             assert output.metadata == {}
 
     @pytest.mark.asyncio
-    async def test_truncates_when_model_pricing_is_unavailable(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setattr(
-            f"{PIPELINE_MODULE_PATH}.get_model_pricing",
-            AsyncMock(side_effect=LookupError("model is not priced by the gateway catalog")),
+    @pytest.mark.parametrize("pricing_failures", [1, LLM_MAX_ATTEMPTS])
+    async def test_retries_pricing_before_calling_model_or_truncating(
+        self, monkeypatch: pytest.MonkeyPatch, pricing_failures: int
+    ) -> None:
+        pricing = AsyncMock(
+            side_effect=[LookupError("catalog unavailable")] * pricing_failures
+            + [{"prompt": "0.005", "completion": "0"}]
         )
+        monkeypatch.setattr(f"{PIPELINE_MODULE_PATH}.get_model_pricing", pricing)
         client = self._mock_client(["Short summary."])
         original = "x" * 500
         output = _make_output(description=original)
 
-        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.asyncio.sleep", new=AsyncMock()) as sleep,
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics") as analytics,
+        ):
             result = await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
 
-        assert result.description == original[: self.THRESHOLD]
-        client.messages.create.assert_not_called()
+        recovered = pricing_failures < LLM_MAX_ATTEMPTS
+        attempts = min(pricing_failures + 1, LLM_MAX_ATTEMPTS)
+        assert pricing.await_count == attempts
+        assert sleep.await_count == attempts - 1
+        assert analytics.capture_exception.call_count == pricing_failures
+        assert all(
+            call.kwargs["properties"]["error_type"] == "summarization_failed"
+            for call in analytics.capture_exception.call_args_list
+        )
+        assert result.description == ("Short summary." if recovered else original[: self.THRESHOLD])
+        assert client.messages.create.await_count == int(recovered)
+        if recovered:
+            assert output.metadata["token_cost"] == {"research": 1, "implementation": 0}
+        else:
+            assert output.metadata == {}
 
     @pytest.mark.asyncio
     async def test_preserves_other_output_fields(self):
