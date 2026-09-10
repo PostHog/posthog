@@ -1,16 +1,26 @@
+from collections.abc import Callable, Sequence
+
 import pytest
 
 from django.conf import settings
 
 from posthog.management.commands.start_temporal_worker import (
+    ACTIVITIES_DICT,
     DATA_SYNC_WORKFLOWS,
     WA_DIGEST_ACTIVITIES,
     WA_DIGEST_WORKFLOWS,
     WEEKLY_DIGEST_WORKFLOWS,
+    WORKFLOWS_DICT,
     _task_queue_specs,
     workflows_include_data_import_syncs,
 )
 
+from products.alerts.backend.facade.temporal import (
+    DELIVERY_ACTIVITIES,
+    DELIVERY_WORKFLOWS,
+    EVALUATION_ACTIVITIES,
+    EVALUATION_WORKFLOWS,
+)
 from products.wizard.backend.facade.temporal import (
     ACTIVITIES as WIZARD_ACTIVITIES,
     WORKFLOWS as WIZARD_WORKFLOWS,
@@ -21,18 +31,21 @@ class _NotADataSyncWorkflow:
     pass
 
 
-def test_wizard_queue_registers_workflows_and_activities() -> None:
-    entries = [
-        (workflows, activities)
-        for queue, workflows, activities in _task_queue_specs
-        if queue == settings.WIZARD_TASK_QUEUE
-    ]
-    workflows = {workflow for registered_workflows, _ in entries for workflow in registered_workflows}
-    activities = {activity for _, registered_activities in entries for activity in registered_activities}
-    assert WIZARD_WORKFLOWS
-    assert WIZARD_ACTIVITIES
-    assert set(WIZARD_WORKFLOWS) <= workflows
-    assert set(WIZARD_ACTIVITIES) <= activities
+@pytest.mark.parametrize(
+    "task_queue,expected_workflows,expected_activities",
+    [
+        (settings.WIZARD_TASK_QUEUE, WIZARD_WORKFLOWS, WIZARD_ACTIVITIES),
+        ("alerts-product-evaluation-task-queue", EVALUATION_WORKFLOWS, EVALUATION_ACTIVITIES),
+        ("alerts-product-delivery-task-queue", DELIVERY_WORKFLOWS, DELIVERY_ACTIVITIES),
+    ],
+)
+def test_queue_registers_workflows_and_activities(
+    task_queue: str, expected_workflows: Sequence[type], expected_activities: Sequence[Callable[..., object]]
+) -> None:
+    assert expected_workflows
+    assert expected_activities
+    assert set(expected_workflows) <= WORKFLOWS_DICT[task_queue]
+    assert set(expected_activities) <= ACTIVITIES_DICT[task_queue]
 
 
 # Data-import sources import vendor SDKs (google-ads, etc.) that register protobuf descriptors into a

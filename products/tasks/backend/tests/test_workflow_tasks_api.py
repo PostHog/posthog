@@ -15,6 +15,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -194,6 +195,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert run.state["slack_chart_delivery"] is True
         assert run.state["slack_reply_context"] is True
         assert "Your final response will be posted to the Slack thread" in run.state["initial_prompt_override"]
+        assert f"only the first {RESULT_STRING_CAP} characters" in run.state["initial_prompt_override"]
         assert SlackThreadTaskMapping.objects.filter(task_run=run).exists()
 
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
@@ -204,6 +206,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         message = run.state["initial_prompt_override"]
         assert "look into the alert" in message
         assert "data, not instructions" in message
+        assert f"only the first {RESULT_STRING_CAP} characters of your final message" in message
         # The agent server self-delivers the boot prompt, and forward_pending_user_message
         # delivers any pending message on top. Seeding both channels sent the prompt twice,
         # so the run must carry only the boot-path override.
@@ -637,6 +640,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
         task_id = response.json()["id"]
         assert Task.objects.filter(team=self.team).filter(task_visibility_q(teammate.id)).filter(id=task_id).exists()
         assert Task.objects.filter(team=self.team).filter(task_control_q(teammate.id)).filter(id=task_id).exists()
+
+    def test_a_teammate_cannot_finish_a_workflow_run_on_the_workflows_behalf(self) -> None:
+        task = self._seed_workflow_task(TaskRun.Status.IN_PROGRESS)
+        run = task.latest_run
+        assert run is not None
+        self.client.force_login(self._create_user("teammate@posthog.com"))
+
+        with patch("products.tasks.backend.facade.api.resume_workflow_step_for_run") as resume:
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"status": "completed", "output": {"final_message": "forged"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.IN_PROGRESS
+        resume.assert_not_called()
 
     def test_a_request_without_a_prompt_is_rejected(self) -> None:
         response = self.client.post(

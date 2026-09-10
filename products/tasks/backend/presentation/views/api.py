@@ -133,6 +133,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskCommentsResponseSerializer,
     TaskCreateSerializer,
     TaskHandoffRequestSerializer,
+    TaskListItemSerializer,
     TaskListQuerySerializer,
     TaskPinRequestSerializer,
     TaskPinResponseSerializer,
@@ -461,10 +462,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         query_serializer=TaskListQuerySerializer,
         responses={
-            200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
+            200: OpenApiResponse(
+                response=TaskListItemSerializer,
+                description="List of full task rows by default, or basic rows with description_preview when basic=true.",
+            ),
         },
         summary="List tasks",
-        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. Pass basic=true for a summary payload that drops the description body from each row; use the search parameter to match description text server-side.",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. By default, each row includes description. Pass basic=true for a summary row that omits description and includes description_preview, its first 1000 characters. Use the search parameter to match description text server-side.",
     )
     def list(self, request, *args, **kwargs):
         filters = {key: request.query_params.get(key) for key in request.query_params}
@@ -628,6 +632,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ],
         responses={
             201: TaskSerializer,
+            402: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description=(
+                    "The organization is on a Self-driving free trial, so a report implementation opens no "
+                    "pull request (code `self_driving_free_trial`), or the organization reached its "
+                    "self-driving pull request limit"
+                ),
+            ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required for a create that can activate a warm sandbox",
@@ -1148,6 +1160,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
+            402: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description=(
+                    "The organization is on a Self-driving free trial, so a report implementation opens no "
+                    "pull request (code `self_driving_free_trial`)"
+                ),
+            ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",

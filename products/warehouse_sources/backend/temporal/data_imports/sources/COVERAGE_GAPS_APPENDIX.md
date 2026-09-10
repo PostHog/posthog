@@ -38,14 +38,14 @@ Note: Source uses a static ENDPOINTS list (products/warehouse_sources/backend/te
 
 ## ActiveCampaign — gaps
 
-Today (12): `accounts`, `automations`, `campaigns`, `contacts`, `custom_fields`, `deal_groups`, `deal_stages`, `deals`, `forms`, `lists`, `segments`, `tags`
+Today (16): `accounts`, `automations`, `campaigns`, `contacts`, `custom_fields`, `deal_groups`, `deal_stages`, `deals`, `ecom_customers`, `ecom_order_products`, `ecom_orders`, `email_activities`, `forms`, `lists`, `segments`, `tags`
 
 Diffed against: <https://developers.activecampaign.com/reference/overview>
 
-- [ ] `emailActivities` — per-contact email opens/clicks/sends, the core engagement fact table (high)
-- [ ] `ecomOrders` — e-commerce revenue transactions; no commerce data is synced at all today (high)
-- [ ] `ecomOrderProducts` — order line items needed for product-level revenue breakdowns (high)
-- [ ] `ecomCustomers` — resolves the customer IDs carried on ecom orders (high)
+- [x] `emailActivities` — per-contact email opens/clicks/sends, the core engagement fact table (high)
+- [x] `ecomOrders` — e-commerce revenue transactions; no commerce data is synced at all today (high)
+- [x] `ecomOrderProducts` — order line items needed for product-level revenue breakdowns (high)
+- [x] `ecomCustomers` — resolves the customer IDs carried on ecom orders (high)
 - [ ] `dealActivities (GET /deals/{id}/dealActivities)` — deal stage-transition and change history (high)
 - [ ] `contactActivities (GET /activities)` — contact-level activity timeline across campaigns and automations (high)
 - [ ] `contactLists (list memberships)` — membership table joining synced contacts to synced lists (high)
