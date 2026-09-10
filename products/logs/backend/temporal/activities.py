@@ -6,7 +6,7 @@ import time
 import asyncio
 import contextlib
 import dataclasses
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import batched
@@ -347,6 +347,7 @@ class DiscoverCohortsOutput:
 class _DiscoveredCohortsPage:
     output: DiscoverCohortsOutput
     discovery_cursor: str
+    selected_team_ids: tuple[int, ...]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -399,11 +400,12 @@ async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCoho
         max_items=input.max_alerts_per_run,
     )
     result = dataclasses.replace(discovered, manifests=list(selection.items))
-    if selection.items:
+    next_cursor = _last_fully_covered_team_id(page, selection.items)
+    if next_cursor is not None:
         await database_sync_to_async_pool(_advance_logs_alert_discovery_cursor)(
             input.region,
             page.discovery_cursor,
-            str(selection.items[-1].team_id),
+            str(next_cursor),
         )
 
     record_scheduler_metrics_safely(
@@ -456,9 +458,24 @@ def _advance_logs_alert_discovery_cursor(region: str, expected_cursor: str, next
     ).update(discovery_cursor=next_cursor, updated_at=datetime.now(UTC))
 
 
+def _last_fully_covered_team_id(
+    page: _DiscoveredCohortsPage, selected_manifests: Sequence[CohortManifest]
+) -> int | None:
+    total_manifests_by_team = Counter(manifest.team_id for manifest in page.output.manifests)
+    selected_manifests_by_team = Counter(manifest.team_id for manifest in selected_manifests)
+    last_covered_team_id: int | None = None
+    for team_id in page.selected_team_ids:
+        if selected_manifests_by_team[team_id] < total_manifests_by_team[team_id]:
+            break
+        last_covered_team_id = team_id
+    return last_covered_team_id
+
+
 def _select_due_alert_candidate_ids(selected_team_ids: list[int], now: datetime, candidate_limit: int) -> list[UUID]:
     candidates_by_team: dict[int, list[tuple[UUID, datetime | None]]] = defaultdict(list)
     team_order = {team_id: index for index, team_id in enumerate(selected_team_ids)}
+    cursors_by_team: dict[int, tuple[UUID, datetime | None] | None] = dict.fromkeys(selected_team_ids)
+    seen_alert_ids: set[UUID] = set()
     teams_to_fetch = list(selected_team_ids)
     candidate_count = 0
 
@@ -466,12 +483,24 @@ def _select_due_alert_candidate_ids(selected_team_ids: list[int], now: datetime,
         while teams_to_fetch and candidate_count < candidate_limit:
             remaining = candidate_limit - candidate_count
             candidates_per_team = math.ceil(remaining / len(teams_to_fetch))
-            offsets = [len(candidates_by_team[team_id]) for team_id in teams_to_fetch]
+            cursor_ids = [
+                cursors_by_team[team_id][0] if cursors_by_team[team_id] else None for team_id in teams_to_fetch
+            ]
+            cursor_next_check_ats = [
+                cursors_by_team[team_id][1] if cursors_by_team[team_id] else None for team_id in teams_to_fetch
+            ]
+            has_cursors = [cursors_by_team[team_id] is not None for team_id in teams_to_fetch]
             orders = [team_order[team_id] for team_id in teams_to_fetch]
             cursor.execute(
                 """
-                WITH selected_teams(team_id, candidate_offset, team_order) AS (
-                    SELECT * FROM unnest(%s::bigint[], %s::bigint[], %s::bigint[])
+                WITH selected_teams(team_id, cursor_id, cursor_next_check_at, has_cursor, team_order) AS (
+                    SELECT * FROM unnest(
+                        %s::bigint[],
+                        %s::uuid[],
+                        %s::timestamptz[],
+                        %s::boolean[],
+                        %s::bigint[]
+                    )
                 )
                 SELECT
                     selected_teams.team_id,
@@ -490,15 +519,37 @@ def _select_due_alert_candidate_ids(selected_team_ids: list[int], now: datetime,
                           OR alert.snooze_until IS NULL
                           OR alert.snooze_until <= %s
                       )
+                      AND (
+                          NOT selected_teams.has_cursor
+                          OR (
+                              selected_teams.cursor_next_check_at IS NULL
+                              AND (
+                                  (alert.next_check_at IS NULL AND alert.id > selected_teams.cursor_id)
+                                  OR alert.next_check_at IS NOT NULL
+                              )
+                          )
+                          OR (
+                              selected_teams.cursor_next_check_at IS NOT NULL
+                              AND alert.next_check_at IS NOT NULL
+                              AND (
+                                  alert.next_check_at > selected_teams.cursor_next_check_at
+                                  OR (
+                                      alert.next_check_at = selected_teams.cursor_next_check_at
+                                      AND alert.id > selected_teams.cursor_id
+                                  )
+                              )
+                          )
+                      )
                     ORDER BY alert.next_check_at ASC NULLS FIRST, alert.id
-                    OFFSET selected_teams.candidate_offset
                     LIMIT %s
                 ) AS candidate
                 ORDER BY selected_teams.team_order, candidate.next_check_at ASC NULLS FIRST, candidate.id
                 """,
                 [
                     teams_to_fetch,
-                    offsets,
+                    cursor_ids,
+                    cursor_next_check_ats,
+                    has_cursors,
                     orders,
                     now,
                     now,
@@ -507,8 +558,12 @@ def _select_due_alert_candidate_ids(selected_team_ids: list[int], now: datetime,
             )
             fetched_counts: dict[int, int] = defaultdict(int)
             for team_id, alert_id, next_check_at in cursor.fetchall():
-                candidates_by_team[team_id].append((alert_id, next_check_at))
+                cursors_by_team[team_id] = (alert_id, next_check_at)
                 fetched_counts[team_id] += 1
+                if alert_id in seen_alert_ids:
+                    continue
+                seen_alert_ids.add(alert_id)
+                candidates_by_team[team_id].append((alert_id, next_check_at))
                 candidate_count += 1
             teams_to_fetch = [team_id for team_id in teams_to_fetch if fetched_counts[team_id] == candidates_per_team]
 
@@ -600,6 +655,7 @@ def _discover_cohorts_page_sync(input: DiscoverCohortsInput | None = None) -> _D
                     oldest_due_at_iso=oldest_due_at.isoformat() if oldest_due_at else None,
                 ),
                 discovery_cursor=discovery_cursor,
+                selected_team_ids=(),
             )
 
         candidate_limit = input.max_alerts_per_run + 1
@@ -664,6 +720,7 @@ def _discover_cohorts_page_sync(input: DiscoverCohortsInput | None = None) -> _D
             oldest_due_at_iso=oldest_due_at.isoformat() if oldest_due_at else None,
         ),
         discovery_cursor=discovery_cursor,
+        selected_team_ids=tuple(selected_team_ids),
     )
 
 

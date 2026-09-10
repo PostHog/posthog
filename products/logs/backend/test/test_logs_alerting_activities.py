@@ -5,6 +5,7 @@ import datetime as dt
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 import unittest
@@ -2108,6 +2109,35 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
         assert len(discovered_team_ids) == 5
         assert [discovered_team_ids.count(team.id) for team in teams] == [1, 1, 3]
 
+    def test_deduplicates_candidates_reordered_between_keyset_refills(self):
+        from products.logs.backend.temporal.activities import _select_due_alert_candidate_ids
+
+        first_team_alert = uuid4()
+        second_team_alert = uuid4()
+        noisy_team_alerts = [uuid4(), uuid4(), uuid4()]
+        due_at = datetime(2026, 5, 5, 9, 0, tzinfo=UTC)
+        cursor = MagicMock()
+        cursor.fetchall.side_effect = [
+            [
+                (1, first_team_alert, due_at),
+                (2, second_team_alert, due_at),
+                (3, noisy_team_alerts[0], due_at),
+                (3, noisy_team_alerts[1], due_at + timedelta(seconds=1)),
+            ],
+            [(3, noisy_team_alerts[1], due_at + timedelta(seconds=2))],
+            [(3, noisy_team_alerts[2], due_at + timedelta(seconds=3))],
+        ]
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+
+        with patch("products.logs.backend.temporal.activities.connection.cursor", return_value=cursor_context):
+            result = _select_due_alert_candidate_ids([1, 2, 3], due_at + timedelta(hours=1), 5)
+
+        assert len(result) == 5
+        assert set(result) == {first_team_alert, second_team_alert, *noisy_team_alerts}
+        assert cursor.execute.call_count == 3
+        assert all("OFFSET" not in call.args[0] for call in cursor.execute.call_args_list)
+
     @freeze_time("2026-05-05T10:00:00Z")
     def test_counts_wrapped_teams_as_deferred_when_page_fills_at_cursor_end(self):
         from posthog.models import Team
@@ -2182,6 +2212,40 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
         second = asyncio.run(discover_cohorts_activity(inputs))
 
         assert first.manifests[0].team_id != second.manifests[0].team_id
+
+    @freeze_time("2026-05-05T10:00:00Z")
+    def test_advances_cursor_in_team_ring_order_when_due_time_order_differs(self):
+        from posthog.models import Team
+        from posthog.models.temporal_scheduler import TemporalSchedulerState
+
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        teams = [
+            self.team,
+            Team.objects.create(organization=self.organization, name="Second team"),
+            Team.objects.create(organization=self.organization, name="Third team"),
+        ]
+        due_times = [
+            datetime(2026, 5, 5, 8, 30, tzinfo=UTC),
+            datetime(2026, 5, 5, 9, 0, tzinfo=UTC),
+            datetime(2026, 5, 5, 8, 0, tzinfo=UTC),
+        ]
+        for team, due_at in zip(teams, due_times, strict=True):
+            LogsAlertConfiguration.objects.create(
+                team=team,
+                name=f"alert-{team.id}",
+                filters={"serviceNames": [f"service-{team.id}"]},
+                enabled=True,
+                next_check_at=due_at,
+            )
+
+        result = asyncio.run(
+            discover_cohorts_activity(DiscoverCohortsInput(max_alerts_per_run=len(teams), region="test"))
+        )
+
+        assert [manifest.team_id for manifest in result.manifests] != [team.id for team in teams]
+        state = TemporalSchedulerState.objects.get(scheduler="logs_alerts", region="test")
+        assert state.discovery_cursor == str(teams[-1].id)
 
     def test_rejects_discovery_limits_outside_the_code_owned_boundary(self):
         from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
