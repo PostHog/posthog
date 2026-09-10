@@ -3863,6 +3863,17 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "create_draft_pr" in str(response.json())
 
+    def test_ai_subscription_rejects_draft_pr_config_without_a_repository(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(proactive_config={"create_draft_pr": True}),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "repository" in str(response.json()).lower()
+
     def test_proactive_config_is_rejected_on_an_insight_subscription(self, mock_is_cloud, mock_flag, mock_sync):
         self._mock_temporal(mock_sync)
         payload = self._insight_payload()

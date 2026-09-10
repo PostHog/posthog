@@ -42,6 +42,7 @@ import type { SubscriptionDeliveryApi } from 'products/subscriptions/frontend/ge
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from '../AiPromptFields'
 import { InsightSelector } from '../InsightSelector'
+import { ProactiveSubscriptionFields } from '../ProactiveSubscriptionFields'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
 import { SubscriptionDayPicker } from '../SubscriptionDayPicker'
 import { subscriptionLogic } from '../subscriptionLogic'
@@ -247,11 +248,15 @@ function EditSubscriptionForm({
     onDelete,
 }: EditSubscriptionProps): JSX.Element {
     const dashboardId = dashboard?.id
+    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const pulseEnabled = useFeatureFlag('PULSE')
+    const proactiveSettingsEnabled = Boolean(aiSubscriptionsEnabled && pulseEnabled)
     const logicProps = {
         id,
         insightShortId,
         dashboardId,
         dashboardName: dashboard?.name,
+        proactiveSettingsEnabled,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
@@ -271,15 +276,24 @@ function EditSubscriptionForm({
         summaryQuota,
         testDeliveryLoading,
         storedTeamsWebhookHost,
+        proactiveConfigurationOptions,
+        proactiveConfigurationOptionsLoading,
+        proactiveConfigurationOptionsLoadFailed,
     } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery, replaceTeamsWebhook } = useActions(logic)
+    const {
+        applyDefaultSelectedInsights,
+        generatePreview,
+        loadProactiveConfigurationOptions,
+        replaceTeamsWebhook,
+        selectProactiveRepository,
+        sendTestDelivery,
+    } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
     const slackGalleryEnabled = useFeatureFlag('SUBSCRIPTION_SLACK_GALLERY')
     const slackReconnectRestriction = useIntegrationManagementRestriction()
 
@@ -460,6 +474,20 @@ function EditSubscriptionForm({
                                     onSelectAnalysisWindow={logic.actions.selectAiAnalysisWindow}
                                     onSelectExample={logic.actions.selectAiExamplePrompt}
                                 />
+                                {proactiveSettingsEnabled && !aiGate.submitBlocked ? (
+                                    <div className="flex flex-col gap-2 rounded border p-3">
+                                        <h3 className="text-sm font-semibold m-0">Actions</h3>
+                                        <ProactiveSubscriptionFields
+                                            proactiveConfig={subscription.proactive_config}
+                                            options={proactiveConfigurationOptions}
+                                            optionsLoading={proactiveConfigurationOptionsLoading}
+                                            optionsLoadFailed={proactiveConfigurationOptionsLoadFailed}
+                                            show={proactiveSettingsEnabled}
+                                            onSelectRepository={selectProactiveRepository}
+                                            onRetry={loadProactiveConfigurationOptions}
+                                        />
+                                    </div>
+                                ) : null}
                             </>
                         ) : null}
 

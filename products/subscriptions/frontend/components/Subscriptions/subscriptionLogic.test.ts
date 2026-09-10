@@ -279,6 +279,109 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscription.resource_type).toBe('ai_prompt')
     })
 
+    it('omits proactive settings when the Pulse feature is off', async () => {
+        let savedPayload: Record<string, unknown> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    savedPayload = (await request.json()) as Record<string, unknown>
+                    return [200, { id: 42, ...savedPayload }]
+                },
+            },
+        })
+        const flagOffLogic = subscriptionLogic({
+            insightShortId: '2' as InsightShortId,
+            id: 'new',
+            proactiveSettingsEnabled: false,
+        })
+        flagOffLogic.mount()
+        await expectLogic(flagOffLogic).toFinishListeners()
+
+        flagOffLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            title: 'Weekly report',
+            target_type: 'email',
+            target_value: 'ben@posthog.com',
+            prompt: 'Summarize important changes.',
+        })
+        flagOffLogic.actions.submitSubscription()
+        await expectLogic(flagOffLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(savedPayload).not.toHaveProperty('proactive_config')
+        flagOffLogic.unmount()
+    })
+
+    it('defaults public web research on for Pulse-enabled forms', async () => {
+        const pulseLogic = subscriptionLogic({
+            insightShortId: '3' as InsightShortId,
+            id: 'new',
+            proactiveSettingsEnabled: true,
+        })
+        pulseLogic.mount()
+        await expectLogic(pulseLogic).toFinishListeners()
+
+        expect(pulseLogic.values.subscription.proactive_config).toMatchObject({
+            enabled: false,
+            allow_public_web_research: true,
+            create_draft_pr: false,
+        })
+        pulseLogic.unmount()
+    })
+
+    it('loads proactive settings when Pulse becomes enabled after the AI subscription loads', async () => {
+        let proactiveOptionsRequests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team/subscriptions/proactive_options/': () => {
+                    proactiveOptionsRequests += 1
+                    return [
+                        200,
+                        {
+                            proactive_available: true,
+                            public_web_research_available: true,
+                            draft_pr_available: true,
+                            repositories: [],
+                        },
+                    ]
+                },
+            },
+        })
+        const props = { id: 'new' as const, proactiveSettingsEnabled: false }
+        const pulseLogic = subscriptionLogic(props)
+        pulseLogic.mount()
+
+        router.actions.push('/subscriptions/new')
+        await expectLogic(pulseLogic).toFinishAllListeners()
+        expect(pulseLogic.values.subscription.resource_type).toBe('ai_prompt')
+        expect(proactiveOptionsRequests).toBe(0)
+
+        subscriptionLogic({ ...props, proactiveSettingsEnabled: true })
+        await expectLogic(pulseLogic).toFinishAllListeners()
+
+        expect(proactiveOptionsRequests).toBe(1)
+        expect(pulseLogic.values.proactiveConfigurationOptions).toMatchObject({ proactive_available: true })
+        pulseLogic.unmount()
+    })
+
+    it('requires a repository before saving draft pull request preparation', async () => {
+        const pulseLogic = subscriptionLogic({
+            insightShortId: '4' as InsightShortId,
+            id: 'new',
+            proactiveSettingsEnabled: true,
+        })
+        pulseLogic.mount()
+        await expectLogic(pulseLogic).toFinishListeners()
+
+        pulseLogic.actions.setSubscriptionValues({
+            proactive_config: { create_draft_pr: true, repository: null, repository_integration_id: null },
+        })
+        pulseLogic.actions.submitSubscription()
+        await expectLogic(pulseLogic).toFinishListeners()
+
+        expect(pulseLogic.values.subscriptionErrors.proactive_config?.repository).toBe('Select a repository')
+        pulseLogic.unmount()
+    })
+
     it('keeps the analysis window when selecting an example question', async () => {
         router.actions.push('/insights/123/subscriptions/new?resource_type=ai_prompt')
         await expectLogic(newLogic).toFinishListeners()

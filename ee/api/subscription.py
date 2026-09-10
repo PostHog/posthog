@@ -805,6 +805,10 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 raise ValidationError(
                     {"proactive_config": ["Repository settings require create_draft_pr to be enabled."]}
                 )
+            if create_draft_pr and (not repository or repository_integration_id is None):
+                raise ValidationError(
+                    {"proactive_config": ["Draft pull request preparation requires a repository and integration."]}
+                )
         if "contexts" in attrs:
             if resource_type != Subscription.ResourceType.AI_PROMPT:
                 raise ValidationError({"contexts": ["Context only applies to AI subscriptions."]})

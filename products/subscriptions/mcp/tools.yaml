@@ -208,6 +208,9 @@ tools:
             - insight_short_id
             - invite_message
             - send_test_now
+    subscriptions-proactive-options-list:
+        operation: subscriptions_proactive_options_list
+        enabled: false
     subscriptions-retrieve:
         operation: subscriptions_retrieve
         enabled: true

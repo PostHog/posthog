@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 
@@ -22,4 +23,37 @@ class PulseResearchResponseSerializer(serializers.Serializer):
         allow_null=True,
         required=False,
         help_text="Why public research was unavailable, when it could not run.",
+    )
+
+
+class ProactiveRepositoryOptionSerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        read_only=True,
+        help_text="Repository currently authorized for the requesting user, in owner/repository format.",
+    )
+    repository_integration_id = serializers.IntegerField(
+        read_only=True,
+        min_value=1,
+        help_text="GitHub integration that currently authorizes this repository.",
+    )
+
+
+@extend_schema_serializer(many=False)
+class ProactiveConfigurationOptionsSerializer(serializers.Serializer):
+    proactive_available = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether this PostHog instance is configured to generate proactive recommendations.",
+    )
+    public_web_research_available = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether this PostHog instance is configured to use public web research for proactive recommendations.",
+    )
+    draft_pr_available = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether this PostHog instance is configured to prepare draft pull requests for proactive recommendations.",
+    )
+    repositories = ProactiveRepositoryOptionSerializer(
+        many=True,
+        read_only=True,
+        help_text="Repositories currently authorized for the requesting user to use for draft pull request preparation.",
     )

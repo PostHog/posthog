@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useState } from 'react'
 
 import { IconChevronLeft, IconGraph } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -33,11 +32,14 @@ import { urls } from 'scenes/urls'
 
 import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
+import type { ProactiveConfigurationOptionsApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'
 import { InsightSelector } from './InsightSelector'
+import { SubscriptionActionsStep } from './SubscriptionActionsStep'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
-import { subscriptionLogic } from './subscriptionLogic'
-import type { SubscriptionLogicProps } from './subscriptionLogic'
+import { subscriptionLogic, SubscriptionWizardStep } from './subscriptionLogic'
+import type { SubscriptionForm, SubscriptionLogicProps } from './subscriptionLogic'
 import { SubscriptionTimePicker } from './SubscriptionTimePicker'
 import {
     frequencyOptionsPlural,
@@ -64,23 +66,21 @@ interface SubscriptionWizardProps {
     onCancel: () => void
 }
 
-enum SubscriptionWizardStep {
-    Content = 'content',
-    Delivery = 'delivery',
-    Schedule = 'schedule',
-    Review = 'review',
-}
-
-const steps = [
+const baseSteps = [
     { key: SubscriptionWizardStep.Content, label: 'What to send' },
     { key: SubscriptionWizardStep.Delivery, label: 'Notify' },
     { key: SubscriptionWizardStep.Schedule, label: 'Schedule' },
     { key: SubscriptionWizardStep.Review, label: 'Review' },
 ]
 
+const actionsStep = { key: SubscriptionWizardStep.Actions, label: 'Actions' }
+
 function wizardStepDescription(step: SubscriptionWizardStep): string {
     if (step === SubscriptionWizardStep.Content) {
         return 'Choose the report content to include.'
+    }
+    if (step === SubscriptionWizardStep.Actions) {
+        return 'Choose optional follow-up actions for this report.'
     }
     if (step === SubscriptionWizardStep.Delivery) {
         return 'Choose who to notify about this subscription.'
@@ -97,6 +97,9 @@ export function SubscriptionWizard({
     dashboard,
     onCancel,
 }: SubscriptionWizardProps): JSX.Element {
+    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const pulseEnabled = useFeatureFlag('PULSE')
+    const proactiveSettingsEnabled = Boolean(aiSubscriptionsEnabled && pulseEnabled)
     const logicProps = {
         id: 'new' as const,
         insightShortId,
@@ -104,20 +107,20 @@ export function SubscriptionWizard({
         dashboardName: dashboard?.name,
         insightName,
         creationSource: 'wizard' as const,
+        proactiveSettingsEnabled,
     }
     const subscriptionFormLogic = subscriptionLogic(logicProps)
-    const [currentStep, setStep] = useState<SubscriptionWizardStep>(SubscriptionWizardStep.Content)
     const {
+        currentWizardStep,
         subscription,
         subscriptionLoading,
         subscriptionInitialized,
         isSubscriptionSubmitting,
         subscriptionChanged,
     } = useValues(subscriptionFormLogic)
-    const { generatePreview, resetSubscription } = useActions(subscriptionFormLogic)
+    const { generatePreview, resetSubscription, selectWizardStep } = useActions(subscriptionFormLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
 
     if (subscriptionLoading || !subscriptionInitialized) {
         return <SubscriptionFormSkeleton />
@@ -136,6 +139,11 @@ export function SubscriptionWizard({
         isDebug: Boolean(preflight?.is_debug),
         aiFlagEnabled: Boolean(aiSubscriptionsEnabled),
     })
+    const showActionsStep = isAiPrompt && proactiveSettingsEnabled && !aiGate.submitBlocked
+    const wizardSteps = showActionsStep ? [baseSteps[0], actionsStep, ...baseSteps.slice(1)] : baseSteps
+    const currentStep = wizardSteps.some((step) => step.key === currentWizardStep)
+        ? currentWizardStep
+        : SubscriptionWizardStep.Content
     const selectedInsightsReady = !dashboard || Boolean(subscription.dashboard_export_insights?.length)
     const contentDetailReady = isAiPrompt ? Boolean(subscription.prompt?.trim()) : selectedInsightsReady
     const contentReady = Boolean(subscription.title?.trim()) && contentDetailReady
@@ -169,12 +177,12 @@ export function SubscriptionWizard({
             ? 'Choose a destination and recipient'
             : 'Email delivery is not configured for this PostHog instance'
     }
-    const currentStepIndex = steps.findIndex((step) => step.key === currentStep)
+    const currentStepIndex = wizardSteps.findIndex((step) => step.key === currentStep)
     const goToStep = (step: SubscriptionWizardStep): void => {
         if (step === SubscriptionWizardStep.Review && insightShortId && !isAiPrompt) {
             generatePreview()
         }
-        setStep(step)
+        selectWizardStep(step)
     }
     const requestCancel = (): void =>
         requestSubscriptionWizardCancellation({ onCancel, resetSubscription, subscriptionChanged })
@@ -190,6 +198,9 @@ export function SubscriptionWizard({
                     aiSubscriptionBlocked={aiGate.submitBlocked}
                 />
             )
+            break
+        case SubscriptionWizardStep.Actions:
+            stepContent = <SubscriptionActionsStep logicProps={logicProps} subscription={subscription} />
             break
         case SubscriptionWizardStep.Delivery:
             stepContent = <SubscriptionDeliveryStep subscription={subscription} logicProps={logicProps} />
@@ -210,7 +221,7 @@ export function SubscriptionWizard({
         default:
             stepContent = <></>
     }
-    const nextStep = steps[currentStepIndex + 1]?.key
+    const nextStep = wizardSteps[currentStepIndex + 1]?.key
     let continueDisabledReason: string | undefined
     if (currentStep === SubscriptionWizardStep.Content) {
         continueDisabledReason = contentReady ? undefined : contentDisabledReason
@@ -264,7 +275,7 @@ export function SubscriptionWizard({
                         </div>
                         <nav aria-label="Subscription setup progress" className="mt-3">
                             <ol className="flex flex-wrap items-center gap-x-1 gap-y-2">
-                                {steps.map((step, index) => {
+                                {wizardSteps.map((step, index) => {
                                     const isCurrent = index === currentStepIndex
                                     const isComplete = index < currentStepIndex
                                     const canAccess = index <= currentStepIndex
@@ -300,7 +311,9 @@ export function SubscriptionWizard({
                                                 </span>
                                                 <span>{step.label}</span>
                                             </button>
-                                            {index < steps.length - 1 ? <span className="text-border">→</span> : null}
+                                            {index < wizardSteps.length - 1 ? (
+                                                <span className="text-border">→</span>
+                                            ) : null}
                                         </li>
                                     )
                                 })}
@@ -309,7 +322,7 @@ export function SubscriptionWizard({
                     </header>
                     <section className="p-4 min-h-0 flex-1 overflow-y-auto">
                         <div className="space-y-1 mb-3">
-                            <h3 className="text-base font-semibold m-0">{steps[currentStepIndex].label}</h3>
+                            <h3 className="text-base font-semibold m-0">{wizardSteps[currentStepIndex].label}</h3>
                             <p className="text-xs text-secondary m-0">{wizardStepDescription(currentStep)}</p>
                         </div>
                         {stepContent}
@@ -326,7 +339,7 @@ export function SubscriptionWizard({
                                     type="secondary"
                                     htmlType="button"
                                     icon={<IconChevronLeft className="size-4" />}
-                                    onClick={() => setStep(steps[currentStepIndex - 1].key)}
+                                    onClick={() => selectWizardStep(wizardSteps[currentStepIndex - 1].key)}
                                     disabled={isSubscriptionSubmitting}
                                 >
                                     Back
@@ -666,23 +679,49 @@ function formatAiAnalysisWindow(subscription: SubscriptionType): string {
     return 'Since last report'
 }
 
-function SubscriptionReviewStep({
+function formatProactiveActions(
+    subscription: SubscriptionForm,
+    options: ProactiveConfigurationOptionsApi | null
+): string | null {
+    const config = subscription.proactive_config
+
+    if (!config?.enabled || !options?.proactive_available) {
+        return null
+    }
+
+    const actions = ['Follow-up recommendations']
+    if (config.allow_public_web_research && options.public_web_research_available) {
+        actions.push('Public web research')
+    }
+    if (config.create_draft_pr && options.draft_pr_available) {
+        actions.push(config.repository ? `Draft pull request: ${config.repository}` : 'Draft pull request')
+    }
+    return actions.join(' · ')
+}
+
+export function SubscriptionReviewStep({
     logicProps,
     subscription,
     dashboard,
     insightShortId,
 }: {
     logicProps: SubscriptionLogicProps
-    subscription: SubscriptionType
+    subscription: SubscriptionForm
     dashboard?: DashboardType<any> | null
     insightShortId?: InsightShortId
 }): JSX.Element {
-    const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
+    const { previewLoading, previewError, previewImageUrl, proactiveConfigurationOptions } = useValues(
+        subscriptionLogic(logicProps)
+    )
     const { generatePreview } = useActions(subscriptionLogic(logicProps))
     const selectedInsightsCount = subscription.dashboard_export_insights?.length ?? 0
     const advancedSettings = getSubscriptionAdvancedSettings(subscription)
     const nextDeliveryDate = getNextDeliveryDate(subscription)
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
+    const proactiveActions =
+        isAiPrompt && logicProps.proactiveSettingsEnabled
+            ? formatProactiveActions(subscription, proactiveConfigurationOptions)
+            : null
     let reviewNotice: JSX.Element
 
     if (subscription.send_test_now) {
@@ -709,6 +748,7 @@ function SubscriptionReviewStep({
             ? [
                   { label: 'Prompt', value: subscription.prompt ?? '' },
                   { label: 'Analysis window', value: formatAiAnalysisWindow(subscription) },
+                  ...(proactiveActions ? [{ label: 'Actions', value: proactiveActions }] : []),
               ]
             : []),
         { label: 'Sends to', value: subscription.target_value },

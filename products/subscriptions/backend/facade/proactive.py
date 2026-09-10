@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import cast
 from uuid import UUID
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -47,6 +48,20 @@ class ProactiveConfigDTO:
     create_draft_pr: bool
     repository: str | None
     repository_integration_id: int | None
+
+
+@frozen
+class ProactiveRepositoryOptionDTO:
+    repository: str
+    repository_integration_id: int
+
+
+@frozen
+class ProactiveConfigurationOptionsDTO:
+    proactive_available: bool
+    public_web_research_available: bool
+    draft_pr_available: bool
+    repositories: tuple[ProactiveRepositoryOptionDTO, ...]
 
 
 @frozen
@@ -139,6 +154,28 @@ def update_proactive_config(
         create_draft_pr=config.create_draft_pr,
         repository=config.repository,
         repository_integration_id=config.repository_integration_id,
+    )
+
+
+def get_proactive_configuration_options(*, team_id: int, actor_id: int) -> ProactiveConfigurationOptionsDTO:
+    proactive_available = bool(settings.PULSE_PROACTIVE_ENABLED)
+    draft_pr_available = proactive_available and bool(settings.PULSE_ARTIFACT_PREPARATION_ENABLED)
+    repositories = (
+        tuple(
+            ProactiveRepositoryOptionDTO(
+                repository=repository.repository,
+                repository_integration_id=repository.github_integration_id,
+            )
+            for repository in list_authorizable_repositories(team_id=team_id, actor_id=actor_id)
+        )
+        if draft_pr_available
+        else ()
+    )
+    return ProactiveConfigurationOptionsDTO(
+        proactive_available=proactive_available,
+        public_web_research_available=proactive_available and bool(settings.PULSE_PUBLIC_RESEARCH_ENABLED),
+        draft_pr_available=draft_pr_available,
+        repositories=repositories,
     )
 
 
