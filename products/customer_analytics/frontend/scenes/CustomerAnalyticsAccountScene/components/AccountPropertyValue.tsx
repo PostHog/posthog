@@ -49,7 +49,7 @@ export function AccountPropertyValue({ property }: AccountPropertyValueProps): J
     }
     if (definition.display_type === 'link') {
         return (
-            <Link to={raw} target="_blank" className="text-sm font-medium truncate">
+            <Link to={raw} target="_blank" className="inline-flex items-center text-sm font-medium truncate">
                 {raw}
             </Link>
         )
