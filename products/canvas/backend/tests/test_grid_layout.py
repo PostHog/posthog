@@ -23,7 +23,7 @@ from products.canvas.backend.presentation.views import CanvasViewSet
 from products.canvas.backend.source import has_errors, validate_source_project
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.canvas.backend.tests.test_component_store import COMPONENT_META
-from products.tasks.backend.models import Channel
+from products.tasks.backend.models import Channel, Task
 
 
 def layout(**overrides) -> dict[str, Any]:
@@ -184,6 +184,29 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
 
         without = self._get_layout(grid_id)
         assert "component_lifecycles" not in without.json()
+
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=other_user,
+            title="Read a grid",
+            description="Read component builds",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        sandbox = self._sandbox_client(task.id, user=other_user)
+        direct = sandbox.get(
+            f"/api/projects/{self.team.id}/canvases/{component_id}/", HTTP_X_POSTHOG_TASK_ID=str(task.id)
+        )
+        assert direct.status_code == status.HTTP_404_NOT_FOUND
+        restricted = sandbox.get(url, HTTP_IF_NONE_MATCH=visible["ETag"], HTTP_X_POSTHOG_TASK_ID=str(task.id))
+        assert restricted.status_code == status.HTTP_200_OK
+        assert restricted.json()["component_lifecycles"] == []
+
+        with team_scope(self.team.id):
+            Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(created_by=other_user)
+        owned = sandbox.get(url, HTTP_IF_NONE_MATCH=restricted["ETag"], HTTP_X_POSTHOG_TASK_ID=str(task.id))
+        assert owned.status_code == status.HTTP_200_OK
+        assert [entry["canvas_id"] for entry in owned.json()["component_lifecycles"]] == [component_id]
 
     def test_unpublished_grid_returns_default_layout(self):
         grid_id = self._create_grid()

@@ -212,13 +212,12 @@ def _renderable_build(build: CanvasBuild | None) -> CanvasBuild | None:
     return None
 
 
-def _component_lifecycles(team_id: int, user_id: int | None, layout: dict[str, Any]) -> list[dict[str, Any]]:
+def _component_lifecycles(team_id: int, canvases: QuerySet[Canvas], layout: dict[str, Any]) -> list[dict[str, Any]]:
     """The renderable build for each distinct (component, pinned version) the
     layout's live placements reference.
 
-    Visibility-filtered like ``validate_layout_references``: a component the
-    caller may not see is omitted, identically to one that is missing, so the
-    response does not disclose which."""
+    The authorized queryset also enforces sandbox access. A component the
+    caller may not read is omitted, identically to one that is missing."""
     placements = layout.get("placements")
     if not isinstance(placements, list):
         return []
@@ -249,10 +248,9 @@ def _component_lifecycles(team_id: int, user_id: int | None, layout: dict[str, A
     with team_scope(team_id):
         components = {
             str(canvas.id): canvas
-            for canvas in Canvas.objects.for_team(team_id)
-            .filter(id__in=component_ids, kind=Canvas.KIND_COMPONENT, deleted=False)
-            .filter(tasks_facade.visible_channels_q(user_id, relation="channel"))
-            .select_related("published_build")
+            for canvas in canvases.filter(id__in=component_ids, kind=Canvas.KIND_COMPONENT).select_related(
+                "published_build"
+            )
         }
         pinned_builds: dict[str, CanvasBuild] = {}
         if pinned_version_ids:
@@ -262,7 +260,7 @@ def _component_lifecycles(team_id: int, user_id: int | None, layout: dict[str, A
                 CanvasBuild.objects.for_team(team_id)
                 .filter(
                     source_version_id__in=pinned_version_ids,
-                    canvas_id__in=component_ids,
+                    canvas_id__in=components.keys(),
                     status=CanvasBuild.STATUS_READY,
                     artifact_object_prefix__isnull=False,
                 )
@@ -792,8 +790,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             "layout": layout,
         }
         if layout is not None:
-            user = self._request_user()
-            instance["component_lifecycles"] = _component_lifecycles(self.team_id, user.id if user else None, layout)
+            instance["component_lifecycles"] = _component_lifecycles(self.team_id, self.get_queryset(), layout)
         payload = CanvasViewResponseSerializer(instance=instance).data
         if degraded:
             # A payload missing its source/layout must not revalidate as
@@ -1376,8 +1373,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
         }
         if request.query_params.get("include_components") in ("1", "true"):
-            user = self._request_user()
-            instance["component_lifecycles"] = _component_lifecycles(self.team_id, user.id if user else None, layout)
+            instance["component_lifecycles"] = _component_lifecycles(self.team_id, self.get_queryset(), layout)
         return _conditional_response(request, CanvasLayoutWithComponentsResponseSerializer(instance=instance).data)
 
     @extend_schema(

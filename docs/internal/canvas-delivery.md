@@ -5,6 +5,7 @@
 `GET /api/projects/{project_id}/canvases/{canvas_id}/view/` returns the canvas record, its published build and signed artifact URL, and its active-build state.
 Before a renderable build exists, it also returns the head source.
 For grids, it returns the layout and the visible components' renderable builds.
+Component expansion uses the same access rules as direct canvas reads, including task-sandbox restrictions.
 
 `GET .../layout/?include_components=true` adds component build details to the layout response.
 `GET .../builds/?scope=slim` limits the build list to the published build, head-version builds, and active builds within the existing response window.
