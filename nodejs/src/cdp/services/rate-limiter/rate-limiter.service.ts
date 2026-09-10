@@ -161,9 +161,7 @@ local available = {}
 local deniedIndex = 0
 local retryAfterMs = 0
 local horizonKnown = true
-local slowIndex = 0
 local slowRefill = 0
-local slowTtl = 0
 for i = 1, 2 do
     local capacity = tonumber(ARGV[(i - 1) * 3 + 2])
     local refillPerSecond = tonumber(ARGV[(i - 1) * 3 + 3])
@@ -190,9 +188,7 @@ for i = 1, 2 do
             local bucketRetryMs = math.ceil(((requested - avail) / refillPerSecond) * 1000)
             if bucketRetryMs > retryAfterMs then
                 retryAfterMs = bucketRetryMs
-                slowIndex = i
                 slowRefill = refillPerSecond
-                slowTtl = tonumber(ARGV[(i - 1) * 3 + 4])
             end
         else
             horizonKnown = false
@@ -211,10 +207,23 @@ if deniedIndex > 0 then
     -- First in line: wait only for the pair's shortfall (that is retryAfterMs).
     -- Behind someone: take the slot after theirs, one interval of the slowest
     -- bucket later. Same idea as the claim-up-to script above.
-    local rawResv = redis.call('hget', KEYS[slowIndex], 'resv')
+    -- There is ONE line for the pair, kept on both keys: the base is the later of
+    -- the two cursors and the new slot is written back to both. Keeping the line
+    -- on only the currently slower bucket splits it when the slower bucket
+    -- changes (hourly runs dry first, then daily), and a fresh line lets new
+    -- arrivals cut ahead of sends that are already parked.
+    local rawResvA = redis.call('hget', KEYS[1], 'resv')
+    local rawResvB = redis.call('hget', KEYS[2], 'resv')
+    local base = now
+    if rawResvA ~= false and tonumber(rawResvA) > base then
+        base = tonumber(rawResvA)
+    end
+    if rawResvB ~= false and tonumber(rawResvB) > base then
+        base = tonumber(rawResvB)
+    end
     local slotAt
-    if rawResv ~= false and tonumber(rawResv) > now then
-        slotAt = tonumber(rawResv) + (requested / slowRefill) * 1000
+    if base > now then
+        slotAt = base + (requested / slowRefill) * 1000
     else
         slotAt = now + retryAfterMs
     end
@@ -224,8 +233,10 @@ if deniedIndex > 0 then
     if slotAt - now > reserveOnDenyMaxMs then
         return {0, deniedIndex, reserveOnDenyMaxMs, 0}
     end
-    redis.call('hset', KEYS[slowIndex], 'resv', slotAt)
-    redis.call('expire', KEYS[slowIndex], slowTtl)
+    redis.call('hset', KEYS[1], 'resv', slotAt)
+    redis.call('expire', KEYS[1], tonumber(ARGV[4]))
+    redis.call('hset', KEYS[2], 'resv', slotAt)
+    redis.call('expire', KEYS[2], tonumber(ARGV[7]))
     return {0, deniedIndex, math.ceil(slotAt - now), 1}
 end
 

@@ -319,6 +319,32 @@ describe('RateLimiterService', () => {
             expect(third.retryAfterMs).toBe(20_000)
             expect(third.reserved).toBe(false)
         })
+
+        it('keeps one reservation line when the slower bucket changes', async () => {
+            const buckets: [
+                { key: string; capacity: number; refillPerSecond: number },
+                { key: string; capacity: number; refillPerSecond: number },
+            ] = [
+                { key: `${KEY_A}/line`, capacity: 10, refillPerSecond: 2 },
+                { key: `${KEY_B}/line`, capacity: 100, refillPerSecond: 0.5 },
+            ]
+            // The second bucket still covers the request, so the first one (10s
+            // shortfall, 15s spacing) sets the pace for the first two denials.
+            const first = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
+            const second = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
+
+            // Now drain the second bucket so it becomes the slower one. The line has
+            // to continue behind the parked sends. A cursor kept only on the bucket
+            // that is currently slower would start a fresh line here and hand this
+            // send a slot at ~16s, ahead of the send already parked at ~25s.
+            await limiter.claimUpTo({ key: buckets[1].key, requested: 78, capacity: 100, refillPerSecond: 0.5 })
+            const third = await limiter.claimAllOrNothingPair(buckets, 30, 600_000)
+
+            expect(first.reserved).toBe(true)
+            expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
+            expect(third.reserved).toBe(true)
+            expect(third.retryAfterMs!).toBeGreaterThan(second.retryAfterMs!)
+        })
     })
 
     describe('claimOrReserve', () => {
