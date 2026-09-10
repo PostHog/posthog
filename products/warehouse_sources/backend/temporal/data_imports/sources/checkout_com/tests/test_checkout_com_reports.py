@@ -280,7 +280,7 @@ class TestParseReportFileRows:
     def test_file_with_no_data_lines_is_empty_not_a_defect(self, text):
         assert list(_parse_report_file_rows(io.StringIO(text), {}, mock.MagicMock())) == []
 
-    def test_column_names_decide_cell_types(self):
+    def test_column_names_decide_cell_types(self) -> None:
         text = (
             "Holding Currency Amount,Processing Currency,Payout Fee,Fee Type,"
             "Action ID,Processed On,Payout Date,Row Count\n"
@@ -308,14 +308,14 @@ class TestParseReportFileRows:
             pytest.param("2024-01-02T05:04:05+02:00", datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), id="offset-to-utc"),
         ],
     )
-    def test_timestamp_variants_all_land_in_utc(self, value, expected):
+    def test_timestamp_variants_all_land_in_utc(self, value: str, expected: datetime) -> None:
         text = f"Action ID,Processed On\nact_1,{value}\n"
 
         (row,) = list(_parse_report_file_rows(io.StringIO(text), {"file_id": "file_1"}, mock.MagicMock()))
 
         assert row["processed_on"] == expected
 
-    def test_unparseable_typed_cell_nulls_and_counts_without_logging_the_value(self):
+    def test_unparseable_typed_cell_nulls_and_counts_without_logging_the_value(self) -> None:
         text = "Action ID,Amount\nact_1,nan\nact_2,20\nact_3,oops\n"
         logger = mock.MagicMock()
 
@@ -330,7 +330,17 @@ class TestParseReportFileRows:
         assert logger.warning.call_args.kwargs["failures_by_column"] == {"amount": 2}
         assert "oops" not in str(logger.warning.call_args)
 
-    def test_metadata_timestamps_are_typed_and_metadata_ids_stay_text(self):
+    def test_a_closed_row_iterator_still_logs_its_parse_failures(self) -> None:
+        text = "Action ID,Amount\nact_1,oops\nact_2,20\n"
+        logger = mock.MagicMock()
+        rows = _parse_report_file_rows(io.StringIO(text), {"file_id": "file_1"}, logger)
+
+        next(rows)
+        rows.close()
+
+        assert logger.warning.call_args.kwargs["failures_by_column"] == {"amount": 1}
+
+    def test_metadata_timestamps_are_typed_and_metadata_ids_stay_text(self) -> None:
         metadata = {
             "report_id": "rpt_1",
             "report_created_on": "2024-02-01T00:00:00Z",

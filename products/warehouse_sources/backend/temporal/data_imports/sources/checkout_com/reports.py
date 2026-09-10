@@ -137,6 +137,8 @@ _DATE_COLUMN_SUFFIXES = ("_date",)
 
 _DATE_FORMAT = "%Y-%m-%d"
 
+_ReportValue = str | float | datetime | date | None
+
 
 class _ParseFailureCounter:
     def __init__(self, logger: FilteringBoundLogger, file_id: str) -> None:
@@ -183,7 +185,7 @@ def _parse_report_date(text: str) -> Optional[date]:
         return None
 
 
-def _column_parser(column: str) -> Optional[Callable[[str], Any]]:
+def _column_parser(column: str) -> Optional[Callable[[str], _ReportValue]]:
     if column in _CURRENCY_COLUMN_NAMES or column.endswith(_CURRENCY_COLUMN_SUFFIXES):
         return None
     if column in _FLOAT_COLUMN_NAMES or column.endswith(_FLOAT_COLUMN_SUFFIXES):
@@ -195,7 +197,7 @@ def _column_parser(column: str) -> Optional[Callable[[str], Any]]:
     return None
 
 
-def _typed_report_value(column: str, value: Any, failures: _ParseFailureCounter) -> Any:
+def _typed_report_value(column: str, value: str | None, failures: _ParseFailureCounter) -> _ReportValue:
     if not isinstance(value, str):
         return value
     parse = _column_parser(column)
@@ -388,56 +390,58 @@ def _parse_report_file_rows(
     row_index = 0
     data_row_count = 0
     skipped_row_count = 0
-    for row in reader:
-        if headers is None:
-            headers = [_normalize_header(header) for header in row]
-            # A trailing delimiter on the header line reads as one unnamed final
-            # column; drop unnamed trailing cells so the header width means "named
-            # columns" when data-row widths are checked against it.
-            while headers and not headers[-1]:
-                headers.pop()
-            if required_column and required_column not in headers:
-                raise CheckoutComReportKeyError(
-                    f"Checkout.com report file {metadata.get('file_id')} has no "
-                    f"{required_column!r} column, so its rows cannot be deduplicated"
+    try:
+        for row in reader:
+            if headers is None:
+                headers = [_normalize_header(header) for header in row]
+                # A trailing delimiter on the header line reads as one unnamed final
+                # column; drop unnamed trailing cells so the header width means "named
+                # columns" when data-row widths are checked against it.
+                while headers and not headers[-1]:
+                    headers.pop()
+                if required_column and required_column not in headers:
+                    raise CheckoutComReportKeyError(
+                        f"Checkout.com report file {metadata.get('file_id')} has no "
+                        f"{required_column!r} column, so its rows cannot be deduplicated"
+                    )
+                continue
+            if not any(cell.strip() for cell in row):
+                continue
+            data_row_count += 1
+            # The file's own header row describes its data rows, but some report
+            # generators make the widths disagree without changing what a row means: a
+            # trailing delimiter adds an empty overflow cell to every row, and ragged
+            # writers omit trailing empty fields. Normalize both to the header's width;
+            # treating these layout variants as malformed once dropped whole report files
+            # to zero rows.
+            if len(row) > len(headers) and not any(cell.strip() for cell in row[len(headers) :]):
+                row = row[: len(headers)]
+            elif len(row) < len(headers):
+                row = [*row, *[""] * (len(headers) - len(row))]
+            # Extra cells that carry values (e.g. an unquoted embedded delimiter) cannot
+            # be assigned to columns without corrupting the data; skip the malformed line
+            # visibly instead.
+            if len(row) != len(headers):
+                skipped_row_count += 1
+                logger.warning(
+                    "Checkout.com report row length mismatch; skipping row",
+                    expected=len(headers),
+                    got=len(row),
+                    report_id=metadata.get("report_id"),
+                    file_id=metadata.get("file_id"),
                 )
-            continue
-        if not any(cell.strip() for cell in row):
-            continue
-        data_row_count += 1
-        # The file's own header row describes its data rows, but some report
-        # generators make the widths disagree without changing what a row means: a
-        # trailing delimiter adds an empty overflow cell to every row, and ragged
-        # writers omit trailing empty fields. Normalize both to the header's width;
-        # treating these layout variants as malformed once dropped whole report files
-        # to zero rows.
-        if len(row) > len(headers) and not any(cell.strip() for cell in row[len(headers) :]):
-            row = row[: len(headers)]
-        elif len(row) < len(headers):
-            row = [*row, *[""] * (len(headers) - len(row))]
-        # Extra cells that carry values (e.g. an unquoted embedded delimiter) cannot
-        # be assigned to columns without corrupting the data; skip the malformed line
-        # visibly instead.
-        if len(row) != len(headers):
-            skipped_row_count += 1
-            logger.warning(
-                "Checkout.com report row length mismatch; skipping row",
-                expected=len(headers),
-                got=len(row),
-                report_id=metadata.get("report_id"),
-                file_id=metadata.get("file_id"),
-            )
-            continue
-        parsed: dict[str, Any] = {
-            column: _typed_report_value(column, value, failures) for column, value in zip(headers, row)
-        }
-        # The injected metadata columns carry the dedupe key and incremental watermark,
-        # so they always win over a same-named column in the CSV itself.
-        parsed.update(typed_metadata)
-        parsed["file_row_index"] = row_index
-        row_index += 1
-        yield parsed
-    failures.flush()
+                continue
+            parsed: dict[str, Any] = {
+                column: _typed_report_value(column, value, failures) for column, value in zip(headers, row)
+            }
+            # The injected metadata columns carry the dedupe key and incremental watermark,
+            # so they always win over a same-named column in the CSV itself.
+            parsed.update(typed_metadata)
+            parsed["file_row_index"] = row_index
+            row_index += 1
+            yield parsed
+    finally:
+        failures.flush()
     if data_row_count == 0:
         # Header-only (or empty) files occur by design when a report covers a period
         # with no activity; raising on them would wedge the sync permanently.
