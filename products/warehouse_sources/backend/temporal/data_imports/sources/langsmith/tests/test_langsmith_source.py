@@ -128,12 +128,18 @@ class TestLangSmithSource:
             'url: /api/v1/runs/query (Caused by ReadTimeoutError("HTTPSConnectionPool('
             "host='api.smith.langchain.com', port=443): Read timed out. (read timeout=60)\"))",
             f"{RETRYABLE_API_ERROR}: status=429, url=https://api.smith.langchain.com/api/v1/runs/query",
+            "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))",
+            '("Connection broken: IncompleteRead(1048576 bytes read, 4194304 more expected)", '
+            "IncompleteRead(1048576 bytes read, 4194304 more expected))",
         ],
     )
     def test_exhausted_inline_retries_are_classified_retryable(self, observed_error):
-        # `_fetch_page` retries a read timeout and a 429/5xx itself, and Temporal then retries the
-        # activity from the saved pagination checkpoint. The failure is self-recovering, so it must
-        # match here to be logged at warning instead of reaching error tracking.
+        # `_fetch_page` retries a read timeout, a 429/5xx, and a dropped connection itself, and
+        # Temporal then retries the activity from the saved pagination checkpoint. The failure is
+        # self-recovering, so it must match here to be logged at warning instead of reaching error
+        # tracking. The last two cases carry no urllib3 wrapper: the shared retry policy skips the
+        # runs/query POST, and a drop while `_read_capped_body` streams the body happens after the
+        # headers arrive.
         assert any(pattern in observed_error for pattern in self.source.get_retryable_errors())
 
     def test_documented_tables_render_from_static_catalog(self):

@@ -114,15 +114,23 @@ Leave the **Host** field blank for the US cloud (`api.smith.langchain.com`). Set
 
     def get_retryable_errors(self) -> set[str]:
         # `_fetch_page` already retries a 429/5xx (the RETRYABLE_API_ERROR sentinel), a dropped
-        # connection, and a read timeout up to 5 attempts. Once that budget exhausts, urllib3 wraps
-        # the failure as "Max retries exceeded with url" (with the read timeout nested inside as its
-        # cause), and Temporal retries the whole activity from the saved pagination checkpoint, so
-        # the failure is transient and self-recovering. The host is customer-controlled (self-hosted
-        # LangSmith), so match only the stable, host-independent parts of the message.
+        # connection, and a read timeout up to 5 attempts. Once that budget exhausts, Temporal
+        # retries the whole activity from the saved pagination checkpoint, so the failure is
+        # transient and self-recovering. The host is customer-controlled (self-hosted LangSmith),
+        # so match only the stable, host-independent parts of the message.
         return {
             RETRYABLE_API_ERROR,
+            # A read timeout, plus the wrapper urllib3 puts around one it retried itself, which
+            # leaves the timeout nested inside as the cause.
             "Read timed out",
             "Max retries exceeded with url",
+            # A dropped connection arrives without that wrapper in both places it can happen. The
+            # shared retry policy retries GET/HEAD/OPTIONS only, so urllib3 re-raises the drop bare
+            # on the runs/query POST and requests reports "Connection aborted". A drop after the
+            # headers, while `_read_capped_body` streams the body, is past the retry path already
+            # and reports "Connection broken".
+            "Connection aborted",
+            "Connection broken",
         }
 
     def get_schemas(
