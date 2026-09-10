@@ -151,11 +151,11 @@ Today (2): `apps`, `executions`
 
 Diffed against: <https://docs.airops.com/llms.txt>
 
-- [ ] `brand_kits (POST /public_api/brand_kits/list)` — the top-level object all AI-search-visibility data hangs off; a lookup for everything below (high)
+- [x] `brand_kits (POST /public_api/brand_kits/list)` — the top-level object all AI-search-visibility data hangs off; a lookup for everything below (high)
 - [ ] `brand kit analytics (POST /public_api/brand_kits/{brand_kit_id}/analytics)` — AirOps' headline AI visibility/share-of-voice metrics (high)
-- [ ] `citations (POST /public_api/brand_kits/{brand_kit_id}/citations/list)` — per-URL citation counts, citation share and influence score across AI answers (high)
+- [x] `citations (POST /public_api/brand_kits/{brand_kit_id}/citations/list)` — per-URL citation counts, citation share and influence score across AI answers (high)
 - [ ] `answers (POST /public_api/brand_kits/{brand_kit_id}/answers/list)` — the raw LLM answers being measured - the fact table under every visibility metric (high)
-- [ ] `prompts (POST /public_api/brand_kits/{brand_kit_id}/prompts/list)` — the tracked prompt set; the dimension every answer and citation is grouped by (high)
+- [x] `prompts (POST /public_api/brand_kits/{brand_kit_id}/prompts/list)` — the tracked prompt set; the dimension every answer and citation is grouped by (high)
 - [ ] `topics (POST /public_api/brand_kits/{brand_kit_id}/topics/list)` — lookup decoding the topic dimension on prompts and answers (medium)
 - [ ] `competitors (POST /public_api/brand_kits/{brand_kit_id}/competitors/list)` — competitive share-of-voice comparison, a core reporting cut (medium)
 - [ ] `web_pages (POST /public_api/brand_kits/{brand_kit_id}/web_pages/list)` — page-level performance for owned content (medium)
