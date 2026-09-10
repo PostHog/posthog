@@ -1250,7 +1250,7 @@
         "feature_flag": "product-business-knowledge"
     },
     "canvas-builds-retrieve": {
-        "description": "Read a canvas's build lifecycle: `published_build_id` (the live build), `current_version_id`, and the most recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues a build; poll this until the build you queued is terminal — `ready` (the live pointer advances) or `failed` (fix the error diagnostics and publish again; the last good build stays live). Do not finish a canvas task while its build is still queued or building.",
+        "description": "Read a canvas's build lifecycle: `published_build_id` (the live build), `current_version_id`, and the most recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues a build; poll this until the build you queued is terminal — `ready` (the live pointer advances) or `failed` (fix the error diagnostics and publish again; the last good build stays live). Do not finish a canvas task while its build is still queued or building. Each build carries its `manifest`; in progressive-fragments mode it adds `manifest.fragments` (built fragment chunks), `manifest.pendingFragments` (markers with no fragment yet; publish fragments until it is empty), and `manifest.layoutHash` (equal hashes let the host swap fragments into the open canvas without a reload).",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Read canvas build status",
