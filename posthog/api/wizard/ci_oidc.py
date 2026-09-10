@@ -25,14 +25,18 @@ GITHUB_OIDC_JWKS_URL = f"{GITHUB_OIDC_ISSUER}/.well-known/jwks"
 
 _JWKS_TIMEOUT_SECONDS = 10
 # How long a fetched key set serves before the next verification refetches it.
-# Also how long a key GitHub has revoked stays accepted.
 _JWKS_TTL_SECONDS = 300
-# Floor between outbound fetches, whichever caller asks for one. This is what
-# bounds the outbound work an anonymous caller can force. The per-address throttle
-# on the endpoint is not: production trusts every proxy, so the address it reads
-# comes from a header the caller writes.
+# How far past that a set still serves while refetches fail, and so how long a
+# key GitHub revoked stays accepted.
+_JWKS_MAX_STALE_SECONDS = 3600
+# Bounds the outbound work an anonymous caller can force. The per-address throttle
+# on the endpoint cannot: cloud trusts every proxy, so the address it reads comes
+# from a header the caller writes.
 _JWKS_MIN_FETCH_INTERVAL_SECONDS = 60
 _JTI_CLOCK_SKEW_SECONDS = 60
+# The single use is only real while the marker outlives the token, so a token
+# valid for longer than this is refused rather than remembered.
+_MAX_TOKEN_LIFETIME_SECONDS = 3600
 
 
 class WizardCiOidcError(Exception):
@@ -52,6 +56,8 @@ class GitHubOidcClaims:
     repository_owner_id: str
     workflow_ref: str
     run_id: str
+    token_id: str
+    expires_at: int
 
 
 _key_set: jwt.PyJWKSet | None = None
@@ -67,10 +73,9 @@ def reset_key_set_cache() -> None:
 
 
 def _fetch_key_set() -> jwt.PyJWKSet:
-    """Fetch through `requests` so the call follows the egress proxy Django runs behind.
+    """Fetch through `requests`, which is what routes the call via the egress proxy.
 
-    PyJWKClient reaches for `urllib` instead, which is not how anything else here
-    leaves the cluster.
+    PyJWKClient reaches for `urllib`, which does not.
     """
     response = requests.get(GITHUB_OIDC_JWKS_URL, timeout=_JWKS_TIMEOUT_SECONDS, allow_redirects=False)
     response.raise_for_status()
@@ -84,30 +89,40 @@ def _match_kid(key_set: jwt.PyJWKSet, kid: str) -> Any | None:
     return None
 
 
+def _servable(now: float) -> jwt.PyJWKSet | None:
+    if _key_set is None or now - _key_set_fetched_at >= _JWKS_MAX_STALE_SECONDS:
+        return None
+    return _key_set
+
+
 def _current_key_set(kid: str) -> jwt.PyJWKSet | None:
     """The key set to verify against, refetching at most once per interval.
 
-    The lock is held across the fetch so concurrent callers share one request
-    rather than each opening their own. A failed attempt spends the interval just
-    as a successful one does: otherwise an unreachable GitHub puts a fresh
-    outbound request behind every inbound request.
+    A failed attempt spends the interval too, or an unreachable GitHub puts a
+    fresh outbound request behind every inbound one. The lock is taken without
+    blocking, so a caller arriving mid-fetch serves what is cached rather than
+    parking a worker on a 10 second call.
     """
     global _key_set, _key_set_fetched_at, _fetch_attempted_at
-    with _fetch_lock:
+    now = time.monotonic()
+    cached = _servable(now)
+    if cached is not None and now - _key_set_fetched_at < _JWKS_TTL_SECONDS and _match_kid(cached, kid) is not None:
+        return cached
+    if not _fetch_lock.acquire(blocking=False):
+        return cached
+    try:
         now = time.monotonic()
-        cached = _key_set
-        fresh = cached is not None and now - _key_set_fetched_at < _JWKS_TTL_SECONDS
-        if cached is not None and fresh and _match_kid(cached, kid) is not None:
-            return cached
         if _fetch_attempted_at and now - _fetch_attempted_at < _JWKS_MIN_FETCH_INTERVAL_SECONDS:
-            return cached
+            return _servable(now)
         _fetch_attempted_at = now
         try:
             _key_set = _fetch_key_set()
             _key_set_fetched_at = now
         except Exception as e:
             logger.warning("wizard_ci_oidc: key set fetch failed", error=str(e))
-        return _key_set
+        return _servable(time.monotonic())
+    finally:
+        _fetch_lock.release()
 
 
 def _signing_key(kid: str) -> Any:
@@ -120,19 +135,32 @@ def _signing_key(kid: str) -> Any:
     return key
 
 
-def _claim_jti(jti: str, exp: int) -> bool:
+def _jti_key(token_id: str) -> str:
+    return f"wizard_ci_oidc:jti:{token_id}"
+
+
+def consume_token_id(claims: GitHubOidcClaims) -> bool:
     """Whether this token is being presented for the first time.
 
-    True when the cache is unreachable: a replay is still bounded by the hourly
-    mint limit and the per-token cap, and refusing every CI run because Redis
-    blinked is the worse trade.
+    False when the cache is unreachable. The hourly mint limit lives in the same
+    cache, so failing open here would leave a captured token bounded by nothing
+    at all; a CI run that fails while Redis is down is the cheaper outcome.
     """
-    ttl = max(1, exp - int(time.time()) + _JTI_CLOCK_SKEW_SECONDS)
+    remaining = min(claims.expires_at - int(time.time()), _MAX_TOKEN_LIFETIME_SECONDS)
+    ttl = max(1, remaining + _JTI_CLOCK_SKEW_SECONDS)
     try:
-        return bool(cache.add(f"wizard_ci_oidc:jti:{jti}", "1", ttl))
+        return bool(cache.add(_jti_key(claims.token_id), "1", ttl))
     except Exception as e:
         logger.warning("wizard_ci_oidc: replay cache unavailable", error=str(e))
-        return True
+        return False
+
+
+def release_token_id(claims: GitHubOidcClaims) -> None:
+    """Give the single use back after a failure that issued no token."""
+    try:
+        cache.delete(_jti_key(claims.token_id))
+    except Exception as e:
+        logger.warning("wizard_ci_oidc: replay cache unavailable", error=str(e))
 
 
 def wizard_ci_oidc_configured() -> bool:
@@ -200,7 +228,6 @@ def verify_github_oidc(raw: str) -> GitHubOidcClaims:
         logger.warning("wizard_ci_oidc: token rejected", error=str(e))
         raise WizardCiOidcError("token failed verification")
 
-    # An org rename frees the name for anyone to claim; the numeric id never moves.
     owner_id = str(claims.get("repository_owner_id") or "")
     if owner_id != str(settings.WIZARD_CI_REPOSITORY_OWNER_ID):
         raise WizardCiOidcError("token was issued to another repository owner")
@@ -209,8 +236,12 @@ def verify_github_oidc(raw: str) -> GitHubOidcClaims:
     if repository != settings.WIZARD_CI_REPOSITORY:
         raise WizardCiOidcError("token was issued to another repository")
 
-    # The name pins above are the ones a rename moves. This one never moves, so a
-    # repository that takes the wizard's freed name still fails here.
+    # Bounded so the replay marker can cover the whole life of what it admits.
+    expires_at = int(claims["exp"])
+    if expires_at - int(time.time()) > _MAX_TOKEN_LIFETIME_SECONDS:
+        raise WizardCiOidcError("token is valid for longer than this path accepts")
+
+    # A rename frees both names for anyone to claim. The numeric ids never move.
     repository_id = str(claims.get("repository_id") or "")
     if repository_id != str(settings.WIZARD_CI_REPOSITORY_ID):
         raise WizardCiOidcError("token was issued to another repository")
@@ -227,14 +258,12 @@ def verify_github_oidc(raw: str) -> GitHubOidcClaims:
     if workflow_ref.split("@", 1)[0] != settings.WIZARD_CI_WORKFLOW_PATH:
         raise WizardCiOidcError("token was issued to another workflow")
 
-    # Last, so a token refused above does not spend the single use its own run needs.
-    if not _claim_jti(str(claims["jti"]), int(claims.get("exp") or 0)):
-        raise WizardCiOidcError("token has already been used")
-
     return GitHubOidcClaims(
         repository=repository,
         repository_id=repository_id,
         repository_owner_id=owner_id,
         workflow_ref=workflow_ref,
         run_id=str(claims.get("run_id") or ""),
+        token_id=str(claims["jti"]),
+        expires_at=expires_at,
     )

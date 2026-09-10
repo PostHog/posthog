@@ -32,7 +32,9 @@ from posthog.api.email_verification import email_verification_pending
 from posthog.api.wizard.ci_oidc import (
     WizardCiOidcError,
     WizardCiOidcUnavailable,
+    consume_token_id,
     looks_like_jwt,
+    release_token_id,
     verify_github_oidc,
     wizard_ci_oidc_configured,
 )
@@ -107,7 +109,7 @@ WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
     "reports its own outcomes under a ci_ prefix, so it stays separable without a "
     "second label changing every existing query: ci_minted/ci_invalid_token/"
     "ci_verify_unavailable/ci_verify_throttled/ci_unconfigured/ci_program_unknown/"
-    "ci_team_missing/ci_not_rolled_out/ci_throttled/ci_mint_failed.",
+    "ci_team_missing/ci_not_rolled_out/ci_throttled/ci_token_replayed/ci_mint_failed.",
     labelnames=["outcome"],
 )
 
@@ -210,9 +212,9 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
     def refuse(outcome: str, exc: exceptions.APIException) -> NoReturn:
         _refuse_mint(outcome, exc, program=program, product_node=product)
 
-    # Charged before verification, which reaches for a signing key over the network
-    # on an endpoint anonymous callers reach. The trusted-proxy-validated address,
-    # because a key the caller can write is a quota it hands itself.
+    # Charged before verification, which anonymous callers reach. Cloud trusts every
+    # proxy, so this address is caller-written and a rotating one buys a fresh
+    # bucket; the outbound bound is the fetch interval in ci_oidc, not this.
     try:
         reserve_wizard_ci_verify(get_trusted_client_ip(request), settings.WIZARD_CI_VERIFY_PER_MINUTE)
     except exceptions.Throttled as e:
@@ -221,8 +223,7 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
     try:
         claims = verify_github_oidc(bearer)
     except WizardCiOidcUnavailable as e:
-        # Ordered first: a subclass. GitHub being unreachable is our outage, and
-        # answering it as a bad token would blame the caller and page nobody.
+        # A subclass, so it is caught first. Our outage, not the caller's token.
         refuse("ci_verify_unavailable", exceptions.APIException(str(e)))
     except WizardCiOidcError as e:
         refuse("ci_invalid_token", AuthenticationFailed(str(e)))
@@ -242,7 +243,8 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
         refuse("ci_team_missing", exceptions.PermissionDenied("The configured wizard CI team does not exist."))
 
     # The same switch the user path reads, keyed on the repository because no person
-    # owns this run. Only a literal False refuses, so a flag outage still mints.
+    # owns this run. No release condition matches that id, so only a global
+    # switch-off reaches CI. Only a literal False refuses: a flag outage still mints.
     if _wizard_gateway_switched_off(f"wizard-ci:{claims.repository}", team):
         refuse("ci_not_rolled_out", exceptions.PermissionDenied("Wizard gateway tokens are switched off."))
 
@@ -250,6 +252,14 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
         reserved = reserve_wizard_ci_mint(claims.repository, settings.WIZARD_CI_MINTS_PER_HOUR)
     except exceptions.Throttled as e:
         refuse("ci_throttled", e)
+
+    # Spent here rather than during verification, so a refused mint can hand both
+    # the slot and the single use back and let the same run retry.
+    if not consume_token_id(claims):
+        # Hand the slot back: otherwise one captured token can burn the hour's
+        # mints and refuse the runs it was captured from.
+        refund_wizard_mint(reserved)
+        refuse("ci_token_replayed", AuthenticationFailed("This CI token has already been used."))
 
     try:
         minted = mint_wizard_gateway_token(
@@ -264,6 +274,7 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
     except WizardGatewayMintError as e:
         if not e.token_may_exist:
             refund_wizard_mint(reserved)
+            release_token_id(claims)
         WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="ci_mint_failed").inc()
         capture_exception(e, {"ai_product": "wizard", "team_id": team.id})
         return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)

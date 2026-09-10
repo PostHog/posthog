@@ -1,3 +1,5 @@
+import time
+import uuid
 from decimal import Decimal
 
 from posthog.test.base import APIBaseTest
@@ -14,13 +16,25 @@ from posthog.llm.wizard_gateway_token import WizardGatewayMintError
 
 MINTED = {"token": "phe_ci_token", "expires_at": "2026-08-22T00:00:00Z", "cap_usd": "2.000000"}
 
-CLAIMS = GitHubOidcClaims(
-    repository="PostHog/wizard",
-    repository_id="938775588",
-    repository_owner_id="60330232",
-    workflow_ref="PostHog/wizard/.github/workflows/smoke-test.yml@refs/heads/main",
-    run_id="42",
-)
+
+def _claims(**overrides) -> GitHubOidcClaims:
+    """A fresh identity per call: each CI run presents its own single-use token."""
+    fields = {
+        "repository": "PostHog/wizard",
+        "repository_id": "938775588",
+        "repository_owner_id": "60330232",
+        "workflow_ref": "PostHog/wizard/.github/workflows/smoke-test.yml@refs/heads/main",
+        "run_id": "42",
+        "token_id": str(uuid.uuid4()),
+        "expires_at": int(time.time()) + 600,
+    }
+    fields.update(overrides)
+    return GitHubOidcClaims(**fields)
+
+
+def _verified(*_args, **_kwargs) -> GitHubOidcClaims:
+    return _claims()
+
 
 # These cases patch the verifier, so they exercise the endpoint.
 CI_BEARER = "header.payload.signature"
@@ -76,7 +90,7 @@ class WizardCiMintTests(APIBaseTest):
 
     def test_a_verified_run_mints_a_capped_pinned_token(self):
         with self._settings():
-            with patch("posthog.api.wizard.http.verify_github_oidc", return_value=CLAIMS):
+            with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
                 with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED) as mint:
                     response = self._post()
 
@@ -103,7 +117,7 @@ class WizardCiMintTests(APIBaseTest):
     def test_a_program_outside_the_ci_list_is_refused(self):
         # Has a product node; without the CI list it would mint.
         with self._settings(WIZARD_CI_PROGRAM_IDS=["something-else"]):
-            with patch("posthog.api.wizard.http.verify_github_oidc", return_value=CLAIMS):
+            with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
                 with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED) as mint:
                     response = self._post()
 
@@ -113,7 +127,7 @@ class WizardCiMintTests(APIBaseTest):
 
     def test_a_program_with_no_product_node_is_refused(self):
         with self._settings(WIZARD_GATEWAY_PROGRAM_IDS=["other"], WIZARD_CI_PROGRAM_IDS=["integration"]):
-            with patch("posthog.api.wizard.http.verify_github_oidc", return_value=CLAIMS):
+            with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
                 with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED) as mint:
                     response = self._post()
 
@@ -123,7 +137,7 @@ class WizardCiMintTests(APIBaseTest):
 
     def test_an_unset_ci_team_refuses(self):
         with self._settings(WIZARD_CI_TEAM_ID=0):
-            with patch("posthog.api.wizard.http.verify_github_oidc", return_value=CLAIMS):
+            with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
                 with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED) as mint:
                     response = self._post()
 
@@ -133,7 +147,7 @@ class WizardCiMintTests(APIBaseTest):
 
     def test_the_hourly_limit_bounds_a_retry_loop(self):
         with self._settings(WIZARD_CI_MINTS_PER_HOUR=2):
-            with patch("posthog.api.wizard.http.verify_github_oidc", return_value=CLAIMS):
+            with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
                 with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED):
                     assert self._post().status_code == status.HTTP_201_CREATED
                     assert self._post().status_code == status.HTTP_201_CREATED
@@ -217,6 +231,86 @@ class WizardCiMintTests(APIBaseTest):
         assert first.status_code == status.HTTP_401_UNAUTHORIZED
         assert second.status_code == status.HTTP_401_UNAUTHORIZED
 
+    def test_the_same_token_cannot_mint_twice(self):
+        fixed = _claims()
+        with self._settings():
+            with patch("posthog.api.wizard.http.verify_github_oidc", return_value=fixed):
+                with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED):
+                    first = self._post()
+                    second = self._post()
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_401_UNAUTHORIZED
+        assert self._code(second) == "ci_token_replayed"
+
+    def test_a_refunded_mint_failure_lets_the_same_token_retry(self):
+        # The slot and the single use are handed back together, or the retry the
+        # refund exists for would be refused as a replay.
+        fixed = _claims()
+        with self._settings():
+            with patch("posthog.api.wizard.http.release_token_id") as release:
+                with patch("posthog.api.wizard.http.verify_github_oidc", return_value=fixed):
+                    with patch(
+                        "posthog.api.wizard.http.mint_wizard_gateway_token",
+                        side_effect=WizardGatewayMintError("gateway down", token_may_exist=False),
+                    ):
+                        assert self._post().status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+            release.assert_called_once()
+
+        cache.clear()
+        with self._settings():
+            with patch("posthog.api.wizard.http.verify_github_oidc", return_value=fixed):
+                with patch(
+                    "posthog.api.wizard.http.mint_wizard_gateway_token",
+                    side_effect=WizardGatewayMintError("gateway down", token_may_exist=False),
+                ):
+                    failed = self._post()
+                with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED):
+                    retried = self._post()
+
+        assert failed.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert retried.status_code == status.HTTP_201_CREATED
+
+    def test_an_unreachable_cache_refuses_rather_than_minting_unbounded(self):
+        # The hourly limit and the replay guard share this cache, so failing open
+        # would leave one captured token bounded by nothing.
+        with self._settings():
+            with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
+                with patch("posthog.rate_limit.cache.add", side_effect=Exception("redis down")):
+                    with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED) as mint:
+                        response = self._post()
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert self._code(response) == "ci_throttled"
+        mint.assert_not_called()
+
+    def test_a_replay_hands_back_the_slot_it_charged(self):
+        # Otherwise one captured token burns the hour and refuses the runs it was
+        # captured from.
+        fixed = _claims()
+        with self._settings(WIZARD_CI_MINTS_PER_HOUR=2):
+            with patch("posthog.api.wizard.http.verify_github_oidc", return_value=fixed):
+                with patch("posthog.api.wizard.http.refund_wizard_mint") as refund:
+                    with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED):
+                        assert self._post().status_code == status.HTTP_201_CREATED
+                        replayed = self._post()
+
+        assert replayed.status_code == status.HTTP_401_UNAUTHORIZED
+        refund.assert_called_once()
+
+    def test_a_failure_that_may_have_issued_a_token_keeps_the_single_use(self):
+        # The token may be live, so the use it spent must stay spent.
+        fixed = _claims()
+        with self._settings():
+            with patch("posthog.api.wizard.http.verify_github_oidc", return_value=fixed):
+                with patch("posthog.api.wizard.http.release_token_id") as release:
+                    with patch(
+                        "posthog.api.wizard.http.mint_wizard_gateway_token",
+                        side_effect=WizardGatewayMintError("timed out", token_may_exist=True),
+                    ):
+                        assert self._post().status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+            release.assert_not_called()
+
     def test_an_unreachable_key_set_is_not_reported_as_a_bad_token(self):
         with self._settings():
             with patch(
@@ -231,7 +325,7 @@ class WizardCiMintTests(APIBaseTest):
     def test_the_kill_switch_refuses_a_verified_run(self):
         with self._settings():
             with patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=False):
-                with patch("posthog.api.wizard.http.verify_github_oidc", return_value=CLAIMS):
+                with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
                     with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED) as mint:
                         response = self._post()
 
@@ -247,7 +341,7 @@ class WizardCiMintTests(APIBaseTest):
                 "posthog.api.wizard.http.posthoganalytics.feature_enabled",
                 side_effect=Exception("flag service down"),
             ):
-                with patch("posthog.api.wizard.http.verify_github_oidc", return_value=CLAIMS):
+                with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
                     with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED):
                         response = self._post()
 
@@ -255,7 +349,7 @@ class WizardCiMintTests(APIBaseTest):
 
     def test_a_configured_team_that_does_not_exist_is_refused(self):
         with self._settings(WIZARD_CI_TEAM_ID=99_999_999):
-            with patch("posthog.api.wizard.http.verify_github_oidc", return_value=CLAIMS):
+            with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
                 with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED) as mint:
                     response = self._post()
 
@@ -264,10 +358,22 @@ class WizardCiMintTests(APIBaseTest):
         mint.assert_not_called()
 
     def test_a_mint_failure_returns_its_hourly_slot(self):
-        # Without the refund a mint outage would burn the hour's budget and leave
-        # CI refused long after the outage cleared.
+        # Asserted on the refund itself: the hourly counter buckets on the wall
+        # clock, so a rollover between the two posts below would let a retry
+        # succeed with the refund deleted.
         with self._settings(WIZARD_CI_MINTS_PER_HOUR=1):
-            with patch("posthog.api.wizard.http.verify_github_oidc", return_value=CLAIMS):
+            with patch("posthog.api.wizard.http.refund_wizard_mint") as refund:
+                with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
+                    with patch(
+                        "posthog.api.wizard.http.mint_wizard_gateway_token",
+                        side_effect=WizardGatewayMintError("gateway down", token_may_exist=False),
+                    ):
+                        assert self._post().status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+            refund.assert_called_once()
+
+        cache.clear()
+        with self._settings(WIZARD_CI_MINTS_PER_HOUR=1):
+            with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
                 with patch(
                     "posthog.api.wizard.http.mint_wizard_gateway_token",
                     side_effect=WizardGatewayMintError("gateway down", token_may_exist=False),
@@ -281,7 +387,18 @@ class WizardCiMintTests(APIBaseTest):
 
     def test_a_mint_failure_that_may_have_issued_a_token_keeps_its_slot(self):
         with self._settings(WIZARD_CI_MINTS_PER_HOUR=1):
-            with patch("posthog.api.wizard.http.verify_github_oidc", return_value=CLAIMS):
+            with patch("posthog.api.wizard.http.refund_wizard_mint") as refund:
+                with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
+                    with patch(
+                        "posthog.api.wizard.http.mint_wizard_gateway_token",
+                        side_effect=WizardGatewayMintError("timed out", token_may_exist=True),
+                    ):
+                        assert self._post().status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+            refund.assert_not_called()
+
+        cache.clear()
+        with self._settings(WIZARD_CI_MINTS_PER_HOUR=1):
+            with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):
                 with patch(
                     "posthog.api.wizard.http.mint_wizard_gateway_token",
                     side_effect=WizardGatewayMintError("timed out", token_may_exist=True),

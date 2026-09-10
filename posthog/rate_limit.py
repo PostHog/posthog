@@ -1340,7 +1340,10 @@ def reserve_wizard_ci_mint(repository: str, limit: int) -> str | None:
     """
     charged = _charge_mint_slot(f"wizard_ci_mint:{repository}", WIZARD_CI_MINT_WINDOW_SECONDS)
     if charged is None:
-        return None
+        # Fails closed, unlike the user reservation above it. A CI run carries no
+        # person and no posture, so this counter and the replay guard are the whole
+        # bound on what one captured token can spend.
+        raise exceptions.Throttled(detail="Wizard CI mint accounting is unavailable.")
     counter, count = charged
     if count > limit:
         raise exceptions.Throttled(detail="This repository has used its hourly wizard CI mint limit.")

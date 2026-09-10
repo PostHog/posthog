@@ -1,8 +1,10 @@
 import hmac
 import json
+import time
 import uuid
 import base64
 import hashlib
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -19,7 +21,9 @@ from posthog.api.wizard.ci_oidc import (
     GITHUB_OIDC_ISSUER,
     WizardCiOidcError,
     WizardCiOidcUnavailable,
+    consume_token_id,
     looks_like_jwt,
+    release_token_id,
     reset_key_set_cache,
     verify_github_oidc,
     wizard_ci_oidc_configured,
@@ -205,8 +209,12 @@ class TestVerifyGitHubOidc:
     def test_a_failed_refetch_keeps_serving_the_cached_key_set(self, _fetch):
         verify_github_oidc(token())
         _fetch.side_effect = Exception("github unreachable")
+        # Both clocks have to move, or the interval returns the cached set before
+        # the refetch this test is named for is ever attempted.
         with patch("posthog.api.wizard.ci_oidc._JWKS_TTL_SECONDS", -1):
-            claims = verify_github_oidc(token())
+            with patch("posthog.api.wizard.ci_oidc._JWKS_MIN_FETCH_INTERVAL_SECONDS", -1):
+                claims = verify_github_oidc(token())
+        assert _fetch.call_count == 2
         assert claims.repository == REPOSITORY
 
     def test_an_unrecognized_key_is_refused_rather_than_unresolvable(self, _fetch):
@@ -215,6 +223,42 @@ class TestVerifyGitHubOidc:
             verify_github_oidc(token(kid="made-up"))
         assert not isinstance(refused.value, WizardCiOidcUnavailable)
 
+    def test_a_caller_arriving_mid_fetch_serves_the_cached_set_instead_of_waiting(self, _fetch):
+        # Pins the non-blocking acquire. Taking the lock normally would park every
+        # arriving worker thread on a fetch that runs for up to ten seconds.
+        verify_github_oidc(token())
+        started, release = threading.Event(), threading.Event()
+
+        def slow_fetch():
+            started.set()
+            release.wait(10)
+            return key_set()
+
+        _fetch.side_effect = slow_fetch
+        with patch("posthog.api.wizard.ci_oidc._JWKS_TTL_SECONDS", -1):
+            with patch("posthog.api.wizard.ci_oidc._JWKS_MIN_FETCH_INTERVAL_SECONDS", -1):
+                fetcher = threading.Thread(target=lambda: verify_github_oidc(token()), daemon=True)
+                fetcher.start()
+                try:
+                    assert started.wait(5)
+                    began = time.monotonic()
+                    verify_github_oidc(token())
+                    waited = time.monotonic() - began
+                finally:
+                    release.set()
+                    fetcher.join(10)
+        assert waited < 2
+
+    def test_a_key_set_past_the_staleness_ceiling_stops_serving(self, _fetch):
+        # Otherwise an unreachable GitHub means a key it revoked verifies forever.
+        verify_github_oidc(token())
+        _fetch.side_effect = Exception("github unreachable")
+        with patch("posthog.api.wizard.ci_oidc._JWKS_MAX_STALE_SECONDS", -1):
+            with patch("posthog.api.wizard.ci_oidc._JWKS_MIN_FETCH_INTERVAL_SECONDS", -1):
+                with pytest.raises(WizardCiOidcUnavailable):
+                    verify_github_oidc(token())
+        assert _fetch.call_count == 2
+
     def test_an_expired_key_set_is_refetched(self, _fetch):
         verify_github_oidc(token())
         with patch("posthog.api.wizard.ci_oidc._JWKS_TTL_SECONDS", -1):
@@ -222,24 +266,46 @@ class TestVerifyGitHubOidc:
                 verify_github_oidc(token())
         assert _fetch.call_count == 2
 
-    def test_a_replayed_token_is_refused(self):
+    def test_verification_leaves_the_single_use_unspent(self):
+        # The mint spends it, so a refused mint can hand it back and let the same
+        # run retry with the token it already has.
         bearer = token()
-        verify_github_oidc(bearer)
+        assert verify_github_oidc(bearer).repository == REPOSITORY
+        assert verify_github_oidc(bearer).repository == REPOSITORY
+
+    def test_a_token_id_is_consumed_once(self):
+        claims = verify_github_oidc(token())
+        assert consume_token_id(claims)
+        assert not consume_token_id(claims)
+
+    def test_a_released_token_id_can_be_consumed_again(self):
+        claims = verify_github_oidc(token())
+        assert consume_token_id(claims)
+        release_token_id(claims)
+        assert consume_token_id(claims)
+
+    def test_a_token_valid_for_longer_than_we_track_is_refused(self):
+        # Admitting it would need a replay marker held for as long, so the token
+        # is refused rather than remembered.
         with pytest.raises(WizardCiOidcError):
-            verify_github_oidc(bearer)
+            verify_github_oidc(token(exp=int(time.time()) + 10**9))
 
-    def test_a_second_distinct_token_still_verifies(self):
-        # Derived from the replay test: the cache must key on jti, not on the run.
-        verify_github_oidc(token())
-        assert verify_github_oidc(token()).repository == REPOSITORY
+    def test_the_replay_marker_outlives_the_token(self):
+        # The single use is only real while the marker is still there. A marker
+        # that expires first leaves the rest of the token's life replayable.
+        claims = verify_github_oidc(token(exp=int(time.time()) + 900))
+        with patch("posthog.api.wizard.ci_oidc.cache.add", return_value=True) as add:
+            consume_token_id(claims)
+        held = add.call_args[0][2]
+        assert held >= claims.expires_at - int(time.time())
+        assert held <= 3600 + 60
 
-    def test_a_replay_still_verifies_when_the_cache_is_unreachable(self):
-        # Refusing every CI run because Redis blinked is the worse trade; the mint
-        # limits still bound a replay.
-        bearer = token()
+    def test_an_unreachable_cache_refuses_the_single_use(self):
+        # The hourly mint limit lives in this same cache, so failing open here
+        # would leave a captured token bounded by nothing.
+        claims = verify_github_oidc(token())
         with patch("posthog.api.wizard.ci_oidc.cache.add", side_effect=Exception("redis down")):
-            assert verify_github_oidc(bearer).repository == REPOSITORY
-            assert verify_github_oidc(bearer).repository == REPOSITORY
+            assert not consume_token_id(claims)
 
     def test_another_repository_id_is_refused(self):
         with pytest.raises(WizardCiOidcError):
