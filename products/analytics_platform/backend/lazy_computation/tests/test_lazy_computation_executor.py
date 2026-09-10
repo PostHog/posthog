@@ -2157,10 +2157,10 @@ class TestComputationExecutorExecute(BaseTest):
         query_info, query_hash = self._make_query_info()
 
         now = django_timezone.now()
-        # Two fresh READY jobs whose union covers [Jan 1, Jan 9), but the newer
-        # narrow job evicts the older broad one in the overlap filter, so the
-        # filtered set alone leaves [Jan 8, Jan 9) uncovered. The executor must
-        # notice the gap and compute it instead of serving the gappy set.
+        # Two fresh READY jobs whose union covers [Jan 1, Jan 9), but the overlap
+        # filter drops the older broad one, which leaves [Jan 8, Jan 9) uncovered
+        # in the filtered set. The executor must compute that window instead of
+        # serving the set with the hole.
         for time_range, created_ago_h in [
             ((datetime(2024, 1, 2, tzinfo=UTC), datetime(2024, 1, 9, tzinfo=UTC)), 2),
             ((datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)), 1),
