@@ -47,6 +47,10 @@ class SchedulerClaimRequest:
     tenant_key: str
     occurrence_key: str
     workflow_id: str
+    # Callers that perform non-transactional side effects before receiving the
+    # result can supply a stable token so an activity retry recovers its own
+    # RESERVED claim instead of treating it as somebody else's work.
+    claim_token: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -226,6 +230,7 @@ def reserve_scheduler_claims(
         }
         admitted_per_tenant: Counter[str] = Counter()
         reservations: list[SchedulerClaimReservation] = []
+        replayed_reservations = 0
         new_claims: list[TemporalSchedulerClaim] = []
         reused_claims: list[TemporalSchedulerClaim] = []
         already_claimed = 0
@@ -236,13 +241,30 @@ def reserve_scheduler_claims(
             request_count = multiplicities[item.occurrence_hash]
             existing = existing_claims.get(item.occurrence_hash)
             if existing is not None and existing.status != TemporalSchedulerClaim.Status.AVAILABLE:
+                if (
+                    existing.status == TemporalSchedulerClaim.Status.RESERVED
+                    and request.claim_token is not None
+                    and existing.claim_token == request.claim_token
+                ):
+                    reservations.append(
+                        SchedulerClaimReservation(
+                            claim_id=existing.id,
+                            claim_token=existing.claim_token,
+                            tenant_key=request.tenant_key,
+                            occurrence_key=request.occurrence_key,
+                            workflow_id=request.workflow_id,
+                        )
+                    )
+                    replayed_reservations += 1
+                    already_claimed += request_count - 1
+                    continue
                 already_claimed += request_count
                 continue
             if global_available <= 0 or tenant_available[request.tenant_key] <= 0:
                 deferred_for_capacity += request_count
                 continue
 
-            claim_token = uuid.uuid4()
+            claim_token = request.claim_token or uuid.uuid4()
             if existing is None:
                 claim = TemporalSchedulerClaim(
                     scheduler=scheduler,
@@ -281,7 +303,7 @@ def reserve_scheduler_claims(
             tenant_available[request.tenant_key] -= 1
             admitted_per_tenant[request.tenant_key] += 1
 
-        admitted_count = len(reservations)
+        admitted_count = len(reservations) - replayed_reservations
         if admitted_count:
             global_pool.in_flight += admitted_count
             global_pool.save(update_fields=["in_flight", "updated_at"])
@@ -318,10 +340,8 @@ def reserve_scheduler_claims(
         already_claimed=already_claimed,
         deferred_for_capacity=deferred_for_capacity,
     )
-    if result.reservations:
-        record_scheduler_metrics_safely(
-            lambda: metrics.record_admission(scheduler, region, "reserved", len(result.reservations))
-        )
+    if admitted_count:
+        record_scheduler_metrics_safely(lambda: metrics.record_admission(scheduler, region, "reserved", admitted_count))
     if result.already_claimed:
         record_scheduler_metrics_safely(
             lambda: metrics.record_admission(scheduler, region, "already_claimed", result.already_claimed)
@@ -411,6 +431,36 @@ def renew_scheduler_claim(
     if updates:
         record_scheduler_metrics_safely(lambda: _record_claim_transition_for_id(claim_id, metrics, "renewed"))
     return True
+
+
+def defer_scheduler_claim_recovery(
+    claim_id: uuid.UUID,
+    claim_token: uuid.UUID,
+    *,
+    lease_duration: timedelta,
+    error: str,
+    expected_lease_expires_at: datetime,
+    now: datetime | None = None,
+    metrics: SchedulerMetrics = DEFAULT_SCHEDULER_METRICS,
+) -> bool:
+    """Move an uncertain expired claim behind the recovery page without releasing it."""
+
+    _validate_lease_duration(lease_duration)
+    transition_time = _resolve_time(now)
+    deferred_until = transition_time + lease_duration
+    updated = TemporalSchedulerClaim.objects.filter(
+        id=claim_id,
+        claim_token=claim_token,
+        status__in=TemporalSchedulerClaim.ACTIVE_STATUSES,
+        lease_expires_at=expected_lease_expires_at,
+    ).update(
+        lease_expires_at=deferred_until,
+        last_error=error[:MAX_CLAIM_ERROR_CHARS],
+        updated_at=transition_time,
+    )
+    if updated:
+        record_scheduler_metrics_safely(lambda: _record_claim_transition_for_id(claim_id, metrics, "renewed"))
+    return updated == 1
 
 
 def _record_claim_transition_for_id(

@@ -462,6 +462,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             max_subscriptions_per_run=inputs.max_subscriptions_per_run,
             region=inputs.region,
             use_durable_claims=durable_dispatch,
+            claim_token_seed=temporalio.workflow.info().run_id if durable_dispatch else None,
         )
         if durable_dispatch:
             page = await temporalio.workflow.execute_activity(
@@ -515,7 +516,11 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: TrackedSubscriptionInputs) -> None:
-        scheduler_claim = _scheduler_claim_inputs(inputs)
+        scheduler_claim = (
+            _scheduler_claim_inputs(inputs)
+            if temporalio.workflow.patched("subscription-scheduler-claimed-child-v1")
+            else None
+        )
         await _confirm_subscription_scheduler_claim(scheduler_claim)
         schedule_advanced = inputs.trigger_type != SubscriptionTriggerType.SCHEDULED
         assets_with_content = 0
@@ -783,7 +788,9 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     )
                     if caught_error is None:
                         _record_subscription_failure(inputs.slo, SubscriptionFailureStage.RECORD_UPDATE, update_error)
-                        raise
+                        if scheduler_claim is None:
+                            raise
+                        caught_error = update_error
 
             delivery_failed_without_exception = bool(delivery_recipient_results) and all(
                 result["status"] == "failed" for result in delivery_recipient_results
@@ -827,17 +834,25 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         _record_subscription_failure(
                             inputs.slo, SubscriptionFailureStage.SCHEDULE_UPDATE, schedule_error
                         )
-                        raise
+                        if scheduler_claim is None:
+                            raise
+                        caught_error = schedule_error
 
-            claim_finished = await _finish_subscription_scheduler_claim(
-                scheduler_claim,
-                schedule_advanced=schedule_advanced,
-            )
-            if not claim_finished and caught_error is None:
-                caught_error = ApplicationError(
-                    "Scheduled subscription claim could not reach a terminal state",
-                    non_retryable=True,
+            try:
+                claim_finished = await _finish_subscription_scheduler_claim(
+                    scheduler_claim,
+                    schedule_advanced=schedule_advanced,
                 )
+            except Exception as claim_error:
+                temporalio.workflow.logger.exception("subscription_scheduler.claim_finalization_failed")
+                if caught_error is None:
+                    caught_error = claim_error
+            else:
+                if not claim_finished and caught_error is None:
+                    caught_error = ApplicationError(
+                        "Scheduled subscription claim could not reach a terminal state",
+                        non_retryable=True,
+                    )
 
             # Enrich SLO event with per-insight detail (non-user errors only).
             if inputs.slo:
@@ -858,6 +873,12 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         ],
                     }
                 )
+
+            # A return from the delivery body resumes after finally. Raise here,
+            # after all cleanup commands, so a lost claim transition cannot turn
+            # an early abort into a successful workflow.
+            if scheduler_claim is not None and caught_error:
+                raise caught_error
 
         # Re-raise after cleanup completes. We can't re-raise inside the except
         # block because Temporal's SDK blocks new activity scheduling in the
@@ -882,7 +903,11 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: TrackedSubscriptionInputs) -> None:
-        scheduler_claim = _scheduler_claim_inputs(inputs)
+        scheduler_claim = (
+            _scheduler_claim_inputs(inputs)
+            if temporalio.workflow.patched("subscription-scheduler-claimed-child-v1")
+            else None
+        )
         await _confirm_subscription_scheduler_claim(scheduler_claim)
         schedule_advanced = inputs.trigger_type != SubscriptionTriggerType.SCHEDULED
         delivery_id: uuid.UUID | None = None
@@ -1026,7 +1051,9 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     )
                     if caught_error is None:
                         _record_subscription_failure(inputs.slo, SubscriptionFailureStage.RECORD_UPDATE, update_error)
-                        raise
+                        if scheduler_claim is None:
+                            raise
+                        caught_error = update_error
 
             if (
                 delivery_id is not None
@@ -1067,17 +1094,25 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                         _record_subscription_failure(
                             inputs.slo, SubscriptionFailureStage.SCHEDULE_UPDATE, schedule_error
                         )
-                        raise
+                        if scheduler_claim is None:
+                            raise
+                        caught_error = schedule_error
 
-            claim_finished = await _finish_subscription_scheduler_claim(
-                scheduler_claim,
-                schedule_advanced=schedule_advanced,
-            )
-            if not claim_finished and caught_error is None:
-                caught_error = ApplicationError(
-                    "Scheduled subscription claim could not reach a terminal state",
-                    non_retryable=True,
+            try:
+                claim_finished = await _finish_subscription_scheduler_claim(
+                    scheduler_claim,
+                    schedule_advanced=schedule_advanced,
                 )
+            except Exception as claim_error:
+                temporalio.workflow.logger.exception("subscription_scheduler.claim_finalization_failed")
+                if caught_error is None:
+                    caught_error = claim_error
+            else:
+                if not claim_finished and caught_error is None:
+                    caught_error = ApplicationError(
+                        "Scheduled subscription claim could not reach a terminal state",
+                        non_retryable=True,
+                    )
 
             # Auto-disable aborts (consent revoked / prompt invalid) return normally rather
             # than raising, so they record delivery status FAILED but keep the SLO outcome
@@ -1087,6 +1122,9 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             # ProcessSubscriptionWorkflow, so we don't set the outcome here.
             if inputs.slo:
                 inputs.slo.completion_properties.setdefault("resource_type", AI_PROMPT_RESOURCE_TYPE)
+
+            if scheduler_claim is not None and caught_error:
+                raise caught_error
 
         # Re-raise after cleanup completes — Temporal blocks activity scheduling in the
         # finally block while an exception is propagating.
