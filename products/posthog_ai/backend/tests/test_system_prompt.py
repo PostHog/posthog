@@ -32,7 +32,9 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "a conversion between two events" in prompt
         assert "are not substitutes for `metric-list`" in prompt
         assert "product skill's query recipe does not exempt" in prompt
-        assert "Never present a `proposed`, `deprecated`, or drifted metric's result as the answer" in prompt
+        assert "Never present a `proposed` or drifted metric's result as the answer" in prompt
+        assert "Derive from an approved metric when one covers the same measure" in prompt
+        assert "otherwise derive the number yourself" in prompt
 
     def test_includes_core_sections(self):
         prompt = self._build()["append"]
