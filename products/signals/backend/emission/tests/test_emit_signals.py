@@ -536,6 +536,22 @@ class TestSummarizeDescription:
         assert result.description == original[: self.THRESHOLD]
 
     @pytest.mark.asyncio
+    async def test_truncates_when_model_pricing_is_unavailable(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(
+            f"{PIPELINE_MODULE_PATH}.get_model_pricing",
+            AsyncMock(side_effect=LookupError("model is not priced by the gateway catalog")),
+        )
+        client = self._mock_client(["Short summary."])
+        original = "x" * 500
+        output = _make_output(description=original)
+
+        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
+            result = await _summarize_description(client, 1, output, self.PROMPT, self.THRESHOLD)
+
+        assert result.description == original[: self.THRESHOLD]
+        client.messages.create.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_preserves_other_output_fields(self):
         client = self._mock_client(["Short summary."])
         output = SignalEmitterOutput(

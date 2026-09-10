@@ -176,7 +176,23 @@ async def _summarize_description(
         {"role": "user", "content": summarization_prompt.format(description=output.description, max_length=threshold)}
     ]
     extra_headers = _signals_extra_headers(output, stage="summarization", gateway_mode=gateway_mode, team_id=team_id)
-    pricing = await get_model_pricing(LLM_MODEL)
+    try:
+        pricing = await get_model_pricing(LLM_MODEL)
+    except Exception as e:
+        # Fetchers record emission optimistically, so a signal dropped here is lost for good. Hard
+        # truncate the way the exhausted-retry path below does, because calling the model without a
+        # price would charge the team and record the spend as zero.
+        posthoganalytics.capture_exception(
+            e,
+            properties={
+                "ai_product": "signals",
+                "tag": "signals_import",
+                "error_type": "summarization_pricing_unavailable",
+                "source_type": output.source_type,
+                "source_id": output.source_id,
+            },
+        )
+        return dataclasses.replace(output, description=output.description[:threshold])
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
