@@ -120,6 +120,12 @@ from products.customer_analytics.backend.facade.team_extension import TeamCustom
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
+from products.tasks.backend.facade.workflow_tasks import (
+    MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY,
+    MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
+    WORKFLOW_TASK_RATE_CAP_PER_DAY,
+    WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
+)
 from products.tracing.backend.facade.team_extension import TeamTracingConfig
 from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (
     MAX_CUSTOM_BOT_DEFINITIONS,
@@ -861,10 +867,39 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "Transactional emails are exempt from consent enforcement."
         ),
     )
+    workflow_task_rate_limit_per_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY,
+        help_text=(
+            "How many AI tasks one workflow can create in a rolling 24 hours. "
+            f"Null uses the default of {WORKFLOW_TASK_RATE_CAP_PER_DAY}; zero pauses task creation "
+            f"for every workflow in the project. Support raises the limit above "
+            f"{MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY}."
+        ),
+    )
+    workflow_task_team_rate_limit_per_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
+        help_text=(
+            "How many AI tasks all workflows in the project can create together in a rolling "
+            f"24 hours. Null uses the default of {WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY}; zero pauses "
+            f"task creation for the project. Support raises the limit above "
+            f"{MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY}."
+        ),
+    )
 
     class Meta:
         model = TeamWorkflowsConfig
-        fields = ["capture_workflows_engagement_events", "email_tracking_consent_mode"]
+        fields = [
+            "capture_workflows_engagement_events",
+            "email_tracking_consent_mode",
+            "workflow_task_rate_limit_per_day",
+            "workflow_task_team_rate_limit_per_day",
+        ]
 
 
 class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):

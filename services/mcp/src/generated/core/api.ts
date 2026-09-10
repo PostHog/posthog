@@ -95,6 +95,12 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConve
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemSixTypeDefault = `data_warehouse`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin = 0
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMax = 500
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMax = 2500
+
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -2469,6 +2475,22 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .optional()
                     .describe(
                         "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
+                    ),
+                workflow_task_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMax)
+                    .nullish()
+                    .describe(
+                        'How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.'
+                    ),
+                workflow_task_team_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMax)
+                    .nullish()
+                    .describe(
+                        'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
                     ),
             })
             .optional(),

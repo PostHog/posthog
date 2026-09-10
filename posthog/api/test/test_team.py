@@ -20,6 +20,7 @@ from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     TeamSerializer,
+    TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
 )
@@ -1133,6 +1134,30 @@ def team_api_test_factory():
             self._patch_session_replay_config({"ai_config": {"included_event_properties": ["and another"]}})
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
+
+        def test_workflow_task_limits_are_writable_and_clearable(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "workflows_config": {
+                        "workflow_task_rate_limit_per_day": 250,
+                        "workflow_task_team_rate_limit_per_day": 1000,
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            self.team.refresh_from_db()
+            assert self.team.workflows_config.workflow_task_rate_limit_per_day == 250
+            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"workflows_config": {"workflow_task_rate_limit_per_day": None}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            self.team.refresh_from_db()
+            assert self.team.workflows_config.workflow_task_rate_limit_per_day is None
+            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
 
         def test_modifiers_are_merged_on_patch(self) -> None:
             # Set initial modifiers with personsOnEventsMode
@@ -3657,6 +3682,25 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         # widget_domains rides in on a raw JSONField, so entries reach validation untyped.
         serializer = TeamSerializer(data={"conversations_settings": {"widget_domains": [entry]}}, partial=True)
         assert not serializer.is_valid()
+
+    @parameterized.expand(
+        [
+            ["per workflow above the ceiling", "workflow_task_rate_limit_per_day", 501, False],
+            ["per workflow at the ceiling", "workflow_task_rate_limit_per_day", 500, True],
+            ["per workflow negative", "workflow_task_rate_limit_per_day", -1, False],
+            ["per workflow paused", "workflow_task_rate_limit_per_day", 0, True],
+            ["per project above the ceiling", "workflow_task_team_rate_limit_per_day", 2501, False],
+            ["per project at the ceiling", "workflow_task_team_rate_limit_per_day", 2500, True],
+        ]
+    )
+    def test_workflow_task_limit_ceiling(self, _name: str, field: str, value: int, expected_valid: bool) -> None:
+        # The ceiling is the only thing between this settings input and an unbounded daily
+        # spend on agent runs. Support raises a project past it in Django admin, which does
+        # not use this serializer. Asserted on the nested serializer, which is what
+        # `validate_workflows_config` builds, because a value the ceiling accepts goes on to
+        # TeamSerializer's object-level `validate()` and its request context.
+        serializer = TeamWorkflowsConfigSerializer(data={field: value})
+        assert serializer.is_valid() == expected_valid, serializer.errors
 
     def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
         # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation

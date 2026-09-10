@@ -62,6 +62,17 @@ TRIGGER_ACK_EMOJI = "eyes"
 WORKFLOW_TASK_RATE_CAP_PER_DAY = 100
 WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY = 500
 
+# A project raises either cap for itself in project settings, up to this multiple of the
+# default. The ceiling is held by the team API serializer, so support can still take a
+# project past it in Django admin, which does not use that serializer.
+WORKFLOW_TASK_RATE_CAP_SELF_SERVE_MULTIPLIER = 5
+MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY = (
+    WORKFLOW_TASK_RATE_CAP_PER_DAY * WORKFLOW_TASK_RATE_CAP_SELF_SERVE_MULTIPLIER
+)
+MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY = (
+    WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY * WORKFLOW_TASK_RATE_CAP_SELF_SERVE_MULTIPLIER
+)
+
 # The workflow step that waits on the run reads a capped copy of the final message.
 FINAL_MESSAGE_LIMIT_SENTENCE = (
     f"The workflow reads only the first {RESULT_STRING_CAP} characters of your final message, "
