@@ -453,12 +453,19 @@ function ManagedSchemaTable({
                 {
                     title: 'Sync method',
                     key: 'sync_type',
-                    render: (_, schema) =>
-                        schema.sync_type ? (
-                            <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                    render: (_, schema) => {
+                        if (!schema.sync_type) {
+                            return <span className="text-muted">Not set up</span>
+                        }
+                        const tag = <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                        return schema.sync_type_fallback_reason ? (
+                            <Tooltip title={schema.sync_type_fallback_reason}>
+                                <span>{tag}</span>
+                            </Tooltip>
                         ) : (
-                            <span className="text-muted">Not set up</span>
-                        ),
+                            tag
+                        )
+                    },
                 },
                 {
                     title: 'Frequency',
