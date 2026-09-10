@@ -185,6 +185,13 @@ class TestSketchpadStream(BaseTest):
             == b'event: reload\ndata: {"type":"reload","since":0}\n\n'
         )
 
+    def test_a_large_batch_publishes_one_reload_instead_of_one_frame_per_op(self) -> None:
+        publish_ops(self.team.pk, "batch", [op_event(seq) for seq in range(1, 60)])
+
+        entries = redis.get_client().xrange(OPS_STREAM_KEY_PATTERN.format(team_id=self.team.pk, sketchpad_id="batch"))
+        assert [entry[0] for entry in entries] == [b"59-0"]
+        assert json.loads(entries[0][1][b"data"]) == {"type": "reload", "since": 0}
+
     def test_resume_the_stream_still_holds_sends_no_reload(self):
         publish_ops(self.team.pk, "board4", [op_event(12), op_event(13)])
         entries = redis.get_client().xrange(OPS_STREAM_KEY_PATTERN.format(team_id=self.team.pk, sketchpad_id="board4"))

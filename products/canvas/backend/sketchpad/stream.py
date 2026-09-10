@@ -20,6 +20,10 @@ OPS_STREAM_KEY_PATTERN = "sketchpad:{{{team_id}:{sketchpad_id}}}:ops"
 OPS_STREAM_TTL_SECONDS = 60 * 60 * 24
 OPS_STREAM_MAX_LENGTH = 5000
 OPS_STREAM_MAX_PAYLOAD_BYTES = 64 * 1024
+# One request can carry up to 1000 ops. Past this many, readers get a single
+# reload frame and fetch the range themselves, so one call cannot turn into a
+# thousand stream writes fanned out to every reader.
+OPS_STREAM_MAX_ENTRIES_PER_BATCH = 50
 STREAM_BATCH_INTERVAL_SECONDS = 0.1
 
 ACCESS_RECHECK_SECONDS = 15.0
@@ -36,17 +40,27 @@ def publish_ops(team_id: int, sketchpad_id: str, entries: Sequence[Mapping[str, 
     client = redis_module.get_client()
     stream_key = OPS_STREAM_KEY_PATTERN.format(team_id=team_id, sketchpad_id=sketchpad_id)
     try:
-        for entry in entries:
-            payload = json.dumps({"type": OP_EVENT_TYPE, **entry}, separators=(",", ":"))
-            if len(payload.encode()) > OPS_STREAM_MAX_PAYLOAD_BYTES:
-                payload = json.dumps({"type": RELOAD_EVENT_TYPE, "since": entry["seq"] - 1}, separators=(",", ":"))
+        if len(entries) > OPS_STREAM_MAX_ENTRIES_PER_BATCH:
+            reload = json.dumps({"type": RELOAD_EVENT_TYPE, "since": entries[0]["seq"] - 1}, separators=(",", ":"))
             client.xadd(
                 stream_key,
-                {"data": payload},
-                id=f"{entry['seq']}-0",
+                {"data": reload},
+                id=f"{entries[-1]['seq']}-0",
                 maxlen=OPS_STREAM_MAX_LENGTH,
                 approximate=True,
             )
+        else:
+            for entry in entries:
+                payload = json.dumps({"type": OP_EVENT_TYPE, **entry}, separators=(",", ":"))
+                if len(payload.encode()) > OPS_STREAM_MAX_PAYLOAD_BYTES:
+                    payload = json.dumps({"type": RELOAD_EVENT_TYPE, "since": entry["seq"] - 1}, separators=(",", ":"))
+                client.xadd(
+                    stream_key,
+                    {"data": payload},
+                    id=f"{entry['seq']}-0",
+                    maxlen=OPS_STREAM_MAX_LENGTH,
+                    approximate=True,
+                )
         client.expire(stream_key, OPS_STREAM_TTL_SECONDS)
     except redis_exceptions.RedisError as err:
         logger.warning(

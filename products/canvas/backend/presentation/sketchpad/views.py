@@ -55,9 +55,25 @@ from products.canvas.backend.sketchpad.records import with_sketchpad_records
 from products.tasks.backend.facade import api as tasks_facade
 
 
+class SketchpadPerUserThrottle(CanvasStateWriteThrottle):
+    """Keyed on the viewer alone. CanvasStateWriteThrottle keys on the board too,
+    so a caller who moves between boards gets a fresh allowance on each one."""
+
+    def get_cache_key(self, request: Request, view: Any) -> str:
+        ident = request.user.pk if request.user and request.user.is_authenticated else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class SketchpadPresenceThrottle(CanvasStateWriteThrottle):
     scope = "sketchpad_presence"
     rate = "20/sec"
+
+
+class SketchpadPresenceUserThrottle(SketchpadPerUserThrottle):
+    """The ceiling on presence across every board one person holds open."""
+
+    scope = "sketchpad_presence_user"
+    rate = "60/sec"
 
 
 class SketchpadAppendOpsThrottle(CanvasStateWriteThrottle):
@@ -65,16 +81,12 @@ class SketchpadAppendOpsThrottle(CanvasStateWriteThrottle):
     rate = "600/min"
 
 
-class SketchpadCompileThrottle(CanvasStateWriteThrottle):
-    """Per viewer, not per board: one compile call can queue a Celery job, so a
-    caller with many boards must not multiply the work by moving between them."""
+class SketchpadCompileThrottle(SketchpadPerUserThrottle):
+    """One compile call can queue a Celery job, so a caller with many boards must
+    not multiply the work by moving between them."""
 
     scope = "sketchpad_compile"
     rate = "120/min"
-
-    def get_cache_key(self, request: Request, view: Any) -> str:
-        ident = request.user.pk if request.user and request.user.is_authenticated else self.get_ident(request)
-        return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
 class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
@@ -138,7 +150,7 @@ class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action == "presence":
-            return [*super().get_throttles(), SketchpadPresenceThrottle()]
+            return [*super().get_throttles(), SketchpadPresenceThrottle(), SketchpadPresenceUserThrottle()]
         if self.action == "append_ops":
             return [*super().get_throttles(), SketchpadAppendOpsThrottle()]
         if self.action == "compiled":
