@@ -149,6 +149,9 @@ title: 'Daily onboarding watch'
 
 ## Pitfalls
 
+- **A Teams webhook URL is a credential.** Anyone who has it can post in the channel, which is
+  why the API only ever returns its host. Pass it only as `target_value`. Do not echo it back to
+  the user, and do not copy it into a confirmation message, a summary, or an error report.
 - **The kind is immutable.** It's derived from which relation is set, so you can't flip an
   insight or dashboard sub into a prompt sub after the fact (or vice versa) — a PATCH that adds a
   `prompt` to an insight sub is rejected. Pick the right kind at create time.

@@ -89,6 +89,11 @@ The user creates that URL with the Workflows app in the channel they want report
 There is no Teams integration to look up — no `integration_id` is needed.
 A saved URL only ever reads back as its host, so you cannot copy one from an existing subscription.
 
+Treat that URL as a credential. Anyone who has it can post in the channel.
+Pass it only as `target_value`. Do not echo it back to the user, and do not copy it into a
+confirmation message, a summary, or an error report. Name the destination by the host that
+the API returns.
+
 #### Step 3: Identify the target
 
 Get the insight ID or dashboard ID. If the user provides a URL like `/project/2/insights/pKxzopBG`,
