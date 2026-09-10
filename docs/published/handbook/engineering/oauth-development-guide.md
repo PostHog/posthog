@@ -328,12 +328,12 @@ print(tokens)
 
 The redirect also sets the `ph_pending_oauth_connection` cookie so those screens can name the application:
 
-- Value: percent-encoded JSON with `client_name` and `client_id`, plus `logo_uri`, `redirect_host` (host of the registered redirect URI, web redirects only), and `region` (`US` or `EU`) when known. It holds public application metadata only, the same the consent screen shows.
+- Value: percent-encoded JSON with `client_name` and `client_id`, plus `logo_uri` and `redirect_host` (host of the registered redirect URI, web redirects only) when known. It holds public application metadata only, the same the consent screen shows.
 - Scope: `Domain=posthog.com` on PostHog Cloud, so the website can read it too. Host-only on any other host. `SameSite=Lax`, readable by JavaScript, lifetime 60 minutes.
 - Cleared when the person grants or denies the authorization.
 - A CIMD client seen for the first time has no application row yet, so the cookie carries the host of its `client_id` URL as the name.
 
-While the cookie is present, the signup form pins the data region. An OAuth client is registered in one region only, so an account created in the other region could not finish the connection.
+While the cookie is present, the signup form pins the data region to the region the form is served from. An OAuth client is registered in one region only, so an account created in the other region could not finish the connection.
 
 Analytics: the frontend captures `oauth pending connection viewed` with a `screen` property (`login`, `signup`, or `verify_email`). `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it.
 

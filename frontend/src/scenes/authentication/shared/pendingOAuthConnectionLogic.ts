@@ -20,7 +20,6 @@ export interface PendingOAuthConnection {
     logoUri: string | null
     /** Host the person returns to when the connection completes, when the client registered a web redirect. */
     redirectHost: string | null
-    region: string | null
 }
 
 function optionalString(value: unknown): string | null {
@@ -51,7 +50,6 @@ export function readPendingOAuthConnection(): PendingOAuthConnection | null {
         // Only a web image can render on an https page, so data: and http: URIs are dropped.
         logoUri: logoUri?.startsWith('https://') ? logoUri : null,
         redirectHost: optionalString(payload.redirect_host),
-        region: optionalString(payload.region),
     }
 }
 
@@ -121,7 +119,6 @@ export const pendingOAuthConnectionLogic: LogicWrapper<pendingOAuthConnectionLog
                     screen,
                     client_name: pendingConnection.clientName,
                     client_id: pendingConnection.clientId,
-                    region: pendingConnection.region,
                 })
             }
         }),

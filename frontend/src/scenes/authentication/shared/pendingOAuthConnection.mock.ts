@@ -5,7 +5,6 @@ export const PENDING_OAUTH_CONNECTION_FIXTURE = {
     client_id: 'https://claude.example.com/.well-known/oauth-client',
     logo_uri: 'https://claude.example.com/logo.png',
     redirect_host: 'claude.example.com',
-    region: 'US',
 }
 
 /** A string is written raw, so a test can pass a malformed value. An object is encoded the way

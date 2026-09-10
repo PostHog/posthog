@@ -1269,8 +1269,6 @@ def _pending_connection_for_request(request) -> PendingOAuthConnection | None:
     if not client_id:
         return None
 
-    region = cloud_region()
-
     application = (
         OAuthApplication.objects.only("name", "client_id", "logo_uri", "redirect_uris")
         .filter(client_id=client_id)
@@ -1279,9 +1277,7 @@ def _pending_connection_for_request(request) -> PendingOAuthConnection | None:
     if application is None:
         if not is_cimd_client_id(client_id):
             return None
-        return PendingOAuthConnection(
-            client_name=urlparse(client_id).hostname or client_id, client_id=client_id, region=region
-        )
+        return PendingOAuthConnection(client_name=urlparse(client_id).hostname or client_id, client_id=client_id)
 
     redirect_host: str | None = None
     redirect_uri = request.GET.get("redirect_uri")
@@ -1295,7 +1291,6 @@ def _pending_connection_for_request(request) -> PendingOAuthConnection | None:
         client_id=application.client_id,
         logo_uri=application.logo_uri or None,
         redirect_host=redirect_host,
-        region=region,
     )
 
 

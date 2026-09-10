@@ -37,9 +37,6 @@ _MAX_CLIENT_ID_LENGTH = 2048
 _MAX_LOGO_URI_LENGTH = 1024
 _MAX_HOST_LENGTH = 253
 
-# The only regions an authorization request can land on.
-CLOUD_REGIONS = ("US", "EU")
-
 
 def _optional_str(value: object, max_length: int) -> str | None:
     if not isinstance(value, str) or not value or len(value) > max_length:
@@ -56,9 +53,6 @@ class PendingOAuthConnection:
     logo_uri: str | None = None
     # Host of the registered redirect URI the visitor returns to, when it is a web URL.
     redirect_host: str | None = None
-    # Cloud region the authorization request landed on. A signup that switches region would
-    # create the account where this client is not registered, so the signup form pins it.
-    region: str | None = None
 
     def to_cookie_value(self) -> str:
         payload = {
@@ -66,7 +60,6 @@ class PendingOAuthConnection:
             "client_id": self.client_id,
             "logo_uri": _optional_str(self.logo_uri, _MAX_LOGO_URI_LENGTH),
             "redirect_host": self.redirect_host,
-            "region": self.region,
         }
         compact = {key: value for key, value in payload.items() if value is not None}
         # Percent-encoding keeps the value inside the cookie-safe alphabet, and it is what
@@ -92,7 +85,6 @@ class PendingOAuthConnection:
             client_id=client_id,
             logo_uri=_optional_str(payload.get("logo_uri"), _MAX_LOGO_URI_LENGTH),
             redirect_host=_optional_str(payload.get("redirect_host"), _MAX_HOST_LENGTH),
-            region=payload.get("region") if payload.get("region") in CLOUD_REGIONS else None,
         )
 
 

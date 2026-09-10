@@ -29,7 +29,6 @@ describe('pendingOAuthConnectionLogic', () => {
             client_id: CLIENT_ID,
             logo_uri: 'https://claude.example.com/logo.png',
             redirect_host: 'claude.example.com',
-            region: 'US',
         })
         router.actions.push('/login')
         const logic = pendingOAuthConnectionLogic()
@@ -41,7 +40,6 @@ describe('pendingOAuthConnectionLogic', () => {
                 clientId: CLIENT_ID,
                 logoUri: 'https://claude.example.com/logo.png',
                 redirectHost: 'claude.example.com',
-                region: 'US',
             },
         })
         expect(posthog.capture).toHaveBeenCalledTimes(1)
@@ -49,7 +47,6 @@ describe('pendingOAuthConnectionLogic', () => {
             screen: 'login',
             client_name: 'Claude & Co',
             client_id: CLIENT_ID,
-            region: 'US',
         })
     })
 
@@ -93,7 +90,6 @@ describe('pendingOAuthConnectionLogic', () => {
             clientId: 'cursor',
             logoUri: null,
             redirectHost: null,
-            region: null,
         })
     })
 })

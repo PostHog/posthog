@@ -15,7 +15,6 @@ class TestPendingOAuthConnectionCookieValue(SimpleTestCase):
             client_id="https://claude.example.com/.well-known/oauth-client",
             logo_uri="https://claude.example.com/logo.png",
             redirect_host="claude.example.com",
-            region="US",
         )
 
         self.assertEqual(PendingOAuthConnection.from_cookie_value(connection.to_cookie_value()), connection)
