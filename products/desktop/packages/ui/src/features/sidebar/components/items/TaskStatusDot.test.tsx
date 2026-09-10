@@ -19,7 +19,7 @@ const idle: TaskDot = {
 };
 
 describe("TaskStatusDot", () => {
-  it("uses a standard spinner without changing the status column width", () => {
+  it("draws the working ring larger than the column it sits in", () => {
     render(
       <>
         <TaskStatusDot dot={working} />
@@ -30,9 +30,11 @@ describe("TaskStatusDot", () => {
     const column = screen.getByRole("img", { name: "All caught up" }).style
       .width;
     const mark = screen.getByRole("img", { name: "Loading" });
+    const ring = mark.firstElementChild as HTMLElement;
 
     expect(mark.style.width).toBe(column);
-    expect(mark.firstElementChild).toHaveClass("animate-spin");
-    expect(mark.querySelector("svg")).toBeInTheDocument();
+    expect(Number.parseFloat(ring.style.width)).toBeGreaterThan(
+      Number.parseFloat(column),
+    );
   });
 });
