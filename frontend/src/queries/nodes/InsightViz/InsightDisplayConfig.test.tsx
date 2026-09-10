@@ -11,6 +11,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
 import {
+    FunnelsQuery,
     InsightQueryNode,
     LifecycleQuery,
     NodeKind,
@@ -19,7 +20,7 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, InsightShortId } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 
@@ -49,8 +50,19 @@ function makeTrendsQuery(
     }
 }
 
-function makeRetentionQuery(): RetentionQuery {
-    return { kind: NodeKind.RetentionQuery, retentionFilter: {} }
+function makeRetentionQuery(retentionFilter: NonNullable<RetentionQuery['retentionFilter']> = {}): RetentionQuery {
+    return { kind: NodeKind.RetentionQuery, retentionFilter }
+}
+
+function makeFunnelQuery(
+    funnelVizType: FunnelVizType,
+    funnelsFilter: NonNullable<FunnelsQuery['funnelsFilter']> = {}
+): FunnelsQuery {
+    return {
+        kind: NodeKind.FunnelsQuery,
+        series: [...pageviewSeries, ...pageviewSeries],
+        funnelsFilter: { funnelVizType, ...funnelsFilter },
+    }
 }
 
 function makeStickinessQuery(display?: ChartDisplayType): StickinessQuery {
@@ -301,6 +313,17 @@ describe('InsightDisplayConfig', () => {
                 },
             ],
             ['stickiness table', makeStickinessQuery(ChartDisplayType.ActionsTable), { tabs: [], sections: {} }],
+            ['funnel steps', makeFunnelQuery(FunnelVizType.Steps), { tabs: [], sections: {} }],
+            [
+                'funnel trends',
+                makeFunnelQuery(FunnelVizType.Trends),
+                {
+                    tabs: ['General', 'Lines'],
+                    sections: { General: [], Lines: ['Style', 'Overlays'] },
+                    displayItems: ['Show values on series', 'Hide incomplete periods', 'Show annotations'],
+                    overlayItems: ['Show trend lines'],
+                },
+            ],
             [
                 'lifecycle',
                 makeLifecycleQuery(),
@@ -361,6 +384,16 @@ describe('InsightDisplayConfig', () => {
 
             await openOptionsMenu()
             expect(getTabLabels()).toEqual(['General', 'Axes', 'Lines'])
+        })
+
+        // These insights keep the setting on their own filter, not on trendsFilter, so a count term
+        // that reads the wrong one silently returns zero.
+        it.each<[string, InsightQueryNode]>([
+            ['retention', makeRetentionQuery({ showTrendLines: true })],
+            ['funnel trends', makeFunnelQuery(FunnelVizType.Trends, { showAnnotations: false })],
+        ])('counts a non-default option on the %s filter', (_name, query) => {
+            setupAndRender(query)
+            expect(screen.getAllByLabelText('Options')[0]).toHaveTextContent(/\(1\)/)
         })
     })
 
