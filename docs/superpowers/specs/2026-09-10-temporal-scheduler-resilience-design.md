@@ -257,14 +257,9 @@ The 300 default is an operating page, not a recovery envelope. The adaptive foll
 
 ### Logs-alert sizing evidence
 
-The first logs-alert rollout uses the same 300-item baseline page and 1,000-item code-owned hard ceiling. A 30-day production sample of unique logs-alert SLO starts, grouped into the scheduler's one-minute ticks, showed:
+The first logs-alert rollout uses the same 300-item baseline page and 1,000-item code-owned hard ceiling. Production sampling shows that the page covers current steady-state high-percentile demand, while bursts and sustained growth can exceed one page.
 
-| Region | p50 checks/tick | p95 checks/tick | p99 checks/tick | Maximum checks/tick | p99 active teams/tick | Maximum active teams/tick | Maximum checks from one team/tick |
-| ------ | --------------- | --------------- | --------------- | ------------------- | --------------------- | ------------------------- | --------------------------------- |
-| EU     | 80              | 103             | 112             | 510                 | 81                    | 213                       | 20                                |
-| US     | 123             | 174             | 188             | 759                 | 136                   | 353                       | 20                                |
-
-The last complete observed week grew from 808,901 to 899,302 unique EU checks and from 1,256,517 to 1,452,419 unique US checks. The 300-item page covers current steady-state high-percentile demand, while the three-interval recovery rule requires roughly 564 items at the larger current p99. Recovery therefore needs multiple bounded pages behind admission rather than a larger discovery payload. The hard ceiling leaves immediate operator headroom while the shared multi-page controller is rolled out.
+Recovery therefore needs multiple bounded pages behind admission rather than a larger discovery payload. The hard ceiling leaves immediate operator headroom while the shared multi-page controller is rolled out.
 
 ### Worker capacity
 

@@ -345,6 +345,12 @@ class DiscoverCohortsOutput:
 
 
 @dataclasses.dataclass(frozen=True)
+class _DiscoveredCohortsPage:
+    output: DiscoverCohortsOutput
+    discovery_cursor: str
+
+
+@dataclasses.dataclass(frozen=True)
 class EvaluateCohortBatchInput:
     manifests: list[CohortManifest]
 
@@ -386,13 +392,20 @@ async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCoho
     if not input.region.strip() or len(input.region) > 32:
         raise ValueError("region must contain between 1 and 32 characters")
 
-    discovered = await database_sync_to_async_pool(_discover_cohorts_sync)(input)
+    page = await database_sync_to_async_pool(_discover_cohorts_page_sync)(input)
+    discovered = page.output
     selection = await select_items_within_temporal_payload(
         discovered.manifests,
         build_payload=lambda manifests: dataclasses.replace(discovered, manifests=list(manifests)),
         max_items=input.max_alerts_per_run,
     )
     result = dataclasses.replace(discovered, manifests=list(selection.items))
+    if selection.items:
+        await database_sync_to_async_pool(_advance_logs_alert_discovery_cursor)(
+            input.region,
+            page.discovery_cursor,
+            str(selection.items[-1].team_id),
+        )
 
     record_scheduler_metrics_safely(
         lambda: DEFAULT_SCHEDULER_METRICS.observe_payload(
@@ -427,6 +440,18 @@ async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCoho
 
 
 def _discover_cohorts_sync(input: DiscoverCohortsInput | None = None) -> DiscoverCohortsOutput:
+    return _discover_cohorts_page_sync(input).output
+
+
+def _advance_logs_alert_discovery_cursor(region: str, expected_cursor: str, next_cursor: str) -> None:
+    TemporalSchedulerState.objects.filter(
+        scheduler=_LOGS_ALERTS_SCHEDULER_NAME,
+        region=region,
+        discovery_cursor=expected_cursor,
+    ).update(discovery_cursor=next_cursor, updated_at=datetime.now(UTC))
+
+
+def _discover_cohorts_page_sync(input: DiscoverCohortsInput | None = None) -> _DiscoveredCohortsPage:
     input = input or DiscoverCohortsInput()
     now = datetime.now(UTC)
     due_alerts = _due_alerts_qs(now)
@@ -443,8 +468,9 @@ def _discover_cohorts_sync(input: DiscoverCohortsInput | None = None) -> Discove
             region=input.region,
         )
         state = TemporalSchedulerState.objects.select_for_update().get(pk=state.pk)
+        discovery_cursor = state.discovery_cursor
         try:
-            team_cursor = int(state.discovery_cursor or 0)
+            team_cursor = int(discovery_cursor or 0)
         except ValueError:
             team_cursor = 0
 
@@ -468,10 +494,13 @@ def _discover_cohorts_sync(input: DiscoverCohortsInput | None = None) -> Discove
             deferred_teams = deferred_teams or len(teams_before_cursor) > remaining_team_slots
 
         if not selected_team_ids:
-            return DiscoverCohortsOutput(
-                manifests=[],
-                batch_size=MAX_COHORTS_PER_BATCH,
-                oldest_due_at_iso=oldest_due_at.isoformat() if oldest_due_at else None,
+            return _DiscoveredCohortsPage(
+                output=DiscoverCohortsOutput(
+                    manifests=[],
+                    batch_size=MAX_COHORTS_PER_BATCH,
+                    oldest_due_at_iso=oldest_due_at.isoformat() if oldest_due_at else None,
+                ),
+                discovery_cursor=discovery_cursor,
             )
 
         candidate_limit = input.max_alerts_per_run + 1
@@ -533,9 +562,6 @@ def _discover_cohorts_sync(input: DiscoverCohortsInput | None = None) -> Discove
             )
             bounded_candidate_ids = [row[0] for row in cursor.fetchall()]
 
-        state.discovery_cursor = str(selected_team_ids[-1])
-        state.save(update_fields=["discovery_cursor", "updated_at"])
-
     candidate_ids = bounded_candidate_ids[: input.max_alerts_per_run]
     rows_by_id = {
         row["id"]: row
@@ -587,11 +613,14 @@ def _discover_cohorts_sync(input: DiscoverCohortsInput | None = None) -> Discove
     due_items_lower_bound = len(bounded_candidate_ids)
     if deferred_teams:
         due_items_lower_bound = max(due_items_lower_bound, candidate_limit)
-    return DiscoverCohortsOutput(
-        manifests=manifests,
-        batch_size=MAX_COHORTS_PER_BATCH,
-        due_items_lower_bound=due_items_lower_bound,
-        oldest_due_at_iso=oldest_due_at.isoformat() if oldest_due_at else None,
+    return _DiscoveredCohortsPage(
+        output=DiscoverCohortsOutput(
+            manifests=manifests,
+            batch_size=MAX_COHORTS_PER_BATCH,
+            due_items_lower_bound=due_items_lower_bound,
+            oldest_due_at_iso=oldest_due_at.isoformat() if oldest_due_at else None,
+        ),
+        discovery_cursor=discovery_cursor,
     )
 
 
