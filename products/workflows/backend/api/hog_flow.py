@@ -2562,7 +2562,11 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
     )
     enforced = serializers.BooleanField(
         read_only=True,
-        help_text="True when these allowances are applied to sends. False while they are only being measured.",
+        help_text=(
+            "True when the tier is applied to sends, so the hourly and daily limits hold. False while the "
+            "tier is only being measured. The batch audience limit applies either way, and the value above "
+            "is always the one a run stops at."
+        ),
     )
 
 

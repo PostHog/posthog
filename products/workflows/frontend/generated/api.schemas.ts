@@ -1579,7 +1579,7 @@ export interface EmailSendingAllowanceApi {
     readonly emails_sent_last_hour: number
     /** Emails sent by this project's workflows in the last 24 hours. */
     readonly emails_sent_last_day: number
-    /** True when these allowances are applied to sends. False while they are only being measured. */
+    /** True when the tier is applied to sends, so the hourly and daily limits hold. False while the tier is only being measured. The batch audience limit applies either way, and the value above is always the one a run stops at. */
     readonly enforced: boolean
 }
 
