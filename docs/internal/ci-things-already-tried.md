@@ -362,6 +362,9 @@ _Also asked as:_ Docker Hub rate limit in CI, unauthenticated pull limit, DOCKER
 
 ## CI orchestration
 
+Docker/Hobby label events run work only for `hobby-preview` and `no-depot-docker-cache`.
+Other labels use isolated, skipped runs without replacing the required `Build Docker image` check.
+
 ### Move CI from the Depot runners to Blacksmith
 
 **Verdict: rejected** · Apr 2026 to May 2026 · [#54559](https://github.com/PostHog/posthog/pull/54559), removed by [#57991](https://github.com/PostHog/posthog/pull/57991)
