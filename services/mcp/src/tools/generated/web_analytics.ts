@@ -564,6 +564,7 @@ const WebStatsBreakdown = z.enum([
     'FirstPageviewUTMContent',
     'FirstPageviewUTMSourceMediumCampaign',
     'Browser',
+    'InAppBrowser',
     'OS',
     'Viewport',
     'DeviceType',
