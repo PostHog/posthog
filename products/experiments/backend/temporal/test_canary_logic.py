@@ -12,6 +12,7 @@ import requests
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.errors import CHQueryErrorTooManyBytes
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -28,6 +29,7 @@ from products.experiments.backend.temporal.models import (
     OUTCOME_PASS,
     OUTCOME_PATH_FLIP,
     OUTCOME_SKIPPED,
+    OUTCOME_UNCHECKABLE,
     CanaryMetricResult,
     CanaryMetricTarget,
     CanaryOutcome,
@@ -177,6 +179,17 @@ class TestEvaluateCanaryRuns:
     def test_outcomes(self, _name, metric_type, a, b, c, expected):
         verdict = evaluate_canary_runs(metric_type, _snapshot("a", a), _snapshot("b", b), _snapshot("c", c))
         assert verdict.outcome == expected
+
+    @parameterized.expand(
+        [
+            ("stable_pair_is_uncheckable", _BASE, OUTCOME_UNCHECKABLE),
+            ("unstable_pair_still_diverges", {"control": (1005.0, 10000), "test": (1100.0, 10000)}, OUTCOME_DIVERGENCE),
+        ]
+    )
+    def test_missing_direct_run(self, _name, b_variants, expected):
+        verdict = evaluate_canary_runs("funnel", _snapshot("a", _BASE), _snapshot("b", b_variants), None)
+        assert verdict.outcome == expected
+        assert verdict.correctness_deviation is None
 
     def test_path_flip_is_not_divergence(self):
         diverged = {"control": (1300.0, 12000), "test": (1100.0, 10000)}
@@ -469,6 +482,30 @@ class TestRunMetricCanary(BaseTest):
             side_effect=RuntimeError("clickhouse timeout"),
         ):
             with pytest.raises(RuntimeError):
+                run_metric_canary_sync(self._target(experiment, metric["uuid"]))
+
+    def test_direct_scan_byte_cap_is_uncheckable_not_error(self):
+        metric = _funnel_metric()
+        experiment = self._experiment([metric])
+        side_effects = [
+            _snapshot("a", _BASE),
+            _snapshot("b", _BASE),
+            CHQueryErrorTooManyBytes("byte cap", code=307),
+        ]
+        with patch("products.experiments.backend.temporal.canary_logic._execute_canary_run", side_effect=side_effects):
+            result = run_metric_canary_sync(self._target(experiment, metric["uuid"]))
+
+        assert result.outcome == OUTCOME_UNCHECKABLE
+        assert len(result.runs) == 2
+
+    def test_precomputed_run_byte_cap_still_raises(self):
+        metric = _funnel_metric()
+        experiment = self._experiment([metric])
+        with patch(
+            "products.experiments.backend.temporal.canary_logic._execute_canary_run",
+            side_effect=CHQueryErrorTooManyBytes("byte cap", code=307),
+        ):
+            with pytest.raises(CHQueryErrorTooManyBytes):
                 run_metric_canary_sync(self._target(experiment, metric["uuid"]))
 
 
