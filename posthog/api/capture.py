@@ -36,9 +36,11 @@ from requests.exceptions import RequestException
 from posthog.dataclasses import frozen
 from posthog.security.outbound_proxy import internal_requests_session
 from posthog.settings.ingestion import (
+    CAPTURE_AI_INTERNAL_URL,
     CAPTURE_INTERNAL_BATCH_CHUNK_SIZE,
     CAPTURE_INTERNAL_MAX_WORKERS,
     CAPTURE_INTERNAL_URL,
+    CAPTURE_V1_AI_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
     CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS,
@@ -52,6 +54,10 @@ logger = structlog.get_logger(__name__)
 
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event", *SESSION_RECORDING_DEDICATED_KAFKA_EVENTS)
+
+# Events whose names carry this prefix belong on the AI lane (capture-ai), not the
+# analytics lane. See the lane check in `prepare_capture_internal_batch`.
+AI_EVENT_NAME_PREFIX = "$ai_"
 
 # --------------------------------------------------------------------------- #
 # Constants
@@ -296,14 +302,22 @@ def _normalize_options_and_properties(
 # --------------------------------------------------------------------------- #
 
 
-def _validate_batch_inputs(events: list[dict[str, Any]], *, token: str, event_source: str) -> None:
+def _lane_fn_name(ai_lane: bool) -> str:
+    """Name the entry point the caller actually used, so an error points at their code."""
+    return "capture_ai_internal" if ai_lane else "capture_internal"
+
+
+def _validate_batch_inputs(
+    events: list[dict[str, Any]], *, token: str, event_source: str, ai_lane: bool = False
+) -> None:
     """Validate required batch-level inputs. Raises CaptureInternalError on failure."""
+    fn = _lane_fn_name(ai_lane)
     if not event_source:
-        raise CaptureInternalError("capture_internal: event_source is required (identifies the submitting call site)")
+        raise CaptureInternalError(f"{fn}: event_source is required (identifies the submitting call site)")
     if not token:
-        raise CaptureInternalError(f"capture_internal ({event_source}): API token is required")
+        raise CaptureInternalError(f"{fn} ({event_source}): API token is required")
     if not events:
-        raise CaptureInternalError(f"capture_internal ({event_source}): at least one event is required")
+        raise CaptureInternalError(f"{fn} ({event_source}): at least one event is required")
 
 
 def prepare_capture_internal_batch(
@@ -313,13 +327,21 @@ def prepare_capture_internal_batch(
     event_source: str,
     historical_migration: bool = False,
     process_person_profile: bool = False,
+    ai_lane: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     """Build a v1 batch envelope from caller-supplied event dicts.
 
     Returns ``(payload, ordered_uuids)`` so callers can correlate the
     results map.
+
+    ``ai_lane`` selects which lane the batch is bound for and, with it, which
+    event names are admissible.  The two lanes are mutually exclusive: capture's
+    v1 endpoints each refuse the other's traffic, so sending an event to the
+    wrong one earns a per-event ``misrouted_event`` drop.  Catching it here
+    turns that into an immediate, actionable error at the call site instead.
     """
-    _validate_batch_inputs(events, token=token, event_source=event_source)
+    _validate_batch_inputs(events, token=token, event_source=event_source, ai_lane=ai_lane)
+    fn = _lane_fn_name(ai_lane)
 
     batch: list[dict[str, Any]] = []
     uuids: list[str] = []
@@ -327,11 +349,27 @@ def prepare_capture_internal_batch(
     for ev in events:
         event_name: str = ev.get("event", "")
         if not event_name:
-            raise CaptureInternalError(f"capture_internal ({event_source}): event name is required")
+            raise CaptureInternalError(f"{fn} ({event_source}): event name is required")
 
         if event_name in SESSION_RECORDING_EVENT_NAMES:
             raise CaptureInternalError(
-                f"capture_internal ({event_source}): '{event_name}' is a replay event; use the replay capture path"
+                f"{fn} ({event_source}): '{event_name}' is a replay event; use the replay capture path"
+            )
+
+        # Lane check. Deliberately the `$ai_` prefix, not capture's narrower
+        # 11-name allowlist: keeping a copy of that list in Django would be a
+        # fourth place to drift, and every AI event this codebase emits is
+        # allowlisted anyway. A prefixed name that capture does not recognise
+        # still reaches the AI endpoint and is reported there as
+        # `misrouted_event` -- the authority stays server-side either way.
+        is_ai_event_name = event_name.startswith(AI_EVENT_NAME_PREFIX)
+        if ai_lane and not is_ai_event_name:
+            raise CaptureInternalError(
+                f"capture_ai_internal ({event_source}): '{event_name}' is not an AI event; use capture_internal"
+            )
+        if is_ai_event_name and not ai_lane:
+            raise CaptureInternalError(
+                f"capture_internal ({event_source}): '{event_name}' is an AI event; use capture_ai_internal"
             )
 
         distinct_id: str = ev.get("distinct_id", "")
@@ -397,6 +435,7 @@ def _submit_batch_chunk(
     process_person_profile: bool,
     max_attempts: int,
     timeout: float,
+    ai_lane: bool = False,
 ) -> CaptureInternalResult:
     """Submit a single chunk of events to the v1 batch endpoint with retry logic.
 
@@ -409,9 +448,15 @@ def _submit_batch_chunk(
         event_source=event_source,
         historical_migration=historical_migration,
         process_person_profile=process_person_profile,
+        ai_lane=ai_lane,
     )
 
-    url = f"{CAPTURE_INTERNAL_URL}{CAPTURE_V1_INTERNAL_ENDPOINT}"
+    # A different deployment, not just a different path: `/i/v1/ai/events` is
+    # mounted only on capture-ai.
+    if ai_lane:
+        url = f"{CAPTURE_AI_INTERNAL_URL}{CAPTURE_V1_AI_INTERNAL_ENDPOINT}"
+    else:
+        url = f"{CAPTURE_INTERNAL_URL}{CAPTURE_V1_INTERNAL_ENDPOINT}"
 
     CAPTURE_V1_BATCH_SUBMITTED.labels(event_source=event_source).inc()
     CAPTURE_V1_EVENT_SUBMITTED.labels(event_source=event_source).inc(len(uuids))
@@ -562,6 +607,77 @@ def _merge_results(chunk_results: list[CaptureInternalResult]) -> CaptureInterna
     return merged
 
 
+def _capture_batch_impl(
+    *,
+    events: list[dict[str, Any]],
+    token: str,
+    event_source: str,
+    historical_migration: bool,
+    process_person_profile: bool,
+    max_attempts: int,
+    timeout: float,
+    ai_lane: bool,
+) -> CaptureInternalResult:
+    """Shared body of capture_batch_internal and capture_batch_ai_internal.
+
+    The lane is not a public argument: callers pick it by choosing an entry point,
+    so there is exactly one way to reach each lane.
+    """
+    _validate_batch_inputs(events, token=token, event_source=event_source)
+
+    chunk_size = max(CAPTURE_INTERNAL_BATCH_CHUNK_SIZE, 1)
+
+    def _submit_chunk(chunk_events: list[dict[str, Any]]) -> CaptureInternalResult:
+        return _submit_batch_chunk(
+            events=chunk_events,
+            token=token,
+            event_source=event_source,
+            historical_migration=historical_migration,
+            process_person_profile=process_person_profile,
+            max_attempts=max_attempts,
+            timeout=timeout,
+            ai_lane=ai_lane,
+        )
+
+    # Hot path: small batch — submit directly, no threading overhead.
+    if len(events) <= chunk_size:
+        return _submit_chunk(events)
+
+    # Large batch: chunk and fan out concurrently.
+    chunks = [events[i : i + chunk_size] for i in range(0, len(events), chunk_size)]
+    logger.info(
+        "capture_batch_internal_chunked",
+        event_source=event_source,
+        total_events=len(events),
+        chunks=len(chunks),
+        chunk_size=chunk_size,
+        max_workers=CAPTURE_INTERNAL_MAX_WORKERS,
+    )
+
+    chunk_results: list[CaptureInternalResult] = []
+    with ThreadPoolExecutor(max_workers=CAPTURE_INTERNAL_MAX_WORKERS) as executor:
+        futures = {executor.submit(_submit_chunk, chunk): i for i, chunk in enumerate(chunks)}
+        for future in as_completed(futures):
+            chunk_idx = futures[future]
+            try:
+                chunk_results.append(future.result())
+            except Exception as exc:
+                logger.exception(
+                    "capture_batch_internal_chunk_error",
+                    event_source=event_source,
+                    chunk=chunk_idx,
+                    error=str(exc),
+                )
+                chunk_results.append(
+                    CaptureInternalResult(
+                        status_code=0,
+                        error={"error": "chunk_exception", "error_description": str(exc)},
+                    )
+                )
+
+    return _merge_results(chunk_results)
+
+
 def capture_batch_internal(
     *,
     events: list[dict[str, Any]],
@@ -670,58 +786,16 @@ def capture_batch_internal(
             (the HTTP status from capture-rs, or 0 for client-side/transport errors).
     """
     # Validate early so we fail fast before chunking/fan-out, not inside a worker thread.
-    _validate_batch_inputs(events, token=token, event_source=event_source)
-
-    chunk_size = max(CAPTURE_INTERNAL_BATCH_CHUNK_SIZE, 1)
-
-    def _submit_chunk(chunk_events: list[dict[str, Any]]) -> CaptureInternalResult:
-        return _submit_batch_chunk(
-            events=chunk_events,
-            token=token,
-            event_source=event_source,
-            historical_migration=historical_migration,
-            process_person_profile=process_person_profile,
-            max_attempts=max_attempts,
-            timeout=timeout,
-        )
-
-    # Hot path: small batch — submit directly, no threading overhead.
-    if len(events) <= chunk_size:
-        return _submit_chunk(events)
-
-    # Large batch: chunk and fan out concurrently.
-    chunks = [events[i : i + chunk_size] for i in range(0, len(events), chunk_size)]
-    logger.info(
-        "capture_batch_internal_chunked",
+    return _capture_batch_impl(
+        events=events,
+        token=token,
         event_source=event_source,
-        total_events=len(events),
-        chunks=len(chunks),
-        chunk_size=chunk_size,
-        max_workers=CAPTURE_INTERNAL_MAX_WORKERS,
+        historical_migration=historical_migration,
+        process_person_profile=process_person_profile,
+        max_attempts=max_attempts,
+        timeout=timeout,
+        ai_lane=False,
     )
-
-    chunk_results: list[CaptureInternalResult] = []
-    with ThreadPoolExecutor(max_workers=CAPTURE_INTERNAL_MAX_WORKERS) as executor:
-        futures = {executor.submit(_submit_chunk, chunk): i for i, chunk in enumerate(chunks)}
-        for future in as_completed(futures):
-            chunk_idx = futures[future]
-            try:
-                chunk_results.append(future.result())
-            except Exception as exc:
-                logger.exception(
-                    "capture_batch_internal_chunk_error",
-                    event_source=event_source,
-                    chunk=chunk_idx,
-                    error=str(exc),
-                )
-                chunk_results.append(
-                    CaptureInternalResult(
-                        status_code=0,
-                        error={"error": "chunk_exception", "error_description": str(exc)},
-                    )
-                )
-
-    return _merge_results(chunk_results)
 
 
 def _parse_retry_after(header_value: Optional[str]) -> float:
@@ -738,6 +812,56 @@ def _parse_retry_after(header_value: Optional[str]) -> float:
 # --------------------------------------------------------------------------- #
 # Convenience single-event wrapper
 # --------------------------------------------------------------------------- #
+
+
+def _capture_single_impl(
+    *,
+    token: str,
+    event_name: str,
+    event_source: str,
+    distinct_id: str,
+    timestamp: Optional[str | datetime],
+    properties: Optional[dict[str, Any]],
+    options: Optional[dict[str, Any]],
+    session_id: Optional[str],
+    window_id: Optional[str],
+    event_uuid: Optional[str],
+    process_person_profile: bool,
+    historical_migration: bool,
+    timeout: float,
+    ai_lane: bool,
+) -> CaptureInternalResult:
+    """Shared body of capture_internal and capture_ai_internal.
+
+    The lane is not a public argument: callers pick it by choosing an entry point,
+    so there is exactly one way to reach each lane.
+    """
+    event_dict: dict[str, Any] = {
+        "event": event_name,
+        "distinct_id": distinct_id,
+        "properties": properties or {},
+    }
+    if timestamp is not None:
+        event_dict["timestamp"] = timestamp
+    if options is not None:
+        event_dict["options"] = options
+    if session_id is not None:
+        event_dict["session_id"] = session_id
+    if window_id is not None:
+        event_dict["window_id"] = window_id
+    if event_uuid is not None:
+        event_dict["event_uuid"] = event_uuid
+
+    return _capture_batch_impl(
+        events=[event_dict],
+        token=token,
+        event_source=event_source,
+        historical_migration=historical_migration,
+        process_person_profile=process_person_profile,
+        max_attempts=CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
+        timeout=timeout,
+        ai_lane=ai_lane,
+    )
 
 
 def capture_internal(
@@ -815,27 +939,111 @@ def capture_internal(
             ``.status_code`` attribute (HTTP status from capture-rs, or 0 for client-side/
             transport errors) so callers can propagate into their own HTTP responses.
     """
-    event_dict: dict[str, Any] = {
-        "event": event_name,
-        "distinct_id": distinct_id,
-        "properties": properties or {},
-    }
-    if timestamp is not None:
-        event_dict["timestamp"] = timestamp
-    if options is not None:
-        event_dict["options"] = options
-    if session_id is not None:
-        event_dict["session_id"] = session_id
-    if window_id is not None:
-        event_dict["window_id"] = window_id
-    if event_uuid is not None:
-        event_dict["event_uuid"] = event_uuid
+    return _capture_single_impl(
+        token=token,
+        event_name=event_name,
+        event_source=event_source,
+        distinct_id=distinct_id,
+        timestamp=timestamp,
+        properties=properties,
+        options=options,
+        session_id=session_id,
+        window_id=window_id,
+        event_uuid=event_uuid,
+        process_person_profile=process_person_profile,
+        historical_migration=historical_migration,
+        timeout=timeout,
+        ai_lane=False,
+    )
 
-    return capture_batch_internal(
-        events=[event_dict],
+
+def capture_ai_internal(
+    *,
+    token: str,
+    event_name: str,
+    event_source: str,
+    distinct_id: str,
+    timestamp: Optional[str | datetime] = None,
+    properties: Optional[dict[str, Any]] = None,
+    options: Optional[dict[str, Any]] = None,
+    event_uuid: Optional[str] = None,
+    process_person_profile: bool = False,
+    timeout: float = 2,
+) -> CaptureInternalResult:
+    """
+    capture_ai_internal is capture_internal for the AI lane.  Use it for every `$ai_*`
+    event submitted from the Django app on behalf of a customer team.
+
+    Same arguments, return value, retry behaviour and per-event result semantics as
+    capture_internal — see its docstring.  The difference is the destination:
+    `/i/v1/ai/events` on capture-ai rather than `/i/v1/analytics/events` on
+    capture-analytics.  That deployment is configured for AI traffic: an 8MiB per-event
+    ceiling instead of 983040 bytes, and a direct produce to the AI topic.
+
+    The two lanes are mutually exclusive and each refuses the other's traffic, so:
+
+      * a non-`$ai_` event name here raises CaptureInternalError, and
+      * an `$ai_` event name passed to capture_internal raises likewise.
+
+    Both are client-side errors raised before any HTTP call, so a misrouted call site
+    fails loudly at the point of the mistake rather than as a per-event drop later.
+
+    ``historical_migration`` is not offered: AI backfills do not run through this path.
+
+    Args:
+        see capture_internal.  ``session_id`` / ``window_id`` are omitted because they are
+        replay concepts and carry no meaning on the AI lane.
+
+    Returns:
+        CaptureInternalResult with per-event outcome, exactly as capture_internal.
+
+    Raises:
+        CaptureInternalError: on client-side validation failures — including a non-AI
+            event name — or HTTP/transport errors.
+    """
+    return _capture_single_impl(
+        token=token,
+        event_name=event_name,
+        event_source=event_source,
+        distinct_id=distinct_id,
+        timestamp=timestamp,
+        properties=properties,
+        options=options,
+        session_id=None,
+        window_id=None,
+        event_uuid=event_uuid,
+        process_person_profile=process_person_profile,
+        historical_migration=False,
+        timeout=timeout,
+        ai_lane=True,
+    )
+
+
+def capture_batch_ai_internal(
+    *,
+    events: list[dict[str, Any]],
+    token: str,
+    event_source: str,
+    process_person_profile: bool = False,
+    max_attempts: int = CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
+    timeout: float = 2,
+) -> CaptureInternalResult:
+    """
+    capture_batch_ai_internal is capture_batch_internal for the AI lane.
+
+    Same chunking, concurrency, retry rounds and per-event result merging — see
+    capture_batch_internal's docstring.  Every event in the batch must have an `$ai_`
+    prefixed name; one that does not raises CaptureInternalError before anything is sent.
+
+    ``historical_migration`` is not offered: AI backfills do not run through this path.
+    """
+    return _capture_batch_impl(
+        events=events,
         token=token,
         event_source=event_source,
-        historical_migration=historical_migration,
+        historical_migration=False,
         process_person_profile=process_person_profile,
+        max_attempts=max_attempts,
         timeout=timeout,
+        ai_lane=True,
     )
