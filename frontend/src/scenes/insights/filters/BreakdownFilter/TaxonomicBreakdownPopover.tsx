@@ -34,7 +34,7 @@ export const TaxonomicBreakdownPopover = ({
     // allEventNames resolves action series through actionsModel, which the shared insight logic does not mount
     useMountedLogic(actionsModel)
     const { insightProps } = useValues(insightLogic)
-    const { allEventNames, query, hasDataWarehouseSeries, dataWarehouseSeriesTableNames } = useValues(
+    const { allEventNames, query, hasDataWarehouseSeries, dataWarehouseSeriesTableNames, isTrends } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { databaseLoading } = useValues(databaseTableListLogic)
@@ -48,7 +48,12 @@ export const TaxonomicBreakdownPopover = ({
     if (hasDataWarehouseSeries) {
         taxonomicGroupTypes = [
             TaxonomicFilterGroupType.DataWarehouseProperties,
-            TaxonomicFilterGroupType.HogQLExpression,
+            // A funnel evaluates a SQL expression breakdown on its events steps only. On a warehouse
+            // step the breakdown column falls back to an empty value, so an all-warehouse funnel
+            // collapses into one empty group, and on a mixed funnel the expression resolves against
+            // `events`, where a warehouse column does not exist. Trends parses the expression in the
+            // series' own scope, so the escape hatch works there.
+            ...(isTrends ? [TaxonomicFilterGroupType.HogQLExpression] : []),
         ]
     } else if (taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         taxonomicGroupTypes = [TaxonomicFilterGroupType.CohortsWithAllUsers]
