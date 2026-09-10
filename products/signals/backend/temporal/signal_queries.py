@@ -361,8 +361,15 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
                     distance=float(1 - np.dot(embedding, handoff_embedding) / denominator),
                 )
             )
-        candidates.sort(key=lambda candidate: candidate.distance)
-        candidates = candidates[: input.limit]
+        # A handoff stays pending from its publication until its finalizer releases the key, so for
+        # that window the same signal arrives from both ClickHouse and object storage. Count it once,
+        # or the pair takes two of the caller's candidate slots and pushes out a distinct signal.
+        closest: dict[str, SignalCandidate] = {}
+        for candidate in candidates:
+            best = closest.get(candidate.signal_id)
+            if best is None or candidate.distance < best.distance:
+                closest[candidate.signal_id] = candidate
+        candidates = sorted(closest.values(), key=lambda candidate: candidate.distance)[: input.limit]
 
         logger.debug(
             f"Found {len(candidates)} candidate signals for team {input.team_id}",

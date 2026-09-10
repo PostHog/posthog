@@ -404,6 +404,48 @@ async def test_semantic_search_drops_handoffs_whose_report_is_deleted(ateam, sta
     assert len(result.candidates) == expected_candidates
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_semantic_search_counts_a_signal_once_while_it_sits_in_both_stores(ateam) -> None:
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.READY, total_weight=1.0, signal_count=1
+    )
+    signal_id = str(uuid.uuid4())
+    handoff = SignalHandoff(
+        team_id=ateam.pk,
+        signal=SignalData(
+            signal_id=signal_id,
+            content="the published signal",
+            source_product="github",
+            source_type="issue",
+            source_id="42",
+            weight=1.0,
+            timestamp=datetime.now(UTC),
+            metadata={"report_id": str(report.id)},
+        ),
+        embedding=[1.0, 0.0],
+        published=True,
+    )
+    clickhouse_row = (signal_id, "the published signal", str(report.id), "github", "issue", 0.2)
+
+    with (
+        patch(
+            f"{QUERIES_MODULE}.execute_hogql_query_with_retry",
+            AsyncMock(return_value=SimpleNamespace(results=[clickhouse_row])),
+        ),
+        patch(f"{QUERIES_MODULE}.read_handoff", AsyncMock(return_value=handoff)),
+    ):
+        result = await ActivityEnvironment().run(
+            run_signal_semantic_search_activity,
+            RunSignalSemanticSearchInput(
+                team_id=ateam.pk, embedding=[1.0, 0.0], pending_signal_keys=[f"signals/processing/{ateam.pk}/key.json"]
+            ),
+        )
+
+    assert [candidate.signal_id for candidate in result.candidates] == [signal_id]
+    assert result.candidates[0].distance == 0.0
+
+
 class TestParseSignalRow:
     def test_carries_only_the_metadata_the_research_selection_reads(self) -> None:
         metadata = {
