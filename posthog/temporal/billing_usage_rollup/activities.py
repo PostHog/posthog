@@ -7,7 +7,7 @@ from temporalio import activity
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.models.usage_ingestion.billing_usage_records import BILLING_USAGE_RECORDS_DAILY_ROLLUP_SQL
+from posthog.models.usage_ingestion.billing_usage_records import BILLING_USAGE_RECORDS_HOURLY_ROLLUP_SQL
 from posthog.temporal.billing_usage_rollup.types import BillingUsageRecordsRollupInput
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -22,7 +22,7 @@ def rollup_billing_usage_records_day(day: date) -> None:
 
     with tags_context(product=Product.BILLING, feature=Feature.BILLING_ETL, workload=Workload.OFFLINE.value):
         sync_execute(
-            BILLING_USAGE_RECORDS_DAILY_ROLLUP_SQL(),
+            BILLING_USAGE_RECORDS_HOURLY_ROLLUP_SQL(),
             {"day_start": day_start, "day_end": day_end, "rolled_up_at": datetime.now(UTC)},
             workload=Workload.OFFLINE,
         )
