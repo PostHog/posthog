@@ -32,7 +32,7 @@ import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLab
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { DonutCenterLabel } from './DonutCenterLabel'
-import { buildTrendsPieSeries } from './trendsPieTransforms'
+import { buildTrendsPieSeries, sumTrendsPieSeries } from './trendsPieTransforms'
 
 interface TrendsPieChartProps {
     context?: QueryContext<InsightVizNode>
@@ -124,10 +124,8 @@ export function TrendsPieChart({
         [indexedResults, getTrendsHidden]
     )
 
-    const total = useMemo(
-        () => visibleResults.reduce((acc: number, r: IndexedTrendResult) => acc + (r.aggregated_value ?? 0), 0),
-        [visibleResults]
-    )
+    // Read the total off the same series the chart draws — see `sumTrendsPieSeries`.
+    const total = useMemo(() => sumTrendsPieSeries(series, legendConfig.hiddenKeys), [series, legendConfig.hiddenKeys])
 
     const valueFormatter = useCallback(
         (v: number) => formatAggregationAxisValue(trendsFilter, v, baseCurrency),

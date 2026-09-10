@@ -155,6 +155,9 @@ class TestWidgetGeneration(SimpleTestCase):
         assert "THREE.CanvasTexture" in prompt
         assert "give every planet a distinct procedural surface" in prompt
         assert "choose encodings that fit the data" in prompt
+        assert "Derive every total, subtotal, percentage, and other aggregate from the rows the widget loaded" in prompt
+        assert "Use one denominator for a group of percentages" in prompt
+        assert "label the aggregate as partial and give both counts" in prompt
         assert "Fill 100% of the available width and height" in prompt
         assert "ResizeObserver" in prompt
         assert "Always provide controls for interacting with the visualization" in prompt

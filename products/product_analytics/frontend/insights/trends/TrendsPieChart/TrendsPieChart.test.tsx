@@ -5,6 +5,7 @@ import { cleanup, screen, waitFor } from '@testing-library/react'
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
+import type { MockResponse } from '~/test/insight-testing'
 import { buildTrendsQuery, legend, personsModal, renderInsight } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
 
@@ -73,6 +74,38 @@ describe('TrendsPieChart (ActionsPie)', () => {
             { timeout: 5000 }
         )
         expect([...sliceLabels()].sort()).toEqual([...expectedLabels].sort())
+    })
+
+    // A formula series can land on a negative value. The pie has no negative wedge to draw, so
+    // the layout clamps that magnitude to 0. The headline total must clamp it too, or the number
+    // above the pie disagrees with the slices under it and the shares pass 100%.
+    it('leaves a negative slice out of the headline total, matching the drawn slices', async () => {
+        const withNegativeSlice: MockResponse = {
+            match: () => true,
+            response: {
+                results: [
+                    { label: 'Spike', aggregated_value: 1438 },
+                    { label: 'Thistle', aggregated_value: -325 },
+                    { label: 'Bramble', aggregated_value: 155 },
+                ].map((r, order) => ({
+                    action: { id: '$napped', type: 'events', name: 'Napped', order },
+                    order,
+                    label: r.label,
+                    count: r.aggregated_value,
+                    aggregated_value: r.aggregated_value,
+                    data: [r.aggregated_value],
+                    labels: ['Day 1'],
+                    days: ['2024-01-01'],
+                    breakdown_value: r.label,
+                })),
+            } as never,
+        }
+        renderInsight({ query: pieByHedgehog(), mocks: { additionalMockResponses: [withNegativeSlice] } })
+        await screen.findByLabelText(/pie chart with/i, undefined, { timeout: 5000 })
+
+        // 1438 + 155 — the two slices the pie draws, without the negative one.
+        await screen.findByText('1,593', undefined, { timeout: 5000 })
+        expect(screen.queryByText('1,268')).not.toBeInTheDocument()
     })
 
     describe('quill in-chart legend', () => {
