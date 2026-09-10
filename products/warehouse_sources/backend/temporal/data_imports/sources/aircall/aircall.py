@@ -1,7 +1,8 @@
 import logging
 import dataclasses
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from requests import Request, Response
@@ -9,6 +10,7 @@ from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.settings import (
     AIRCALL_ENDPOINTS,
+    PAGE_SIZE,
     AircallEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -16,7 +18,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -24,8 +33,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 logger = logging.getLogger(__name__)
 
 AIRCALL_BASE_URL = "https://api.aircall.io/v1"
-# Aircall caps list pages at 50 items.
-PAGE_SIZE = 50
 # Aircall refuses to serve any record past the 10,000th of a single query and answers with a
 # 400. It keeps advertising a `meta.next_page_link` across that boundary, so the link cannot be
 # followed blindly: the offset it points at has to be range-checked first.
@@ -223,6 +230,66 @@ def validate_credentials(api_id: str, api_token: str) -> bool:
     return ok
 
 
+def _client_config(api_id: str, api_token: str, paginator: BasePaginator) -> ClientConfig:
+    return {
+        "base_url": AIRCALL_BASE_URL,
+        "headers": {"Accept": "application/json"},
+        # Basic auth via the framework so the token is redacted from logs.
+        "auth": {"type": "http_basic", "username": api_id, "password": api_token},
+        "paginator": paginator,
+    }
+
+
+def _fanout_source(
+    api_id: str,
+    api_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    """Fan a per-call Conversation Intelligence endpoint out over the calls list.
+
+    The parent calls list is re-fetched each sync (there is no incremental filter on the child
+    sub-resource), so the parent keeps the calls paginator to page past the 10k cap and reach
+    every call. The child returns one flat object per call, so it needs a single-page paginator
+    and the whole body as the row — the parent and child therefore run different paginators,
+    set per endpoint rather than on the shared client.
+    """
+    config = AIRCALL_ENDPOINTS[endpoint]
+    assert config.fanout is not None
+    calls_config = AIRCALL_ENDPOINTS[config.fanout.parent_name]
+    parent_paginator = AircallPaginator(calls_config, calls_config.reanchor_field, from_value=None)
+
+    dependent_resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=AIRCALL_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(api_id, api_token, SinglePagePaginator()),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            # The child has no server-side time filter, so this fan-out is always full refresh.
+            db_incremental_field_last_value=None,
+            should_use_incremental_field=False,
+            page_size_param="per_page",
+            parent_endpoint_extra={"paginator": parent_paginator, "data_selector": calls_config.data_key},
+            child_endpoint_extra={"paginator": SinglePagePaginator(), "data_selector": config.data_key},
+        ),
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: dependent_resource,
+        primary_keys=[config.primary_key],
+        # Child rows arrive in the parent's ascending-by-started_at order.
+        sort_mode="asc",
+        partition_count=1,
+        partition_size=1,
+    )
+
+
 def aircall_source(
     api_id: str,
     api_token: str,
@@ -235,6 +302,9 @@ def aircall_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = AIRCALL_ENDPOINTS[endpoint]
+
+    if config.fanout is not None:
+        return _fanout_source(api_id, api_token, endpoint, team_id, job_id)
 
     cursor_field = incremental_field or config.reanchor_field
     from_value = _to_epoch(db_incremental_field_last_value) if should_use_incremental_field else None

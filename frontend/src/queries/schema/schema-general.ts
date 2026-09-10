@@ -9548,6 +9548,9 @@ export const externalDataSources = [
     'Tenjin',
     'Folk',
     'Cybersource',
+    'GoogleAdSense',
+    'Sequenzy',
+    'Skio',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
