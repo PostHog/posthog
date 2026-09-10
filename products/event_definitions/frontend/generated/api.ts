@@ -56,6 +56,9 @@ export const getEventDefinitionsListUrl = (projectId: string, params?: EventDefi
         : `/api/projects/${projectId}/event_definitions/`
 }
 
+/**
+ * List the event definitions of a project. On projects with more than 50000 event definitions `count` is capped at 10000 and the default ordering is by name.
+ */
 export const eventDefinitionsList = async (
     projectId: string,
     params?: EventDefinitionsListParams,

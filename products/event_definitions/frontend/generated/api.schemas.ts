@@ -290,6 +290,10 @@ export interface PrimaryPropertiesResponseApi {
 
 export type EventDefinitionsListParams = {
     /**
+     * `event_custom` keeps only names without a `$` prefix and `event_posthog` only names with one. Default `event`.
+     */
+    event_type?: EventDefinitionsListEventType
+    /**
      * When true, omit events that have been explicitly hidden by a team admin (Enterprise only).
      */
     exclude_hidden?: boolean
@@ -299,6 +303,7 @@ export type EventDefinitionsListParams = {
     exclude_stale?: boolean
     /**
      * Number of results to return per page.
+     * @minimum 1
      */
     limit?: number
     /**
@@ -307,9 +312,37 @@ export type EventDefinitionsListParams = {
     names?: string[]
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number
+    /**
+     * Sort keys, prefixed with `-` for descending. Default `-last_seen_at::date` then `name`. Projects with more than 50000 event definitions default to `name`.
+     */
+    ordering?: string[]
+    /**
+     * Case-insensitive match on the event name. Every whitespace-separated term has to match.
+     */
+    search?: string
+    /**
+     * JSON-encoded list of tag names. Keeps events that carry any of them.
+     */
+    tags?: string
+    /**
+     * When true, keep only verified events and core PostHog events. When false, keep the rest (Enterprise only).
+     */
+    verified?: boolean
 }
+
+export type EventDefinitionsListEventType =
+    (typeof EventDefinitionsListEventType)[keyof typeof EventDefinitionsListEventType]
+
+export const EventDefinitionsListEventType = {
+    ActionEvent: 'action_event',
+    All: 'all',
+    Event: 'event',
+    EventCustom: 'event_custom',
+    EventPosthog: 'event_posthog',
+} as const
 
 export type EventDefinitionsByNameRetrieveParams = {
     /**

@@ -17,6 +17,20 @@ PROJECT_SCAN_MAX_DEFINITIONS = 50_000
 # A project rarely crosses the threshold, and a stale answer only costs query time, never results.
 SEARCH_PLAN_CACHE_SECONDS = 24 * 60 * 60
 
+# An exact count over a large project walks its whole index range on every page load. Its list
+# endpoints stop counting here instead; small projects keep exact counts.
+LARGE_PROJECT_COUNT_CAP = 10_000
+
+
+def is_large_project(table: DefinitionTable, project_id: int, db_alias: str) -> bool:
+    """Whether the project holds more than PROJECT_SCAN_MAX_DEFINITIONS rows of `table` (cached for a day)."""
+    return _cached_search_plan(table, project_id, db_alias) == "trigram"
+
+
+def bounded_count_sql(source_sql: str) -> str:
+    """A count over `source_sql` (a FROM/WHERE fragment) that stops at %(count_cap)s rows."""
+    return f"SELECT count(*) FROM (SELECT 1 {source_sql} LIMIT %(count_cap)s) bounded"
+
 
 def search_plan(table: DefinitionTable, project_id: int, db_alias: str) -> SearchPlan:
     """Picks how a `?search=` on a definitions table should reach the project's rows.
