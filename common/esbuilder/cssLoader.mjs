@@ -47,7 +47,6 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
             var lastPath = paths[paths.length - 1];
             paths.push(lastPath + (lastPath.indexOf('?') === -1 ? '?' : '&') + 'retry=' + Date.now());
 
-            var apiKey = window.JS_POSTHOG_API_KEY;
             var staticHost = window.JS_URL || '';
             var hrefs = [];
             for (var i = 0; i < paths.length; i++) {
@@ -113,6 +112,8 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
 
             function report(reason, href, attempt, diagnostics) {
                 try {
+                    var apiKey = window.JS_POSTHOG_API_KEY;
+                    if (!apiKey) { return; }
                     var host = window.JS_POSTHOG_HOST || window.location.origin;
                     var distinctId;
                     try {
@@ -190,7 +191,10 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                     console.error('[PostHog] App stylesheet ' + reason + ': ' + href);
                     // The probe only enriches the beacon, so it is worth a request only when
                     // there is a beacon to send. The ladder does not wait for either.
-                    if (apiKey) {
+                    // Read the key now, never when this script runs: exporter.html and
+                    // render_query.html clear it later, to keep tracking out of the frames our
+                    // customers embed.
+                    if (window.JS_POSTHOG_API_KEY) {
                         probe(href, function (diagnostics) { report(reason, href, index + 1, diagnostics); });
                     }
                     if (index + 1 < hrefs.length) {
