@@ -141,47 +141,6 @@ export const organizationsProjectsLogsConfigPartialUpdate = async (
     })
 }
 
-export const getEnvironmentsLogsConfigRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/environments/${id}/logs_config/`
-}
-
-/**
- * Manage logs product configuration for this environment. Members can read;
- * writing requires project admin, matching the admin-only settings UI.
- */
-export const environmentsLogsConfigRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<TeamLogsConfigApi> => {
-    return apiMutator<TeamLogsConfigApi>(getEnvironmentsLogsConfigRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getEnvironmentsLogsConfigPartialUpdateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/environments/${id}/logs_config/`
-}
-
-/**
- * Manage logs product configuration for this environment. Members can read;
- * writing requires project admin, matching the admin-only settings UI.
- */
-export const environmentsLogsConfigPartialUpdate = async (
-    projectId: string,
-    id: number,
-    patchedTeamLogsConfigApi?: NonReadonly<PatchedTeamLogsConfigApi>,
-    options?: RequestInit
-): Promise<TeamLogsConfigApi> => {
-    return apiMutator<TeamLogsConfigApi>(getEnvironmentsLogsConfigPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTeamLogsConfigApi),
-    })
-}
-
 export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListParams) => {
     const normalizedParams = new URLSearchParams()
 

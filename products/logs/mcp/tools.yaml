@@ -9,12 +9,6 @@ feature: logs
 url_prefix: /logs
 ui_apps: {}
 tools:
-    environments-logs-config-partial-update:
-        operation: environments_logs_config_partial_update
-        enabled: false
-    environments-logs-config-retrieve:
-        operation: environments_logs_config_retrieve
-        enabled: false
     logs-alerts-create:
         operation: logs_alerts_create
         enabled: true

@@ -51,46 +51,6 @@ export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ 
         ),
 })
 
-/**
- * Manage logs product configuration for this environment. Members can read;
- * writing requires project admin, matching the admin-only settings UI.
- */
-export const environmentsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysItemMax = 200
-
-export const environmentsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysMax = 10
-
-export const environmentsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysItemMax = 200
-
-export const environmentsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysMax = 10
-
-export const environmentsLogsConfigPartialUpdateBodyLogsPatternMessageKeysItemMax = 200
-
-export const environmentsLogsConfigPartialUpdateBodyLogsPatternMessageKeysMax = 10
-
-export const EnvironmentsLogsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
-    logs_distinct_id_attribute_keys: zod
-        .array(zod.string().max(environmentsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysItemMax))
-        .max(environmentsLogsConfigPartialUpdateBodyLogsDistinctIdAttributeKeysMax)
-        .optional()
-        .describe(
-            "Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https:\/\/posthog.com\/docs\/logs\/link-session-replay and the key the posthog-js \/ posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes."
-        ),
-    logs_session_id_attribute_keys: zod
-        .array(zod.string().max(environmentsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysItemMax))
-        .max(environmentsLogsConfigPartialUpdateBodyLogsSessionIdAttributeKeysMax)
-        .optional()
-        .describe(
-            "Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https:\/\/posthog.com\/docs\/logs\/link-session-replay and the key the posthog-js \/ posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes."
-        ),
-    logs_pattern_message_keys: zod
-        .array(zod.string().max(environmentsLogsConfigPartialUpdateBodyLogsPatternMessageKeysItemMax))
-        .max(environmentsLogsConfigPartialUpdateBodyLogsPatternMessageKeysMax)
-        .optional()
-        .describe(
-            "Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting."
-        ),
-})
-
 export const logsAlertsCreateBodyNameMax = 255
 
 export const logsAlertsCreateBodyEnabledDefault = true
