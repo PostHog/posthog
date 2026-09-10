@@ -1445,7 +1445,12 @@ class TestStartupFailureDiagnostics:
                     stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             if "cpu_loop_ms" in command:
-                raise SandboxTimeoutError("Execution timed out after 45 seconds", {"sandbox_id": "sb-diag"}, cause=None)
+                raise SandboxTimeoutError(
+                    "Execution timed out after 45 seconds",
+                    {"sandbox_id": "sb-diag"},
+                    cause=TimeoutError("exec returned -1"),
+                    capture=False,
+                )
             return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
 
         with (
