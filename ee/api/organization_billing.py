@@ -535,6 +535,25 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         if whole_organization and grants.projects is not None:
             raise PermissionDenied("This resource is an organization total and needs a whole-organization credential.")
 
+    def _visible_projects(
+        self, request: Request, grants: EffectiveBillingGrants, organization: Organization
+    ) -> set[int] | None:
+        """The projects this caller may see, or None when their reads are not narrowed by
+        visibility. Below full access a caller's billing reads cover the projects they can see,
+        applied per request as the usage and spend reads do today, and the set always names the
+        projects, so a project deleted since its usage was reported is never in it.
+
+        A caller who can see none is refused here rather than handed an empty set, because an
+        empty set of projects reads downstream as no filter at all.
+        """
+        user = request.user if isinstance(request.user, User) else None
+        if user is None or self._covers(grants, BillingEntitlement.FULL_ACCESS):
+            return None
+        visible = set(visible_team_ids(user, organization))
+        if not visible:
+            raise PermissionDenied(BILLING_ACCESS_DENIED)
+        return visible
+
     def _timeseries(self, request: Request, kind: str) -> Response:
         organization = self.organization
         grants = self._grants(request, organization)
@@ -548,13 +567,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         if "cursor" in params:
             params["after"] = params.pop("cursor")
         requested = json.loads(params["team_ids"]) if params.get("team_ids") else None
-        # Below full access a user's series cover the projects they can see, filtered here per
-        # request as the usage and spend reads do today. The filter always names the projects, so
-        # a project deleted since its usage was reported is never in it.
-        user = request.user if isinstance(request.user, User) else None
-        visible: set[int] | None = None
-        if user is not None and not self._covers(grants, BillingEntitlement.FULL_ACCESS):
-            visible = set(visible_team_ids(user, organization))
+        visible = self._visible_projects(request, grants, organization)
         scoped: list[int] | None
         if grants.projects is None and visible is None:
             # A whole-organization caller may name any project the organization has reported usage
@@ -570,6 +583,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             if visible is not None:
                 allowed = visible if grants.projects is None else allowed & visible
                 if not allowed:
+                    # The credential and what the caller can see overlap in nothing.
                     raise PermissionDenied(BILLING_ACCESS_DENIED)
             scoped = sorted(allowed if requested is None else allowed.intersection(requested))
             if requested is not None and not scoped:
@@ -832,14 +846,14 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
+        # Settled before billing is called, so a caller who may see nothing never costs a request.
+        # A deleted project cannot be checked against what a member can see, so it is not listed for them.
+        visible = self._visible_projects(request, grants, organization)
         reported = [
             int(item["id"])
             for item in self._manager().get_organization_projects(organization, grants).get("results", [])
         ]
-        user = request.user if isinstance(request.user, User) else None
-        if user is not None and not self._covers(grants, BillingEntitlement.FULL_ACCESS):
-            # A deleted project cannot be checked against what a member can see, so it is not listed for them.
-            visible = set(visible_team_ids(user, organization))
+        if visible is not None:
             reported = [team_id for team_id in reported if team_id in visible]
         names = dict(Team.objects.filter(organization=organization, id__in=reported).values_list("id", "name"))
         results = [

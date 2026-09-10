@@ -479,6 +479,16 @@ class TestOrganizationBillingSpendForecastAndSeries(TestOrganizationBillingAPI):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @patch("ee.billing.billing_manager.requests.get")
+    def test_a_caller_who_can_see_no_project_is_refused_rather_than_given_an_empty_list(self, mock_get):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.member_read.return_value = True
+        with patch("ee.api.organization_billing.visible_team_ids", return_value=[]):
+            for path in ("projects/", "usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"):
+                self.assertEqual(self.client.get(self._url(path)).status_code, status.HTTP_403_FORBIDDEN, path)
+        self.member_read.return_value = False
+
+    @patch("ee.billing.billing_manager.requests.get")
     def test_projects_names_live_projects_and_marks_deleted_ones(self, mock_get):
         mock_get.return_value = _response({"results": [{"id": 424242}, {"id": self.team.id}]})
         response = self.client.get(self._url("projects/"))
