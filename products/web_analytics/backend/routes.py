@@ -8,6 +8,7 @@ from products.web_analytics.backend.api.heatmaps_api import (
     LegacyHeatmapViewSet,
     SavedHeatmapViewSet,
 )
+from products.web_analytics.backend.api.screenshot_settings import HeatmapScreenshotSettingsViewSet
 from products.web_analytics.backend.api.web_analytics_achievements import WebAnalyticsAchievementsViewSet
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 from products.web_analytics.backend.api.web_analytics_path_cleaning_suggestions import (
@@ -21,6 +22,9 @@ from products.web_analytics.backend.presentation.views.content_autopilot import 
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(
+        r"heatmap_screenshot", HeatmapScreenshotSettingsViewSet, "project_heatmap_screenshot_settings", ["team_id"]
+    )
     routers.root.register(r"heatmap", LegacyHeatmapViewSet, basename="heatmap")
     routers.projects.register(r"heatmaps", HeatmapViewSet, "project_heatmaps", ["team_id"])
     routers.projects.register(

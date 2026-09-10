@@ -1348,6 +1348,30 @@ export const organizationsProjectsResetTokenPartialUpdate = async (
     )
 }
 
+export const getOrganizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdateUrl = (
+    organizationId: string,
+    id: number
+) => {
+    return `/api/organizations/${organizationId}/projects/${id}/rotate_heatmaps_screenshot_secret/`
+}
+
+/**
+ * Projects for the current organization.
+ */
+export const organizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PATCH',
+        }
+    )
+}
+
 export const getOrganizationsProjectsRotateSecretTokenPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/rotate_secret_token/`
 }

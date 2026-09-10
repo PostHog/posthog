@@ -7,6 +7,26 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface HeatmapScreenshotSettingsApi {
+    /**
+     * Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.
+     * @maxItems 100
+     * @items.maxLength 253
+     */
+    allowed_hostnames: string[]
+    /** Whether a screenshot bypass secret has been generated. */
+    readonly has_secret: boolean
+}
+
+export interface PatchedHeatmapScreenshotSettingsRequestApi {
+    /**
+     * Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.
+     * @maxItems 100
+     * @items.maxLength 253
+     */
+    allowed_hostnames?: string[]
+}
+
 /**
  * * `screenshot` - Screenshot
  * * `iframe` - Iframe

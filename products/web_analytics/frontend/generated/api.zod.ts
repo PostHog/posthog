@@ -9,6 +9,20 @@
  */
 import * as zod from 'zod'
 
+export const heatmapScreenshotSettingsUpdateBodyAllowedHostnamesItemMax = 253
+
+export const heatmapScreenshotSettingsUpdateBodyAllowedHostnamesMax = 100
+
+export const HeatmapScreenshotSettingsUpdateBody = /* @__PURE__ */ zod.object({
+    allowed_hostnames: zod
+        .array(zod.string().max(heatmapScreenshotSettingsUpdateBodyAllowedHostnamesItemMax))
+        .max(heatmapScreenshotSettingsUpdateBodyAllowedHostnamesMax)
+        .optional()
+        .describe(
+            'Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.'
+        ),
+})
+
 /**
  * Create a saved heatmap for a page URL. For type 'screenshot' (the default) this enqueues a headless render of the page at each target width; poll the saved heatmap or its content endpoint until status is 'completed'. Provide 'widths' to control which viewport widths are rendered.
  */

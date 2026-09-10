@@ -49,6 +49,7 @@ from posthog.api.team import (
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
+    heatmaps_screenshot_secret_for_reader,
     report_conversations_settings_changes,
     team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
@@ -600,6 +601,13 @@ class ProjectBackwardCompatSerializer(
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
+    heatmaps_screenshot_secret = serializers.SerializerMethodField(
+        help_text=(
+            "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
+            "so bot protection can allow them. Only project admins can read it; null for "
+            "everyone else and when none has been generated."
+        ),
+    )  # Compat with TeamSerializer
     # project_id mirrors TeamSerializer.project_id; for a Project it equals its own id (Project ↔ Team is 1:1)
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
@@ -707,6 +715,7 @@ class ProjectBackwardCompatSerializer(
             "flags_persistence_default",  # Compat with TeamSerializer
             "secret_api_token",  # Compat with TeamSerializer
             "secret_api_token_backup",  # Compat with TeamSerializer
+            "heatmaps_screenshot_secret",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
             "business_model",  # Compat with TeamSerializer
             "conversations_enabled",  # Compat with TeamSerializer
@@ -755,6 +764,7 @@ class ProjectBackwardCompatSerializer(
             "product_intents",
             "secret_api_token",
             "secret_api_token_backup",
+            "heatmaps_screenshot_secret",
             "available_setup_task_ids",
             "project_id",
             "user_access_level",
@@ -987,6 +997,10 @@ class ProjectBackwardCompatSerializer(
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
         return get_or_mint_live_events_token(team, user_id)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_heatmaps_screenshot_secret(self, project: Project) -> Optional[str]:
+        return heatmaps_screenshot_secret_for_reader(project.passthrough_team, self.user_permissions)
 
     @extend_schema_field(
         {
@@ -1688,6 +1702,20 @@ class ProjectViewSet(
         project = self.get_object()
         validate_secret_token_generation(project.passthrough_team, cast(User, request.user))
         project.passthrough_team.rotate_secret_token_and_save(
+            user=request.user, is_impersonated_session=is_impersonated(request)
+        )
+        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+
+    @extend_schema(request=None, responses=ProjectBackwardCompatSerializer)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_heatmaps_screenshot_secret(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = self.get_object()
+        project.passthrough_team.rotate_heatmaps_screenshot_secret_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)

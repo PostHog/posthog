@@ -28,6 +28,7 @@ import type {
     HeatmapPreflightResponseApi,
     HeatmapPrewarmRequestApi,
     HeatmapScreenshotResponseApi,
+    HeatmapScreenshotSettingsApi,
     HeatmapScreenshotsContentRetrieveParams,
     HeatmapsEventsRetrieveParams,
     HeatmapsListParams,
@@ -39,6 +40,7 @@ import type {
     PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
     PatchedContentAutopilotSiteProfileApi,
+    PatchedHeatmapScreenshotSettingsRequestApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
     PreviewPathCleaningSuggestionResponseApi,
@@ -77,6 +79,37 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getHeatmapScreenshotSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_screenshot/settings/`
+}
+
+export const heatmapScreenshotSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HeatmapScreenshotSettingsApi> => {
+    return apiMutator<HeatmapScreenshotSettingsApi>(getHeatmapScreenshotSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapScreenshotSettingsUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_screenshot/settings/`
+}
+
+export const heatmapScreenshotSettingsUpdate = async (
+    projectId: string,
+    patchedHeatmapScreenshotSettingsRequestApi?: PatchedHeatmapScreenshotSettingsRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotSettingsApi> => {
+    return apiMutator<HeatmapScreenshotSettingsApi>(getHeatmapScreenshotSettingsUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHeatmapScreenshotSettingsRequestApi),
+    })
+}
 
 export const getHeatmapScreenshotsContentRetrieveUrl = (
     projectId: string,

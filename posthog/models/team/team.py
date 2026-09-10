@@ -27,6 +27,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.signals import mutable_receiver, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
+    generate_random_token_heatmap_screenshot,
     generate_random_token_project,
     generate_random_token_secret,
     mask_key_value,
@@ -1101,6 +1102,45 @@ class Team(UUIDTClassicModel):
                         field="conversations_settings.widget_public_token",
                         before=mask_key_value(old_token) if old_token else None,
                         after=mask_key_value(new_token),
+                    )
+                ],
+            ),
+        )
+
+    @property
+    def heatmaps_screenshot_secret(self) -> str | None:
+        from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
+
+        config = TeamHeatmapConfig.objects.filter(team_id=self.pk).first()
+        return config.screenshot_secret if config else None
+
+    def rotate_heatmaps_screenshot_secret_and_save(self, *, user: "User", is_impersonated_session: bool):
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.models.team.extensions import get_or_create_team_extension
+        from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
+
+        config = get_or_create_team_extension(self, TeamHeatmapConfig)
+        old_secret = config.screenshot_secret
+        config.screenshot_secret = generate_random_token_heatmap_screenshot()
+        config.save(update_fields=["screenshot_secret"])
+
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="created" if old_secret is None else "changed",
+                        field="heatmaps_screenshot_secret",
+                        before="redacted" if old_secret else None,
+                        after="redacted",
                     )
                 ],
             ),
