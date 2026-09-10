@@ -473,8 +473,8 @@ tools:
             someone, deep-link the one or two moments it turns on rather than only describing them. A rating is the
             person's verdict on whether the scanner was right, and it is what
             `vision-scanners-prompt-suggestions-generate` learns the config from, so ask them for it and record what
-            they say with `vision-observations-label-create`. Never rate from your own reading of the result: the
-            rating is team-wide, and a scanner's output can repeat text from the recording it analysed.
+            they say with `vision-observations-label-create`. Never rate from your own reading of the result: the rating
+            is team-wide, and a scanner's output can repeat text from the recording it analysed.
         ui_app: vision-observation-list
         url_prefix: /replay
     vision-scanners-observations-retry-create:
@@ -503,10 +503,9 @@ tools:
         agent_note: >
             When `labels.up_total` and `labels.down_total` are both near zero against `status_counts.succeeded`, this
             scanner has results nobody has rated, so a prompt suggestion has almost nothing to learn from. Say so, and
-            ask the person to rate a few results before you call
-            `vision-scanners-prompt-suggestions-generate`. Record their verdicts with
-            `vision-observations-label-create` rather than supplying your own. Testing a suggestion is not available
-            over MCP, so tell them to test it on the scanner's Calibration tab before they apply it.
+            ask the person to rate a few results before you call `vision-scanners-prompt-suggestions-generate`. Record
+            their verdicts with `vision-observations-label-create` rather than supplying your own. Testing a suggestion
+            is not available over MCP, so tell them to test it on the scanner's Calibration tab before they apply it.
     vision-scanners-observations-viewed-create:
         operation: vision_scanners_observations_viewed_create
         enabled: false
