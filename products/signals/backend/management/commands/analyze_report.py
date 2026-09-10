@@ -244,9 +244,6 @@ class Command(BaseCommand):
                 previous_report_research=previous_report_research,
                 verbose=verbose,
                 output_fn=self._flushing_write,
-                # Local debug tool: always exercise the chart-authoring path, mirroring the
-                # DEBUG-on default of the production `signals-report-charts` gate.
-                charts_enabled=True,
             )
         )
 
