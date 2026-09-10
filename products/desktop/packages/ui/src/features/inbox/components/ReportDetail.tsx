@@ -13,6 +13,7 @@ import { ReportDetailActions } from "@posthog/ui/features/inbox/components/Repor
 import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/ReportReviewersSection";
 import { ReportRunsSection } from "@posthog/ui/features/inbox/components/ReportRunsSection";
 import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
+import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { useCallback, useEffect, useRef } from "react";
 
@@ -102,13 +103,10 @@ export function ReportDetailContent({
           primaryAction={
             <ReportDetailActions report={report} placement="header" />
           }
-          belowSummary={
-            <ReportVerdictBanner
-              key={report.id}
-              report={report}
-              initialEngagementOnly
-            />
-          }
+          belowSummary={<>
+            <ReportVerdictBanner key={report.id} report={report} initialEngagementOnly />
+            <ReportTrackerIssueLink report={report} />
+          </>}
           summarySection={{ Icon: FileTextIcon, title: "Report summary" }}
           footer={<ReportFeedbackFooter report={report} />}
           evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}

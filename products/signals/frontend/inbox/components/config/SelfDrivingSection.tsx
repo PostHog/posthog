@@ -274,7 +274,7 @@ function IssueTrackerTarget({
                 value={target.repository ? `${integration.display_name}/${target.repository}` : ''}
                 disabled={disabled}
                 placeholder="Repository"
-                onChange={(repo) => repo && onSave({ repository: repo.split('/')[1] })}
+                onChange={(repo) => repo && onSave({ ...target, repository: repo.split('/')[1] })}
             />
         )
     }
@@ -319,7 +319,10 @@ function IssueTracker(): JSX.Element {
 
     const saveTarget = (config: Record<string, string>): void => {
         if (selected) {
-            patchTeamConfig({ issue_tracking_integration: selected.id, issue_tracking_config: config })
+            patchTeamConfig({
+                issue_tracking_integration: selected.id,
+                issue_tracking_config: { ...target, ...config },
+            })
         }
     }
 

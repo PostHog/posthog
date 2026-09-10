@@ -60,7 +60,7 @@ from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
     record_implementation_task,
 )
-from products.signals.backend.tracker_issues import branch_identifier, create_tracker_issue_for_report
+from products.signals.backend.tracker_issues import create_tracker_issue_for_report
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -410,12 +410,9 @@ def _create_implementation_task_if_absent(
     # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
     agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
 
-    # Also outside the lock: opening the tracker issue calls the provider. It runs before the
-    # branch name is chosen so a Linear identifier can go into that name, and it never raises, so
-    # a tracker that is down or misconfigured cannot stop the run.
-    tracker = create_tracker_issue_for_report(team_id=team_id, report_id=report_id, repository=repository)
-
-    head_branch = _generate_self_driving_head_branch(title, branch_identifier(tracker))
+    # Create the task before the provider issue. A failed task creation must not leave an external
+    # issue that says Self-driving started work when no run exists.
+    head_branch = _generate_self_driving_head_branch(title, None)
     description = description + _head_branch_instruction(head_branch)
 
     exempt_reason: str | None = None
@@ -477,6 +474,7 @@ def _create_implementation_task_if_absent(
             task_id=task_id,
             run_id=str(created.latest_run.id),
         )
+    create_tracker_issue_for_report(team_id=team_id, report_id=report_id, repository=repository)
     if exempt_reason and task_id:
         # After commit: the exempt report's implementation task exists — count it (includes a
         # best-effort ClickHouse lookup, so it must not run under the lock).

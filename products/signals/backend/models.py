@@ -178,7 +178,7 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
         blank=True,
         related_name="+",
     )
-    issue_tracking_config = models.JSONField(default=dict, blank=True)
+    issue_tracking_config = models.JSONField(default=dict, db_default={}, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

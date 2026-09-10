@@ -1,7 +1,12 @@
 import { WarningIcon } from "@phosphor-icons/react";
-import { cn } from "@posthog/quill";
+import {
+  cn,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
-import { Tooltip } from "@radix-ui/themes";
 
 /**
  * The tracker issue behind a report's pull request, or why there is none.
@@ -14,29 +19,41 @@ export function ReportTrackerIssueLink({ report }: { report: SignalReport }) {
     "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium";
 
   if (report.tracker_issue_url) {
+    const trigger = (
+      <a
+        href={report.tracker_issue_url}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className={cn(badgeClass, "bg-gray-4 text-gray-11 hover:bg-gray-5")}
+      >
+        {report.tracker_issue_reference ?? "Tracked"}
+      </a>
+    );
     return (
-      <Tooltip content="Tracker issue for this pull request">
-        <a
-          href={report.tracker_issue_url}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className={cn(badgeClass, "bg-gray-4 text-gray-11 hover:bg-gray-5")}
-        >
-          {report.tracker_issue_reference ?? "Tracked"}
-        </a>
-      </Tooltip>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger render={trigger} />
+          <TooltipContent>Tracker issue for this report</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
 
   if (report.tracker_issue_error) {
+    const trigger = (
+      <span className={cn(badgeClass, "bg-amber-4 text-amber-11")}>
+        <WarningIcon size={12} weight="bold" />
+        No tracker issue
+      </span>
+    );
     return (
-      <Tooltip content={report.tracker_issue_error}>
-        <span className={cn(badgeClass, "bg-amber-4 text-amber-11")}>
-          <WarningIcon size={12} weight="bold" />
-          No tracker issue
-        </span>
-      </Tooltip>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger render={trigger} />
+          <TooltipContent>{report.tracker_issue_error}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
 

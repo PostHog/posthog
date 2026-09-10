@@ -28,7 +28,11 @@ from products.signals.backend.report_embeddings import (
     render_report_document,
 )
 from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
-from products.signals.backend.tasks import close_dismissed_report_pr, link_report_tracker_issues
+from products.signals.backend.tasks import (
+    close_dismissed_report_pr,
+    close_report_tracker_issue,
+    link_report_tracker_issues,
+)
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
 logger = structlog.get_logger(__name__)
@@ -243,6 +247,10 @@ def close_pr_when_report_dismissed(
         prior_status=prior_status,
     )
     if reason is None:
+        if getattr(instance, "_status_from_pr_state", False) and instance.status == SignalReport.Status.RESOLVED:
+            team_id = instance.team_id
+            report_id = str(instance.id)
+            transaction.on_commit(lambda: close_report_tracker_issue.delay(report_id=report_id, team_id=team_id))
         return
 
     team_id = instance.team_id

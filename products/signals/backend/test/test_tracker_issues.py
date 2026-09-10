@@ -1,5 +1,9 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
@@ -16,10 +20,12 @@ from posthog.models.integration import (
 from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
 from products.signals.backend.serializers import SignalTeamConfigSerializer
 from products.signals.backend.tracker_issues import (
+    ABANDONED_CLAIM_REASON,
     PR_BODY_MARKER,
     branch_identifier,
     close_tracker_issue_for_report,
     create_tracker_issue_for_report,
+    issue_reference,
     link_pull_request_to_tracker_issue,
 )
 
@@ -93,7 +99,10 @@ def test_create_tracker_issue_records_provider_identifier_and_url(team, kind):
 
     assert tracker is not None
     assert tracker.status == SignalReportTrackerIssue.Status.CREATED
-    assert tracker.external_context == CREATED_CONTEXTS[kind]
+    expected_context = {**CREATED_CONTEXTS[kind]}
+    if kind == "github":
+        expected_context["repository"] = "acme/web"
+    assert tracker.external_context == expected_context
     assert tracker.issue_url == EXPECTED_URLS[kind]
 
 
@@ -111,6 +120,28 @@ def test_create_tracker_issue_opens_one_issue_per_report(team):
     assert create_issue.call_count == 1
     assert first is not None and second is not None
     assert first.id == second.id
+
+
+@pytest.mark.django_db
+def test_create_tracker_issue_surfaces_an_abandoned_claim_without_opening_a_duplicate(team):
+    _connect_tracker(team, "github")
+    report = _make_report(team)
+    tracker = SignalReportTrackerIssue.all_teams.create(
+        team=team,
+        report=report,
+        provider="github",
+        status=SignalReportTrackerIssue.Status.PENDING,
+    )
+    SignalReportTrackerIssue.all_teams.filter(id=tracker.id).update(updated_at=timezone.now() - timedelta(hours=1))
+
+    with patch.object(GitHubIntegration, "create_issue") as create_issue:
+        result = create_tracker_issue_for_report(team_id=team.id, report_id=str(report.id), repository="acme/web")
+
+    create_issue.assert_not_called()
+    assert result is not None
+    result.refresh_from_db()
+    assert result.status == SignalReportTrackerIssue.Status.FAILED
+    assert result.failure_reason == ABANDONED_CLAIM_REASON
 
 
 @pytest.mark.django_db
@@ -160,6 +191,12 @@ def test_only_linear_puts_its_identifier_in_the_branch_name(team, kind, expected
     assert branch_identifier(tracker) == expected
 
 
+def test_jira_reference_prefers_the_readable_key():
+    tracker = SignalReportTrackerIssue(provider="jira", external_context={"id": "1001", "key": "ENG-9"})
+
+    assert issue_reference(tracker) == "ENG-9"
+
+
 @pytest.mark.django_db
 def test_link_pull_request_appends_the_reference_once(team):
     # The agent writes the pull request body, so the reference is added afterwards. Every task-run
@@ -171,7 +208,7 @@ def test_link_pull_request_appends_the_reference_once(team):
         report=report,
         provider="github",
         status=SignalReportTrackerIssue.Status.CREATED,
-        external_context={"repository": "web", "number": 12},
+        external_context={"repository": "acme/web", "number": 12},
         issue_url="https://github.com/acme/web/issues/12",
     )
     pr_url = "https://github.com/acme/web/pull/50"
@@ -180,7 +217,11 @@ def test_link_pull_request_appends_the_reference_once(team):
         patch.object(
             GitHubIntegration, "first_for_team_repository", return_value=GitHubIntegration.__new__(GitHubIntegration)
         ),
-        patch.object(GitHubIntegration, "get_pull_request", return_value={"success": True, "body": "Fixes the thing"}),
+        patch.object(
+            GitHubIntegration,
+            "get_pull_request",
+            return_value={"success": True, "body": "Fixes the thing", "etag": '"version-1"'},
+        ),
         patch.object(GitHubIntegration, "update_pull_request_body", return_value={"success": True}) as update,
     ):
         assert link_pull_request_to_tracker_issue(team_id=team.id, report_id=str(report.id), pr_url=pr_url) is True
@@ -190,6 +231,7 @@ def test_link_pull_request_appends_the_reference_once(team):
     body = update.call_args.args[2]
     assert PR_BODY_MARKER in body
     assert "Closes #12" in body
+    assert update.call_args.kwargs["expected_etag"] == '"version-1"'
     tracker.refresh_from_db()
     assert tracker.pr_linked_at is not None
 

@@ -41,6 +41,7 @@ import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouB
 import { InboxBadge } from "@posthog/ui/features/inbox/components/utils/InboxBadge";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
+import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
 import {
   getSourceProductMeta,
   hasKnownSourceProduct,
@@ -364,6 +365,7 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
       <div className="@container mx-auto w-full max-w-[calc(160ch+5rem)] px-6 py-5 text-[13px]">
         <div className="grid @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] grid-cols-1 gap-5">
           <Flex direction="column" gap="5" className="min-w-0">
+            <ReportTrackerIssueLink report={report} />
             <RunOutputWidget report={report} />
 
             <DetailSection

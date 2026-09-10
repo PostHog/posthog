@@ -6163,8 +6163,11 @@ const api = {
         async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(integrationId).delete()
         },
-        async list(): Promise<PaginatedResponse<IntegrationType>> {
-            return await new ApiRequest().integrations().get()
+        async list(params?: { limit?: number; offset?: number }): Promise<PaginatedResponse<IntegrationType>> {
+            return await new ApiRequest()
+                .integrations()
+                .withQueryString(params ?? {})
+                .get()
         },
         authorizeUrl(params: { kind: string; next?: string; extraParams?: Record<string, string> }): string {
             // `kind` and `next` are common to every integration; anything kind-specific (e.g. the

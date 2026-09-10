@@ -9,6 +9,7 @@ recorded as a failure on the report instead, so the team can see the gap and fix
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
@@ -43,11 +44,14 @@ TRACKER_TARGET_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 # Hidden in the rendered description, so re-running the cross-link never appends a second block.
-PR_BODY_MARKER = "<!-- posthog-self-driving-tracker-issue -->"
+PR_BODY_MARKER_PREFIX = "posthog-self-driving-tracker-issue"
+PR_BODY_MARKER = f"<!-- {PR_BODY_MARKER_PREFIX}"
 
 # Enough to name the cause (expired token, deleted team) without turning a provider error body
 # into an unbounded column.
 MAX_FAILURE_REASON_LENGTH = 300
+PENDING_CLAIM_TIMEOUT = timedelta(minutes=15)
+ABANDONED_CLAIM_REASON = "Tracker issue creation stopped before it returned a result. Check the tracker manually."
 
 
 @frozen
@@ -93,7 +97,11 @@ def _create_provider_issue(target: TrackerIssueTarget, *, title: str, body: str,
         config: dict[str, Any] = {"repository": target.config["repository"], "title": title, "body": body}
         if label:
             config["labels"] = [label]
-        return GitHubIntegration(target.integration).create_issue(config)
+        github = GitHubIntegration(target.integration)
+        context = dict(github.create_issue(config))
+        repository = str(context["repository"])
+        context["repository"] = repository if "/" in repository else f"{github.organization()}/{repository}"
+        return context
 
     if kind == Integration.IntegrationKind.GITLAB:
         return GitLabIntegration(target.integration).create_issue({"title": title, "body": body})
@@ -149,7 +157,15 @@ def _claim_tracker_issue(
     )
     if created:
         return claim
+    if claim.status == SignalReportTrackerIssue.Status.PENDING:
+        if claim.updated_at <= timezone.now() - PENDING_CLAIM_TIMEOUT:
+            claim.status = SignalReportTrackerIssue.Status.FAILED
+            claim.failure_reason = ABANDONED_CLAIM_REASON
+            claim.save(update_fields=["status", "failure_reason", "updated_at"])
+        return None
     if claim.status == SignalReportTrackerIssue.Status.FAILED:
+        if claim.failure_reason == ABANDONED_CLAIM_REASON:
+            return None
         claim.status = SignalReportTrackerIssue.Status.PENDING
         claim.integration = target.integration
         claim.provider = target.integration.kind
@@ -216,7 +232,7 @@ def create_tracker_issue_for_report(
 def issue_reference(tracker: SignalReportTrackerIssue) -> str | None:
     """How the issue reads in its provider, for example "#12" or "ENG-123"."""
     context = tracker.external_context or {}
-    identifier = context.get("id") or context.get("key")
+    identifier = context.get("key") or context.get("id")
     if identifier:
         return str(identifier)
     number = context.get("number") or context.get("issue_id")
@@ -248,8 +264,7 @@ def _pr_body_reference(tracker: SignalReportTrackerIssue, *, pr_repository: str)
             return None
         # "Closes #n" only resolves inside the pull request's own repository. Anywhere else GitHub
         # needs the owner-qualified form.
-        qualified = f"{pr_repository.split('/')[0]}/{repository}"
-        reference = f"#{number}" if qualified.lower() == pr_repository.lower() else f"{qualified}#{number}"
+        reference = f"#{number}" if repository.lower() == pr_repository.lower() else f"{repository}#{number}"
         return f"Closes {reference}"
 
     identifier = issue_reference(tracker)
@@ -296,12 +311,16 @@ def link_pull_request_to_tracker_issue(*, team_id: int, report_id: str, pr_url: 
             return False
 
         body = pull_request.get("body") or ""
-        if PR_BODY_MARKER not in body:
+        marker = f"{PR_BODY_MARKER}:{report_id} -->"
+        if marker not in body:
             reference = _pr_body_reference(tracker, pr_repository=parsed.repository)
             if reference is None:
                 return False
             outcome = github.update_pull_request_body(
-                parsed.repository, parsed.number, f"{body.rstrip()}\n\n{PR_BODY_MARKER}\n{reference}\n"
+                parsed.repository,
+                parsed.number,
+                f"{body.rstrip()}\n\n{marker}\n{reference}\n",
+                expected_etag=pull_request.get("etag"),
             )
             if not outcome.get("success"):
                 logger.warning(

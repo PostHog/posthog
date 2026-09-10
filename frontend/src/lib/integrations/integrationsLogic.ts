@@ -923,11 +923,19 @@ export const integrationsLogic = kea<integrationsLogicType>([
             null as IntegrationType[] | null,
             {
                 loadIntegrations: async () => {
-                    const res = await api.integrations.list()
+                    const integrations: IntegrationType[] = []
+                    let offset = 0
+                    let hasNext = true
+                    while (hasNext) {
+                        const res = await api.integrations.list({ limit: 100, offset })
+                        integrations.push(...res.results)
+                        offset += res.results.length
+                        hasNext = !!res.next && res.results.length > 0
+                    }
 
                     // Simple modifier here to add icons and names - we can move this to the backend at some point
 
-                    return res.results.map((integration) => {
+                    return integrations.map((integration) => {
                         return {
                             ...integration,
                             // TODO: Make the icons endpoint independent of hog functions

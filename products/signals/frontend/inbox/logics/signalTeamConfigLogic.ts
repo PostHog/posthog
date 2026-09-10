@@ -432,6 +432,7 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
             },
             patchTeamConfigFailure: ({ error, errorObject }) => {
                 captureSettled(false)
+                actions.setDraftIssueTrackerIntegrationId(null)
                 lemonToast.error(errorObject?.detail ?? error ?? 'Failed to update team self-driving settings')
                 // The optimistic value is now a lie, and the server holds the truth about what stuck.
                 actions.loadTeamConfig()
