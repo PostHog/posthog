@@ -119,6 +119,11 @@ metric. The Tests tab lets you change the interval or turn automatic runs off. M
 available. Scheduled checks use the latest definition author's access, falling back to the creator;
 manual runs use the initiating user's access. Underlying and additional tables must be readable.
 
+Temporal owns each metric's cadence and pause state. Paused schedules have no next execution time.
+Reload after an unavailable schedule response before retrying an edit; the edit may have succeeded.
+Automatic runs skip overlaps and catch up missed occurrences only within 15 minutes.
+Disabling or deleting every check preserves the schedule preferences. Deleting the metric removes its schedule.
+
 ## Verify what you wrote
 
 Author, run once, read the result. A check nobody has run is a guess.
