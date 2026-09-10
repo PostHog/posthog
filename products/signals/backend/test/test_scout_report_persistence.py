@@ -111,10 +111,8 @@ class TestScoutReportPersistence(BaseTest):
         assert (report.first_visible_at is not None) is expect_stamp
 
     def test_create_refuses_a_second_report_for_a_key_one_already_holds(self) -> None:
-        # The barrier the emit path leans on for the case its own pre-check can't see: a retry that
-        # arrives while the first call is still judging passes that check and reaches the insert too.
-        # Only the unique index stops the second report, and it has to surface as the first report
-        # rather than as a 500 the scout would retry again.
+        # The case the emit path's own pre-check can't see: a retry arriving mid-judge passes it and
+        # reaches the insert too. The index has to stop it, and surface the first report, not a 500.
         run = self._make_run()
         first = create_scout_report(
             team_id=self.team.id,

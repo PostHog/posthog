@@ -293,10 +293,8 @@ def create_scout_report(
                     )
                 )
     except IntegrityError:
-        # The unique index on the key fired, so a concurrent emit of the same emission won the
-        # race and this transaction rolled back. Hand its report back rather than raising: the
-        # loser here is the retry the caller sent after a timeout, and it wants the twin it just
-        # avoided creating.
+        # A concurrent emit of the same emission won the race, so this transaction rolled back. Hand
+        # its report back: the loser is a retry, and it wants the twin it just avoided creating.
         existing = (
             find_scout_report_by_idempotency_key(team_id=team_id, idempotency_key=idempotency_key)
             if idempotency_key is not None

@@ -117,8 +117,7 @@ MAX_SUGGESTED_REVIEWERS = 10
 # per-item description (or summary) lets one malformed call spend/fail on a huge LLM prompt.
 MAX_EVIDENCE_DESCRIPTION_LENGTH = 4000
 MAX_REPORT_SUMMARY_LENGTH = 20000
-# The caller-supplied part of an emit key. Bounded so the stored key (run id + this) stays inside the
-# column, and small enough that a key is a name for the emission rather than a copy of it.
+# The caller-supplied part of an emit key, bounded so the stored key (run id + this) fits the column.
 MAX_IDEMPOTENCY_KEY_LENGTH = 200
 
 # Repository modes for `emit_report`, mirroring `custom_agent`'s three-mode contract:
@@ -1234,8 +1233,7 @@ async def emit_report(
     emit_key = _emit_idempotency_key(run=run, supplied=idempotency_key, title=title, summary=summary, evidence=evidence)
 
     async def finish(result: EmitReportResult) -> EmitReportResult:
-        # Every exit reports the same call, so the lifecycle capture and the customer fan-out sit here
-        # once instead of beside each return.
+        # Every exit reports the same call, so the capture and the fan-out sit here, not beside each return.
         forward = await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
             team=team,
             run=run,

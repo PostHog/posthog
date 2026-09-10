@@ -133,9 +133,8 @@ class TestScoutReportAPI(APIBaseTest):
         embed_mock.assert_called_once()
 
     def test_emit_report_retry_returns_the_first_report(self) -> None:
-        # The failure this exists for: the emission takes minutes, the caller times out at a proxy while
-        # the server keeps working, and the scout resends. The resend must read back the report it
-        # already filed instead of doubling it, and must not pay the safety judge again to find that out.
+        # The failure this exists for: the caller times out at a proxy, the server keeps working, and
+        # the scout resends. The resend reads its report back instead of doubling it, judge unpaid.
         run = _make_run(self.team)
         with _safe_judge() as judge, patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
             first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
