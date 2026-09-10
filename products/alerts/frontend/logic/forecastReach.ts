@@ -64,6 +64,56 @@ export function forecastDisplayError(display: ChartDisplayType | null | undefine
         : 'Forecast alerts do not support cumulative, box plot, or slope graph charts. Change the insight to a line, bar, or area chart, or switch this alert to threshold mode.'
 }
 
+/** Why the insight's interval cannot carry a forecast, or null when it can. Mirrors
+ * `validate_forecast_interval` in products/alerts/backend/forecasting/engine.py. */
+export function forecastIntervalError(interval: IntervalType | null | undefined): string | null {
+    return intervalSupportsForecast(interval)
+        ? null
+        : "Forecast alerts support hourly, daily, weekly, and monthly insights. Change the insight's interval, or switch this alert to threshold mode."
+}
+
+/** Why the insight's date axis cannot carry a forecast, or null when it can. Mirrors
+ * `validate_forecast_days_of_week` in products/alerts/backend/forecasting/engine.py. */
+export function forecastDaysOfWeekError(
+    dateRange: DateRange | null | undefined,
+    interval: IntervalType | null | undefined
+): string | null {
+    return dateRangeSupportsForecast(dateRange, interval)
+        ? null
+        : 'Forecast alerts do not support a daily insight that excludes days of the week. Include all days, switch the insight to a weekly interval, or switch this alert to threshold mode.'
+}
+
+export interface ForecastEditingInput {
+    forecastAlertsEnabled: boolean
+    display: ChartDisplayType | null | undefined
+    interval: IntervalType | null | undefined
+    dateRange: DateRange | null | undefined
+    smoothingIntervals: number | null | undefined
+}
+
+/** Why the editor cannot work on a forecast alert against the insight as it now stands, or null
+ * when it can. Every eligibility rule the save and simulate paths share belongs here: an insight
+ * that changed under a saved alert makes both refuse the stored config, and the backend revalidates
+ * it on every write, so a reason left out of here leaves a rename or a disable failing with nothing
+ * in the editor to explain it. */
+export function forecastEditingError({
+    forecastAlertsEnabled,
+    display,
+    interval,
+    dateRange,
+    smoothingIntervals,
+}: ForecastEditingInput): string | null {
+    if (!forecastAlertsEnabled) {
+        return 'Forecast alerts are no longer enabled for this project. This alert will keep running. Disable it to stop it, or switch to another alert mode before editing.'
+    }
+    if (!smoothingSupportsForecast(smoothingIntervals)) {
+        return 'Forecast alerts do not support smoothed trends yet. Turn smoothing off on the insight, or switch this alert to threshold mode.'
+    }
+    return (
+        forecastDisplayError(display) ?? forecastIntervalError(interval) ?? forecastDaysOfWeekError(dateRange, interval)
+    )
+}
+
 export function targetByDateSupportsForecast(interval: IntervalType | null | undefined): boolean {
     return interval !== 'hour'
 }

@@ -8,7 +8,9 @@ import {
     dateRangeSupportsForecast,
     defaultHorizonForInterval,
     displaySupportsForecast,
+    ForecastEditingInput,
     forecastDisplayError,
+    forecastEditingError,
     forecastTargetDateError,
     forecastTargetIntervalError,
     intervalSupportsForecast,
@@ -165,6 +167,37 @@ describe('dateRangeSupportsForecast', () => {
         ['weekdays only on a monthly insight', { daysOfWeek: [1, 2, 3, 4, 5] }, 'month', true],
     ])('%s', (_name, dateRange, interval, expected) => {
         expect(dateRangeSupportsForecast(dateRange, interval)).toBe(expected)
+    })
+})
+
+describe('forecastEditingError', () => {
+    const WEEKDAYS: DateRange = { daysOfWeek: [1, 2, 3, 4, 5] }
+    const eligible: ForecastEditingInput = {
+        forecastAlertsEnabled: true,
+        display: ChartDisplayType.ActionsLineGraph,
+        interval: 'day',
+        dateRange: { date_from: '-30d' },
+        smoothingIntervals: 1,
+    }
+
+    it.each<[string, Partial<ForecastEditingInput>]>([
+        ['an eligible insight', {}],
+        ['a weekly insight without weekends, which keeps every bucket', { interval: 'week', dateRange: WEEKDAYS }],
+    ])('allows %s', (_name, overrides) => {
+        expect(forecastEditingError({ ...eligible, ...overrides })).toBeNull()
+    })
+
+    // The backend revalidates a stored forecast against the current insight on every write, so a
+    // rule missing here leaves an editor that looks healthy while a rename or a disable fails.
+    it.each<[string, Partial<ForecastEditingInput>, string]>([
+        ['the flag switched off', { forecastAlertsEnabled: false }, 'no longer enabled'],
+        ['smoothing on', { smoothingIntervals: 3 }, 'smoothed trends'],
+        ['a cumulative chart', { display: ChartDisplayType.ActionsLineGraphCumulative }, 'cumulative'],
+        ['a quarterly insight', { interval: 'quarter' }, 'hourly, daily, weekly, and monthly'],
+        ['a minute insight', { interval: 'minute' }, 'hourly, daily, weekly, and monthly'],
+        ['a daily insight without weekends', { dateRange: WEEKDAYS }, 'excludes days of the week'],
+    ])('explains %s', (_name, overrides, expected) => {
+        expect(forecastEditingError({ ...eligible, ...overrides })).toContain(expected)
     })
 })
 
