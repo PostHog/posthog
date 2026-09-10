@@ -580,7 +580,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             and existing is not None
             and "delivery_config" in attrs
         ):
-            attrs["delivery_config"] = {**(existing.delivery_config or {}), **attrs["delivery_config"]}
+            existing_delivery_config = existing.delivery_config if isinstance(existing.delivery_config, dict) else {}
+            attrs["delivery_config"] = {**existing_delivery_config, **attrs["delivery_config"]}
         content_validators: dict[str, Callable[[dict, Optional[Subscription]], None]] = {
             Subscription.ResourceType.INSIGHT: self._validate_insight_content,
             Subscription.ResourceType.DASHBOARD: self._validate_dashboard_content,

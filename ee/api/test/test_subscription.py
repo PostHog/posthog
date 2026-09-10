@@ -3507,6 +3507,27 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert subscription.delivery_config == expected_config
         assert mock_client.start_workflow.call_count == expected_redelivery_count
 
+    def test_patch_replaces_malformed_existing_ai_delivery_config(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        subscription_id = create_response.json()["id"]
+        Subscription.objects.filter(id=subscription_id).update(delivery_config="invalid")
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"delivery_config": {"include_images": False}},
+        )
+
+        assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
+        expected_config = {"include_images": False}
+        assert patch_response.json()["delivery_config"] == expected_config
+        assert Subscription.objects.get(id=subscription_id).delivery_config == expected_config
+
     def test_patch_validates_the_merged_delivery_config(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
