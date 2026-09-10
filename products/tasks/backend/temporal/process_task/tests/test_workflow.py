@@ -1721,6 +1721,7 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(process_task_workflow_module.workflow, "set_current_details", Mock())
 
         assert await workflow._wait_for_event() == process_task_workflow_module.TaskEvent.TIMEOUT_REACHED
+        assert inactivity_mock.await_args is not None
         assert inactivity_mock.await_args.args[0] == timedelta(seconds=expected_seconds)
 
     async def test_turn_end_wakes_the_wait_so_the_short_idle_window_re_arms(self, monkeypatch):
@@ -1737,16 +1738,24 @@ class TestProcessTaskWorkflowUnit:
         assert await workflow._wait_for_task_external_event() == process_task_workflow_module.TaskEvent.SIGNAL_RECEIVED
         assert workflow._end_of_turn_received is True
 
-    async def test_dispatching_a_followup_opens_the_turn_before_any_heartbeat(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "outcome, expected",
+        [(None, False), (STEER_DECLINED_OUTCOME, True), (RuntimeError("Sandbox session is dead"), True)],
+    )
+    async def test_a_delivered_followup_opens_the_turn_before_any_heartbeat(self, monkeypatch, outcome, expected):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
         workflow._end_of_turn_received = True
-        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", AsyncMock(return_value="sent"))
-        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", Mock(return_value="uuid"))
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
+        activity = AsyncMock(side_effect=outcome) if isinstance(outcome, Exception) else AsyncMock(return_value=outcome)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", activity)
 
-        await workflow._dispatch_followup(PendingFollowup(message="go", artifact_ids=[]))
+        await workflow._send_followup_to_sandbox("go", [])
 
-        assert workflow._end_of_turn_received is False
+        assert workflow._end_of_turn_received is expected
 
     async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch):
         workflow = ProcessTaskWorkflow()

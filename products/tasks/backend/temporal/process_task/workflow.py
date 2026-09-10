@@ -646,9 +646,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id},
             )
             return
-        # The turn opens on dispatch: the first heartbeat may lag or be throttled away.
-        if _turn_opens_on_dispatch():
-            self._end_of_turn_received = False
         outcome = await self._send_followup_to_sandbox(
             message=followup.message,
             artifact_ids=followup.artifact_ids,
@@ -3472,7 +3469,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         try:
             max_attempts = 1 if self.context.task_runtime == "pi" else SEND_FOLLOWUP_MAX_ATTEMPTS
-            return await workflow.execute_activity(
+            outcome = await workflow.execute_activity(
                 send_followup_to_sandbox,
                 SendFollowupToSandboxInput(
                     run_id=self.context.run_id,
@@ -3492,6 +3489,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     maximum_attempts=max_attempts,
                 ),
             )
+            # A delivered message opens a turn: the first heartbeat may lag or be throttled away.
+            if outcome != STEER_DECLINED_OUTCOME and _turn_opens_on_dispatch():
+                self._end_of_turn_received = False
+            return outcome
         except Exception as e:
             error_properties = self._activity_error_properties(e)
             cause_message = error_properties.get("cause_error_message")
