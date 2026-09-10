@@ -34,6 +34,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 
 BROWSERLESS_SETTINGS = {
+    "HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED": True,
     "HEATMAP_BROWSERLESS_URL": "wss://production-sfo.browserless.io/chromium",
     "HEATMAP_BROWSERLESS_TOKEN": "secret-token",
     "HEATMAP_BROWSERLESS_TIMEOUT_MS": 180000,
@@ -116,10 +117,8 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         config = TeamHeatmapConfig.objects.create(
             team=self.team, screenshot_secret="phh_first", allowed_hostnames=["example.com"]
         )
-        bodies: list[dict] = []
 
         def respond(*args: object, **kwargs: object) -> MagicMock:
-            bodies.append(kwargs["json"])
             if change == "remove":
                 config.allowed_hostnames = []
             else:
@@ -129,6 +128,7 @@ class TestHeatmapScreenshotTask(APIBaseTest):
 
         render.side_effect = respond
         generate_heatmap_screenshot(self._make_heatmap(target_widths=[800, 1200]).id)
+        bodies = [call.kwargs["json"] for call in render.call_args_list]
         assert bodies[0]["cookies"][0]["value"] == "phh_first"
         if change == "remove":
             assert "cookies" not in bodies[1]
@@ -363,21 +363,31 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         )
         assert mock_requests.post.call_args.kwargs["json"]["blockAds"] is True
 
+    @parameterized.expand([False, True])
     @override_settings(
         HEATMAP_BROWSERLESS_TIMEOUT_MS=180000,
         HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=30000,
         HEATMAP_BROWSERLESS_BLOCK_ADS=False,
     )
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
-    def test_cookies_added_to_body_when_present(self, mock_requests: MagicMock) -> None:
+    def test_cookies_added_to_body_only_when_delivery_enabled(self, enabled: bool, mock_requests: MagicMock) -> None:
         mock_requests.post.return_value = _make_response()
         cookies: list[dict[str, object]] = [
             {"name": "__ph_heatmap_render", "value": "phh_abc", "domain": "example.com"}
         ]
-        _browserless_screenshot(
-            "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False, cookies=cookies
-        )
-        assert mock_requests.post.call_args.kwargs["json"]["cookies"] == cookies
+        with self.settings(HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED=enabled):
+            _browserless_screenshot(
+                "https://host/screenshot?token=t",
+                "https://example.com",
+                1024,
+                block_consent_modals=False,
+                cookies=cookies,
+            )
+        body = mock_requests.post.call_args.kwargs["json"]
+        if enabled:
+            assert body["cookies"] == cookies
+        else:
+            assert "cookies" not in body
 
     @override_settings(
         HEATMAP_BROWSERLESS_TIMEOUT_MS=180000,
@@ -472,7 +482,12 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
             )
 
 
+@override_settings(HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED=True)
 class TestHeatmapScreenshotCookies(SimpleTestCase):
+    @override_settings(HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED=False)
+    def test_cookie_withheld_when_delivery_is_disabled(self) -> None:
+        assert heatmap_screenshot_cookies("phh_abc", "https://www.example.com", ["www.example.com"]) == []
+
     def test_secret_sends_host_only_cookies_for_explicitly_approved_hosts(self) -> None:
         assert heatmap_screenshot_cookies(
             "phh_abc", "https://www.example.com/path", ["example.com", "www.example.com"]

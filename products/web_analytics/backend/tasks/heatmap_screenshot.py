@@ -378,6 +378,8 @@ def _page_status_from(response: requests.Response) -> int | None:
 
 
 def screenshot_credential_delivery_reason(secret: str | None, url: str, allowed_hostnames: list[str]) -> str:
+    if not settings.HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED:
+        return "delivery_disabled"
     if not secret:
         return "no_secret"
     if not allowed_hostnames:
@@ -434,7 +436,7 @@ def _browserless_screenshot(
         "scrollPage": True,
         "bestAttempt": True,
     }
-    if cookies:
+    if cookies and settings.HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED:
         body["cookies"] = cookies
     # blockConsentModals / blockAds are browserless.io cloud API extensions; the self-hosted OSS
     # image rejects unknown body fields (400 "must NOT have additional properties"), so only send
@@ -601,7 +603,9 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
         )
         if page_status is not None and not 200 <= page_status < 300:
             guidance = (
-                "The screenshot cookie was configured. Check the page and your bot protection rule before retrying."
+                "Screenshot cookie delivery is disabled on this installation. Contact your PostHog administrator."
+                if reason == "delivery_disabled"
+                else "The screenshot cookie was configured. Check the page and your bot protection rule before retrying."
                 if cookies
                 else "No screenshot cookie was sent. If bot protection blocks this page, ask a project admin to "
                 "approve its HTTPS hostname and configure a screenshot cookie in project settings under Heatmaps."
