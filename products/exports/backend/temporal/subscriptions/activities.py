@@ -150,6 +150,13 @@ class _WorkflowClaimStatus:
     error: str = ""
 
 
+@frozen
+class _ClaimRecoveryCounts:
+    released: int = 0
+    renewed: int = 0
+    retained: int = 0
+
+
 def _defer_subscription_claim_after_recovery_error(
     claim_id: uuid.UUID,
     claim_token: uuid.UUID,
@@ -175,23 +182,21 @@ def _reconcile_expired_subscription_claim(
     claim_token: uuid.UUID,
     lease_expires_at: dt.datetime,
     status: _WorkflowClaimStatus,
-) -> tuple[int, int, int]:
+) -> _ClaimRecoveryCounts:
     try:
         if status.is_open is True:
-            return (
-                0,
-                int(
+            return _ClaimRecoveryCounts(
+                renewed=int(
                     confirm_scheduler_claim(
                         claim_id,
                         claim_token,
                         lease_duration=_SUBSCRIPTION_EXECUTION_LEASE,
                     )
                 ),
-                0,
             )
         if status.is_open is False:
-            return (
-                int(
+            return _ClaimRecoveryCounts(
+                released=int(
                     release_scheduler_claim(
                         claim_id,
                         claim_token,
@@ -199,8 +204,6 @@ def _reconcile_expired_subscription_claim(
                         expected_lease_expires_at=lease_expires_at,
                     )
                 ),
-                0,
-                0,
             )
         defer_scheduler_claim_recovery(
             claim_id,
@@ -219,7 +222,7 @@ def _reconcile_expired_subscription_claim(
             error=str(error),
         )
         _defer_subscription_claim_after_recovery_error(claim_id, claim_token, lease_expires_at, error)
-    return 0, 0, 1
+    return _ClaimRecoveryCounts(retained=1)
 
 
 def _resolve_scheduler_region(region: str) -> str:
@@ -790,15 +793,15 @@ async def recover_subscription_scheduler_claims_activity(
         renewed = 0
         retained = 0
         for (claim_id, claim_token, _, lease_expires_at), status in zip(expired_claims, statuses, strict=True):
-            released_delta, renewed_delta, retained_delta = _reconcile_expired_subscription_claim(
+            counts = _reconcile_expired_subscription_claim(
                 claim_id,
                 claim_token,
                 lease_expires_at,
                 status,
             )
-            released += released_delta
-            renewed += renewed_delta
-            retained += retained_delta
+            released += counts.released
+            renewed += counts.renewed
+            retained += counts.retained
         return {"released": released, "renewed": renewed, "retained": retained, "pruned": pruned}
 
     result = await reconcile_claims()
