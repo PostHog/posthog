@@ -58726,6 +58726,20 @@ export namespace Schemas {
       enabled?: boolean;
       /** Whether proactive recommendations may use bounded public web research. Defaults to true. */
       allow_public_web_research?: boolean;
+      /** Whether eligible recommendations can prepare a draft pull request. Defaults to false. */
+      create_draft_pr?: boolean;
+      /**
+         * Repository name in owner/repository format. Requires draft pull request preparation.
+         * @maxLength 201
+         * @nullable
+         */
+      repository?: string | null;
+      /**
+         * GitHub integration ID for the repository. Requires draft pull request preparation.
+         * @minimum 1
+         * @nullable
+         */
+      repository_integration_id?: number | null;
     }
 
     export interface SubscriptionDashboardContext {

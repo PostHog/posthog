@@ -13,7 +13,6 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.models import Team
-from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.temporal.oauth import McpScopePreset, PosthogMcpScopes
 
@@ -21,6 +20,8 @@ from products.tasks.backend.facade.staged_evidence import read_completed_posthog
 from products.tasks.backend.facade.staged_execution import (
     PULSE_ANALYSIS_DISABLED_TOOLS,
     PULSE_ANALYSIS_NETWORK_EGRESS,
+    PULSE_EXECUTION_DISABLED_TOOLS,
+    PULSE_EXECUTION_NETWORK_EGRESS,
     AdvancedStagedTask,
     AdvanceStagedTaskInput,
     CreatedStagedTask,
@@ -31,7 +32,7 @@ from products.tasks.backend.facade.staged_execution import (
     StagedTaskResult,
 )
 from products.tasks.backend.logic.services.run_actor import user_has_current_team_access
-from products.tasks.backend.models import Task, TaskRun, TaskStagedRun
+from products.tasks.backend.models import MAX_PENDING_FOLLOWUP_CONTENT_CHARS, Task, TaskRun, TaskStagedRun
 
 _MANIFEST_VERSION = 1
 _MAX_OUTPUT_SCHEMA_BYTES = 100_000
@@ -44,6 +45,7 @@ class StagedExecutionBinding:
     repository: str | None
     base_sha: str | None
     github_integration_id: int | None
+    github_user_integration_id: UUID | None
     github_installation_id: str | None
     mcp_scope_preset: str
     disabled_tools: tuple[str, ...]
@@ -65,6 +67,7 @@ def get_staged_execution_binding(run_id: str) -> StagedExecutionBinding | None:
         staged_run.task.created_by, staged_run.team
     ):
         _invalid_binding("Staged task actor no longer has team access")
+    _validate_staged_repository_authority(staged_run)
     is_execution = str(staged_run.execution_run_id) == run_id
     manifest = staged_run.execution_manifest if is_execution else staged_run.analysis_manifest
     if not isinstance(manifest, dict):
@@ -85,6 +88,7 @@ def get_staged_execution_binding(run_id: str) -> StagedExecutionBinding | None:
         repository=staged_run.repository,
         base_sha=staged_run.base_sha,
         github_integration_id=staged_run.github_integration_id,
+        github_user_integration_id=staged_run.github_user_integration_id,
         github_installation_id=staged_run.github_installation_id,
         mcp_scope_preset=manifest["mcp_scope_preset"],
         disabled_tools=tuple(manifest["disabled_tools"]),
@@ -122,6 +126,12 @@ def _validate_manifest(manifest: StagedCapabilityManifest, *, expected_phase: st
         or manifest.disabled_tools != PULSE_ANALYSIS_DISABLED_TOOLS
     ):
         raise ValueError("Pulse analysis manifest has fixed capabilities")
+    if expected_phase == "execution" and (
+        manifest.mcp_scope_preset != "read_only"
+        or manifest.network_egress != PULSE_EXECUTION_NETWORK_EGRESS
+        or manifest.disabled_tools != PULSE_EXECUTION_DISABLED_TOOLS
+    ):
+        raise ValueError("Pulse execution manifest has fixed capabilities")
 
 
 def _validate_idempotency_key(key: str) -> None:
@@ -136,6 +146,7 @@ def _repository_fields(binding: StagedRepositoryBinding | None) -> dict[str, obj
             "base_sha": None,
             "base_branch": None,
             "github_integration_id": None,
+            "github_user_integration_id": None,
             "github_installation_id": None,
             "grant_version": None,
         }
@@ -145,6 +156,7 @@ def _repository_fields(binding: StagedRepositoryBinding | None) -> dict[str, obj
             binding.base_sha,
             binding.base_branch,
             binding.github_integration_id,
+            binding.github_user_integration_id,
             binding.github_installation_id,
             binding.grant_version,
         )
@@ -161,31 +173,56 @@ def _repository_fields(binding: StagedRepositoryBinding | None) -> dict[str, obj
         "base_sha": binding.base_sha.lower(),
         "base_branch": binding.base_branch,
         "github_integration_id": binding.github_integration_id,
+        "github_user_integration_id": binding.github_user_integration_id,
         "github_installation_id": binding.github_installation_id,
         "grant_version": binding.grant_version,
     }
 
 
 def validate_staged_repository_grant(
-    *, team_id: int, repository: str, github_integration_id: int, github_installation_id: str
+    *,
+    team_id: int,
+    actor_id: int,
+    repository: str,
+    github_integration_id: int,
+    github_user_integration_id: UUID,
+    github_installation_id: str,
 ) -> None:
-    """Fail closed unless the current team installation still authorizes this exact repository."""
-    integration = Integration.objects.filter(
-        id=github_integration_id,
+    """Fail closed unless the stored actor and both installations still authorize this repository."""
+    from products.tasks.backend.facade.repository_authorization import (  # noqa: PLC0415 - facade initializes the service
+        revalidate_staged_repository_binding,
+    )
+
+    if not revalidate_staged_repository_binding(
         team_id=team_id,
-        kind=Integration.IntegrationKind.GITHUB,
-        errors="",
-    ).first()
-    if (
-        integration is None
-        or str(integration.config.get("installation_id")) != github_installation_id
-        or integration.repository_cache_updated_at is None
-        or not any(
-            str(cached.get("full_name", "")).casefold() == repository.casefold()
-            for cached in GitHubIntegration(integration).list_all_cached_repositories(allow_refresh=False)
-        )
+        actor_id=actor_id,
+        repository=repository,
+        github_integration_id=github_integration_id,
+        github_user_integration_id=github_user_integration_id,
+        github_installation_id=github_installation_id,
     ):
-        _invalid_binding("Staged task repository integration is not currently authorized for this repository")
+        _invalid_binding("Staged task repository authority is no longer authorized")
+
+
+def _validate_staged_repository_authority(staged_run: TaskStagedRun) -> None:
+    fields = (
+        staged_run.repository,
+        staged_run.github_integration_id,
+        staged_run.github_user_integration_id,
+        staged_run.github_installation_id,
+    )
+    if not any(fields):
+        return
+    if not all(fields) or staged_run.task.created_by_id is None:
+        _invalid_binding("Staged task repository binding is incomplete")
+    validate_staged_repository_grant(
+        team_id=staged_run.team_id,
+        actor_id=staged_run.task.created_by_id,
+        repository=cast(str, staged_run.repository),
+        github_integration_id=cast(int, staged_run.github_integration_id),
+        github_user_integration_id=cast(UUID, staged_run.github_user_integration_id),
+        github_installation_id=cast(str, staged_run.github_installation_id),
+    )
 
 
 def _validate_create_input(input: CreateStagedTaskInput) -> dict[str, object]:
@@ -208,8 +245,10 @@ def _validate_create_input(input: CreateStagedTaskInput) -> dict[str, object]:
     if isinstance(integration_id, int):
         validate_staged_repository_grant(
             team_id=input.team_id,
+            actor_id=input.actor_id,
             repository=cast(str, repository_fields["repository"]),
             github_integration_id=integration_id,
+            github_user_integration_id=cast(UUID, repository_fields["github_user_integration_id"]),
             github_installation_id=cast(str, repository_fields["github_installation_id"]),
         )
     return repository_fields
@@ -327,6 +366,7 @@ def create_staged_task_run(input: CreateStagedTaskInput) -> CreatedStagedTask:
                 repository=repository,
                 repositories=[repository] if repository else [],
                 github_integration_id=github_integration_id,
+                github_user_integration_id=cast(UUID | None, repository_fields["github_user_integration_id"]),
             )
             analysis_run = TaskRun.objects.create(
                 task=task,
@@ -373,9 +413,17 @@ def advance_staged_task_run(input: AdvanceStagedTaskInput) -> AdvancedStagedTask
         WorkflowDispatchOptions,
         enqueue_or_start_workflow,
     )
+    from products.tasks.backend.temporal.process_task.workflow import (  # noqa: PLC0415 - dispatch payload needs the durable follow-up type
+        PendingFollowup,
+    )
 
     _validate_idempotency_key(input.idempotency_key)
     _validate_manifest(input.execution_manifest, expected_phase="execution")
+    if not isinstance(input.instruction, str):
+        raise ValueError("Staged task execution instruction is invalid")
+    instruction = input.instruction.strip()
+    if not instruction or len(instruction) > MAX_PENDING_FOLLOWUP_CONTENT_CHARS:
+        raise ValueError("Staged task execution instruction is invalid")
     manifest_payload = _manifest_payload(input.execution_manifest)
     with transaction.atomic():
         try:
@@ -394,10 +442,12 @@ def advance_staged_task_run(input: AdvanceStagedTaskInput) -> AdvancedStagedTask
             staged_run.task.created_by, staged_run.task.team
         ):
             _invalid_binding("Staged task actor no longer has team access")
+        _validate_staged_repository_authority(staged_run)
         if staged_run.execution_run_id is not None:
             if (
                 staged_run.advance_idempotency_key != input.idempotency_key
                 or staged_run.execution_manifest != manifest_payload
+                or staged_run.execution_instruction != instruction
             ):
                 _invalid_binding("Staged task advance replay does not match its original binding")
             return _advanced(staged_run)
@@ -417,12 +467,14 @@ def advance_staged_task_run(input: AdvanceStagedTaskInput) -> AdvancedStagedTask
         staged_run.execution_run = execution_run
         staged_run.advance_idempotency_key = input.idempotency_key
         staged_run.execution_manifest = manifest_payload
+        staged_run.execution_instruction = instruction
         staged_run.workspace_snapshot_ref = snapshot_ref
         staged_run.save(
             update_fields=[
                 "execution_run",
                 "advance_idempotency_key",
                 "execution_manifest",
+                "execution_instruction",
                 "workspace_snapshot_ref",
                 "updated_at",
             ]
@@ -433,6 +485,11 @@ def advance_staged_task_run(input: AdvanceStagedTaskInput) -> AdvancedStagedTask
                 user_id=staged_run.task.created_by_id,
                 create_pr=False,
                 posthog_mcp_scopes=cast(PosthogMcpScopes, input.execution_manifest.mcp_scope_preset),
+                initial_message=PendingFollowup(
+                    message=instruction,
+                    artifact_ids=[],
+                    actor_user_id=staged_run.task.created_by_id,
+                ),
                 force_durable_dispatch=True,
             ),
         )

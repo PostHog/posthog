@@ -53,6 +53,8 @@ export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsCreateBodyProactiveConfigOneRepositoryMax = 201
+
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -142,6 +144,20 @@ export const SubscriptionsCreateBody = () => zod
                     .describe(
                         'Whether proactive recommendations may use bounded public web research. Defaults to true.'
                     ),
+                create_draft_pr: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether eligible recommendations can prepare a draft pull request. Defaults to false.'),
+                repository: zod
+                    .string()
+                    .max(subscriptionsCreateBodyProactiveConfigOneRepositoryMax)
+                    .nullish()
+                    .describe('Repository name in owner\/repository format. Requires draft pull request preparation.'),
+                repository_integration_id: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe('GitHub integration ID for the repository. Requires draft pull request preparation.'),
             })
             .optional()
             .describe(
@@ -277,6 +293,8 @@ export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAg
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsPartialUpdateBodyProactiveConfigOneRepositoryMax = 201
+
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
@@ -366,6 +384,20 @@ export const SubscriptionsPartialUpdateBody = () => zod
                     .describe(
                         'Whether proactive recommendations may use bounded public web research. Defaults to true.'
                     ),
+                create_draft_pr: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether eligible recommendations can prepare a draft pull request. Defaults to false.'),
+                repository: zod
+                    .string()
+                    .max(subscriptionsPartialUpdateBodyProactiveConfigOneRepositoryMax)
+                    .nullish()
+                    .describe('Repository name in owner\/repository format. Requires draft pull request preparation.'),
+                repository_integration_id: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe('GitHub integration ID for the repository. Requires draft pull request preparation.'),
             })
             .optional()
             .describe(

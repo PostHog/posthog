@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-import time
 import hashlib
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import cast
 from uuid import UUID
@@ -15,10 +14,11 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
-from products.subscriptions.backend.facade.api import read_recommendation_generation, start_recommendation_generation
+from products.subscriptions.backend.facade.api import start_recommendation_generation
 from products.subscriptions.backend.facade.contracts import (
     Recommendation,
     RecommendationCitation,
+    RecommendationGenerationHandle,
     RecommendationGenerationInput,
     RecommendationResult,
     RecommendationStatus,
@@ -28,6 +28,11 @@ from products.subscriptions.backend.models import (
     ProactiveRecommendationRun,
     ProactiveSubscriptionConfig,
 )
+from products.tasks.backend.facade.repository_authorization import (
+    list_authorizable_repositories,
+    resolve_staged_repository_binding,
+)
+from products.tasks.backend.facade.staged_execution import StagedRepositoryBinding
 
 MAX_MEMORY_ROWS = 20
 MAX_MEMORY_BYTES = 12_000
@@ -37,6 +42,9 @@ MAX_MEMORY_BYTES = 12_000
 class ProactiveConfigDTO:
     enabled: bool
     allow_public_web_research: bool
+    create_draft_pr: bool
+    repository: str | None
+    repository_integration_id: int | None
 
 
 @frozen
@@ -65,12 +73,24 @@ def get_proactive_config(*, team_id: int, subscription_id: int) -> ProactiveConf
     return ProactiveConfigDTO(
         enabled=config.enabled if config else False,
         allow_public_web_research=config.allow_public_web_research if config else True,
+        create_draft_pr=config.create_draft_pr if config else False,
+        repository=config.repository if config else None,
+        repository_integration_id=config.repository_integration_id if config else None,
     )
 
 
 def update_proactive_config(
-    *, team_id: int, subscription_id: int, enabled: bool, allow_public_web_research: bool
+    *,
+    team_id: int,
+    subscription_id: int,
+    enabled: bool,
+    allow_public_web_research: bool,
+    create_draft_pr: bool = False,
+    repository: str | None = None,
+    repository_integration_id: int | None = None,
 ) -> ProactiveConfigDTO:
+    if not create_draft_pr and (repository is not None or repository_integration_id is not None):
+        raise ValueError("repository settings require draft PR preparation")
     with transaction.atomic():
         config, _ = (
             ProactiveSubscriptionConfig.objects.for_team(team_id)
@@ -81,14 +101,76 @@ def update_proactive_config(
                     "team_id": team_id,
                     "enabled": enabled,
                     "allow_public_web_research": allow_public_web_research,
+                    "create_draft_pr": create_draft_pr,
+                    "repository": repository,
+                    "repository_integration_id": repository_integration_id,
                 },
             )
         )
-        if config.enabled != enabled or config.allow_public_web_research != allow_public_web_research:
+        if (
+            config.enabled != enabled
+            or config.allow_public_web_research != allow_public_web_research
+            or config.create_draft_pr != create_draft_pr
+            or config.repository != repository
+            or config.repository_integration_id != repository_integration_id
+        ):
             config.enabled = enabled
             config.allow_public_web_research = allow_public_web_research
-            config.save(update_fields=["enabled", "allow_public_web_research", "updated_at"])
-    return ProactiveConfigDTO(enabled=config.enabled, allow_public_web_research=config.allow_public_web_research)
+            config.create_draft_pr = create_draft_pr
+            config.repository = repository
+            config.repository_integration_id = repository_integration_id
+            config.save(
+                update_fields=[
+                    "enabled",
+                    "allow_public_web_research",
+                    "create_draft_pr",
+                    "repository",
+                    "repository_integration_id",
+                    "updated_at",
+                ]
+            )
+    return ProactiveConfigDTO(
+        enabled=config.enabled,
+        allow_public_web_research=config.allow_public_web_research,
+        create_draft_pr=config.create_draft_pr,
+        repository=config.repository,
+        repository_integration_id=config.repository_integration_id,
+    )
+
+
+def resolve_draft_repository_binding(
+    *, team_id: int, actor_id: int, config: ProactiveConfigDTO
+) -> StagedRepositoryBinding | None:
+    """Freeze the actor's currently authorized repository consent for one analysis run."""
+    if not config.create_draft_pr or config.repository is None:
+        return None
+    repositories = list_authorizable_repositories(team_id=team_id, actor_id=actor_id)
+    if not any(
+        _repository_identity(repository.repository) == _repository_identity(config.repository)
+        and (
+            config.repository_integration_id is None
+            or repository.github_integration_id == config.repository_integration_id
+        )
+        for repository in repositories
+    ):
+        return None
+    resolved = resolve_staged_repository_binding(
+        team_id=team_id,
+        actor_id=actor_id,
+        repository=config.repository,
+        github_integration_id=config.repository_integration_id,
+    )
+    if resolved is None:
+        return None
+    return StagedRepositoryBinding(
+        repository=resolved.repository,
+        base_sha=resolved.base_sha,
+        base_branch=resolved.base_branch,
+        github_integration_id=resolved.github_integration_id,
+        github_user_integration_id=resolved.github_user_integration_id,
+        github_installation_id=resolved.github_installation_id,
+        grant_version=resolved.grant_version,
+    )
 
 
 def claim_recommendation_run(
@@ -169,47 +251,102 @@ def finalize_recommendation_run(
         return _appendix_for_run(run)
 
 
-def generate_recommendation_appendix(
-    *,
-    input: RecommendationGenerationInput,
-    snapshot: dict[str, object],
-    timeout_seconds: float,
-    poll_interval_seconds: float = 10,
-    on_wait: Callable[[], None] | None = None,
-) -> RecommendationAppendixDTO:
-    """Own one replay-safe recommendation run from claim through terminal persistence."""
-
-    run = claim_recommendation_run(
-        team_id=input.team_id,
-        subscription_id=input.subscription_id,
-        delivery_id=input.delivery_id,
-        actor_id=input.actor_id,
-        snapshot=snapshot,
-    )
-    try:
-        handle = start_recommendation_generation(input)
-        deadline = time.monotonic() + max(timeout_seconds, 0)
-        state = read_recommendation_generation(input, handle)
-        while state.status == "pending" and time.monotonic() < deadline:
-            if on_wait is not None:
-                on_wait()
-            time.sleep(min(max(poll_interval_seconds, 0), max(deadline - time.monotonic(), 0)))
-            state = read_recommendation_generation(input, handle)
-
-        if state.status != "completed" or state.result is None:
-            failure_code = "timeout" if state.status == "pending" else state.failure_code
-            return finalize_recommendation_run(
-                team_id=input.team_id,
-                run_id=run.id,
-                failure_code=failure_code or "generation_failed",
+def start_or_reuse_recommendation_generation(
+    *, input: RecommendationGenerationInput, run_id: UUID
+) -> RecommendationGenerationHandle:
+    artifact_config_hash = _artifact_config_hash(input)
+    repository_binding = _repository_binding_payload(input.repository)
+    with transaction.atomic():
+        run = ProactiveRecommendationRun.objects.for_team(input.team_id).select_for_update().get(id=run_id)
+        handles = (run.staged_run_id, run.task_id, run.analysis_run_id)
+        if any(handle is not None for handle in handles):
+            if not all(handle is not None for handle in handles):
+                raise ValueError("recommendation generation handles are partial")
+            if run.artifact_config_hash != artifact_config_hash or not _is_valid_repository_binding_payload(
+                run.repository_binding, input
+            ):
+                raise ValueError("recommendation generation replay does not match its frozen binding")
+            assert run.staged_run_id is not None
+            assert run.task_id is not None
+            assert run.analysis_run_id is not None
+            return RecommendationGenerationHandle(
+                staged_run_id=run.staged_run_id,
+                task_id=run.task_id,
+                analysis_run_id=run.analysis_run_id,
             )
-        return finalize_recommendation_run(team_id=input.team_id, run_id=run.id, result=state.result)
-    except Exception:
-        return finalize_recommendation_run(
-            team_id=input.team_id,
-            run_id=run.id,
-            failure_code="pulse_failure",
+        if run.artifact_config_hash is not None or run.repository_binding is not None:
+            raise ValueError("recommendation generation binding is partial")
+        handle = start_recommendation_generation(input)
+        run.staged_run_id = handle.staged_run_id
+        run.task_id = handle.task_id
+        run.analysis_run_id = handle.analysis_run_id
+        run.repository_binding = repository_binding
+        run.artifact_config_hash = artifact_config_hash
+        run.save(
+            update_fields=[
+                "staged_run_id",
+                "task_id",
+                "analysis_run_id",
+                "repository_binding",
+                "artifact_config_hash",
+                "updated_at",
+            ]
         )
+        return handle
+
+
+def _artifact_config_hash(input: RecommendationGenerationInput) -> str:
+    payload = {
+        "create_draft_pr": input.create_draft_pr,
+        "repository": input.repository_name,
+        "repository_integration_id": input.repository_integration_id,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _repository_binding_payload(binding: StagedRepositoryBinding | None) -> dict[str, object] | None:
+    if binding is None:
+        return None
+    return {
+        "repository": binding.repository,
+        "base_sha": binding.base_sha,
+        "base_branch": binding.base_branch,
+        "github_integration_id": binding.github_integration_id,
+        "github_user_integration_id": str(binding.github_user_integration_id),
+        "github_installation_id": binding.github_installation_id,
+        "grant_version": binding.grant_version,
+    }
+
+
+def _is_valid_repository_binding_payload(payload: object, input: RecommendationGenerationInput) -> bool:
+    if payload is None:
+        return True
+    if not isinstance(payload, dict):
+        return False
+    expected_fields = {
+        "repository",
+        "base_sha",
+        "base_branch",
+        "github_integration_id",
+        "github_user_integration_id",
+        "github_installation_id",
+        "grant_version",
+    }
+    if set(payload) != expected_fields:
+        return False
+    if input.repository_name is not None and (
+        not isinstance(payload["repository"], str)
+        or _repository_identity(payload["repository"]) != _repository_identity(input.repository_name)
+    ):
+        return False
+    return all(
+        isinstance(payload[key], str) and payload[key] for key in expected_fields - {"github_integration_id"}
+    ) and isinstance(payload["github_integration_id"], int)
+
+
+def _repository_identity(repository: str) -> str:
+    """Compare repository names using GitHub's case-insensitive identity."""
+    return repository.casefold()
 
 
 def recent_recommendation_memory(*, team_id: int, subscription_id: int) -> tuple[RecommendationMemoryDTO, ...]:

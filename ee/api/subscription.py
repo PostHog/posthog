@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 from collections.abc import Callable, Iterable
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar, Optional, cast
 
 from django.conf import settings
 from django.contrib.postgres.expressions import ArraySubquery
@@ -282,24 +282,44 @@ class ProactiveConfigSerializer(serializers.Serializer):
         required=False,
         help_text="Whether proactive recommendations may use bounded public web research. Defaults to true.",
     )
+    create_draft_pr = serializers.BooleanField(
+        required=False,
+        help_text="Whether eligible recommendations can prepare a draft pull request. Defaults to false.",
+    )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=False,
+        max_length=201,
+        help_text="Repository name in owner/repository format. Requires draft pull request preparation.",
+    )
+    repository_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="GitHub integration ID for the repository. Requires draft pull request preparation.",
+    )
 
 
 @extend_schema_field(ProactiveConfigSerializer)
 class ProactiveConfigField(serializers.Field):
     """Keeps the subscription API contract behind the proactive facade."""
 
-    def to_internal_value(self, data: Any) -> dict[str, dict[str, bool]]:
+    def to_internal_value(self, data: Any) -> dict[str, dict[str, object]]:
         serializer = ProactiveConfigSerializer(data=data)
         serializer.is_valid(raise_exception=True)
         return {"proactive_config": serializer.validated_data}
 
-    def to_representation(self, value: Subscription) -> dict[str, bool]:
+    def to_representation(self, value: Subscription) -> dict[str, object]:
         if value.resource_type != Subscription.ResourceType.AI_PROMPT:
             return {}
         config = get_proactive_config(team_id=value.team_id, subscription_id=value.id)
         return {
             "enabled": config.enabled,
             "allow_public_web_research": config.allow_public_web_research,
+            "create_draft_pr": config.create_draft_pr,
+            "repository": config.repository,
+            "repository_integration_id": config.repository_integration_id,
         }
 
 
@@ -767,6 +787,24 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
         if resource_type != Subscription.ResourceType.AI_PROMPT and "proactive_config" in attrs:
             raise ValidationError({"proactive_config": ["Proactive settings only apply to AI subscriptions."]})
+        if resource_type == Subscription.ResourceType.AI_PROMPT and "proactive_config" in attrs:
+            current = (
+                get_proactive_config(team_id=existing.team_id, subscription_id=existing.id)
+                if existing is not None
+                else None
+            )
+            proactive_config = attrs["proactive_config"]
+            create_draft_pr = proactive_config.get(
+                "create_draft_pr", current.create_draft_pr if current is not None else False
+            )
+            repository = proactive_config.get("repository", current.repository if current is not None else None)
+            repository_integration_id = proactive_config.get(
+                "repository_integration_id", current.repository_integration_id if current is not None else None
+            )
+            if not create_draft_pr and (repository is not None or repository_integration_id is not None):
+                raise ValidationError(
+                    {"proactive_config": ["Repository settings require create_draft_pr to be enabled."]}
+                )
         if "contexts" in attrs:
             if resource_type != Subscription.ResourceType.AI_PROMPT:
                 raise ValidationError({"contexts": ["Context only applies to AI subscriptions."]})
@@ -1116,7 +1154,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         validated_data: dict,
         contexts: list[dict[str, Insight | Dashboard]],
         contexts_in_payload: bool,
-        proactive_config: dict[str, bool] | None,
+        proactive_config: dict[str, object] | None,
         analytics_props: AnalyticsProps,
     ) -> tuple[Subscription, bool]:
         contexts_changed = False
@@ -1142,13 +1180,18 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         return instance, contexts_changed
 
     @staticmethod
-    def _update_proactive_config(instance: Subscription, config: dict[str, bool]) -> None:
+    def _update_proactive_config(instance: Subscription, config: dict[str, object]) -> None:
         current = get_proactive_config(team_id=instance.team_id, subscription_id=instance.id)
         update_proactive_config(
             team_id=instance.team_id,
             subscription_id=instance.id,
-            enabled=config.get("enabled", current.enabled),
-            allow_public_web_research=config.get("allow_public_web_research", current.allow_public_web_research),
+            enabled=bool(config.get("enabled", current.enabled)),
+            allow_public_web_research=bool(config.get("allow_public_web_research", current.allow_public_web_research)),
+            create_draft_pr=bool(config.get("create_draft_pr", current.create_draft_pr)),
+            repository=cast(str | None, config.get("repository", current.repository)),
+            repository_integration_id=cast(
+                int | None, config.get("repository_integration_id", current.repository_integration_id)
+            ),
         )
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:

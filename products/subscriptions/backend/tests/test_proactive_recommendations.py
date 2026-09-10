@@ -15,18 +15,21 @@ from products.subscriptions.backend.facade.contracts import (
     RecommendationCitation,
     RecommendationGenerationHandle,
     RecommendationGenerationInput,
-    RecommendationGenerationState,
     RecommendationResult,
 )
 from products.subscriptions.backend.facade.proactive import (
     claim_recommendation_run,
     finalize_recommendation_run,
-    generate_recommendation_appendix,
     get_proactive_config,
     read_recommendation_appendix,
     recent_recommendation_memory,
 )
 from products.subscriptions.backend.models import ProactiveRecommendation
+from products.tasks.backend.facade.repository_authorization import (
+    AuthorizableRepository,
+    ResolvedStagedRepositoryBinding,
+)
+from products.tasks.backend.facade.staged_execution import StagedRepositoryBinding
 
 
 def _recommendation(semantic_key: str, *, title: str | None = None) -> Recommendation:
@@ -259,8 +262,17 @@ def test_failed_run_is_read_without_restarting(team) -> None:
 
 
 @pytest.mark.django_db
-def test_generation_deadline_is_configurable_and_finishes_the_run(team, monkeypatch) -> None:
+def test_generation_persists_and_reuses_its_exact_immutable_handles(team, monkeypatch) -> None:
     delivery_id = uuid4()
+    binding = StagedRepositoryBinding(
+        repository="posthog/posthog",
+        base_sha="a" * 40,
+        base_branch="master",
+        github_integration_id=123,
+        github_user_integration_id=uuid4(),
+        github_installation_id="456",
+        grant_version="stable-grant",
+    )
     generation_input = RecommendationGenerationInput(
         team_id=team.id,
         subscription_id=123,
@@ -271,20 +283,170 @@ def test_generation_deadline_is_configurable_and_finishes_the_run(team, monkeypa
         prompt="find improvements",
         contexts=(),
         public_web_research=False,
+        create_draft_pr=True,
+        repository_name="posthog/posthog",
+        repository_integration_id=123,
+        repository=binding,
     )
     handle = RecommendationGenerationHandle(staged_run_id=uuid4(), task_id=uuid4(), analysis_run_id=uuid4())
-    monkeypatch.setattr(proactive, "start_recommendation_generation", lambda _input: handle)
+    started_inputs: list[RecommendationGenerationInput] = []
+
+    def start(started_input: RecommendationGenerationInput) -> RecommendationGenerationHandle:
+        started_inputs.append(started_input)
+        return handle
+
     monkeypatch.setattr(
         proactive,
-        "read_recommendation_generation",
-        lambda _input, _handle: RecommendationGenerationState(status="pending"),
+        "start_recommendation_generation",
+        start,
     )
-
-    appendix = generate_recommendation_appendix(
-        input=generation_input,
+    claimed = claim_recommendation_run(
+        team_id=team.id,
+        subscription_id=123,
+        delivery_id=delivery_id,
+        actor_id=456,
         snapshot={"report_hash": "stable"},
-        timeout_seconds=0,
     )
 
-    assert appendix.status == "failed"
-    assert appendix.failure_code == "timeout"
+    first = proactive.start_or_reuse_recommendation_generation(input=generation_input, run_id=claimed.id)
+    replay = proactive.start_or_reuse_recommendation_generation(input=generation_input, run_id=claimed.id)
+
+    run = proactive.ProactiveRecommendationRun.objects.for_team(team.id).get(delivery_id=delivery_id)
+    assert first == handle
+    assert replay == handle
+    assert (run.staged_run_id, run.task_id, run.analysis_run_id) == (
+        handle.staged_run_id,
+        handle.task_id,
+        handle.analysis_run_id,
+    )
+    assert run.repository_binding == {
+        "base_branch": "master",
+        "base_sha": "a" * 40,
+        "github_installation_id": "456",
+        "github_integration_id": 123,
+        "github_user_integration_id": str(binding.github_user_integration_id),
+        "grant_version": "stable-grant",
+        "repository": "posthog/posthog",
+    }
+    assert run.artifact_config_hash is not None
+    assert started_inputs == [generation_input]
+
+
+@pytest.mark.django_db
+def test_pending_generation_reuses_canonical_binding_for_mixed_case_repository_config(team, monkeypatch) -> None:
+    delivery_id = uuid4()
+    binding = StagedRepositoryBinding(
+        repository="posthog/posthog",
+        base_sha="a" * 40,
+        base_branch="master",
+        github_integration_id=123,
+        github_user_integration_id=uuid4(),
+        github_installation_id="456",
+        grant_version="stable-grant",
+    )
+    generation_input = RecommendationGenerationInput(
+        team_id=team.id,
+        subscription_id=123,
+        delivery_id=delivery_id,
+        actor_id=456,
+        idempotency_key=f"pulse-recommendations:{delivery_id}",
+        report_markdown="saved report",
+        prompt="find improvements",
+        contexts=(),
+        public_web_research=False,
+        create_draft_pr=True,
+        repository_name="PostHog/posthog",
+        repository_integration_id=123,
+        repository=binding,
+    )
+    claimed = claim_recommendation_run(
+        team_id=team.id,
+        subscription_id=123,
+        delivery_id=delivery_id,
+        actor_id=456,
+        snapshot={"report_hash": "stable"},
+    )
+    handle = RecommendationGenerationHandle(staged_run_id=uuid4(), task_id=uuid4(), analysis_run_id=uuid4())
+    started_inputs: list[RecommendationGenerationInput] = []
+
+    def start(started_input: RecommendationGenerationInput) -> RecommendationGenerationHandle:
+        started_inputs.append(started_input)
+        return handle
+
+    monkeypatch.setattr(
+        proactive,
+        "start_recommendation_generation",
+        start,
+    )
+
+    first = proactive.start_or_reuse_recommendation_generation(input=generation_input, run_id=claimed.id)
+    replay = proactive.start_or_reuse_recommendation_generation(input=generation_input, run_id=claimed.id)
+
+    run = proactive.ProactiveRecommendationRun.objects.for_team(team.id).get(id=claimed.id)
+    assert run.status == "pending"
+    assert first == handle
+    assert replay == handle
+    assert started_inputs == [generation_input]
+
+
+@pytest.mark.django_db
+def test_repository_consent_is_resolved_through_the_tasks_facade(team, monkeypatch) -> None:
+    config = proactive.ProactiveConfigDTO(
+        enabled=True,
+        allow_public_web_research=True,
+        create_draft_pr=True,
+        repository="posthog/posthog",
+        repository_integration_id=123,
+    )
+    user_integration_id = uuid4()
+    monkeypatch.setattr(
+        proactive,
+        "list_authorizable_repositories",
+        lambda **_kwargs: (
+            AuthorizableRepository(
+                repository="posthog/posthog",
+                github_integration_id=123,
+                github_user_integration_id=user_integration_id,
+                github_installation_id="456",
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        proactive,
+        "resolve_staged_repository_binding",
+        lambda **_kwargs: ResolvedStagedRepositoryBinding(
+            repository="posthog/posthog",
+            base_sha="a" * 40,
+            base_branch="master",
+            github_integration_id=123,
+            github_user_integration_id=user_integration_id,
+            github_installation_id="456",
+            grant_version="stable-grant",
+        ),
+    )
+
+    binding = proactive.resolve_draft_repository_binding(team_id=team.id, actor_id=456, config=config)
+
+    assert binding == StagedRepositoryBinding(
+        repository="posthog/posthog",
+        base_sha="a" * 40,
+        base_branch="master",
+        github_integration_id=123,
+        github_user_integration_id=user_integration_id,
+        github_installation_id="456",
+        grant_version="stable-grant",
+    )
+
+
+@pytest.mark.django_db
+def test_missing_repository_consent_degrades_to_no_repository(team, monkeypatch) -> None:
+    config = proactive.ProactiveConfigDTO(
+        enabled=True,
+        allow_public_web_research=True,
+        create_draft_pr=True,
+        repository="posthog/posthog",
+        repository_integration_id=None,
+    )
+    monkeypatch.setattr(proactive, "list_authorizable_repositories", lambda **_kwargs: ())
+
+    assert proactive.resolve_draft_repository_binding(team_id=team.id, actor_id=456, config=config) is None

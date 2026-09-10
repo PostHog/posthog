@@ -1,4 +1,10 @@
+import asyncio
+from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
+from threading import Event
+from typing import ParamSpec, TypeVar
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -39,9 +45,17 @@ from products.subscriptions.backend.facade.contracts import (
     RecommendationGenerationState,
     RecommendationResult,
 )
-from products.subscriptions.backend.facade.proactive import RecommendationAppendixDTO, update_proactive_config
+from products.subscriptions.backend.facade.proactive import (
+    RecommendationAppendixDTO,
+    read_recommendation_appendix,
+    update_proactive_config,
+)
+from products.tasks.backend.facade.staged_execution import StagedRepositoryBinding
 
 _WINDOW_END_UTC = "2026-06-25T12:00:00+00:00"
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -411,7 +425,7 @@ async def test_proactive_enrichment_appends_a_completed_result_once(team, user, 
             return_value=handle,
         ) as start_generation,
         patch(
-            "products.subscriptions.backend.facade.proactive.read_recommendation_generation",
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.read_recommendation_generation",
             return_value=state,
         ),
     ):
@@ -422,6 +436,77 @@ async def test_proactive_enrichment_appends_a_completed_result_once(team, user, 
     assert start_generation.call_count == 1
     assert snapshot[AI_REPORT_SNAPSHOT_KEY].count("Investigate the activation drop") == 1
     assert "## Recommendations" in snapshot[AI_REPORT_RECOMMENDATIONS_KEY]
+
+
+@pytest.mark.usefixtures("settings")
+async def test_proactive_polling_releases_the_shared_database_executor(team, user, settings) -> None:
+    settings.PULSE_PROACTIVE_ENABLED = True
+    settings.PULSE_PROACTIVE_TIMEOUT_SECONDS = 2
+    delivery = await _create_proactive_delivery(team, user)
+    inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
+    handle = RecommendationGenerationHandle(staged_run_id=uuid4(), task_id=uuid4(), analysis_run_id=uuid4())
+    completed = RecommendationGenerationState(
+        status="completed",
+        result=RecommendationResult(recommendations=(), citations=()),
+    )
+    poll_started = Event()
+    states = iter((RecommendationGenerationState(status="pending"), completed))
+    loop = asyncio.get_running_loop()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+
+        def constrained_database_sync_to_async(
+            function: Callable[P, R], thread_sensitive: bool = True
+        ) -> Callable[P, Awaitable[R]]:
+            async def call(*args: P.args, **kwargs: P.kwargs) -> R:
+                return await loop.run_in_executor(executor, partial(function, *args, **kwargs))
+
+            return call
+
+        def read_generation(*_args: object) -> RecommendationGenerationState:
+            poll_started.set()
+            return next(states)
+
+        with (
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.activities.posthoganalytics.feature_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
+                return_value=False,
+            ),
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.activities.database_sync_to_async",
+                constrained_database_sync_to_async,
+            ),
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.activities._PULSE_POLL_INTERVAL_SECONDS",
+                1,
+            ),
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.activities.temporalio.activity.heartbeat"
+            ),
+            patch(
+                "products.subscriptions.backend.facade.proactive.start_recommendation_generation",
+                return_value=handle,
+            ),
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.activities.read_recommendation_generation",
+                side_effect=read_generation,
+            ),
+        ):
+            enrichment = asyncio.create_task(enrich_ai_subscription_report(inputs))
+            while not poll_started.is_set():
+                await asyncio.sleep(0)
+            competing_read = constrained_database_sync_to_async(lambda: "available", thread_sensitive=False)()
+            try:
+                executor_result = await asyncio.wait_for(competing_read, timeout=0.5)
+            except TimeoutError:
+                executor_result = "blocked"
+            await enrichment
+
+    assert executor_result == "available"
 
 
 @pytest.mark.usefixtures("settings")
@@ -455,6 +540,43 @@ async def test_proactive_enrichment_failure_is_terminal_and_preserves_the_base_r
 
 
 @pytest.mark.usefixtures("settings")
+async def test_proactive_enrichment_timeout_is_terminal(team, user, settings) -> None:
+    settings.PULSE_PROACTIVE_ENABLED = True
+    settings.PULSE_PROACTIVE_TIMEOUT_SECONDS = 0
+    delivery = await _create_proactive_delivery(team, user)
+    inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
+    handle = RecommendationGenerationHandle(staged_run_id=uuid4(), task_id=uuid4(), analysis_run_id=uuid4())
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
+            return_value=False,
+        ),
+        patch(
+            "products.subscriptions.backend.facade.proactive.start_recommendation_generation",
+            return_value=handle,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.read_recommendation_generation",
+            return_value=RecommendationGenerationState(status="pending"),
+        ),
+    ):
+        await enrich_ai_subscription_report(inputs)
+
+    appendix = await sync_to_async(read_recommendation_appendix)(
+        team_id=team.id,
+        delivery_id=delivery.id,
+    )
+    assert appendix is not None
+    assert appendix.status == "failed"
+    assert appendix.failure_code == "timeout"
+
+
+@pytest.mark.usefixtures("settings")
 async def test_proactive_enrichment_respects_the_existing_credit_gate(team, user, settings) -> None:
     settings.PULSE_PROACTIVE_ENABLED = True
     delivery = await _create_proactive_delivery(team, user)
@@ -470,7 +592,7 @@ async def test_proactive_enrichment_respects_the_existing_credit_gate(team, user
             return_value=True,
         ),
         patch(
-            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_recommendation_appendix"
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities._generate_recommendation_appendix"
         ) as generate_appendix,
     ):
         await enrich_ai_subscription_report(inputs)
@@ -488,7 +610,7 @@ async def test_proactive_enrichment_reuses_the_frozen_delivery_input(team, user,
     settings.PULSE_PROACTIVE_ENABLED = True
     delivery = await _create_proactive_delivery(team, user)
     inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
-    generate_appendix = MagicMock(
+    generate_appendix = AsyncMock(
         return_value=RecommendationAppendixDTO(
             status="failed", recommendations=(), citations=(), failure_code="unavailable"
         )
@@ -504,7 +626,7 @@ async def test_proactive_enrichment_reuses_the_frozen_delivery_input(team, user,
             return_value=False,
         ),
         patch(
-            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_recommendation_appendix",
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities._generate_recommendation_appendix",
             generate_appendix,
         ),
     ):
@@ -525,7 +647,7 @@ async def test_proactive_enrichment_honors_a_research_opt_out_on_retry(team, use
     settings.PULSE_PUBLIC_RESEARCH_ENABLED = True
     delivery = await _create_proactive_delivery(team, user)
     inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
-    generate_appendix = MagicMock(
+    generate_appendix = AsyncMock(
         return_value=RecommendationAppendixDTO(
             status="failed", recommendations=(), citations=(), failure_code="unavailable"
         )
@@ -541,7 +663,7 @@ async def test_proactive_enrichment_honors_a_research_opt_out_on_retry(team, use
             return_value=False,
         ),
         patch(
-            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_recommendation_appendix",
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities._generate_recommendation_appendix",
             generate_appendix,
         ),
     ):
@@ -570,9 +692,108 @@ async def test_proactive_enrichment_requires_current_project_access(team, user, 
             new=AsyncMock(return_value=False),
         ),
         patch(
-            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_recommendation_appendix"
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities._generate_recommendation_appendix"
         ) as generate_appendix,
     ):
         await enrich_ai_subscription_report(inputs)
 
     generate_appendix.assert_not_called()
+
+
+@pytest.mark.usefixtures("settings")
+async def test_proactive_enrichment_resolves_draft_repository_consent_before_analysis(team, user, settings) -> None:
+    settings.PULSE_PROACTIVE_ENABLED = True
+    delivery = await _create_proactive_delivery(team, user)
+    await sync_to_async(update_proactive_config)(
+        team_id=team.id,
+        subscription_id=delivery.subscription_id,
+        enabled=True,
+        allow_public_web_research=True,
+        create_draft_pr=True,
+        repository="posthog/posthog",
+        repository_integration_id=123,
+    )
+    binding = StagedRepositoryBinding(
+        repository="posthog/posthog",
+        base_sha="a" * 40,
+        base_branch="master",
+        github_integration_id=123,
+        github_user_integration_id=uuid4(),
+        github_installation_id="456",
+        grant_version="stable-grant",
+    )
+    inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
+    generate_appendix = AsyncMock(
+        return_value=RecommendationAppendixDTO(
+            status="failed", recommendations=(), citations=(), failure_code="timeout"
+        )
+    )
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
+            return_value=False,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.resolve_draft_repository_binding",
+            return_value=binding,
+        ) as resolve_binding,
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities._generate_recommendation_appendix",
+            generate_appendix,
+        ),
+    ):
+        await enrich_ai_subscription_report(inputs)
+
+    resolve_binding.assert_called_once()
+    generation_input = generate_appendix.call_args.kwargs["input"]
+    assert generation_input.repository == binding
+    assert generation_input.create_draft_pr is True
+    assert generation_input.repository_name == "posthog/posthog"
+    assert generation_input.repository_integration_id == 123
+
+
+@pytest.mark.usefixtures("settings")
+async def test_proactive_enrichment_continues_without_repository_consent(team, user, settings) -> None:
+    settings.PULSE_PROACTIVE_ENABLED = True
+    delivery = await _create_proactive_delivery(team, user)
+    await sync_to_async(update_proactive_config)(
+        team_id=team.id,
+        subscription_id=delivery.subscription_id,
+        enabled=True,
+        allow_public_web_research=True,
+        create_draft_pr=True,
+        repository="posthog/posthog",
+    )
+    inputs = GenerateAIReportInputs(subscription_id=delivery.subscription_id, delivery_id=delivery.id)
+    generate_appendix = AsyncMock(
+        return_value=RecommendationAppendixDTO(
+            status="failed", recommendations=(), citations=(), failure_code="timeout"
+        )
+    )
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget",
+            return_value=False,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.resolve_draft_repository_binding",
+            return_value=None,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.activities._generate_recommendation_appendix",
+            generate_appendix,
+        ),
+    ):
+        await enrich_ai_subscription_report(inputs)
+
+    assert generate_appendix.call_args.kwargs["input"].repository is None

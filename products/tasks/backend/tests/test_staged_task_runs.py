@@ -1,6 +1,7 @@
+import time
 from dataclasses import replace
 from typing import Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -10,6 +11,7 @@ from django.utils import timezone
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.integration import Integration
 from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.facade.api import _list_tasks_queryset, task_is_one_shot_analysis
 from products.tasks.backend.facade.staged_execution import (
@@ -50,8 +52,9 @@ class TestStagedTaskRuns(TestCase):
         return StagedCapabilityManifest(
             version=1,
             phase="execution",
-            mcp_scope_preset="full",
-            disabled_tools=("WebFetch",),
+            mcp_scope_preset="read_only",
+            disabled_tools=("WebFetch", "WebSearch"),
+            network_egress="posthog_mcp_only",
         )
 
     def _pulse_analysis_manifest(
@@ -80,6 +83,60 @@ class TestStagedTaskRuns(TestCase):
             analysis_manifest=self._analysis_manifest(),
             repository=None,
             output_schema=None,
+        )
+
+    def _repository_binding(
+        self,
+        *,
+        installation_id: str = "bound-installation",
+        repository: str = "owner/repository",
+    ) -> StagedRepositoryBinding:
+        now = int(time.time())
+        repository_cache = [{"full_name": repository, "can_push": True, "private": True, "visibility": "private"}]
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITHUB,
+            integration_id=installation_id,
+            config={"installation_id": installation_id},
+            repository_cache=repository_cache,
+        )
+        personal = UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id=installation_id,
+            config={
+                "user_token_refreshed_at": now,
+                "user_access_token_expires_at": now + 3600,
+                "user_refresh_token_expires_at": now + 3600,
+            },
+            sensitive_config={"user_access_token": "access", "user_refresh_token": "refresh"},
+            repository_cache=repository_cache,
+        )
+        return StagedRepositoryBinding(
+            repository=repository,
+            base_sha="a" * 40,
+            base_branch="main",
+            github_integration_id=integration.id,
+            github_user_integration_id=personal.id,
+            github_installation_id=installation_id,
+            grant_version="v1",
+        )
+
+    def _advance_input(
+        self,
+        staged_run_id: UUID,
+        *,
+        instruction: str = "Implement the approved change.",
+        idempotency_key: str = "advance-key",
+        execution_manifest: StagedCapabilityManifest | None = None,
+    ) -> AdvanceStagedTaskInput:
+        return AdvanceStagedTaskInput(
+            team_id=self.team.id,
+            caller_id=self.caller_id,
+            staged_run_id=staged_run_id,
+            idempotency_key=idempotency_key,
+            instruction=instruction,
+            execution_manifest=execution_manifest or self._execution_manifest(),
         )
 
     def test_create_replays_the_same_analysis_task_for_one_caller_key(self) -> None:
@@ -221,6 +278,7 @@ class TestStagedTaskRuns(TestCase):
                     caller_id=self.caller_id,
                     staged_run_id=created.staged_run_id,
                     idempotency_key="advance-key",
+                    instruction="Implement the approved change.",
                     execution_manifest=self._execution_manifest(),
                 )
             )
@@ -239,6 +297,7 @@ class TestStagedTaskRuns(TestCase):
             caller_id=self.caller_id,
             staged_run_id=created.staged_run_id,
             idempotency_key="advance-key",
+            instruction="Implement the approved change.",
             execution_manifest=self._execution_manifest(),
         )
 
@@ -250,6 +309,61 @@ class TestStagedTaskRuns(TestCase):
         execution_run = TaskRun.objects.get(id=results[0].execution_run_id)
         assert execution_run.state["snapshot_external_id"] == "snapshot-1"
         assert execution_run.state["resume_from_run_id"] == str(created.analysis_run_id)
+        assert (
+            TaskStagedRun.objects.for_team(self.team.id).get(id=created.staged_run_id).execution_instruction
+            == "Implement the approved change."
+        )
+        dispatch = TaskWorkflowDispatch.objects.for_team(self.team.id).get(task_run=execution_run)
+        assert dispatch.payload["initial_message"] == {
+            "message": "Implement the approved change.",
+            "artifact_ids": [],
+            "actor_user_id": self.user.id,
+            "message_id": None,
+            "context": {},
+            "steer": False,
+            "sequence": 0,
+        }
+
+    def test_advance_rejects_a_changed_instruction_for_the_same_idempotency_key(self) -> None:
+        """Break caught: a replay changes the executable request after capabilities were elevated."""
+        created = create_staged_task(self._create_input(idempotency_key="changed-instruction"))
+        TaskRun.objects.filter(id=created.analysis_run_id).update(
+            status=TaskRun.Status.COMPLETED,
+            state={"snapshot_external_id": "snapshot-1", "snapshot_kind": "filesystem"},
+        )
+        advance_staged_task(self._advance_input(created.staged_run_id))
+
+        with pytest.raises(InvalidStagedTaskBindingError, match="replay"):
+            advance_staged_task(self._advance_input(created.staged_run_id, instruction="Do a different action."))
+
+    def test_advance_rejects_an_empty_or_oversized_instruction(self) -> None:
+        """Break caught: an execution run starts without a bounded human instruction."""
+        created = create_staged_task(self._create_input(idempotency_key="invalid-instruction"))
+        TaskRun.objects.filter(id=created.analysis_run_id).update(
+            status=TaskRun.Status.COMPLETED,
+            state={"snapshot_external_id": "snapshot-1", "snapshot_kind": "filesystem"},
+        )
+
+        for instruction in ("   ", "x" * 10_001):
+            with pytest.raises(ValueError, match="instruction"):
+                advance_staged_task(self._advance_input(created.staged_run_id, instruction=instruction))
+
+        assert TaskRun.objects.filter(task_id=created.task_id).count() == 1
+
+    def test_advance_rechecks_the_exact_personal_repository_authority(self) -> None:
+        """Break caught: a revoked actor integration can still start repository execution."""
+        binding = self._repository_binding()
+        created = create_staged_task(replace(self._create_input(idempotency_key="authority"), repository=binding))
+        TaskRun.objects.filter(id=created.analysis_run_id).update(
+            status=TaskRun.Status.COMPLETED,
+            state={"snapshot_external_id": "snapshot-1", "snapshot_kind": "filesystem"},
+        )
+        UserIntegration.objects.filter(id=binding.github_user_integration_id).delete()
+
+        with pytest.raises(InvalidStagedTaskBindingError, match="authority"):
+            advance_staged_task(self._advance_input(created.staged_run_id))
+
+        assert TaskRun.objects.filter(task_id=created.task_id).count() == 1
 
     def test_advance_rejects_an_analysis_manifest(self) -> None:
         """Break caught: an analysis capability set can be used to authorize execution."""
@@ -266,6 +380,7 @@ class TestStagedTaskRuns(TestCase):
                     caller_id=self.caller_id,
                     staged_run_id=created.staged_run_id,
                     idempotency_key="advance-key",
+                    instruction="Implement the approved change.",
                     execution_manifest=self._analysis_manifest(),
                 )
             )
@@ -274,13 +389,7 @@ class TestStagedTaskRuns(TestCase):
 
     def test_create_rejects_a_repository_binding_for_another_installation(self) -> None:
         """Break caught: a protected repository grant can be paired with another installation."""
-        integration = Integration.objects.create(
-            team=self.team,
-            kind=Integration.IntegrationKind.GITHUB,
-            config={"installation_id": "bound-installation"},
-            repository_cache=[{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}],
-            repository_cache_updated_at=timezone.now(),
-        )
+        binding = self._repository_binding(repository="posthog/posthog")
         input = self._create_input()
         input = replace(
             input,
@@ -288,7 +397,8 @@ class TestStagedTaskRuns(TestCase):
                 repository="posthog/posthog",
                 base_sha="a" * 40,
                 base_branch="master",
-                github_integration_id=integration.id,
+                github_integration_id=binding.github_integration_id,
+                github_user_integration_id=binding.github_user_integration_id,
                 github_installation_id="different-installation",
                 grant_version="v1",
             ),
@@ -319,6 +429,7 @@ class TestStagedTaskRuns(TestCase):
                             base_sha=base_sha,
                             base_branch="master",
                             github_integration_id=integration.id,
+                            github_user_integration_id=uuid4(),
                             github_installation_id="bound-installation",
                             grant_version="v1",
                         ),
@@ -333,6 +444,19 @@ class TestStagedTaskRuns(TestCase):
             repository_cache=[{"id": 1, "name": "other", "full_name": "owner/other"}],
             repository_cache_updated_at=timezone.now(),
         )
+        now = int(time.time())
+        personal = UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="bound-installation",
+            config={
+                "user_token_refreshed_at": now,
+                "user_access_token_expires_at": now + 3600,
+                "user_refresh_token_expires_at": now + 3600,
+            },
+            sensitive_config={"user_access_token": "access", "user_refresh_token": "refresh"},
+            repository_cache=[{"full_name": "owner/repo", "can_push": True, "private": True, "visibility": "private"}],
+        )
         input = self._create_input()
 
         with pytest.raises(InvalidStagedTaskBindingError):
@@ -344,6 +468,7 @@ class TestStagedTaskRuns(TestCase):
                         base_sha="a" * 40,
                         base_branch="master",
                         github_integration_id=integration.id,
+                        github_user_integration_id=personal.id,
                         github_installation_id="bound-installation",
                         grant_version="v1",
                     ),
@@ -366,6 +491,7 @@ class TestStagedTaskRuns(TestCase):
                     caller_id=self.caller_id,
                     staged_run_id=created.staged_run_id,
                     idempotency_key="advance-key",
+                    instruction="Implement the approved change.",
                     execution_manifest=self._execution_manifest(),
                 )
             )
@@ -389,6 +515,7 @@ class TestStagedTaskRuns(TestCase):
                     caller_id=self.caller_id,
                     staged_run_id=created.staged_run_id,
                     idempotency_key="advance-key",
+                    instruction="Implement the approved change.",
                     execution_manifest=self._execution_manifest(),
                 )
             )

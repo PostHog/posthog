@@ -32,6 +32,7 @@ from products.tasks.backend.logic.services.publication_bundle import (
     build_publication_bundle,
     validate_publication_bundle,
 )
+from products.tasks.backend.logic.services.publication_policy import validate_bundle_acceptance_authority
 from products.tasks.backend.logic.services.publication_service import (
     ValidatedBundleRecord,
     block_publication,
@@ -217,6 +218,7 @@ class TestDraftPublication(TestCase):
             base_sha="a" * 40,
             base_branch="main",
             github_integration_id=1,
+            github_user_integration_id=uuid4(),
             github_installation_id="installation-1",
             grant_version="v1",
             analysis_manifest={
@@ -343,6 +345,32 @@ class TestDraftPublication(TestCase):
 
         publication = TaskDraftPublication.objects.for_team(self.team.id).get(id=reserved.publication_id)
         assert publication.status == TaskDraftPublication.Status.BLOCKED
+
+    def test_bundle_acceptance_rechecks_the_stored_personal_integration(self) -> None:
+        """Break caught: publication validates only the team installation after actor consent changes."""
+        personal_integration_id = uuid4()
+        self.staged_run.github_user_integration_id = personal_integration_id
+        self.staged_run.save(update_fields=["github_user_integration_id", "updated_at"])
+        reserved = reserve_draft_publication(self._request())
+        publication = TaskDraftPublication.objects.for_team(self.team.id).get(id=reserved.publication_id)
+        execution = self.staged_run.execution_run
+        assert execution is not None
+        execution.status = TaskRun.Status.COMPLETED
+        execution.save(update_fields=["status"])
+
+        with patch(
+            "products.tasks.backend.logic.services.publication_policy.validate_staged_repository_grant"
+        ) as revalidate:
+            validate_bundle_acceptance_authority(publication)
+
+        assert revalidate.call_args.kwargs == {
+            "team_id": self.team.id,
+            "actor_id": self.user.id,
+            "repository": "example/repository",
+            "github_integration_id": 1,
+            "github_user_integration_id": personal_integration_id,
+            "github_installation_id": "installation-1",
+        }
 
     def test_shallow_clone_resumes_claim_and_ambiguity_without_repeating_branch_or_pr(self) -> None:
         reserved = reserve_draft_publication(self._request())

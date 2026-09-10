@@ -1,4 +1,6 @@
+import time
 import uuid
+import asyncio
 import hashlib
 import datetime as dt
 import dataclasses
@@ -56,13 +58,17 @@ from products.exports.backend.temporal.subscriptions.types import (
     QueryErrorDetails,
     RecipientResult,
 )
+from products.subscriptions.backend.facade.api import read_recommendation_generation
 from products.subscriptions.backend.facade.contracts import RecommendationContext, RecommendationGenerationInput
 from products.subscriptions.backend.facade.proactive import (
     RecommendationAppendixDTO,
-    generate_recommendation_appendix,
+    claim_recommendation_run,
+    finalize_recommendation_run,
     get_proactive_config,
     read_recommendation_appendix,
     recent_recommendation_memory,
+    resolve_draft_repository_binding,
+    start_or_reuse_recommendation_generation,
 )
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
@@ -76,6 +82,61 @@ LOGGER = get_logger(__name__)
 _CREDIT_RESET_FALLBACK_DAYS = 31
 _PULSE_CONTEXT_LIMIT = 20
 _PULSE_POLL_INTERVAL_SECONDS = 10
+
+
+async def _generate_recommendation_appendix(
+    *,
+    input: RecommendationGenerationInput,
+    snapshot: dict[str, object],
+    timeout_seconds: float,
+    poll_interval_seconds: float = 10,
+) -> RecommendationAppendixDTO:
+    run = await database_sync_to_async(claim_recommendation_run, thread_sensitive=False)(
+        team_id=input.team_id,
+        subscription_id=input.subscription_id,
+        delivery_id=input.delivery_id,
+        actor_id=input.actor_id,
+        snapshot=snapshot,
+    )
+    if run.status != "pending":
+        persisted = await database_sync_to_async(read_recommendation_appendix, thread_sensitive=False)(
+            team_id=input.team_id,
+            delivery_id=input.delivery_id,
+        )
+        if persisted is None:
+            raise RuntimeError("terminal recommendation run has no appendix")
+        return persisted
+
+    try:
+        handle = await database_sync_to_async(start_or_reuse_recommendation_generation, thread_sensitive=False)(
+            input=input,
+            run_id=run.id,
+        )
+        deadline = time.monotonic() + max(timeout_seconds, 0)
+        state = await database_sync_to_async(read_recommendation_generation, thread_sensitive=False)(input, handle)
+        while state.status == "pending" and time.monotonic() < deadline:
+            temporalio.activity.heartbeat()
+            await asyncio.sleep(min(max(poll_interval_seconds, 0), max(deadline - time.monotonic(), 0)))
+            state = await database_sync_to_async(read_recommendation_generation, thread_sensitive=False)(input, handle)
+
+        if state.status != "completed" or state.result is None:
+            failure_code = "timeout" if state.status == "pending" else state.failure_code
+            return await database_sync_to_async(finalize_recommendation_run, thread_sensitive=False)(
+                team_id=input.team_id,
+                run_id=run.id,
+                failure_code=failure_code or "generation_failed",
+            )
+        return await database_sync_to_async(finalize_recommendation_run, thread_sensitive=False)(
+            team_id=input.team_id,
+            run_id=run.id,
+            result=state.result,
+        )
+    except Exception:
+        return await database_sync_to_async(finalize_recommendation_run, thread_sensitive=False)(
+            team_id=input.team_id,
+            run_id=run.id,
+            failure_code="pulse_failure",
+        )
 
 
 async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
@@ -424,6 +485,14 @@ async def enrich_ai_subscription_report(inputs: GenerateAIReportInputs) -> None:
             return
     except Exception:
         return
+    try:
+        repository = await database_sync_to_async(resolve_draft_repository_binding, thread_sensitive=False)(
+            team_id=subscription.team_id,
+            actor_id=actor_id,
+            config=config,
+        )
+    except Exception:
+        repository = None
     generation_input = RecommendationGenerationInput(
         team_id=subscription.team_id,
         subscription_id=subscription.id,
@@ -434,14 +503,17 @@ async def enrich_ai_subscription_report(inputs: GenerateAIReportInputs) -> None:
         prompt=frozen.prompt,
         contexts=frozen.contexts,
         public_web_research=frozen.public_web_research,
+        create_draft_pr=config.create_draft_pr,
+        repository_name=config.repository,
+        repository_integration_id=config.repository_integration_id,
+        repository=repository,
     )
     try:
-        appendix = await database_sync_to_async(generate_recommendation_appendix, thread_sensitive=False)(
+        appendix = await _generate_recommendation_appendix(
             input=generation_input,
             snapshot=frozen.claim_snapshot,
             timeout_seconds=settings.PULSE_PROACTIVE_TIMEOUT_SECONDS,
             poll_interval_seconds=_PULSE_POLL_INTERVAL_SECONDS,
-            on_wait=temporalio.activity.heartbeat,
         )
         await _append_recommendations(inputs.delivery_id, appendix)
     except Exception:

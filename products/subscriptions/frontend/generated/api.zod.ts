@@ -15,6 +15,8 @@ export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsCreateBodyProactiveConfigOneRepositoryMax = 201
+
 export const subscriptionsCreateBodyContextsMax = 3
 
 export const subscriptionsCreateBodyIntervalMax = 2147483647
@@ -106,6 +108,20 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'Whether proactive recommendations may use bounded public web research. Defaults to true.'
                     ),
+                create_draft_pr: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether eligible recommendations can prepare a draft pull request. Defaults to false.'),
+                repository: zod
+                    .string()
+                    .max(subscriptionsCreateBodyProactiveConfigOneRepositoryMax)
+                    .nullish()
+                    .describe('Repository name in owner\/repository format. Requires draft pull request preparation.'),
+                repository_integration_id: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe('GitHub integration ID for the repository. Requires draft pull request preparation.'),
             })
             .optional()
             .describe(
@@ -244,6 +260,8 @@ export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsUpdateBodyProactiveConfigOneRepositoryMax = 201
+
 export const subscriptionsUpdateBodyContextsMax = 3
 
 export const subscriptionsUpdateBodyIntervalMax = 2147483647
@@ -335,6 +353,20 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     .describe(
                         'Whether proactive recommendations may use bounded public web research. Defaults to true.'
                     ),
+                create_draft_pr: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether eligible recommendations can prepare a draft pull request. Defaults to false.'),
+                repository: zod
+                    .string()
+                    .max(subscriptionsUpdateBodyProactiveConfigOneRepositoryMax)
+                    .nullish()
+                    .describe('Repository name in owner\/repository format. Requires draft pull request preparation.'),
+                repository_integration_id: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe('GitHub integration ID for the repository. Requires draft pull request preparation.'),
             })
             .optional()
             .describe(
@@ -473,6 +505,8 @@ export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAg
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsPartialUpdateBodyProactiveConfigOneRepositoryMax = 201
+
 export const subscriptionsPartialUpdateBodyContextsMax = 3
 
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
@@ -564,6 +598,20 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     .describe(
                         'Whether proactive recommendations may use bounded public web research. Defaults to true.'
                     ),
+                create_draft_pr: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether eligible recommendations can prepare a draft pull request. Defaults to false.'),
+                repository: zod
+                    .string()
+                    .max(subscriptionsPartialUpdateBodyProactiveConfigOneRepositoryMax)
+                    .nullish()
+                    .describe('Repository name in owner\/repository format. Requires draft pull request preparation.'),
+                repository_integration_id: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe('GitHub integration ID for the repository. Requires draft pull request preparation.'),
             })
             .optional()
             .describe(
