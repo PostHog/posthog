@@ -167,6 +167,39 @@ describe("useChannelTasks", () => {
     });
   });
 
+  it("sends overlapping filings of one task in order", async () => {
+    const firstRequest = deferred<FilingResult>();
+    const secondRequest = deferred<FilingResult>();
+    mocks.file
+      .mockReturnValueOnce(firstRequest.promise)
+      .mockReturnValueOnce(secondRequest.promise);
+    const filedChannels = (): string[] =>
+      mocks.file.mock.calls.map(
+        (call) => (call[0] as { channelId: string }).channelId,
+      );
+    const { result } = renderHook(useFilingHarness, { wrapper });
+    let firstFiling = Promise.resolve<unknown>(undefined);
+    let secondFiling = Promise.resolve<unknown>(undefined);
+
+    act(() => {
+      firstFiling = result.current.mutations.fileTask("dest", "t1");
+      secondFiling = result.current.mutations.fileTask("third", "t1");
+    });
+
+    await waitFor(() => expect(filedChannels()).toEqual(["dest"]));
+
+    await act(async () => {
+      firstRequest.resolve({ channelId: "dest", taskId: "t1", createdAt: 1 });
+      await firstFiling;
+    });
+    await waitFor(() => expect(filedChannels()).toEqual(["dest", "third"]));
+
+    await act(async () => {
+      secondRequest.resolve({ channelId: "third", taskId: "t1", createdAt: 1 });
+      await secondFiling;
+    });
+  });
+
   it("shows a task only in its latest pending destination", () => {
     const records = [{ channelId: "source", taskId: "t1", createdAt: 1 }];
     const filings = [

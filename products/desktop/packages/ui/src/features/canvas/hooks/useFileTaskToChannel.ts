@@ -71,6 +71,12 @@ export function useFileTaskToChannel(options?: {
 
       try {
         await filing;
+        // The server holds this space now, so a newer filing of the same task
+        // must roll back to here instead of to where the run started.
+        const laterFiling = routeFilings.get(taskId);
+        if (laterFiling?.origin && laterFiling.token !== filingToken) {
+          laterFiling.origin = { channelId };
+        }
         const channelName = channels.find(
           (channel) => channel.id === channelId,
         )?.name;
@@ -78,19 +84,22 @@ export function useFileTaskToChannel(options?: {
       } catch (error) {
         await routeMove?.catch(() => undefined);
         const optimisticPath = `/spaces/${channelId}/tasks/${taskId}`;
+        // Read the origin back from the map, because an earlier filing that
+        // succeeded moves it to the space the server settled on.
+        const pending = routeFilings.get(taskId);
         // The pathname match is what says the route needs restoring, rather
         // than whether this call moved it: a retry to the same destination
         // moves nothing and still leaves the route on the failed space.
         if (
-          routeFilings.get(taskId)?.token === filingToken &&
-          origin &&
-          origin.channelId !== channelId &&
+          pending?.token === filingToken &&
+          pending.origin &&
+          pending.origin.channelId !== channelId &&
           router.state.location.pathname === optimisticPath
         ) {
-          if (origin.channelId) {
+          if (pending.origin.channelId) {
             void navigate({
               to: "/spaces/$channelId/tasks/$taskId",
-              params: { channelId: origin.channelId, taskId },
+              params: { channelId: pending.origin.channelId, taskId },
               replace: true,
             });
           } else {

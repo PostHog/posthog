@@ -206,6 +206,40 @@ describe("useFileTaskToChannel", () => {
     },
   );
 
+  it("restores the space a successful filing settled on", async () => {
+    const firstRequest = deferred<void>();
+    const secondRequest = deferred<void>();
+    mocks.fileTask
+      .mockReturnValueOnce(firstRequest.promise)
+      .mockReturnValueOnce(secondRequest.promise);
+    const { rerender, result } = renderHook(() => useFileTaskToChannel());
+    let firstFiling = Promise.resolve();
+    let secondFiling = Promise.resolve();
+
+    act(() => {
+      firstFiling = result.current("dest", "task-1");
+    });
+    mocks.activeChannelId = "dest";
+    rerender();
+
+    act(() => {
+      secondFiling = result.current("other", "task-1");
+    });
+
+    await act(async () => {
+      firstRequest.resolve();
+      await firstFiling;
+      secondRequest.reject(new Error("Second request failed"));
+      await secondFiling;
+    });
+
+    expect(mocks.navigate).toHaveBeenLastCalledWith({
+      to: "/spaces/$channelId/tasks/$taskId",
+      params: { channelId: "dest", taskId: "task-1" },
+      replace: true,
+    });
+  });
+
   it("does not replace a later route when filing fails", async () => {
     const request = deferred<void>();
     mocks.fileTask.mockReturnValueOnce(request.promise);

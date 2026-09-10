@@ -16,6 +16,11 @@ import {
   usePendingTaskFilings,
 } from "./usePendingTaskFilings";
 
+// Filing and unfiling both write the task's space, and the request that
+// arrives last decides it. One scope for both sends overlapping moves in the
+// order the user made them, instead of racing them.
+const TASK_CHANNEL_MUTATION_SCOPE = { id: "task-channel" };
+
 export function applyPendingTaskFilings(
   records: ChannelTaskRecord[],
   channelId: string,
@@ -83,6 +88,7 @@ export function useChannelTaskMutations() {
 
   const file = useMutation(
     trpc.channelTasks.file.mutationOptions({
+      scope: TASK_CHANNEL_MUTATION_SCOPE,
       onSuccess: (_record, variables) => reconcileTaskFiling(variables.taskId),
       onError: (_error, variables) => {
         void reconcileTaskFiling(variables.taskId);
@@ -91,6 +97,7 @@ export function useChannelTaskMutations() {
   );
   const unfile = useMutation(
     trpc.channelTasks.unfile.mutationOptions({
+      scope: TASK_CHANNEL_MUTATION_SCOPE,
       onSuccess: (_data, variables) => reconcileTaskFiling(variables.taskId),
     }),
   );
