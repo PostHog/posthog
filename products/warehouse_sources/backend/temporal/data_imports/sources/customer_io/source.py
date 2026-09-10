@@ -147,8 +147,7 @@ class CustomerIOSource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
-            featureFlag="dwh-customer-io",
+            releaseStatus=ReleaseStatus.GA,
             webhookSetupCaption=(
                 "PostHog tries to register the reporting webhook for you using your App API Key. "
                 "Customer.io doesn't return the signing key in the API response, so you still need "
@@ -196,6 +195,17 @@ class CustomerIOSource(
                 "The App API Key doesn't have permission for this endpoint. Make sure the key has "
                 "access to the resources you're syncing."
             ),
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_get_list_page` already retries 429/5xx and connection/read-timeout errors with
+        # backoff (see api_client.py); if that budget still exhausts, Temporal retries the
+        # whole activity and the failure is transient and self-recovering, so don't surface it
+        # as tracked exception noise.
+        return {
+            api_client.LIST_ENDPOINT_RETRYABLE_ERROR_PREFIX,
+            "HTTPSConnectionPool(host='api.customer.io', port=443)",
+            "HTTPSConnectionPool(host='api-eu.customer.io', port=443)",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -1,0 +1,135 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Messaging
+feature: messaging
+url_prefix: /workflows
+ui_apps: {}
+tools:
+    messaging-categories-create:
+        operation: messaging_categories_create
+        enabled: false
+    messaging-categories-destroy:
+        operation: messaging_categories_destroy
+        enabled: false
+    messaging-categories-import-from-customerio-create:
+        operation: messaging_categories_import_from_customerio_create
+        enabled: false
+    messaging-categories-import-preferences-csv-create:
+        operation: messaging_categories_import_preferences_csv_create
+        enabled: false
+    messaging-categories-list:
+        operation: messaging_categories_list
+        enabled: false
+    messaging-categories-optout-sync-config-retrieve:
+        operation: messaging_categories_optout_sync_config_retrieve
+        enabled: false
+    messaging-categories-partial-update:
+        operation: messaging_categories_partial_update
+        enabled: false
+    messaging-categories-remove-customerio-app-config-destroy:
+        operation: messaging_categories_remove_customerio_app_config_destroy
+        enabled: false
+    messaging-categories-remove-track-config-destroy:
+        operation: messaging_categories_remove_track_config_destroy
+        enabled: false
+    messaging-categories-remove-webhook-config-destroy:
+        operation: messaging_categories_remove_webhook_config_destroy
+        enabled: false
+    messaging-categories-retrieve:
+        operation: messaging_categories_retrieve
+        enabled: false
+    messaging-categories-save-track-config-create:
+        operation: messaging_categories_save_track_config_create
+        enabled: false
+    messaging-categories-save-webhook-config-create:
+        operation: messaging_categories_save_webhook_config_create
+        enabled: false
+    messaging-categories-update:
+        operation: messaging_categories_update
+        enabled: false
+    messaging-preferences-add-opt-out-create:
+        operation: messaging_preferences_add_opt_out_create
+        enabled: false
+    messaging-preferences-export-opt-outs-csv-retrieve:
+        operation: messaging_preferences_export_opt_outs_csv_retrieve
+        enabled: false
+    messaging-preferences-generate-link-create:
+        operation: messaging_preferences_generate_link_create
+        enabled: false
+    messaging-preferences-webhook-url-retrieve:
+        operation: messaging_preferences_webhook_url_retrieve
+        enabled: false
+    messaging-suppressions-add-suppression-create:
+        operation: messaging_suppressions_add_suppression_create
+        enabled: false
+    messaging-suppressions-remove-suppression-create:
+        operation: messaging_suppressions_remove_suppression_create
+        enabled: false
+    messaging-suppressions-suppressions-retrieve:
+        operation: messaging_suppressions_suppressions_retrieve
+        enabled: false
+    messaging-templates-create:
+        operation: messaging_templates_create
+        enabled: false
+    messaging-templates-design-partial-update:
+        operation: messaging_templates_design_partial_update
+        enabled: false
+    messaging-templates-destroy:
+        operation: messaging_templates_destroy
+        enabled: false
+    messaging-templates-list:
+        operation: messaging_templates_list
+        enabled: false
+    messaging-templates-partial-update:
+        operation: messaging_templates_partial_update
+        enabled: false
+    messaging-templates-retrieve:
+        operation: messaging_templates_retrieve
+        enabled: false
+    messaging-templates-update:
+        operation: messaging_templates_update
+        enabled: false
+    opt-outs-add:
+        operation: messaging_preferences_bulk_add_opt_outs_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Add recipients to the opt-out list
+        description: >
+            Opt one or more recipients (up to 1000 per call) out of marketing messages. Each entry can name its own
+            message category via category_key; entries without one use the request-level category_key, or all marketing
+            messages if omitted. Importing only ever opts recipients out, so repeating a call is safe.
+    opt-outs-list:
+        operation: messaging_preferences_opt_outs_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List opt-outs
+        description: >
+            List recipients opted out of a message category, most recently updated first. Omit category_key to list
+            recipients opted out of all marketing messages.
+    opt-outs-remove:
+        operation: messaging_preferences_remove_opt_out_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Remove a recipient from the opt-out list
+        description: >
+            Opt a recipient back in to the message category named by category_key, or to all marketing messages if
+            omitted. Use to honor a resubscribe recorded in your own app. Repeating a call is safe.

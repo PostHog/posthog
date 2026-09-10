@@ -40,12 +40,11 @@ use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{
-    run_rebalance_worker, CohortConsumerContext, MeteredReceiver, OffsetTracker, PartitionMirror,
-    PartitionRouter, ShuffleMessage,
+    run_rebalance_worker, CohortConsumerContext, OffsetTracker, PartitionMirror, PartitionRouter,
+    ShuffleMessage, WorkerInbox,
 };
 use cohort_stream_processor::producer::{
     CaptureSink, CohortMembershipChange, KafkaMembershipSink, MembershipSink, MembershipStatus,
-    ReconcileCompleteMarker,
 };
 use cohort_stream_processor::stage1::{Stage1State, StatefulRecord};
 use cohort_stream_processor::store::durability::{
@@ -731,16 +730,6 @@ impl MembershipSink for BarrierSink {
             .extend(changes);
         acks
     }
-
-    async fn produce_markers(
-        &self,
-        markers: Vec<ReconcileCompleteMarker>,
-    ) -> Vec<Result<(), KafkaProduceError>> {
-        markers
-            .into_iter()
-            .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
-            .collect()
-    }
 }
 
 #[tokio::test]
@@ -1116,7 +1105,7 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
     let far_future = 4_000_000_000_000i64; // ~year 2096, well past every BASE_TS + 7d deadline
     for partition in 0..NUM_PARTITIONS {
         let (tx, rx) = mpsc::channel(4);
-        let rx = MeteredReceiver::unmetered(rx);
+        let rx = WorkerInbox::live_only(rx);
         let worker = Stage1Worker::spawn(
             partition as u16,
             rx,
@@ -1498,7 +1487,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
     let far_future = 4_000_000_000_000i64; // ~year 2096, past every BASE_TS + 7d deadline
     for partition in 0..NUM_PARTITIONS {
         let (tx, rx) = mpsc::channel(4);
-        let rx = MeteredReceiver::unmetered(rx);
+        let rx = WorkerInbox::live_only(rx);
         let worker = Stage1Worker::spawn(
             partition as u16,
             rx,

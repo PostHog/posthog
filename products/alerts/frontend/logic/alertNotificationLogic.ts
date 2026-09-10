@@ -24,8 +24,6 @@ import {
     notificationTypeFromTemplateId,
 } from 'products/alerts/frontend/logic/alertNotifications'
 
-import type { UserBasicType } from '../../../../frontend/src/types'
-
 export const ALERT_NOTIFICATION_TYPE_OPTIONS = [
     { label: 'Slack', value: ALERT_NOTIFICATION_TYPE_SLACK },
     { label: 'Discord', value: ALERT_NOTIFICATION_TYPE_DISCORD },
@@ -67,106 +65,10 @@ export interface alertNotificationLogicActions {
         errorObject?: any
     } // integrationsLogic
     loadIntegrationsSuccess: (
-        integrations: {
-            config: any
-            created_at: string
-            created_by?: UserBasicType | null | undefined
-            display_name: string
-            errors?: string | undefined
-            icon_url: any
-            id: number
-            kind:
-                | 'apns'
-                | 'aws-s3'
-                | 'azure-blob'
-                | 'bing-ads'
-                | 'clickup'
-                | 'customerio-app'
-                | 'customerio-track'
-                | 'customerio-webhook'
-                | 'databricks'
-                | 'email'
-                | 'firebase'
-                | 'github'
-                | 'gitlab'
-                | 'google-ads'
-                | 'google-analytics'
-                | 'google-cloud-service-account'
-                | 'google-cloud-storage'
-                | 'google-pubsub'
-                | 'google-search-console'
-                | 'google-sheets'
-                | 'hubspot'
-                | 'intercom'
-                | 'jira'
-                | 'linear'
-                | 'linkedin-ads'
-                | 'meta-ads'
-                | 'pardot'
-                | 'pinterest-ads'
-                | 'postgresql'
-                | 'reddit-ads'
-                | 's3-compatible'
-                | 'salesforce'
-                | 'slack'
-                | 'snapchat'
-                | 'snowflake'
-                | 'stripe'
-                | 'tiktok-ads'
-                | 'twilio'
-                | 'vercel'
-        }[],
+        integrations: IntegrationType[],
         payload?: any
     ) => {
-        integrations: {
-            config: any
-            created_at: string
-            created_by?: UserBasicType | null | undefined
-            display_name: string
-            errors?: string | undefined
-            icon_url: any
-            id: number
-            kind:
-                | 'apns'
-                | 'aws-s3'
-                | 'azure-blob'
-                | 'bing-ads'
-                | 'clickup'
-                | 'customerio-app'
-                | 'customerio-track'
-                | 'customerio-webhook'
-                | 'databricks'
-                | 'email'
-                | 'firebase'
-                | 'github'
-                | 'gitlab'
-                | 'google-ads'
-                | 'google-analytics'
-                | 'google-cloud-service-account'
-                | 'google-cloud-storage'
-                | 'google-pubsub'
-                | 'google-search-console'
-                | 'google-sheets'
-                | 'hubspot'
-                | 'intercom'
-                | 'jira'
-                | 'linear'
-                | 'linkedin-ads'
-                | 'meta-ads'
-                | 'pardot'
-                | 'pinterest-ads'
-                | 'postgresql'
-                | 'reddit-ads'
-                | 's3-compatible'
-                | 'salesforce'
-                | 'slack'
-                | 'snapchat'
-                | 'snowflake'
-                | 'stripe'
-                | 'tiktok-ads'
-                | 'twilio'
-                | 'vercel'
-        }[]
+        integrations: IntegrationType[]
         payload?: any
     } // integrationsLogic
     addPendingNotification: (notification: PendingAlertNotification) => {
@@ -499,10 +401,6 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 return
             }
             lemonToast.success(`Test delivery started for ${deliveryTargets.join(' and ')}.`)
-        },
-        sendTestDeliveryFailure: ({ errorObject }) => {
-            const detail = errorObject?.detail
-            lemonToast.error(typeof detail === 'string' ? detail : 'Unable to send the test. Try again.')
         },
     })),
 

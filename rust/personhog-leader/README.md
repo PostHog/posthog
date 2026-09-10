@@ -80,6 +80,9 @@ TBD:
 - this offset is the boundary:
 - below the offset: state is durably in Postgres
 - at or above the offset: state is PG + the changes in our distributed log (the kafka topic)
+- death documents (tombstoned persons) stay cached only while their record awaits the writer: once the committed offset passes it, the prune drops the document and reads fall through to Postgres, which then holds the tombstone or a revival that superseded it
+- a revival therefore becomes visible at most one prune tick after the writer applies its tombstone
+- warming leaves no residue for an applied death record — neither the document (unmarked, it would answer not-found forever) nor its earlier records for the same key
 
 #### Admission
 
@@ -113,6 +116,21 @@ update:
    earlier state (uuid parses, team_id fits the column's integer,
    created_at within sane bounds) — corrupt state must never reach the
    changelog.
+
+The merge saga's fold (`FoldPersonDocument`) cannot reject for size — the
+saga would re-drive it forever — so its oversized path always completes:
+trim candidates are the fold's own contribution (a within-limit target
+never loses a key it held), the target's own keys join only when its
+stored document already exceeded the limit, and a trim that cannot reach
+the hysteresis target retries against the hard ceiling, since any document
+at or under the threshold is still applyable. The residual — a stored
+document whose protected keys alone exceed the ceiling, so no applyable
+fold document exists — completes without producing: the person keeps its
+pre-fold state, the fold's property and scalar effects are skipped, and
+the case is surfaced via `personhog_leader_folds_total{outcome=
+"unapplyable"}`, an error log, and a size-violation warning. This is an
+accepted gap: the alternatives are wedging the saga (reject) or halting
+the writer (produce an unapplyable record).
 
 Trims and rejections emit `person_properties_size_violation` ingestion
 warnings (`src/warnings.rs`), throttled per (team, type) to match the Node

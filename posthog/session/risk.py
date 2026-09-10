@@ -2,11 +2,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, IntEnum
 from math import asin, cos, radians, sin, sqrt
-from typing import Optional
+from typing import Any, Optional
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY
 from django.contrib.sessions.backends.base import SessionBase
+from django.core.cache import cache
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -16,10 +17,23 @@ from loginas.utils import is_impersonated_session
 
 from posthog.geoip import get_geoip_location
 from posthog.models import User
+from posthog.session.activity import session_public_id
 from posthog.session.models import Session
 from posthog.utils import get_trusted_client_ip
 
 logger = structlog.get_logger(__name__)
+
+# Per-process circuit breaker for the dedup cache: how many consecutive failures still emit (and log)
+# before we assume a real outage and stay quiet rather than emitting once per request.
+#
+# The count is deliberately approximate. Separate workers are separate processes and so hold separate
+# counters, which is the intent — each one throttles its own logging. Within a process, `+= 1` is a
+# read-modify-write and two threads can lose an increment between them, while the `= 0` reset is a
+# single store and can't tear. A lost increment can only make the breaker trip later, never sooner,
+# because the count rises solely on real failures — so the worst case is a few extra events during an
+# outage, which is the direction we'd rather err in anyway.
+_CACHE_FAILURE_EMIT_LIMIT = 10
+_consecutive_cache_failures = 0
 
 
 class RiskSignal(str, Enum):
@@ -85,7 +99,10 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def evaluate_signals(baseline: Baseline, ctx: Context, *, now: datetime) -> set[RiskSignal]:
     signals: set[RiskSignal] = set()
 
-    if baseline.ua_signature and ctx.ua_signature and baseline.ua_signature != ctx.ua_signature:
+    # A *missing* user agent counts as a change, not as "nothing to compare". Session-cookie auth is
+    # browser traffic and browsers always send the header, so its absence is itself anomalous — and
+    # treating it as neutral would let a caller drop the header to avoid tripping the device axis.
+    if baseline.ua_signature and baseline.ua_signature != ctx.ua_signature:
         signals.add(RiskSignal.UA_CHANGE)
 
     if baseline.country_code and ctx.country_code and baseline.country_code != ctx.country_code:
@@ -112,12 +129,36 @@ def evaluate_signals(baseline: Baseline, ctx: Context, *, now: datetime) -> set[
     return signals
 
 
-def tier_for(signals: set[RiskSignal]) -> RiskTier:
-    if RiskSignal.IMPOSSIBLE_TRAVEL in signals or len(signals) >= 2:
+# The independent axes a signal can observe. impossible_travel and new_country are both derived from
+# a single geoip lookup on a single IP, so they corroborate each other only in appearance. Every
+# RiskSignal must belong to exactly one axis or tier_for would silently cap it at MEDIUM forever.
+# Stands in for an absent user agent in telemetry, so a request that sent no header groups as its own
+# value in a breakdown instead of disappearing into null.
+MISSING_UA = "missing"
+
+NETWORK_SIGNALS = frozenset({RiskSignal.IMPOSSIBLE_TRAVEL, RiskSignal.NEW_COUNTRY})
+DEVICE_SIGNALS = frozenset({RiskSignal.UA_CHANGE})
+
+
+def tier_for(signals: set[RiskSignal], *, device_comparable: bool) -> RiskTier:
+    """HIGH ends the session, so it wants corroboration across both axes: the request came from an
+    unexpected network *and* an unexpected device. VPN, relay and carrier-NAT egress moves the apparent
+    location on its own, so network signals alone — however many — only warrant a step-up re-auth.
+
+    `device_comparable` is False when the baseline holds no user agent to compare against. Then the
+    device axis can't clear or confirm anything, so a network anomaly escalates on its own rather than
+    leaving the session permanently un-escalatable.
+
+    Note the device axis reads a client-supplied header, so it can only ever be evidence, never proof:
+    a caller that replays the recorded user agent will not trip it. See the PR for the residual risk.
+    """
+    if not signals:
+        return RiskTier.NONE
+    network = bool(signals & NETWORK_SIGNALS)
+    device = bool(signals & DEVICE_SIGNALS)
+    if network and (device or not device_comparable):
         return RiskTier.HIGH
-    if signals:
-        return RiskTier.MEDIUM
-    return RiskTier.NONE
+    return RiskTier.MEDIUM
 
 
 @dataclass
@@ -152,7 +193,19 @@ def risk_flags(user: User) -> RiskFlags:
     )
 
 
-def _baseline_for_session(session_key: str) -> Optional[Baseline]:
+def _baseline_for_session(session: SessionBase, session_key: str) -> Optional[Baseline]:
+    # The session store already fetched this row to read session_data, so reuse it rather than issue a
+    # second SELECT for the same row on the same request — this runs on every authenticated request.
+    # Falls back to a query for stores that expose no loaded row (another engine, or a new session).
+    loaded = getattr(session, "loaded_row", None)
+    if loaded is not None:
+        return Baseline(
+            latitude=loaded.latitude,
+            longitude=loaded.longitude,
+            country_code=loaded.country_code,
+            ua_signature=loaded.ua_signature,
+            baseline_at=loaded.baseline_at,
+        )
     row = (
         Session.objects.filter(session_key=session_key)
         .values("latitude", "longitude", "country_code", "ua_signature", "baseline_at")
@@ -194,24 +247,32 @@ def _risk_signature(tier: RiskTier, signals: set[RiskSignal]) -> str:
     return f"{tier.name}:{','.join(sorted(signal.value for signal in signals))}"
 
 
-def _should_emit_risk(session: SessionBase, tier: RiskTier, signals: set[RiskSignal], *, now: datetime) -> bool:
-    """Dedup gate. A flagged session is re-scored on every request; without this it would emit
-    telemetry and re-assert step-up every time, inflating counts and hammering the session store.
+def _should_emit_risk(session_key: str, tier: RiskTier, signals: set[RiskSignal]) -> bool:
+    """Dedup gate. A flagged session is re-scored on every request, so without this one persistent
+    anomaly emits telemetry on every request and buries itself in repeats.
 
-    Returns True (and records the signature + timestamp on the session) only when the anomaly's
-    signature differs from the last emitted one or the re-emit cooldown has elapsed, so a persistent
-    anomaly surfaces once per window instead of once per request. Never touches the baseline, so
-    detection integrity is unaffected: the request is still scored the same next time.
+    The marker lives in the shared cache rather than on the session: parallel requests each hold their
+    own copy of the session and would all read a marker there as unset before any of them wrote it,
+    so a burst would emit once per request anyway. `cache.add` is atomic, so exactly one request in a
+    burst wins and the rest stay quiet until the entry expires. Keyed by the session's derived public
+    id so a live session key never reaches the cache. Never touches the baseline, so detection is
+    unaffected: the request is still scored the same next time.
     """
-    signature = _risk_signature(tier, signals)
-    last_signature = session.get(settings.SESSION_RISK_LAST_SIG_KEY)
-    last_emit_at = session.get(settings.SESSION_RISK_LAST_EMIT_AT_KEY) or 0.0
-    now_epoch = now.timestamp()
-    if signature == last_signature and (now_epoch - last_emit_at) < settings.RISK_REEMIT_COOLDOWN_S:
+    global _consecutive_cache_failures
+    key = f"session_risk_emit:{session_public_id(session_key)}:{_risk_signature(tier, signals)}"
+    try:
+        allowed = bool(cache.add(key, 1, timeout=int(settings.RISK_REEMIT_COOLDOWN_S)))
+    except Exception:
+        # Fail open at first, since duplicates beat missing events, but only briefly: with the gate
+        # gone every request on every flagged session would emit an event and a traceback, which is
+        # the storm the gate exists to prevent. Past the limit, go quiet until the cache recovers.
+        _consecutive_cache_failures += 1
+        if _consecutive_cache_failures <= _CACHE_FAILURE_EMIT_LIMIT:
+            logger.exception("session_risk dedup cache unavailable")
+            return True
         return False
-    session[settings.SESSION_RISK_LAST_SIG_KEY] = signature
-    session[settings.SESSION_RISK_LAST_EMIT_AT_KEY] = now_epoch
-    return True
+    _consecutive_cache_failures = 0
+    return allowed
 
 
 def evaluate_session_risk(request: HttpRequest) -> RiskTier:
@@ -236,14 +297,14 @@ def evaluate_session_risk(request: HttpRequest) -> RiskTier:
     if not flags.detection:
         return RiskTier.NONE
 
-    baseline = _baseline_for_session(session_key)
+    baseline = _baseline_for_session(request.session, session_key)
     if baseline is None:
         return RiskTier.NONE
 
     ctx = current_request_context(request)
     now = timezone.now()
     signals = evaluate_signals(baseline, ctx, now=now)
-    tier = tier_for(signals)
+    tier = tier_for(signals, device_comparable=baseline.ua_signature is not None)
     if tier == RiskTier.NONE:
         # Low-risk request: roll the known-good baseline forward (or establish it when NULL). A
         # suspicious request never reaches here, so it can't poison the reference it's scored against.
@@ -263,7 +324,7 @@ def evaluate_session_risk(request: HttpRequest) -> RiskTier:
         enforced = True
 
     # `effective` is computed above and returned regardless, so session-end is never suppressed.
-    should_emit = _should_emit_risk(request.session, tier, signals, now=now)
+    should_emit = _should_emit_risk(session_key, tier, signals)
 
     # Enforcement is independent of the telemetry dedup: apply step-up whenever it is needed and not
     # already set, even when the identical anomaly's telemetry is being deduped. Otherwise enabling
@@ -271,25 +332,32 @@ def evaluate_session_risk(request: HttpRequest) -> RiskTier:
     set_step_up = needs_step_up and not request.session.get(settings.SESSION_STEP_UP_REQUIRED_KEY)
     if set_step_up:
         request.session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
-
-    # Persist the step-up flag and/or the dedup markers _should_emit_risk just wrote, now rather than
-    # relying on SessionMiddleware, which skips save() on a 5xx response — otherwise a server error
-    # here would drop the step-up requirement.
-    if should_emit or set_step_up:
+        # Persist now rather than relying on SessionMiddleware, which skips save() on a 5xx response —
+        # otherwise a server error here would drop the step-up requirement.
         request.session.save()
 
     if should_emit:
+        properties: dict[str, Any] = {
+            "signals": sorted(signal.value for signal in signals),
+            "tier": tier.name,
+            "enforced": enforced,
+        }
+        if RiskSignal.UA_CHANGE in signals:
+            # A session is one cookie in one browser, so the device signature should not move within
+            # it. Record which way it moved, so the volume can be attributed to a real cause — a
+            # desktop-mode toggle flipping all three components at once, a request arriving with no
+            # header — rather than guessed at. Family-level only, the same values already stored on
+            # the session row: no versions, nothing that identifies a device.
+            properties["ua_from"] = baseline.ua_signature
+            properties["ua_to"] = ctx.ua_signature or MISSING_UA
+
         # Telemetry must never break the request: a capture failure here would otherwise 500 an
         # otherwise-valid authenticated request from the request-phase middleware.
         try:
             posthoganalytics.capture(
                 distinct_id=str(user.distinct_id),
                 event="session_risk_detected",
-                properties={
-                    "signals": sorted(signal.value for signal in signals),
-                    "tier": tier.name,
-                    "enforced": enforced,
-                },
+                properties=properties,
             )
         except Exception:
             logger.exception("session_risk telemetry capture failed")

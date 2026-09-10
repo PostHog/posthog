@@ -1,4 +1,7 @@
-import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import {
+    CyclotronInvocationQueueParametersEmailType,
+    CyclotronInvocationQueueParametersSendPushNotificationType,
+} from '~/cdp/schema/cyclotron'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 
@@ -22,6 +25,20 @@ const emailParams = (
         ...overrides,
     }) as CyclotronInvocationQueueParametersEmailType
 
+const pushParams = (
+    payloadOverrides: Record<string, unknown> = {}
+): CyclotronInvocationQueueParametersSendPushNotificationType =>
+    ({
+        type: 'sendPushNotification',
+        integrationIds: [1],
+        distinctId: 'user-1',
+        payload: {
+            title: 'Your order shipped',
+            body: 'Track it in the app',
+            ...payloadOverrides,
+        },
+    }) as unknown as CyclotronInvocationQueueParametersSendPushNotificationType
+
 const invocationWithAction = (id: string, teamId = 7): CyclotronJobInvocationHogFunction => {
     const invocation = createExampleInvocation({ id, team_id: teamId })
     invocation.state.actionId = 'email-step'
@@ -30,7 +47,7 @@ const invocationWithAction = (id: string, teamId = 7): CyclotronJobInvocationHog
 
 const resultWith = (assets: MessageAssetRow[]): CyclotronJobInvocationResult =>
     ({
-        emailAssets: assets,
+        messageAssets: assets,
     }) as unknown as CyclotronJobInvocationResult
 
 const producedRowAt = (outputs: jest.Mocked<IngestionOutputs<'message_assets'>>, index: number): MessageAssetRow => {
@@ -114,6 +131,78 @@ describe('MessageAssetsService', () => {
         })
     })
 
+    describe('buildRowForPush', () => {
+        it('names the person as the recipient, matching how email fills that column', () => {
+            // The Assets tab shows `recipient` as its RECIPIENT column, and for email that is the
+            // address — so a push has to name who it reached, not which providers carried it.
+            const row = service.buildRowForPush(invocationWithAction('flow-1', 7), pushParams(), ['Firebase', 'APNs'])
+
+            expect(row).not.toBeNull()
+            expect(row!.kind).toBe('push')
+            expect(row!.team_id).toBe(7)
+            expect(row!.subject).toBe('Your order shipped')
+            expect(row!.recipient).toBe(row!.distinct_id)
+            expect(row!.recipient).not.toBe('Firebase, APNs')
+            expect(row!.status).toBe('sent')
+            expect(row!.html).toContain('Your order shipped')
+            expect(row!.html).toContain('Track it in the app')
+            // The delivering channels are not part of what the recipient saw, so they stay out of the
+            // snapshot for the same reason the custom `data` payload does.
+            expect(row!.html).not.toContain('Firebase')
+        })
+
+        it('captures nothing when the push reached no device', () => {
+            // An asset is a snapshot of what a recipient received, so a send that reached nobody has
+            // nothing to show — it would render as an ordinary row with a blank recipient. The attempt
+            // stays visible through the `push_skipped` metric and the run log explaining why.
+            const row = service.buildRowForPush(invocationWithAction('flow-1'), pushParams(), [])
+
+            expect(row).toBeNull()
+        })
+
+        it('renders the iOS subtitle, which the recipient sees as a second line', () => {
+            // Delivered via the APNS alert, so a snapshot without it doesn't match the notification
+            // that actually arrived on the device.
+            const row = service.buildRowForPush(
+                invocationWithAction('flow-1'),
+                pushParams({ apns: { subtitle: 'Your account is ready' } }),
+                ['APNs']
+            )
+
+            expect(row!.html).toContain('Your account is ready')
+        })
+
+        it('keeps the custom data payload out of the stored preview', () => {
+            // `data` is app routing context rather than something the recipient saw, and can carry
+            // arbitrary customer values we should not re-render in the UI.
+            const row = service.buildRowForPush(
+                invocationWithAction('flow-1'),
+                pushParams({ data: { internal_ref: 'super-secret-value' } }),
+                ['Firebase']
+            )
+
+            expect(row!.html).not.toContain('super-secret-value')
+        })
+
+        it('escapes notification content so a crafted title cannot inject markup into the viewer', () => {
+            const row = service.buildRowForPush(
+                invocationWithAction('flow-1'),
+                pushParams({ title: '<img src=x onerror=alert(1)>' }),
+                ['Firebase']
+            )
+
+            expect(row!.html).not.toContain('<img src=x')
+            expect(row!.html).toContain('&lt;img src=x')
+        })
+
+        it('returns null for a push sent outside a workflow step, which the Assets API cannot retrieve', () => {
+            const invocation = invocationWithAction('flow-1')
+            invocation.state.actionId = undefined
+
+            expect(service.buildRowForPush(invocation, pushParams(), ['Firebase'])).toBeNull()
+        })
+    })
+
     describe('queueInvocationResults + flush', () => {
         it('does not produce anything until flush is called', () => {
             const row = service.buildRowForEmail(invocationWithAction('flow-1'), emailParams())!
@@ -156,7 +245,7 @@ describe('MessageAssetsService', () => {
             expect(outputs.produce).toHaveBeenCalledTimes(1)
         })
 
-        it('skips results that carry an empty emailAssets array', async () => {
+        it('skips results that carry an empty messageAssets array', async () => {
             service.queueInvocationResults([resultWith([]), resultWith([])])
             await service.flush()
             expect(outputs.produce).not.toHaveBeenCalled()

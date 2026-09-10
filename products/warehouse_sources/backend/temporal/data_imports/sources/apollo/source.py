@@ -51,13 +51,19 @@ class ApolloSource(ResumableSource[ApolloSourceConfig, ApolloResumeConfig]):
             "403 Client Error: Forbidden for url: https://api.apollo.io": "Apollo denied access. API access requires a paid Apollo plan, and some endpoints need a master API key.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # fetch_page exhausts its Retry-After backoff on a 429, then re-raises so Temporal
+        # retries the activity from saved page state. The import self-recovers, so log the
+        # rate limit at warning instead of raising an error tracking issue.
+        return {"Apollo API error (retryable)"}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.APOLLO,
             category=DataWarehouseSourceCategory.CRM,
             label="Apollo",
-            caption="""Enter your Apollo API key to pull your saved contacts, accounts, and deals into the PostHog Data warehouse.
+            caption="""Enter your Apollo API key to pull your saved contacts, accounts, and deals into the PostHog Data warehouse, along with the users and pipeline stages they reference.
 
 You can create an API key in Apollo under Settings > Integrations > API. API access requires a paid Apollo plan. Note that Apollo search results are capped at 50,000 records per stream.""",
             iconPath="/static/services/apollo.png",
@@ -106,7 +112,10 @@ You can create an API key in Apollo under Settings > Integrations > API. API acc
         if validate_apollo_credentials(config.api_key):
             return True, None
 
-        return False, "Invalid Apollo API key"
+        return False, (
+            "Apollo rejected this API key. Create a key in Apollo under Settings > Integrations > API. "
+            "API access requires a paid Apollo plan."
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ApolloResumeConfig]:
         return ResumableSourceManager[ApolloResumeConfig](inputs, ApolloResumeConfig)

@@ -9,7 +9,9 @@ import {
     percentage,
     type ResolvedDelta,
     resolveDelta,
+    type Series,
     Sparkline,
+    type TooltipContext,
     useAnimatedNumber,
     useHoverIntent,
 } from '@posthog/quill-charts'
@@ -36,7 +38,9 @@ interface MetricContextValue {
     } | null
     /** Sparkline wiring, or null when no series was supplied. */
     sparkline: {
+        /** The `data` prop — what hovering scrubs through. The chart draws `series` instead when set. */
         data: number[]
+        series?: Series[]
         labels?: string[]
         theme: ChartTheme
         color?: string
@@ -45,6 +49,7 @@ interface MetricContextValue {
         fillOpacity: number
         dashedFromIndex?: number
         setHoverIndex: (index: number) => void
+        tooltip?: (ctx: TooltipContext) => React.ReactNode
     } | null
 }
 
@@ -59,20 +64,24 @@ function useMetric(part: string): MetricContextValue {
 }
 
 const DEFAULT_FORMAT_VALUE = (v: number): string => v.toLocaleString()
+const DEFAULT_FORMAT_LABEL = (label: string): React.ReactNode => label
 const DEFAULT_FORMAT_CHANGE = (p: number): string => {
     // Matches the monolithic MetricCard: `percentage` carries the sign for negatives, we prepend `+`.
     const formatted = percentage(p / 100, 1, true)
     return p > 0 ? `+${formatted}` : formatted
 }
 
-export interface MetricProps {
+interface MetricBaseProps {
     /** Resting headline number. Defaults to `data[data.length - 1]` when `data` is present;
      *  required when `data` is empty or omitted. */
     value?: number
-    /** Series values. When present, a `MetricSparkline` renders and hovering a point swaps the headline. */
-    data?: number[]
-    /** Labels paired with `data`. Used for the default subtitle on hover. */
+    /** Labels paired with `data`. Used for the default subtitle on hover, and passed to the sparkline
+     *  as its x-scale keys, so entries must be unique. Pass raw keys (ISO dates) and turn them into
+     *  display text with `formatLabel`, because pre-formatted text like `'June 16'` repeats once a
+     *  range spans a year, and a duplicate collapses two points onto one position. */
     labels?: string[]
+    /** Formats a `labels` entry for the subtitle, so `labels` can stay unique raw keys. */
+    formatLabel?: (label: string) => React.ReactNode
     /** Required when `data` is present. */
     theme?: ChartTheme
     /** Sparkline line + fill color. Falls back to `theme.colors[0]`. */
@@ -83,6 +92,8 @@ export interface MetricProps {
     sparklineFillOpacity?: number
     /** Dash the sparkline from this index onward (e.g. an in-progress trailing period). */
     sparklineDashedFromIndex?: number
+    /** Tooltip renderer for the sparkline. Off by default — hovering already scrubs the headline. */
+    sparklineTooltip?: (ctx: TooltipContext) => React.ReactNode
     formatValue?: (value: number) => string
     formatChange?: (percent: number) => string
     showChange?: boolean
@@ -111,6 +122,25 @@ export interface MetricProps {
     onError?: (error: Error, info: React.ErrorInfo) => void
     children: React.ReactNode
 }
+
+export type MetricProps = MetricBaseProps &
+    (
+        | {
+              /** The metric's values. When present, a `MetricSparkline` renders and hovering a point
+               *  swaps the headline. The change pill's fallback also runs on it. */
+              data?: number[]
+              series?: undefined
+          }
+        | {
+              /** The metric's values — headline hover, change-pill fallback, and hover indexes. */
+              data: number[]
+              /** Visual breakdown drawn as one sparkline line per series instead of the single `data`
+               *  line. Purely presentational: the headline and pill still read `data`, so give each
+               *  series the same point count as `data` to keep hover indexes aligned. The single-line
+               *  conveniences (`color`, `sparklineDashedFromIndex`) don't apply — set them per series. */
+              series?: Series[]
+          }
+    )
 
 /**
  * Composable metric tile — a headline number, a `Badge` change pill, and an optional `Sparkline`.
@@ -144,13 +174,16 @@ export function Metric(props: MetricProps): React.ReactElement | null {
 function MetricInner({
     value,
     data,
+    series,
     labels,
+    formatLabel = DEFAULT_FORMAT_LABEL,
     theme,
     color,
     sparklineHeight = 120,
     sparklineFill = false,
     sparklineFillOpacity = 0.35,
     sparklineDashedFromIndex,
+    sparklineTooltip,
     formatValue = DEFAULT_FORMAT_VALUE,
     formatChange = DEFAULT_FORMAT_CHANGE,
     showChange = true,
@@ -162,12 +195,12 @@ function MetricInner({
     subtitle,
     restingSubtitle,
     hoverChangeFromPreviousPoint = false,
-    animationMs = 350,
-    hoverIntentMs = 140,
+    animationMs = 120,
+    hoverIntentMs = 60,
     className,
     dataAttr,
     children,
-}: Omit<MetricProps, 'onError'>): React.ReactElement | null {
+}: Omit<MetricBaseProps, 'onError'> & { data?: number[]; series?: Series[] }): React.ReactElement | null {
     const sparklineData = data != null && data.length > 0 && theme != null ? data : null
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
@@ -210,10 +243,12 @@ function MetricInner({
         const positive = delta != null && delta.value >= 0
         const good = goodDirection === 'up' ? positive : !positive
 
+        const activeLabel = labels?.[activeIndex]
+        const labelCaption = activeLabel != null ? formatLabel(activeLabel) : undefined
+
         return {
             headlineDisplay: sparklineData ? formatValue(animatedValue) : formatValue(restingValue),
-            subtitle:
-                subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : labels?.[activeIndex]),
+            subtitle: subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : labelCaption),
             change:
                 delta != null
                     ? {
@@ -228,6 +263,7 @@ function MetricInner({
             sparkline: sparklineData
                 ? {
                       data: sparklineData,
+                      series,
                       labels,
                       theme: theme!,
                       color,
@@ -236,6 +272,7 @@ function MetricInner({
                       fillOpacity: sparklineFillOpacity,
                       dashedFromIndex: sparklineDashedFromIndex,
                       setHoverIndex,
+                      tooltip: sparklineTooltip,
                   }
                 : null,
         }
@@ -258,12 +295,15 @@ function MetricInner({
         subtitle,
         restingSubtitle,
         labels,
+        formatLabel,
         theme,
         color,
+        series,
         sparklineHeight,
         sparklineFill,
         sparklineFillOpacity,
         sparklineDashedFromIndex,
+        sparklineTooltip,
     ])
 
     if (ctx == null) {
@@ -376,7 +416,8 @@ export function MetricSparkline({
     const pinBottom = sparkline.fill ? '' : 'mt-auto'
     return (
         <Sparkline
-            data={sparkline.data}
+            data={sparkline.series != null ? undefined : sparkline.data}
+            series={sparkline.series}
             labels={sparkline.labels}
             theme={sparkline.theme}
             color={sparkline.color}
@@ -385,6 +426,7 @@ export function MetricSparkline({
             fillOpacity={sparkline.fillOpacity}
             dashedFromIndex={sparkline.dashedFromIndex}
             onHoverIndexChange={sparkline.setHoverIndex}
+            tooltip={sparkline.tooltip}
             className={cn('relative top-[6px]', pinBottom, className)}
             dataAttr="metric-sparkline"
         />

@@ -1,5 +1,6 @@
 //! Service configuration, loaded from environment variables via `envconfig`.
 
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -14,6 +15,7 @@ use tracing::warn;
 use crate::partitions::pacing::{AgeMs, Hysteresis, SeedPacingConfig, UsedPct};
 use crate::store::durability::DurabilityConfig;
 use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
+use crate::workers::seed_run::RunBudget;
 use crate::workers::{CascadeConfig, EventNameGating, TransferRetryPolicy};
 
 const POOL_NAME: &str = "posthog_cohort";
@@ -73,12 +75,26 @@ pub struct Config {
     #[envconfig(default = "128")]
     pub partition_channel_buffer: usize,
 
-    /// Per-partition ceiling on un-drained events in a worker's channel — the binding intake bound
-    /// (the 128-slot buffer counts sub-batches, not the events inside them). Worst case in channels
-    /// ≈ `cap × owned_partitions × avg_event_bytes`. Tune down if soak RSS runs hot; too low churns
-    /// pause/resume.
+    /// Per-partition ceiling on un-drained events in a worker's **live** lane — the binding intake
+    /// bound (the 128-slot buffer counts sub-batches, not the events inside them). Seeds have their
+    /// own lane and their own cap, [`PARTITION_INTAKE_MAX_SEEDS`](Self::partition_intake_max_seeds).
+    /// Worst case in channels ≈ `cap × owned_partitions × avg_event_bytes`. Tune down if soak RSS
+    /// runs hot; too low churns pause/resume.
     #[envconfig(from = "PARTITION_INTAKE_MAX_EVENTS", default = "1024")]
     pub partition_intake_max_events: usize,
+
+    /// The seed lane's capacity, in seeds, for one partition worker. The lane holds one seed per
+    /// slot, so this value *is* the seed intake cap — there is no separate counter.
+    ///
+    /// The resident bound per partition is `cap + COHORT_SEED_APPLY_BATCH_MAX`: `recv_many` frees
+    /// the slots it takes at the start of a seed turn and the dispatcher refills them while the
+    /// turn runs, which is wanted — the next turn is already full when this one ends.
+    ///
+    /// Additive with the event cap, so a revoke or shutdown drain now covers up to this many seeds
+    /// **plus** `PARTITION_INTAKE_MAX_EVENTS` events per partition. At the default that is about
+    /// four quanta of seeds, seconds of drain at the rates the apply path sustains.
+    #[envconfig(from = "PARTITION_INTAKE_MAX_SEEDS", default = "1024")]
+    pub partition_intake_max_seeds: usize,
 
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
@@ -251,8 +267,8 @@ pub struct Config {
     #[envconfig(from = "COHORT_REGISTER_TRANSFER_ENABLED", default = "false")]
     pub cohort_register_transfer_enabled: bool,
 
-    /// Admit and drain reconcile controls. Default off; enable only once every downstream consumer
-    /// tolerates completion markers. Register transfer is gated separately by
+    /// Admit and drain reconcile controls. Default off; enable only once `COHORT_RECONCILE_MARKERS_TOPIC`
+    /// exists in the environment, which startup asserts. Register transfer is gated separately by
     /// `COHORT_REGISTER_TRANSFER_ENABLED`.
     #[envconfig(from = "COHORT_SEED_RECONCILE_ENABLED", default = "false")]
     pub cohort_seed_reconcile_enabled: bool,
@@ -275,6 +291,20 @@ pub struct Config {
     /// clock skew; ties go to live.
     #[envconfig(from = "COHORT_SEED_PERSON_LIVE_MARGIN_MS", default = "900000")]
     pub cohort_seed_person_live_margin_ms: i64,
+
+    /// Seeds one partition worker applies as a single run. `1` limits each run to one seed through
+    /// the same apply pipeline; it does not restore a different implementation.
+    #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX", default = "256")]
+    pub cohort_seed_apply_batch_max: usize,
+
+    /// Store rows one run may touch: the stage-1 rows its seeds fold plus one stage-2 register per
+    /// cohort those leaves back. This bounds entry counts in the overlay, register read, recompute
+    /// set, and outputs. It is not a byte limit: behavioral row sizes grow with their windows.
+    /// Reads inside each composed evaluation scale with that cohort's tree and use the maintenance
+    /// lane's permits. A run closes before the seed that would exceed the budget; a seed heavier
+    /// than the whole budget still runs alone.
+    #[envconfig(from = "COHORT_SEED_APPLY_BATCH_MAX_ROWS", default = "4096")]
+    pub cohort_seed_apply_batch_max_rows: usize,
 
     /// Live-priority gate: pause a seed partition once its live watermark age reaches this (ms).
     /// `0` disables the trigger.
@@ -306,9 +336,26 @@ pub struct Config {
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
 
-    /// The shadow output topic for membership changes.
+    /// The output topic for membership changes. Defaulting to the shadow topic keeps the cut-over
+    /// a config-only change, so no code deploy can redirect production output.
     #[envconfig(default = "cohort_membership_changed_shadow")]
     pub cohort_membership_changed_topic: String,
+
+    /// Reconcile completion markers ride their own topic: the membership topic's consumers reject
+    /// any record without `person_id`/`status`, and the seeder's watcher tails this one end to end.
+    #[envconfig(default = "cohort_reconcile_markers")]
+    pub cohort_reconcile_markers_topic: String,
+
+    /// `message.timeout.ms` for the marker producer alone — much shorter than the shared 20 s. The
+    /// marker produce runs inline on a partition worker, so a broker that black-holes it stalls live
+    /// evaluation on that partition for the whole timeout, and the drain sweeper re-queues the job a
+    /// tick later and stalls it again. Half of `COHORT_SEED_RECONCILE_TICK_INTERVAL_MS`, so the
+    /// worker is free for events between attempts rather than held end to end, and still above the
+    /// ingestion cluster's p99 produce ack (~950 ms on prod-us) — below that, healthy tail produces
+    /// turn into spurious marker failures and bury the signal in
+    /// `cohort_reconcile_marker_produce_errors_total`.
+    #[envconfig(default = "1000")]
+    pub reconcile_marker_message_timeout_ms: u32,
 
     /// `murmur2_random` co-partitions a `person_id` key identically to the Node/Python producers.
     #[envconfig(default = "murmur2_random")]
@@ -653,6 +700,22 @@ impl Config {
             .max(Duration::from_secs(1))
     }
 
+    /// The run ceilings the partition workers group seeds under. Validated at startup, so a
+    /// zero here is a bug rather than a config error.
+    pub fn seed_run_budget(&self) -> RunBudget {
+        RunBudget {
+            seeds: NonZeroUsize::new(self.cohort_seed_apply_batch_max).unwrap_or(NonZeroUsize::MIN),
+            rows: NonZeroUsize::new(self.cohort_seed_apply_batch_max_rows)
+                .unwrap_or(NonZeroUsize::MIN),
+        }
+    }
+
+    /// The seed lane's capacity for one partition worker. Validated at startup, so a zero here is
+    /// a bug rather than a config error.
+    pub fn seed_lane_cap(&self) -> NonZeroUsize {
+        NonZeroUsize::new(self.partition_intake_max_seeds).unwrap_or(NonZeroUsize::MIN)
+    }
+
     pub fn reconcile_tick_interval(&self) -> Duration {
         Duration::from_millis(self.cohort_seed_reconcile_tick_interval_ms)
     }
@@ -760,6 +823,27 @@ impl Config {
             self.cohort_seed_reconcile_tick_interval_ms > 0,
             "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS must be greater than zero.",
         );
+        // A zero run ceiling would form no run at all, so every seed would be neither marked nor
+        // held and the partition would wedge behind the first one.
+        ensure!(
+            self.cohort_seed_apply_batch_max > 0,
+            "COHORT_SEED_APPLY_BATCH_MAX must be greater than zero (1 = one seed per run).",
+        );
+        ensure!(
+            self.cohort_seed_apply_batch_max_rows > 0,
+            "COHORT_SEED_APPLY_BATCH_MAX_ROWS must be greater than zero.",
+        );
+        // A zero-capacity mpsc channel panics on construction, and so does one above tokio's
+        // permit bound, so either would take the pod down at the first worker spawn.
+        ensure!(
+            self.partition_intake_max_seeds > 0,
+            "PARTITION_INTAKE_MAX_SEEDS must be greater than zero (it is the seed lane's capacity in seeds).",
+        );
+        ensure!(
+            self.partition_intake_max_seeds <= tokio::sync::Semaphore::MAX_PERMITS,
+            "PARTITION_INTAKE_MAX_SEEDS must not exceed {} (tokio's channel capacity bound).",
+            tokio::sync::Semaphore::MAX_PERMITS,
+        );
 
         let pacing = self.seed_pacing_config()?;
         // Idle partitions' watermarks advance only once per probe, so a pause threshold inside
@@ -799,14 +883,16 @@ impl Config {
             );
         }
 
-        // A membership produce that fails after stage 1 commits drops the single-leaf change: the
-        // replayed seed merges to Unchanged and re-emits only composed flips. The reconcile
-        // snapshot is what repairs that, and it can, because the register row committed with
-        // stage 1 — but only if it is switched on.
+        // Seed redelivery repairs failed produces only when the register preserves the retired
+        // value. Legacy seed writers stored truth before producing, so a held seed replayed across
+        // that writer change can read an agreeing row and emit nothing. Reconcile must cover those
+        // deliveries, cohort edits, and live/merge produces whose state already committed.
         if self.cohort_seed_person_apply_enabled && !self.cohort_seed_reconcile_enabled {
             warn!(
-                "COHORT_SEED_PERSON_APPLY_ENABLED without COHORT_SEED_RECONCILE_ENABLED: a failed \
-                 membership produce drops its single-leaf change permanently, with no repair path.",
+                "COHORT_SEED_PERSON_APPLY_ENABLED without COHORT_SEED_RECONCILE_ENABLED: a live \
+                 event that fails its produce, a cohort edited mid-run, and a merge apply that \
+                 fails its produce have no repair path. Failed deliveries from seed writers \
+                 that stored truth before producing also require reconcile.",
             );
         }
 
@@ -1029,6 +1115,17 @@ impl Config {
             ..self.build_kafka_config()
         }
     }
+
+    /// Producer config for the reconcile-marker sink: the shared config with a shorter
+    /// `message.timeout.ms`. Same inline-on-a-worker reason as the transfer sink, except the retry
+    /// is the drain sweeper's rather than an inline loop, so an unreachable marker topic would
+    /// otherwise hold the worker for the full timeout on every tick.
+    pub fn build_marker_kafka_config(&self) -> KafkaConfig {
+        KafkaConfig {
+            kafka_message_timeout_ms: self.reconcile_marker_message_timeout_ms,
+            ..self.build_kafka_config()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1051,6 +1148,7 @@ mod tests {
             cohort_event_name_gating_enabled: true,
             partition_channel_buffer: 128,
             partition_intake_max_events: 1024,
+            partition_intake_max_seeds: 1024,
             kafka_hosts: "localhost:9092".to_string(),
             kafka_tls: false,
             kafka_client_id: String::new(),
@@ -1083,6 +1181,8 @@ mod tests {
             pod_name: None,
             pod_hostname: None,
             cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
+            cohort_reconcile_markers_topic: "cohort_reconcile_markers".to_string(),
+            reconcile_marker_message_timeout_ms: 1000,
             kafka_producer_partitioner: "murmur2_random".to_string(),
             cohort_partition_count: 64,
             kafka_compression_codec: "none".to_string(),
@@ -1142,6 +1242,8 @@ mod tests {
             cohort_seed_reconcile_tick_interval_ms: 2_000,
             cohort_seed_person_apply_enabled: false,
             cohort_seed_person_live_margin_ms: 900_000,
+            cohort_seed_apply_batch_max: 256,
+            cohort_seed_apply_batch_max_rows: 4096,
             cohort_seed_live_lag_pause_ms: 120_000,
             cohort_seed_live_lag_resume_ms: 60_000,
             cohort_seed_disk_pause_pct: 60.0,
@@ -1171,11 +1273,24 @@ mod tests {
             defaults.reconcile_tick_interval(),
             Duration::from_millis(2_000)
         );
+        // The marker produce blocks a partition worker, so its timeout has to stay under the tick
+        // that re-queues it — at parity a black-holed topic occupies the worker end to end.
+        assert_eq!(
+            defaults
+                .build_marker_kafka_config()
+                .kafka_message_timeout_ms,
+            1000,
+        );
+        assert!(
+            u64::from(defaults.reconcile_marker_message_timeout_ms)
+                < defaults.reconcile_tick_interval().as_millis() as u64
+        );
 
         let env: std::collections::HashMap<String, String> = [
             ("COHORT_SEED_RECONCILE_ENABLED", "true"),
             ("COHORT_SEED_RECONCILE_SCAN_PAGE", "17"),
             ("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", "345"),
+            ("RECONCILE_MARKER_MESSAGE_TIMEOUT_MS", "125"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -1184,6 +1299,10 @@ mod tests {
         assert!(config.cohort_seed_reconcile_enabled);
         assert_eq!(config.cohort_seed_reconcile_scan_page, 17);
         assert_eq!(config.reconcile_tick_interval(), Duration::from_millis(345));
+        assert_eq!(
+            config.build_marker_kafka_config().kafka_message_timeout_ms,
+            125,
+        );
     }
 
     #[test]
@@ -1203,6 +1322,48 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS"),);
+    }
+
+    /// A zero ceiling would form no run at all, so every seed would be neither marked nor held
+    /// and the partition would wedge behind the first one.
+    #[test]
+    fn seed_run_budget_rejects_zero_ceilings_and_maps_the_defaults() {
+        let defaults = test_config();
+        assert_eq!(defaults.seed_run_budget().seeds.get(), 256);
+        assert_eq!(defaults.seed_run_budget().rows.get(), 4096);
+
+        let mut config = test_config();
+        config.cohort_seed_apply_batch_max = 0;
+        assert!(config
+            .validate_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_APPLY_BATCH_MAX"),);
+
+        config.cohort_seed_apply_batch_max = 1;
+        config.cohort_seed_apply_batch_max_rows = 0;
+        assert!(config
+            .validate_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_APPLY_BATCH_MAX_ROWS"),);
+
+        // A zero-capacity seed lane would panic the first worker spawn, and so would one above
+        // tokio's channel bound, so both must be refused too.
+        config.cohort_seed_apply_batch_max_rows = 1;
+        for cap in [0, usize::MAX] {
+            config.partition_intake_max_seeds = cap;
+            assert!(config
+                .validate_startup()
+                .unwrap_err()
+                .to_string()
+                .contains("PARTITION_INTAKE_MAX_SEEDS"),);
+        }
+
+        // `1` is the documented hatch back to the per-seed apply, so it must start.
+        config.partition_intake_max_seeds = 1;
+        assert!(config.validate_startup().is_ok());
+        assert_eq!(config.seed_run_budget().seeds.get(), 1);
     }
 
     #[test]
@@ -1368,6 +1529,8 @@ mod tests {
     fn intake_and_boot_ordering_knobs_default_and_override_from_env() {
         let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
         assert_eq!(defaults.partition_intake_max_events, 1024);
+        assert_eq!(defaults.partition_intake_max_seeds, 1024);
+        assert_eq!(defaults.seed_lane_cap().get(), 1024);
         assert_eq!(defaults.kafka_queued_max_messages_kbytes, 131_072);
         assert_eq!(defaults.kafka_queued_min_messages, 2000);
         assert_eq!(
@@ -1377,6 +1540,7 @@ mod tests {
 
         let env: std::collections::HashMap<String, String> = [
             ("PARTITION_INTAKE_MAX_EVENTS", "512"),
+            ("PARTITION_INTAKE_MAX_SEEDS", "64"),
             ("COHORT_KAFKA_QUEUED_MAX_MESSAGES_KBYTES", "65536"),
             ("COHORT_KAFKA_QUEUED_MIN_MESSAGES", "1000"),
             ("COHORT_FIRST_EVICTION_SWEEP_DELAY_MS", "30000"),
@@ -1386,6 +1550,7 @@ mod tests {
         .collect();
         let config = Config::init_from_hashmap(&env).unwrap();
         assert_eq!(config.partition_intake_max_events, 512);
+        assert_eq!(config.seed_lane_cap().get(), 64);
         assert_eq!(
             config.fetch_queue_config().queued_max_messages_kbytes,
             65536
@@ -1626,6 +1791,28 @@ mod tests {
         assert_eq!(
             config.consumer_client_config().get("security.protocol"),
             Some("ssl"),
+        );
+    }
+
+    #[test]
+    fn membership_topic_defaults_to_the_shadow_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(
+            defaults.cohort_membership_changed_topic, "cohort_membership_changed_shadow",
+            "a code deploy must not redirect membership output to the production topic",
+        );
+
+        let env: std::collections::HashMap<String, String> = [(
+            "COHORT_MEMBERSHIP_CHANGED_TOPIC",
+            "cohort_membership_changed",
+        )]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(
+            config.cohort_membership_changed_topic, "cohort_membership_changed",
+            "the cut-over must be reachable as a config-only change",
         );
     }
 
@@ -2068,6 +2255,10 @@ mod tests {
         let transfer = config.build_transfer_kafka_config();
         // Only `message.timeout.ms` differs; every other producer knob is inherited.
         assert_eq!(transfer.kafka_message_timeout_ms, 2000);
+        assert_eq!(
+            config.build_marker_kafka_config().kafka_message_timeout_ms,
+            1000,
+        );
         assert_eq!(shared.kafka_message_timeout_ms, 20_000);
         assert_eq!(
             transfer.kafka_producer_partitioner,

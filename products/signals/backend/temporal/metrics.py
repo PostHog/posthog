@@ -1,8 +1,40 @@
-"""Business-level Prometheus counters for signals pipeline incident alerts."""
+"""Business-level counters for signals pipeline incident alerts.
 
+Pipeline counters go to the Temporal metric meter, so they only record inside a workflow or an
+activity. The scout coordinator counters keep a Prometheus instrument for Grafana and push the
+same name through the PostHog SDK metrics client, which puts fleet dispatch health in the
+PostHog Metrics product, where it can be alerted on directly rather than inferred from
+downstream tool-call volume.
+"""
+
+import posthoganalytics
+from prometheus_client import Counter
 from temporalio import activity, workflow
 
 from posthog.temporal.common.metrics import get_metric_meter
+
+COORDINATOR_DISPATCH_STARTED = "started"
+COORDINATOR_DISPATCH_DEDUPED = "deduped"
+
+SCOUT_COORDINATOR_TICKS_METRIC = "signals_scout_coordinator_ticks_total"
+SCOUT_COORDINATOR_PLANNED_METRIC = "signals_scout_coordinator_planned_total"
+SCOUT_COORDINATOR_DISPATCHED_METRIC = "signals_scout_coordinator_dispatched_total"
+
+SCOUT_COORDINATOR_TICKS = Counter(
+    SCOUT_COORDINATOR_TICKS_METRIC,
+    "Signals scout coordinator ticks that finished planning",
+)
+
+SCOUT_COORDINATOR_PLANNED = Counter(
+    SCOUT_COORDINATOR_PLANNED_METRIC,
+    "Scout runs the coordinator planned to dispatch",
+)
+
+SCOUT_COORDINATOR_DISPATCHED = Counter(
+    SCOUT_COORDINATOR_DISPATCHED_METRIC,
+    "Scout child workflows the coordinator dispatched, by outcome",
+    ["outcome"],
+)
 
 FUNNEL_STAGE_EMITTED = "emitted"
 FUNNEL_STAGE_GROUPED = "grouped"
@@ -76,6 +108,70 @@ def increment_ch_wait_timeout() -> None:
     ).add(1)
 
 
+def increment_recently_seen_lookup(result: str) -> None:
+    """Count recently-seen cache lookups by result."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"result": result}).create_counter(
+        "signals_recently_seen_lookups_total",
+        "Recently-seen cache lookups by result",
+    ).add(1)
+
+
+def increment_ch_wait_query(mode: str, reason: str) -> None:
+    """Count ClickHouse confirmation queries by wait mode and reason."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"mode": mode, "reason": reason}).create_counter(
+        "signals_ch_wait_queries_total",
+        "ClickHouse confirmation queries issued by signals waits",
+    ).add(1)
+
+
+def increment_ch_wait_completion(mode: str, result: str) -> None:
+    """Count wait completions by mode and completion path."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"mode": mode, "result": result}).create_counter(
+        "signals_ch_wait_completions_total",
+        "Signals consistency waits by completion result",
+    ).add(1)
+
+
+def increment_research_run_collapsed() -> None:
+    """Count a promotion that folded into an already-running research workflow instead of its own run.
+
+    This is the research-debounce savings metric: with the debounce off it counts the rare race where
+    a signal lands mid-run, and with it on it counts every signal that a waiting run absorbed.
+    """
+    if not _in_temporal_context():
+        return
+    get_metric_meter().create_counter(
+        "signals_research_runs_collapsed_total",
+        "Report promotions absorbed by an already-running research workflow",
+    ).add(1)
+
+
+def increment_report_fetch_recovered(attempt: int) -> None:
+    """Count a research run whose signals only became readable in ClickHouse on a retried fetch."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"attempt": str(attempt)}).create_counter(
+        "signals_report_fetch_recovered_total",
+        "Report signal fetches that succeeded only after retrying an empty read",
+    ).add(1)
+
+
+def increment_report_run_deferred(reason: str) -> None:
+    """Count a research run that exited without researching or failing, leaving the report to re-promote."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"reason": reason}).create_counter(
+        "signals_report_runs_deferred_total",
+        "Report research runs deferred to a later promotion by reason",
+    ).add(1)
+
+
 def increment_scout_run(status: str) -> None:
     """Count a scout run by terminal status."""
     if not _in_temporal_context():
@@ -84,3 +180,43 @@ def increment_scout_run(status: str) -> None:
         "signals_scout_runs_total",
         "Signals scout runs by terminal status",
     ).add(1)
+
+
+def _push_coordinator_metric(name: str, value: float, attributes: dict[str, str]) -> None:
+    """Push one coordinator counter into the PostHog Metrics product.
+
+    The SDK client is the only sink that carries a counter out of a Temporal worker into the
+    Metrics product: the worker exports no `prometheus_client` series there, and it has no OTLP
+    push configured. Failures are swallowed, because this runs in the planning activity and a
+    telemetry error that failed the tick would cause the dispatch stall these counters watch for.
+    """
+    try:
+        posthoganalytics.setup().metrics.count(name, value, attributes=attributes)
+    except Exception:
+        pass
+
+
+def increment_coordinator_tick(planned_count: int) -> None:
+    """Count a coordinator tick that finished planning, and the scout runs it planned.
+
+    The tick counter carries the stall signal on its own: a schedule that stopped firing and a
+    fleet with no work due both leave the planned and dispatched counters flat, and only this one
+    tells them apart.
+    """
+    SCOUT_COORDINATOR_TICKS.inc()
+    _push_coordinator_metric(SCOUT_COORDINATOR_TICKS_METRIC, 1, {})
+    # Zero is the reading that matters, so the series is kept alive rather than guarded away.
+    SCOUT_COORDINATOR_PLANNED.inc(planned_count)
+    _push_coordinator_metric(SCOUT_COORDINATOR_PLANNED_METRIC, planned_count, {})
+    # A labeled counter has no child series until code calls .labels(), and the dispatch counter is
+    # only touched after a dispatch. So warm both outcomes to zero every tick. A stall is a run of
+    # zero-plan ticks that never dispatch, which is exactly when the dispatch series would otherwise
+    # be absent, so a zero-rate alert on it would read "no data" instead of zero and stay silent.
+    for outcome in (COORDINATOR_DISPATCH_STARTED, COORDINATOR_DISPATCH_DEDUPED):
+        increment_coordinator_dispatch(outcome, 0)
+
+
+def increment_coordinator_dispatch(outcome: str, count: int) -> None:
+    """Count scout child workflows the coordinator dispatched, by outcome."""
+    SCOUT_COORDINATOR_DISPATCHED.labels(outcome=outcome).inc(count)
+    _push_coordinator_metric(SCOUT_COORDINATOR_DISPATCHED_METRIC, count, {"outcome": outcome})

@@ -13,6 +13,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 
+from products.access_control.backend.models.role import Role
 from products.conversations.backend.events import (
     EVENT_SOURCE,
     _resolve_groups_from_analytics,
@@ -26,8 +27,6 @@ from products.conversations.backend.events import (
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import OrganizationIdSource
 from products.customer_analytics.backend.facade import contracts as ca_contracts
-
-from ee.models.rbac.role import Role
 
 
 class TestConversationEvents(BaseTest):

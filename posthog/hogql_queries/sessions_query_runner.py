@@ -19,13 +19,14 @@ from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import Person
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.models.property import Property
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import relative_date_parse
 
@@ -47,6 +48,7 @@ SUPPORTED_PERSON_PROPERTY_OPERATORS = frozenset(
         "gte",
         "lte",
     }
+    | set(STRING_PREFIX_SUFFIX_OPERATORS)
 )
 
 
@@ -245,6 +247,18 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 op=ast.CompareOperationOp.NotILike,
                 left=field,
                 right=ast.Constant(value=f"%{value}%"),
+            )
+        elif operator in ("starts_with", "not_starts_with"):
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike if operator == "starts_with" else ast.CompareOperationOp.NotILike,
+                left=field,
+                right=ast.Constant(value=f"{value}%"),
+            )
+        elif operator in ("ends_with", "not_ends_with"):
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike if operator == "ends_with" else ast.CompareOperationOp.NotILike,
+                left=field,
+                right=ast.Constant(value=f"%{value}"),
             )
         elif operator == "regex":
             return ast.Call(name="match", args=[field, ast.Constant(value=value)])
@@ -611,6 +625,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            context=self.build_hogql_context(),
         )
 
         # Convert star field from tuple to dict in each result

@@ -18,7 +18,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -116,36 +116,13 @@ interface SchemaUpdateCache {
     reapplyingOptimisticSource?: boolean
 }
 
-function applySchemaToSource(
-    source: ExternalDataSource | null,
-    schema: ExternalDataSourceSchema
-): ExternalDataSource | null {
-    if (!source) {
-        return source
-    }
-
-    const clonedSource = JSON.parse(JSON.stringify(source)) as ExternalDataSource
-    const schemaIndex = clonedSource.schemas.findIndex((item) => item.id === schema.id)
-
-    if (schemaIndex === -1) {
-        return source
-    }
-
-    clonedSource.schemas[schemaIndex] = schema
-    return clonedSource
-}
-
 function applyPendingSchemaUpdatesToSource(
     source: ExternalDataSource | null,
     pendingSchemaUpdates: Record<string, PendingSchemaUpdate>
 ): ExternalDataSource | null {
-    if (!source) {
-        return source
-    }
-
-    return Object.values(pendingSchemaUpdates).reduce<ExternalDataSource | null>(
-        (currentSource, pendingUpdate) => applySchemaToSource(currentSource, pendingUpdate.schema),
-        source
+    return applySchemasToSource(
+        source,
+        Object.values(pendingSchemaUpdates).map((pendingUpdate) => pendingUpdate.schema)
     )
 }
 
@@ -153,10 +130,22 @@ function applySchemasToSource(
     source: ExternalDataSource | null,
     schemas: ExternalDataSourceSchema[]
 ): ExternalDataSource | null {
-    return schemas.reduce<ExternalDataSource | null>(
-        (currentSource, schema) => applySchemaToSource(currentSource, schema),
-        source
-    )
+    if (!source || schemas.length === 0) {
+        return source
+    }
+
+    const updatesById = new Map(schemas.map((schema) => [schema.id, schema]))
+    let hasUpdates = false
+    const nextSchemas = source.schemas.map((schema) => {
+        const updatedSchema = updatesById.get(schema.id)
+        if (!updatedSchema) {
+            return schema
+        }
+        hasUpdates = true
+        return updatedSchema
+    })
+
+    return hasUpdates ? { ...source, schemas: nextSchemas } : source
 }
 
 // PATCH body of only the changed fields (+ id). The backend writes every field it receives, so
@@ -326,6 +315,31 @@ export function schemasEligibleForSync(schemas: ExternalDataSourceSchema[]): Ext
     return schemas.filter((schema) => !!schema.sync_type && schema.should_sync)
 }
 
+const SYNC_LOOKBACK_FIELD = 'sync_lookback_days'
+
+// Mirrors the backend's Meta Ads normalization (`meta_ads.py`): a missing, blank, or sub-1 value
+// falls back to the default window, and any value is capped at the max the source will request.
+const DEFAULT_SYNC_LOOKBACK_DAYS = 90
+const META_ADS_MAX_HISTORY_DAYS = 3 * 365
+
+// The effective lookback the backend would use for `value`. Comparing raw form values instead
+// would offer a destructive resync when narrowing a blank (effective-90) window, and skip the
+// resync prompt when widening from an absent value.
+export function effectiveLookbackDays(value: unknown): number {
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return DEFAULT_SYNC_LOOKBACK_DAYS
+    }
+    return Math.min(parsed, META_ADS_MAX_HISTORY_DAYS)
+}
+
+// A raised history window (e.g. Meta Ads `sync_lookback_days`) only pulls in older data on a full
+// resync. An enabled incremental table that already imported keeps its start date until then, so
+// these are the tables a raise would otherwise silently skip.
+export function schemasNeedingLookbackResync(source: ExternalDataSource | null): ExternalDataSourceSchema[] {
+    return source?.schemas.filter((schema) => schema.should_sync && schema.incremental) ?? []
+}
+
 // Bulk-enable payloads: already-enabled schemas are skipped; schemas without a sync method ask
 // the backend to discover and fill in default sync settings as part of the same update.
 export function buildBulkEnablePayloads(
@@ -338,13 +352,6 @@ export function buildBulkEnablePayloads(
                 ? { id: schema.id, should_sync: true }
                 : { id: schema.id, should_sync: true, apply_sync_defaults: true }
         )
-}
-
-export function clampFrequencyForSchema(
-    requested: DataWarehouseSyncInterval,
-    schema: ExternalDataSourceSchema
-): DataWarehouseSyncInterval {
-    return clampSyncFrequency(requested, schema.sync_type)
 }
 
 function reportBulkResult(verb: string, total: number, failed: number, skipped: number, skipReason = ''): void {
@@ -633,6 +640,9 @@ export interface sourceSettingsLogicActions {
         payload: ExternalDataSourceSchema | undefined
         source: ExternalDataSource | null
     }
+    updateSchemas: (schemas: ExternalDataSourceSchema[]) => {
+        schemas: ExternalDataSourceSchema[]
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -711,6 +721,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         refreshSchemas: true,
         setRefreshingSchemas: (refreshing: boolean) => ({ refreshing }),
         updateSchema: (schema: ExternalDataSourceSchema) => schema,
+        updateSchemas: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         updateSchemaSuccess: (source: ExternalDataSource | null, payload?: ExternalDataSourceSchema) => ({
             source,
             payload,
@@ -1069,6 +1080,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     ...sanitizedPayload,
                 }
 
+                // Read before the update, while `values.source` still holds the old config, so we can
+                // offer a resync when the user widens the history window (otherwise it's silently ignored).
+                const previousLookbackDays = effectiveLookbackDays(values.source?.job_inputs?.[SYNC_LOOKBACK_FIELD])
+                const nextLookbackDays = effectiveLookbackDays(sanitizedPayload[SYNC_LOOKBACK_FIELD])
+                const schemasToResync = schemasNeedingLookbackResync(values.source)
+
                 // Handle file uploads
                 const sourceFieldConfig = values.sourceFieldConfig
                 if (sourceFieldConfig?.fields) {
@@ -1116,6 +1133,19 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     })
                     actions.loadSource()
                     lemonToast.success('Source updated')
+
+                    if (nextLookbackDays > previousLookbackDays && schemasToResync.length > 0) {
+                        LemonDialog.open({
+                            title: 'Import the older data?',
+                            description: `A wider history window applies to tables you already synced only after a full resync. Resync ${pluralize(schemasToResync.length, 'table', 'tables')} now to import the older data?`,
+                            primaryButton: {
+                                children: 'Resync now',
+                                onClick: () => actions.bulkResync(schemasToResync),
+                            },
+                            secondaryButton: { children: 'Not now' },
+                        })
+                    }
+
                     tryShowMCPHint('data_warehouse_sources.update', {
                         derivedPrompt: values.source?.source_type
                             ? `Update the configuration on my ${values.source.source_type} source`
@@ -1218,32 +1248,47 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             }, SCHEMA_UPDATE_DEBOUNCE_MS)
         }
 
-        return {
-            updateSchema: (schema) => {
-                const nextRevision = (schemaUpdateCache.schemaUpdateRevisions[schema.id] ?? 0) + 1
+        const queueSchemaUpdates = (schemas: ExternalDataSourceSchema[]): void => {
+            const baselineSchemasById = new Map(values.source?.schemas.map((schema) => [schema.id, schema]) ?? [])
+            let hasQueuedUpdates = false
 
-                schemaUpdateCache.schemaUpdateRevisions[schema.id] = nextRevision
-
-                // Union this edit's changed fields with any not-yet-flushed pending edit's, so
-                // coalesced edits send everything that changed — not just the latest field.
-                const baselineSchema = values.source?.schemas.find((item) => item.id === schema.id)
-                const changedFields = diffSchemaPayloadFields(schema, baselineSchema)
+            for (const schema of schemas) {
+                const changedFields = diffSchemaPayloadFields(schema, baselineSchemasById.get(schema.id))
                 for (const field of schemaUpdateCache.pendingSchemaUpdates[schema.id]?.changedFields ?? []) {
                     changedFields.add(field)
                 }
-
-                schemaUpdateCache.pendingSchemaUpdates[schema.id] = { schema, revision: nextRevision, changedFields }
-
-                const optimisticSource = applyPendingSchemaUpdatesToSource(
-                    values.source,
-                    getOptimisticSchemaUpdates(schemaUpdateCache)
-                )
-                if (optimisticSource) {
-                    schemaUpdateCache.reapplyingOptimisticSource = true
-                    actions.loadSourceSuccess(optimisticSource)
+                if (changedFields.size === 0) {
+                    continue
                 }
 
-                scheduleSchemaUpdateFlush()
+                const nextRevision = (schemaUpdateCache.schemaUpdateRevisions[schema.id] ?? 0) + 1
+                schemaUpdateCache.schemaUpdateRevisions[schema.id] = nextRevision
+                schemaUpdateCache.pendingSchemaUpdates[schema.id] = { schema, revision: nextRevision, changedFields }
+                hasQueuedUpdates = true
+            }
+
+            if (!hasQueuedUpdates) {
+                return
+            }
+
+            const optimisticSource = applyPendingSchemaUpdatesToSource(
+                values.source,
+                getOptimisticSchemaUpdates(schemaUpdateCache)
+            )
+            if (optimisticSource) {
+                schemaUpdateCache.reapplyingOptimisticSource = true
+                actions.loadSourceSuccess(optimisticSource)
+            }
+
+            scheduleSchemaUpdateFlush()
+        }
+
+        return {
+            updateSchema: (schema) => {
+                queueSchemaUpdates([schema])
+            },
+            updateSchemas: ({ schemas }) => {
+                queueSchemaUpdates(schemas)
             },
             loadSourceSuccess: () => {
                 const optimisticSchemaUpdates = getOptimisticSchemaUpdates(schemaUpdateCache)
@@ -1532,11 +1577,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 lemonToast.success(`Disabled ${pluralize(schemas.length, 'schema', 'schemas')}`)
             },
             bulkSetFrequency: ({ schemas, frequency }) => {
-                // Non-CDC schemas can't sync faster than every 5 minutes — clamp so a bulk edit
-                // never pushes them below their allowed floor.
+                // Schemas can't sync faster than every 5 minutes — clamp so a bulk edit never
+                // pushes them below the floor.
                 let clamped = 0
                 schemas.forEach((schema) => {
-                    const effective = clampFrequencyForSchema(frequency, schema)
+                    const effective = clampSyncFrequency(frequency)
                     if (effective !== frequency) {
                         clamped++
                     }

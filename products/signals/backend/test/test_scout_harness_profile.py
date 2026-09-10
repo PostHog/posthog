@@ -35,7 +35,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -73,6 +73,7 @@ from products.signals.backend.scout_harness.profile.builders import (
     _signal_source_configs,
     _top_events,
 )
+from products.signals.backend.scout_harness.profile.schema import ScoutFleetEntry
 from products.signals.backend.scout_harness.tools.profile import (
     PROFILE_TTL,
     compute_project_profile,
@@ -337,6 +338,20 @@ class TestScoutFleet(BaseTest):
 
         assert entry["not_running_reason"] == "turned_off"
 
+    def test_system_paused_scout_is_not_reported_as_operator_intent(self) -> None:
+        config = self._config("signals-scout-logs", enabled=False)
+        config.status = SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        config.pause_reason = SignalScoutConfig.PauseReason.NO_OUTPUT
+        config.save(update_fields=["status", "pause_reason"])
+
+        entry = _scout_fleet(self.team)["disabled"][0]
+
+        assert entry["not_running_reason"] == "auto_paused"
+        assert entry["pause_reason"] == "no_output"
+        # The entry must survive the forbid-extra inventory schema, or `build_inventory()`
+        # raises and no profile on the team can refresh.
+        ScoutFleetEntry.model_validate(entry)
+
     @parameterized.expand(
         [
             ("signal_channel_finding", {"emitted_count": 2}, True),
@@ -576,6 +591,15 @@ class TestRecentAlerts(BaseTest):
         result = _recent_alerts(self.team)
         assert [r["name"] for r in result["recent"]] == ["second", "first"]
 
+    def test_redacts_a_url_embedded_in_the_name(self) -> None:
+        AlertConfiguration.objects.create(
+            team=self.team,
+            insight=self._insight("a"),
+            name="Paging https://hooks.example.com/services/T0/B0/s3cr3t",
+        )
+        row = _recent_alerts(self.team)["recent"][0]
+        assert row["name"] == "Paging hooks.example.com"
+
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
         AlertConfiguration.objects.create(team=other, insight=Insight.objects.create(team=other, name="i"), name="x")
@@ -600,6 +624,20 @@ class TestRecentHogFunctions(BaseTest):
         row = result["recent"][0]
         assert row["type"] == "destination"
         assert row["kind"] == "webhook"
+
+    def test_redacts_a_webhook_url_embedded_in_the_name(self) -> None:
+        # An alert destination is named "<product> — <alert> (<kind>) → Webhook <url>",
+        # and the URL path and query hold the channel credential.
+        HogFunction.objects.create(
+            team=self.team,
+            name="Error tracking — Checkout errors (issue created) → Webhook "
+            "https://hooks.example.com/services/T0/B0/s3cr3t?token=s3cr3t",
+            enabled=True,
+            type="destination",
+            hog="",
+        )
+        row = _recent_hog_functions(self.team)["recent"][0]
+        assert row["name"] == "Error tracking — Checkout errors (issue created) → Webhook hooks.example.com"
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")

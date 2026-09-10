@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
 import { getNestedValue, like } from '../utils'
-import { md5, sha256, sha256HmacChain } from './crypto'
+import { md5, sha1, sha1HmacChain, sha256, sha256HmacChain } from './crypto'
 import {
     formatDateTime,
     fromUnixTimestamp,
@@ -558,7 +558,7 @@ export const STL: Record<string, STLFunction> = {
         description: 'Converts a value to its string representation',
         example: 'toString($1)',
         minArgs: 1,
-        maxArgs: 1,
+        maxArgs: 2,
     },
     toUUID: {
         fn: STLToString,
@@ -798,7 +798,7 @@ export const STL: Record<string, STLFunction> = {
         description: 'Converts an object to a JSON string',
         example: 'jsonStringify($1)',
         minArgs: 1,
-        maxArgs: 1,
+        maxArgs: 2,
     },
     JSONHas: {
         fn: ([obj, ...path]) => {
@@ -848,7 +848,7 @@ export const STL: Record<string, STLFunction> = {
         },
         description: 'Checks if a JSON path exists in an object',
         example: 'JSONHas($1, $2)',
-        minArgs: 2,
+        minArgs: 1,
     },
     isValidJSON: {
         fn: ([str]) => {
@@ -887,7 +887,7 @@ export const STL: Record<string, STLFunction> = {
         },
         description: 'Returns the length of a JSON array or object',
         example: 'JSONLength($1, $2)',
-        minArgs: 2,
+        minArgs: 1,
     },
     JSONExtractBool: {
         fn: ([obj, ...path]) => {
@@ -996,7 +996,7 @@ export const STL: Record<string, STLFunction> = {
         description: 'Returns position of substring in string (1-based)',
         example: 'position($1, $2)',
         minArgs: 2,
-        maxArgs: 2,
+        maxArgs: 3,
     },
     positionCaseInsensitive: {
         fn: ([str, elem]) => {
@@ -1008,7 +1008,7 @@ export const STL: Record<string, STLFunction> = {
         description: 'Case-insensitive substring position (1-based)',
         example: 'positionCaseInsensitive($1, $2)',
         minArgs: 2,
-        maxArgs: 2,
+        maxArgs: 3,
     },
     trim: {
         fn: ([str, char]) => {
@@ -1120,6 +1120,20 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 1,
         maxArgs: 2,
     },
+    sha1Hex: {
+        fn: ([str], _, options) => sha1(str, 'hex', options),
+        description: 'Computes SHA-1 hash of a string. Only for compatibility with vendors that use SHA-1',
+        example: 'sha1($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    sha1: {
+        fn: ([str, encoding], _, options) => sha1(str, encoding, options),
+        description: 'Computes SHA-1 hash of a string. Only for compatibility with vendors that use SHA-1',
+        example: 'sha1($1, $2)',
+        minArgs: 1,
+        maxArgs: 2,
+    },
     md5Hex: {
         fn: ([str], _, options) => md5(str, 'hex', options),
         description: 'Computes MD5 hash of a string',
@@ -1131,6 +1145,20 @@ export const STL: Record<string, STLFunction> = {
         fn: ([str, encoding], _, options) => md5(str, encoding, options),
         description: 'Computes MD5 hash of a string',
         example: 'md5($1, $2)',
+        minArgs: 1,
+        maxArgs: 2,
+    },
+    sha1HmacChainHex: {
+        fn: ([data], _, options) => sha1HmacChain(data, 'hex', options),
+        description: 'Computes SHA-1 HMAC chain hash. Two elements give a plain HMAC-SHA1 of key and message',
+        example: 'sha1HmacChainHex($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    sha1HmacChain: {
+        fn: ([data, encoding], _, options) => sha1HmacChain(data, encoding, options),
+        description: 'Computes SHA-1 HMAC chain hash. Two elements give a plain HMAC-SHA1 of key and message',
+        example: 'sha1HmacChain($1, $2)',
         minArgs: 1,
         maxArgs: 2,
     },
@@ -1259,7 +1287,6 @@ export const STL: Record<string, STLFunction> = {
         description: 'Sorts array in ascending order',
         example: 'arraySort($1)',
         minArgs: 1,
-        maxArgs: 1,
     },
     arrayReverse: {
         fn: ([arr]) => {
@@ -1283,7 +1310,6 @@ export const STL: Record<string, STLFunction> = {
         description: 'Sorts array in descending order',
         example: 'arrayReverseSort($1)',
         minArgs: 1,
-        maxArgs: 1,
     },
     arrayStringConcat: {
         fn: ([arr, separator = '']) => {
@@ -1316,7 +1342,7 @@ export const STL: Record<string, STLFunction> = {
         description: 'Returns current datetime',
         example: 'now()',
         minArgs: 0,
-        maxArgs: 0,
+        maxArgs: 1,
     },
     toUnixTimestamp: {
         fn: (args) => {
@@ -1522,7 +1548,7 @@ export const STL: Record<string, STLFunction> = {
         description: 'Truncates datetime to unit',
         example: 'dateTrunc($1, $2)',
         minArgs: 2,
-        maxArgs: 2,
+        maxArgs: 3,
     },
     equals: {
         fn: equalsFn,
@@ -1543,7 +1569,7 @@ export const STL: Record<string, STLFunction> = {
         description: 'Rounds number down to integer',
         example: 'floor($1)',
         minArgs: 1,
-        maxArgs: 1,
+        maxArgs: 2,
     },
     greater: {
         fn: greaterFn,
@@ -1625,15 +1651,13 @@ export const STL: Record<string, STLFunction> = {
         fn: andFn,
         description: 'Logical AND operation',
         example: 'and($1, $2)',
-        minArgs: 2,
-        maxArgs: 2,
+        minArgs: 1,
     },
     or: {
         fn: orFn,
         description: 'Logical OR operation',
         example: 'or($1, $2)',
-        minArgs: 2,
-        maxArgs: 2,
+        minArgs: 1,
     },
     plus: {
         fn: plusFn,
@@ -1654,7 +1678,7 @@ export const STL: Record<string, STLFunction> = {
         description: 'Rounds number to nearest integer',
         example: 'round($1)',
         minArgs: 1,
-        maxArgs: 1,
+        maxArgs: 2,
     },
     startsWith: {
         fn: startsWithFn,
@@ -1710,7 +1734,7 @@ export const STL: Record<string, STLFunction> = {
         description: 'Truncates datetime to start of day',
         example: 'toStartOfDay($1)',
         minArgs: 1,
-        maxArgs: 1,
+        maxArgs: 2,
     },
     toStartOfHour: {
         fn: toStartOfHourFn,
@@ -1731,7 +1755,7 @@ export const STL: Record<string, STLFunction> = {
         description: 'Truncates datetime to start of week',
         example: 'toStartOfWeek($1)',
         minArgs: 1,
-        maxArgs: 1,
+        maxArgs: 2,
     },
     toYYYYMM: {
         fn: toYYYYMMFn,

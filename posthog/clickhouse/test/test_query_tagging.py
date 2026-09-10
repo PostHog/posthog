@@ -590,6 +590,12 @@ class TestAddFallbackQueryTags(BaseTest):
         assert tags.product == Product.PRODUCT_ANALYTICS
         assert tags.feature is None
 
+    @parameterized.expand([("MCPMissingCapabilitiesQuery",), ("MCPModelBreakdownQuery",)])
+    def test_mcp_analytics_kind_attributes_to_mcp_analytics(self, query_type: str) -> None:
+        tags = QueryTags(query_type=query_type)
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.MCP_ANALYTICS
+
     def test_mcp_source_fills_product_only(self):
         tags = QueryTags(source="mcp")
         add_fallback_query_tags(tags)
@@ -643,6 +649,7 @@ class TestAddFallbackQueryTags(BaseTest):
             ("exception", ["$exception"], Product.ERROR_TRACKING),
             ("web_vitals", ["$web_vitals"], Product.WEB_ANALYTICS),
             ("feature_flag_called", ["$feature_flag_called"], Product.FEATURE_FLAGS),
+            ("experiment_exposure", ["$experiment_exposure"], Product.EXPERIMENTS),
         ]
     )
     def test_hogql_features_event_fills_product(self, _name, events, expected_product):

@@ -1,9 +1,10 @@
-import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useActions, useValues } from 'kea'
+import { useCallback, useMemo } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
 import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -15,7 +16,7 @@ import {
 } from '~/types'
 
 import { getReplayVisionRecordingViewDisabledReason } from '../../utils/accessControl'
-import { scannerOverviewLogic } from '../scannerOverviewLogic'
+import { OVERVIEW_CHART_INTERVAL, scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
 import { VisionInsightChart } from './VisionInsightChart'
 
@@ -71,7 +72,7 @@ function buildQuery(
                 formulaNodes: [{ formula: 'A / B * 100', custom_name: 'Yes rate' }],
             },
             dateRange,
-            interval: 'day',
+            interval: OVERVIEW_CHART_INTERVAL,
         }
     }
     if (scannerType === 'classifier') {
@@ -94,7 +95,7 @@ function buildQuery(
             },
             trendsFilter: { display: ChartDisplayType.ActionsAreaGraph },
             dateRange,
-            interval: 'day',
+            interval: OVERVIEW_CHART_INTERVAL,
         }
     }
     if (scannerType === 'scorer') {
@@ -114,7 +115,7 @@ function buildQuery(
             ],
             trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
             dateRange,
-            interval: 'day',
+            interval: OVERVIEW_CHART_INTERVAL,
         }
     }
     return {
@@ -130,7 +131,7 @@ function buildQuery(
         ],
         trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
         dateRange,
-        interval: 'day',
+        interval: OVERVIEW_CHART_INTERVAL,
     }
 }
 
@@ -139,7 +140,7 @@ function chartTitle(scannerType: ScannerType): string {
         return 'Yes rate (%) over time'
     }
     if (scannerType === 'classifier') {
-        return 'Tag mix over time'
+        return 'Category mix over time'
     }
     if (scannerType === 'scorer') {
         return 'Score percentiles over time'
@@ -178,9 +179,13 @@ export function ScannerInsightsChart({
         }),
         [scannerId]
     )
-    // Drill-down opens the actors modal, which surfaces the recordings behind a data point. Only enable it for
-    // users who can view recordings, so a scanner-only viewer denied session_recording access can't enumerate them.
-    const canDrillIntoRecordings = !getReplayVisionRecordingViewDisabledReason()
+    const { drillIntoObservations } = useActions(scannerOverviewLogic({ scannerId }))
+    const onDataPointClick = useCallback<NonNullable<QueryContext['onDataPointClick']>>(
+        (series) => drillIntoObservations(series.day, series.breakdown),
+        [drillIntoObservations]
+    )
+    // The Observations tab requires session_recording read access; without it the chart stays static.
+    const canDrillIntoObservations = !getReplayVisionRecordingViewDisabledReason()
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
             <div className="flex items-baseline justify-between gap-2">
@@ -205,7 +210,7 @@ export function ScannerInsightsChart({
                 query={chartQuery}
                 insightProps={chartInsightProps}
                 className="InsightCard h-80"
-                drillable={canDrillIntoRecordings}
+                onDataPointClick={canDrillIntoObservations ? onDataPointClick : undefined}
             />
         </div>
     )

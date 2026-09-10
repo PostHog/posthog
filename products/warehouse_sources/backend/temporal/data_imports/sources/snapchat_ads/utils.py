@@ -275,7 +275,28 @@ class SnapchatStatsResource:
     """Handles stats-specific operations like flattening and date chunking."""
 
     @staticmethod
-    def transform_stats_reports(reports: list[dict[str, Any]], currency: str | None = None) -> list[dict[str, Any]]:
+    def _stat_rows(entry: dict[str, Any], base: dict[str, Any], currency: str | None) -> list[dict[str, Any]]:
+        """Turn one stats entry into rows: one per dimension value, or a single totals row.
+
+        A `report_dimension` request replaces the entry's `stats` object with a
+        `dimension_stats` array, where each element carries the metrics plus the dimension
+        columns it is broken down by (`country`, or `age_bucket` + `gender`).
+        """
+        dimension_stats = entry.get("dimension_stats")
+        if dimension_stats is None:
+            rows = [{**base, **entry.get("stats", {})}]
+        else:
+            rows = [{**base, **dimension_stat} for dimension_stat in dimension_stats]
+
+        if currency:
+            for row in rows:
+                row["currency"] = currency
+        return rows
+
+    @classmethod
+    def transform_stats_reports(
+        cls, reports: list[dict[str, Any]], currency: str | None = None
+    ) -> list[dict[str, Any]]:
         """Flatten nested timeseries_stat structure to individual daily records.
 
         Handles the breakdown response format where stats are nested inside
@@ -294,31 +315,38 @@ class SnapchatStatsResource:
                 entities = [timeseries_stat]
 
             for entity in entities:
-                entity_id = entity.get("id")
-                entity_type = entity.get("type")
+                base = {"id": entity.get("id"), "type": entity.get("type")}
+                timeseries = entity.get("timeseries", [])
 
-                for ts_entry in entity.get("timeseries", []):
-                    flat_record = {
-                        "id": entity_id,
-                        "type": entity_type,
+                for ts_entry in timeseries:
+                    entry_base = {
+                        **base,
                         "start_time": ts_entry.get("start_time"),
                         "end_time": ts_entry.get("end_time"),
-                        **ts_entry.get("stats", {}),
                     }
-                    if currency:
-                        flat_record["currency"] = currency
-                    processed_reports.append(flat_record)
+                    processed_reports.extend(cls._stat_rows(ts_entry, entry_base, currency))
+
+                # Delivery-insights responses are only documented at TOTAL granularity, where
+                # the breakdown hangs off the entity itself rather than a per-day entry. Keep
+                # those rows instead of dropping them, dated with the entity's own range.
+                if not timeseries and entity.get("dimension_stats") is not None:
+                    entity_base = {
+                        **base,
+                        "start_time": entity.get("start_time"),
+                        "end_time": entity.get("end_time"),
+                    }
+                    processed_reports.extend(cls._stat_rows(entity, entity_base, currency))
 
         return processed_reports
 
     @staticmethod
-    def transform_entity_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Extract inner objects from wrapped entity responses (campaign/adsquad/ad)."""
+    def transform_entity_reports(reports: list[dict[str, Any]], entity_key: str | None = None) -> list[dict[str, Any]]:
+        """Extract inner objects from wrapped entity responses (campaign/adsquad/ad/...)."""
         processed_reports = []
 
         for report in reports:
             # Each item is wrapped: {"campaign": {...}} or {"adsquad": {...}} or {"ad": {...}}
-            inner_keys = ["campaign", "adsquad", "ad"]
+            inner_keys = [entity_key] if entity_key else ["campaign", "adsquad", "ad"]
             for key in inner_keys:
                 if key in report:
                     processed_reports.append(report[key])
@@ -331,7 +359,11 @@ class SnapchatStatsResource:
 
     @classmethod
     def apply_stream_transformations(
-        cls, endpoint_type: EndpointType, reports: Iterable[Any], currency: str | None = None
+        cls,
+        endpoint_type: EndpointType,
+        reports: Iterable[Any],
+        currency: str | None = None,
+        entity_key: str | None = None,
     ) -> list[dict[str, Any]]:
         """Apply transformations based on endpoint type."""
         reports_list = list(reports)
@@ -340,7 +372,7 @@ class SnapchatStatsResource:
             case EndpointType.STATS:
                 return cls.transform_stats_reports(reports_list, currency=currency)
             case EndpointType.ENTITY:
-                return cls.transform_entity_reports(reports_list)
+                return cls.transform_entity_reports(reports_list, entity_key=entity_key)
             case EndpointType.ACCOUNT:
                 return reports_list
 
@@ -449,7 +481,8 @@ class SnapchatAdsPaginator(BasePaginator):
         """Update pagination state from Snapchat API response."""
         try:
             json_data = response.json()
-            request_status = json_data.get("request_status", "")
+            # Snapchat documents this status in both cases across endpoints, so compare case-insensitively.
+            request_status = str(json_data.get("request_status", "")).upper()
 
             if request_status == "SUCCESS":
                 paging = json_data.get("paging", {})

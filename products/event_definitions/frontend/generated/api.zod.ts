@@ -102,6 +102,10 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const eventDefinitionsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const eventDefinitionsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const eventDefinitionsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const EventDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
     .object({
         ids: zod
@@ -114,6 +118,39 @@ export const EventDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
             ),
-        tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+        tags: zod
+            .array(zod.string().max(eventDefinitionsBulkUpdateTagsCreateBodyTagsItemMax))
+            .max(eventDefinitionsBulkUpdateTagsCreateBodyTagsMax)
+            .describe('Tag names to add, remove, or set.'),
     })
     .describe('Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).')
+
+/**
+ * Mark multiple event definitions as verified or unverified in one request.
+ *
+ * In the same vein as ``bulk_update_tags``, but ``verified`` lives on the enterprise
+ * ``EnterpriseEventDefinition`` extension rather than the base row, so this action:
+ * - requires an enterprise license;
+ * - scopes by project (``team__project_id``) and relies on project membership — the same
+ *   boundary the single-object update path uses — rather than object-level RBAC;
+ * - lazily promotes ingestion-created base rows to ``EnterpriseEventDefinition`` (mirroring
+ *   ``_get_event_definition``) before setting ``verified``;
+ * - mirrors the single-object semantics: verifying stamps ``verified_by``/``verified_at`` and
+ *   unhides the event (an event cannot be both hidden and verified); unverifying clears them;
+ * - logs a "changed" activity per event so the History tab matches the single-object path.
+ *
+ * Events already in the target state are skipped (not re-written, not logged).
+ */
+export const eventDefinitionsBulkUpdateVerifiedCreateBodyIdsMax = 500
+
+export const EventDefinitionsBulkUpdateVerifiedCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .max(eventDefinitionsBulkUpdateVerifiedCreateBodyIdsMax)
+        .describe('List of event definition UUIDs to update.'),
+    verified: zod
+        .boolean()
+        .describe(
+            'Target verified state to apply to every matched event. `true` marks the events as verified (and unhides them, since an event cannot be both hidden and verified); `false` unverifies them.'
+        ),
+})

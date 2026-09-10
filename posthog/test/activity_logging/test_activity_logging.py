@@ -10,7 +10,10 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.activity_logging.utils import activity_storage, activity_visibility_manager
+from posthog.models.scoping import team_scope
 from posthog.models.utils import UUIDT
+
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 
 
 class TestActivityLogModel(BaseTest):
@@ -190,6 +193,31 @@ class TestActivityLogModel(BaseTest):
             error.exception.args[0],
         )
 
+    def test_deferred_write_failure_does_not_escape_committed_transaction(self) -> None:
+        # A write deferred to transaction.on_commit runs after the transaction commits, so a
+        # failure there must not surface as a request error for data that already persisted.
+        with patch("posthog.models.activity_logging.activity_log.logger") as mock_logger:
+            with self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+                with patch.object(ActivityLog.objects, "create", side_effect=IntegrityError("write timed out")):
+                    try:
+                        with self.captureOnCommitCallbacks(execute=True):
+                            log_activity(
+                                organization_id=self.organization.id,
+                                team_id=self.team.id,
+                                user=self.user,
+                                was_impersonated=False,
+                                item_id="12345",
+                                scope="FeatureFlag",
+                                activity="updated",
+                                detail=Detail(changes=[Change(type="FeatureFlag", field="active", action="created")]),
+                            )
+                    except Exception as e:
+                        raise pytest.fail(f"Deferred write failure should not escape: {e}")
+
+            warning = mock_logger.warn.call_args
+            self.assertEqual(warning.args[0], "activity_log.failed_to_write_to_activity_log")
+            self.assertIsInstance(warning.kwargs["exception"], IntegrityError)
+
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
         # Assert on the module logger directly instead of assertLogs: the root logger sits at
         # ERROR under test settings, so whether the warning reaches a root handler depends on
@@ -221,6 +249,23 @@ class TestActivityLogModel(BaseTest):
             self.assertIsInstance(warning.kwargs["exception"], ValueError)
 
 
+class TestModelActivityMixinTeamScoping(BaseTest):
+    def test_update_outside_team_scope_still_logs_the_change(self) -> None:
+        # DashboardWidget reads through a fail-closed manager, and a save from a Celery task or a
+        # management command carries no team context for it to read the before-state with.
+        with team_scope(self.team.id):
+            widget = DashboardWidget.objects.create(team=self.team, widget_type="insight", name="Weekly signups")
+
+        widget.name = "Monthly signups"
+        widget.save()
+
+        log: ActivityLog = ActivityLog.objects.filter(
+            scope="DashboardWidget", item_id=str(widget.id), activity="updated"
+        ).latest("id")
+        assert log.detail is not None
+        self.assertIn("name", [change["field"] for change in log.detail["changes"]])
+
+
 class TestActivityLogVisibilityManager(BaseTest):
     @parameterized.expand(
         [
@@ -239,6 +284,14 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("instance_setting_updated", "InstanceSetting", "updated", False, True),
             # AI-gateway top-ups are staff-only and must be hidden from non-staff viewers
             ("ai_gateway_credit_added", "AIGatewayCredit", "credit_added", False, True),
+            # Ticket comment rows reference support-ticket bodies (rows written before write-time
+            # masking still hold plaintext) and must be hidden from non-staff viewers
+            ("ticket_comment", "Ticket", "commented", False, True),
+            ("ticket_task_comment", "Ticket", "created task", False, True),
+            ("conversations_ticket_comment", "conversations_ticket", "commented", False, True),
+            ("conversations_ticket_task_comment", "conversations_ticket", "created task", False, True),
+            # Ticket lifecycle activities stay visible — only comment rows are hidden
+            ("ticket_updated", "Ticket", "updated", False, False),
             # Non-User scopes are unaffected
             ("feature_flag_created", "FeatureFlag", "created", False, False),
             ("feature_flag_updated", "FeatureFlag", "updated", True, False),
@@ -270,6 +323,9 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("instance_setting_updated_staff_bypass", "InstanceSetting", "updated", False, False),
             # Staff can also see AI-gateway top-ups (allow_staff=True)
             ("ai_gateway_credit_added_staff_bypass", "AIGatewayCredit", "credit_added", False, False),
+            # Staff can also see ticket comment rows (allow_staff=True)
+            ("ticket_comment_staff_bypass", "Ticket", "commented", False, False),
+            ("conversations_ticket_comment_staff_bypass", "conversations_ticket", "commented", False, False),
             # Non-User activities still not restricted for anyone
             ("feature_flag_created", "FeatureFlag", "created", False, False),
         ]
@@ -319,6 +375,28 @@ class TestActivityLogVisibilityManager(BaseTest):
 
         staff = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
         assert staff.filter(scope="AIGatewayCredit").exists()
+
+    def test_queryset_excludes_ticket_comment_rows_for_non_staff(self) -> None:
+        # Pin the API-facing exclusion path: ticket comment rows written before write-time masking
+        # hold plaintext ticket bodies, so they must not come back through activity log endpoints.
+        # Ticket lifecycle rows stay visible.
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            scope="conversations_ticket",
+            activity="commented",
+            detail={"changes": [{"type": "Comment", "field": "content", "action": "created", "after": "plaintext"}]},
+        )
+        ActivityLog.objects.create(team_id=self.team.id, scope="Ticket", activity="commented")
+        ActivityLog.objects.create(team_id=self.team.id, scope="Ticket", activity="updated")
+        queryset = ActivityLog.objects.filter(team_id=self.team.id)
+
+        non_staff = activity_visibility_manager.apply_to_queryset(queryset, is_staff=False)
+        assert not non_staff.filter(scope="conversations_ticket", activity="commented").exists()
+        assert not non_staff.filter(scope="Ticket", activity="commented").exists()
+        assert non_staff.filter(scope="Ticket", activity="updated").exists()
+
+        staff = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
+        assert staff.filter(scope="conversations_ticket", activity="commented").exists()
 
     def test_queryset_includes_all_logs_for_staff(self) -> None:
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_in", was_impersonated=True)

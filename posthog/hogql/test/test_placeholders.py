@@ -1,10 +1,14 @@
+import time
+from datetime import timedelta
 from typing import cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
@@ -18,6 +22,24 @@ class TestParser(BaseTest):
     def test_find_placeholders(self):
         expr = parse_expr("{foo} and {bar.bah}")
         self.assertEqual(sorted(find_placeholders(expr).placeholder_fields), sorted([["foo"], ["bar", "bah"]]))
+
+    def test_find_placeholders_bound_filters_call(self):
+        # {filters(...)} must count as filters usage; classifying it as a generic expression
+        # placeholder would send it to the Hog VM, which has no `filters` function
+        expr = parse_expr("{filters(a AS timestamp, b AS 'plan')} and {foo} and {1 + 2}")
+        finder = find_placeholders(expr)
+        self.assertTrue(finder.has_filters)
+        self.assertEqual(finder.placeholder_fields, [["foo"]])
+        self.assertEqual(len(finder.placeholder_expressions), 1)
+
+    def test_find_placeholders_dotted_filters_calls(self):
+        # The dotted call forms must count as filters usage too; the Hog VM has no `filters` global.
+        # A dotted call on anything else stays an expression placeholder.
+        expr = parse_expr("{filters.interval('week')} and {filters.breakdown(a AS 'plan')} and {other.call(1)}")
+        finder = find_placeholders(expr)
+        self.assertTrue(finder.has_filters)
+        self.assertEqual(finder.placeholder_fields, [])
+        self.assertEqual(len(finder.placeholder_expressions), 1)
 
     def test_replace_placeholders_simple(self):
         expr = clear_locations(parse_expr("{foo}"))
@@ -45,6 +67,34 @@ class TestParser(BaseTest):
             "Global variable not found: foo",
             str(context.exception),
         )
+
+    @patch("posthog.hogql.placeholders.MAX_PLACEHOLDER_EXPANSIONS", 3)
+    def test_replace_placeholders_caps_expansion_count(self):
+        # A low cap keeps the case away from the shared time budget: at the cap it resolves, one past
+        # it is rejected.
+        at_cap = ast.Array(exprs=[ast.Placeholder(expr=ast.Constant(value=1)) for _ in range(3)])
+        resolved = replace_placeholders(at_cap, {})
+        self.assertEqual(len(cast(ast.Array, resolved).exprs), 3)
+
+        over_cap = ast.Array(exprs=[ast.Placeholder(expr=ast.Constant(value=1)) for _ in range(4)])
+        with self.assertRaises(QueryError):
+            replace_placeholders(over_cap, {})
+
+    @patch("posthog.hogql.placeholders.PLACEHOLDER_EXPANSION_BUDGET", timedelta(seconds=0.01))
+    def test_replace_placeholders_charges_compilation_to_the_time_budget(self):
+        # The VM starts its own clock when it is called, so a budget measured before compilation
+        # would hand it a full allowance on top of what compilation already spent.
+        real_create_bytecode = create_bytecode
+
+        def slow_create_bytecode(*args, **kwargs):
+            time.sleep(0.05)
+            return real_create_bytecode(*args, **kwargs)
+
+        expr = ast.Placeholder(expr=ast.Constant(value=1))
+        with patch("posthog.hogql.compiler.bytecode.create_bytecode", slow_create_bytecode):
+            with self.assertRaises(QueryError) as context:
+                replace_placeholders(expr, {})
+        self.assertIn("took too long", str(context.exception))
 
     def test_replace_placeholders_comparison(self):
         expr = clear_locations(parse_expr("timestamp < {timestamp}"))

@@ -1,22 +1,23 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 from pytest import fixture
 from unittest import mock
 
 from django.core.cache import cache
+from django.db import OperationalError, connection
+from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import (
-    COHORT_BACKFILL_DEBOUNCE_SECONDS,
     COHORT_DEPENDENCY_CACHE_COUNTER,
     DEPENDENCY_CACHE_TIMEOUT,
     _behavioral_cohort_ids_key,
-    _extract_person_property_filters,
-    _has_person_property_filters,
-    _person_property_filters_changed,
-    _trigger_cohort_backfill,
+    dependency_cache,
     extract_cohort_dependencies,
     get_cohort_dependencies,
     get_cohort_dependents,
@@ -31,9 +32,10 @@ class TestCohortDependencies(BaseTest):
 
     def _assert_depends_on(self, dependent_cohort: Cohort, dependency_cohort: Cohort) -> None:
         self.assertEqual(cache.get(f"cohort:dependencies:{dependent_cohort.id}"), [dependency_cohort.id])
-        self.assertEqual(cache.get(f"cohort:dependents:{dependency_cohort.id}"), [dependent_cohort.id])
         self.assertEqual(list(get_cohort_dependencies(dependent_cohort)), [dependency_cohort.id])
         self.assertEqual(list(get_cohort_dependents(dependency_cohort)), [dependent_cohort.id])
+        # Writes invalidate reverse lists and reads rebuild them, so the raw key is checked after the read.
+        self.assertEqual(cache.get(f"cohort:dependents:{dependency_cohort.id}"), [dependent_cohort.id])
 
     def _assert_cohorts_have_no_relationships(self, *cohorts: Cohort) -> None:
         for cohort in cohorts:
@@ -235,33 +237,170 @@ class TestCohortDependencies(BaseTest):
                 self.assertEqual(cache.get(f"cohort:dependencies:{cohort.id}"), [cohorts[i - 1].id])
                 self.assertEqual(cache.get(f"cohort:dependents:{cohort.id}"), [cohorts[i + 1].id])
 
-    def test_warm_team_cohort_dependency_cache_refreshes_ttl(self) -> None:
+    def test_warm_team_cohort_dependency_cache_sets_ttl_for_both_families(self) -> None:
         cohort_a = self._create_cohort(name="Test Cohort A")
         cohort_b = self._create_cohort(
             name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
         )
 
-        # Warm the cache initially
-        warm_team_cohort_dependency_cache(self.team.id)
-
-        # Mock cache.touch and cache.set_many to verify TTL refresh
-        with mock.patch.object(cache, "touch") as mock_touch, mock.patch.object(cache, "set_many") as mock_set_many:
-            # Call warm again - should refresh TTL
+        with mock.patch.object(dependency_cache, "set_many", wraps=dependency_cache.set_many) as mock_set_many:
             warm_team_cohort_dependency_cache(self.team.id)
 
-            # Verify touch was called for dependency keys
-            expected_dependency_keys = [
-                f"cohort:dependencies:{cohort_a.id}",
-                f"cohort:dependencies:{cohort_b.id}",
-            ]
+        written: dict[str, list[int]] = {}
+        for call in mock_set_many.call_args_list:
+            self.assertEqual(call.kwargs.get("timeout"), DEPENDENCY_CACHE_TIMEOUT)
+            written.update(call.args[0])
+        self.assertEqual(written[f"cohort:dependencies:{cohort_b.id}"], [cohort_a.id])
+        self.assertEqual(written[f"cohort:dependents:{cohort_a.id}"], [cohort_b.id])
 
-            for key in expected_dependency_keys:
-                mock_touch.assert_any_call(key, timeout=DEPENDENCY_CACHE_TIMEOUT)
+    def test_warm_uses_batched_writes_only(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(
+            name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+        cohort_c = self._create_cohort(
+            name="Test Cohort C", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+        cache.clear()
 
-            # Verify set_many was called with timeout for dependents
-            self.assertTrue(mock_set_many.called)
-            args, kwargs = mock_set_many.call_args
-            self.assertEqual(kwargs.get("timeout"), DEPENDENCY_CACHE_TIMEOUT)
+        with (
+            mock.patch.object(dependency_cache, "has_key") as mock_has_key,
+            mock.patch.object(dependency_cache, "touch") as mock_touch,
+            mock.patch.object(dependency_cache, "get_or_set") as mock_get_or_set,
+            mock.patch.object(dependency_cache, "set_many", wraps=dependency_cache.set_many) as mock_set_many,
+        ):
+            scanned = warm_team_cohort_dependency_cache(self.team.id)
+
+        self.assertEqual(scanned, 3)
+        mock_has_key.assert_not_called()
+        mock_touch.assert_not_called()
+        mock_get_or_set.assert_not_called()
+        self.assertEqual(mock_set_many.call_count, 2)
+        self.assertCountEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), [cohort_b.id, cohort_c.id])
+
+    def test_warm_reverse_map_spans_batches(self) -> None:
+        base = self._create_cohort(name="Base Cohort")
+        dependents = [
+            self._create_cohort(
+                name=f"Dependent Cohort {i}",
+                groups=[{"properties": [{"key": "id", "type": "cohort", "value": base.id}]}],
+            )
+            for i in range(4)
+        ]
+        cache.clear()
+
+        warm_team_cohort_dependency_cache(self.team.id, batch_size=2)
+
+        self.assertCountEqual(cache.get(f"cohort:dependents:{base.id}"), [cohort.id for cohort in dependents])
+
+    def test_warm_rescans_when_an_edge_changes_during_the_scan(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(name="Test Cohort B")
+        cache.clear()
+        real_set_many = dependency_cache.set_many
+        edited = False
+
+        def add_edge_during_first_publish(data: dict[str, list[int]], **kwargs: Any) -> list[str]:
+            nonlocal edited
+            if not edited:
+                edited = True
+                cohort_b.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+                cohort_b.save()
+            return real_set_many(data, **kwargs)
+
+        with mock.patch.object(dependency_cache, "set_many", side_effect=add_edge_during_first_publish):
+            warm_team_cohort_dependency_cache(self.team.id)
+
+        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), [cohort_b.id])
+        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_b.id}"), [cohort_a.id])
+
+    def test_create_does_not_scan_team_cohorts(self) -> None:
+        for i in range(25):
+            self._create_cohort(name=f"Existing Cohort {i}")
+
+        with (
+            mock.patch("products.cohorts.backend.models.dependencies.warm_team_cohort_dependency_cache") as mock_warm,
+            CaptureQueriesContext(connection) as queries,
+        ):
+            self._create_cohort(name="New Cohort")
+
+        mock_warm.assert_not_called()
+        cohort_reads = [query["sql"] for query in queries.captured_queries if 'FROM "posthog_cohort"' in query["sql"]]
+        self.assertEqual(cohort_reads, [])
+
+    def test_create_with_no_dependencies_writes_only_own_keys(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cache.set(f"cohort:dependents:{cohort_a.id}", [999])
+
+        with mock.patch.object(dependency_cache, "delete_many", wraps=dependency_cache.delete_many) as mock_delete:
+            cohort_b = self._create_cohort(name="Test Cohort B")
+
+        mock_delete.assert_not_called()
+        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_b.id}"), [])
+        self.assertEqual(cache.get(f"cohort:dependents:{cohort_b.id}"), [])
+        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), [999])
+
+    def test_create_with_dependency_invalidates_target_dependents(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cache.set(f"cohort:dependents:{cohort_a.id}", [999])
+
+        cohort_c = self._create_cohort(
+            name="Test Cohort C", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+
+        self.assertIsNone(cache.get(f"cohort:dependents:{cohort_a.id}"))
+        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_c.id}"), [cohort_a.id])
+        self.assertEqual(get_cohort_dependents(cohort_a), [cohort_c.id])
+
+    def test_hard_delete_with_dependencies_key_absent(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(
+            name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+        self._assert_depends_on(cohort_b, cohort_a)
+        cache.delete(f"cohort:dependencies:{cohort_b.id}")
+
+        cohort_b.delete()
+
+        self.assertIsNone(cache.get(f"cohort:dependents:{cohort_a.id}"))
+        self.assertEqual(get_cohort_dependents(cohort_a), [])
+
+    def test_soft_delete_then_restore_readds_reverse_edge(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_c = self._create_cohort(
+            name="Test Cohort C", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+        self._assert_depends_on(cohort_c, cohort_a)
+
+        cohort_c.deleted = True
+        cohort_c.save()
+        self.assertEqual(get_cohort_dependents(cohort_a), [])
+
+        cohort_c.deleted = False
+        cohort_c.save()
+        self.assertEqual(get_cohort_dependents(cohort_a), [cohort_c.id])
+
+    def test_save_without_definition_fields_skips_maintenance(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cohort_b = self._create_cohort(
+            name="Test Cohort B", groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.id}]}]
+        )
+        self._assert_depends_on(cohort_b, cohort_a)
+
+        with mock.patch("products.cohorts.backend.models.dependencies.warm_team_cohort_dependency_cache") as mock_warm:
+            cohort_b.name = "Renamed Cohort B"
+            cohort_b.save(update_fields=["name"])
+
+        mock_warm.assert_not_called()
+        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), [cohort_b.id])
+        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_b.id}"), [cohort_a.id])
+
+    @override_settings(COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE=False)
+    def test_kill_switch_restores_full_warm(self) -> None:
+        with mock.patch("products.cohorts.backend.models.dependencies.warm_team_cohort_dependency_cache") as mock_warm:
+            cohort = self._create_cohort(name="Test Cohort A")
+
+        mock_warm.assert_called_once_with(cohort.team_id)
 
     def test_cache_miss_get_cohort_dependencies(self) -> None:
         cohort_a = self._create_cohort(name="Test Cohort A")
@@ -303,6 +442,15 @@ class TestCohortDependencies(BaseTest):
 
         self.assertEqual(get_cohort_dependents(cohort_a.id), [cohort_b.id])
         self._assert_depends_on(cohort_b, cohort_a)
+
+    def test_dependents_lookup_failure_is_not_cached(self) -> None:
+        cohort_a = self._create_cohort(name="Test Cohort A")
+        cache.clear()
+
+        with mock.patch.object(Cohort.objects, "filter", side_effect=OperationalError("connection reset")):
+            self.assertEqual(get_cohort_dependents(cohort_a.id), [])
+
+        self.assertIsNone(cache.get(f"cohort:dependents:{cohort_a.id}"))
 
     @parameterized.expand(
         [
@@ -436,814 +584,6 @@ class TestCohortDependencies(BaseTest):
             cache_type="dependencies", result="invalid"
         )._value._value
         self.assertEqual(final_invalid, initial_invalid + 1)
-
-
-class TestCohortBackfillOnConditionsChanged(BaseTest):
-    def _create_cohort(self, name: str, **kwargs):
-        return Cohort.objects.create(name=name, team=self.team, **kwargs)
-
-    @fixture(autouse=True)
-    def mock_transaction(self):
-        with mock.patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
-            yield
-
-    def test_has_person_property_filters_with_person_properties(self):
-        """Test that _has_person_property_filters correctly detects person property filters"""
-        cohort = self._create_cohort(
-            name="Test Cohort",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["test@example.com"],
-                                    "operator": "exact",
-                                    "conditionHash": "abc123",
-                                    "bytecode": [1, 2, 3],
-                                }
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-
-        self.assertTrue(_has_person_property_filters(cohort))
-
-    def test_has_person_property_filters_without_required_fields(self):
-        """Test that _has_person_property_filters returns False when required fields are missing"""
-        cohort = self._create_cohort(
-            name="Test Cohort",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["test@example.com"],
-                                    "operator": "exact",
-                                    # Missing conditionHash and bytecode
-                                }
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-
-        self.assertFalse(_has_person_property_filters(cohort))
-
-    def test_has_person_property_filters_with_behavioral_only(self):
-        """Test that _has_person_property_filters returns False for behavioral filters only"""
-        cohort = self._create_cohort(
-            name="Test Cohort",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "pageview",
-                                    "type": "behavioral",
-                                    "value": "performed_event",
-                                    "event_type": "events",
-                                }
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-
-        self.assertFalse(_has_person_property_filters(cohort))
-
-    def test_has_person_property_filters_no_filters(self):
-        """Test that _has_person_property_filters returns False for cohorts without filters"""
-        cohort = self._create_cohort(name="Test Cohort")
-        self.assertFalse(_has_person_property_filters(cohort))
-
-    @parameterized.expand(
-        [
-            ("schedules_task_when_key_absent", True, True),
-            ("debounces_when_key_present", False, False),
-        ]
-    )
-    @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
-    @mock.patch("products.cohorts.backend.models.dependencies.get_redis_client")
-    def test_trigger_cohort_backfill_redis_set(
-        self, _name, redis_set_result, should_schedule, mock_get_redis, mock_task
-    ):
-        mock_redis = mock.MagicMock()
-        mock_redis.set.return_value = redis_set_result
-        mock_get_redis.return_value = mock_redis
-        cohort = self._create_cohort(name="Test Cohort", cohort_type=CohortType.REALTIME)
-
-        _trigger_cohort_backfill(cohort)
-
-        if should_schedule:
-            mock_task.apply_async.assert_called_once_with(
-                args=[cohort.team_id, cohort.pk], countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS
-            )
-        else:
-            mock_task.apply_async.assert_not_called()
-
-    @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
-    @mock.patch("products.cohorts.backend.models.dependencies.get_redis_client")
-    def test_trigger_cohort_backfill_handles_task_exception(self, mock_get_redis, mock_task):
-        mock_redis = mock.MagicMock()
-        mock_redis.set.return_value = True
-        mock_get_redis.return_value = mock_redis
-        mock_task.apply_async.side_effect = Exception("Task failed")
-        cohort = self._create_cohort(name="Test Cohort", cohort_type=CohortType.REALTIME)
-
-        # Should not raise
-        _trigger_cohort_backfill(cohort)
-
-        # Redis key should be cleaned up so the next save can retry
-        mock_redis.delete.assert_called_once_with(f"cohort_backfill_pending:{cohort.pk}")
-
-    @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
-    @mock.patch("products.cohorts.backend.models.dependencies.get_redis_client")
-    def test_trigger_cohort_backfill_handles_redis_failure(self, mock_get_redis, mock_task):
-        mock_get_redis.side_effect = Exception("Redis unavailable")
-        cohort = self._create_cohort(name="Test Cohort", cohort_type=CohortType.REALTIME)
-
-        # Should not raise
-        _trigger_cohort_backfill(cohort)
-        mock_task.apply_async.assert_not_called()
-
-    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
-    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_backfill_signal_triggered_for_realtime_cohorts(self, mock_feature_enabled, mock_trigger_backfill):
-        """Test that backfill is triggered when a realtime cohort with person properties is saved"""
-        cohort = self._create_cohort(
-            name="Test Cohort",
-            cohort_type=CohortType.REALTIME,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["test@example.com"],
-                                    "operator": "exact",
-                                    "conditionHash": "abc123",
-                                    "bytecode": [1, 2, 3],
-                                }
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-
-        # Reset mock after creation (since creation also triggers the signal)
-        mock_trigger_backfill.reset_mock()
-
-        # Update the cohort filters to trigger the signal again
-        cohort.filters = {
-            "properties": {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "name",
-                                "type": "person",
-                                "value": ["test user"],
-                                "operator": "exact",
-                                "conditionHash": "xyz789",
-                                "bytecode": [4, 5, 6],
-                            }
-                        ],
-                    }
-                ],
-            }
-        }
-        cohort.save()
-
-        mock_trigger_backfill.assert_called_once_with(cohort)
-
-    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
-    @mock.patch("posthoganalytics.feature_enabled", return_value=True)  # Flag enabled, but cohort type prevents trigger
-    def test_backfill_signal_not_triggered_for_non_realtime_cohorts(self, mock_feature_enabled, mock_trigger_backfill):
-        """Test that backfill is not triggered for non-realtime cohorts"""
-        cohort = self._create_cohort(
-            name="Test Cohort",
-            # cohort_type is None (not realtime)
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["test@example.com"],
-                                    "operator": "exact",
-                                    "conditionHash": "abc123",
-                                    "bytecode": [1, 2, 3],
-                                }
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-
-        # Update the cohort to trigger the signal
-        cohort.name = "Updated Test Cohort"
-        cohort.save()
-
-        mock_trigger_backfill.assert_not_called()
-
-    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
-    @mock.patch(
-        "posthoganalytics.feature_enabled", return_value=True
-    )  # Flag enabled, but static cohort prevents trigger
-    def test_backfill_signal_not_triggered_for_static_cohorts(self, mock_feature_enabled, mock_trigger_backfill):
-        """Test that backfill is not triggered for static cohorts"""
-        cohort = self._create_cohort(
-            name="Test Cohort",
-            cohort_type=CohortType.REALTIME,
-            is_static=True,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["test@example.com"],
-                                    "operator": "exact",
-                                    "conditionHash": "abc123",
-                                    "bytecode": [1, 2, 3],
-                                }
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-
-        # Update the cohort to trigger the signal
-        cohort.name = "Updated Test Cohort"
-        cohort.save()
-
-        mock_trigger_backfill.assert_not_called()
-
-    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
-    @mock.patch(
-        "posthoganalytics.feature_enabled", return_value=True
-    )  # Flag enabled, but no person properties prevents trigger
-    def test_backfill_signal_not_triggered_without_person_properties(self, mock_feature_enabled, mock_trigger_backfill):
-        """Test that backfill is not triggered for cohorts without person properties"""
-        cohort = self._create_cohort(
-            name="Test Cohort",
-            cohort_type=CohortType.REALTIME,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "pageview",
-                                    "type": "behavioral",
-                                    "value": "performed_event",
-                                    "event_type": "events",
-                                }
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-
-        # Update the cohort to trigger the signal
-        cohort.name = "Updated Test Cohort"
-        cohort.save()
-
-        mock_trigger_backfill.assert_not_called()
-
-    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
-    @mock.patch(
-        "posthoganalytics.feature_enabled", return_value=True
-    )  # Flag enabled, but recalculation save prevents trigger
-    def test_backfill_signal_not_triggered_for_recalculation_saves(self, mock_feature_enabled, mock_trigger_backfill):
-        """Test that backfill is not triggered for recalculation-only saves"""
-        # Create cohort first (this will trigger the signal once)
-        cohort = self._create_cohort(
-            name="Test Cohort",
-            cohort_type=CohortType.REALTIME,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["test@example.com"],
-                                    "operator": "exact",
-                                    "conditionHash": "abc123",
-                                    "bytecode": [1, 2, 3],
-                                }
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-
-        # Reset mock after creation
-        mock_trigger_backfill.reset_mock()
-
-        # Save only recalculation fields to simulate recalculation-only update
-        cohort.save(update_fields=["is_calculating", "last_calculation", "count"])
-
-        mock_trigger_backfill.assert_not_called()
-
-    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
-    @mock.patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_backfill_signal_not_triggered_when_feature_flag_disabled(
-        self, mock_feature_enabled, mock_trigger_backfill
-    ):
-        """Test that backfill is not triggered when the feature flag is disabled"""
-        cohort = self._create_cohort(
-            name="Test Cohort",
-            cohort_type=CohortType.REALTIME,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["test@example.com"],
-                                    "operator": "exact",
-                                    "conditionHash": "abc123",
-                                    "bytecode": [1, 2, 3],
-                                }
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-
-        # Reset mock after creation (since creation also triggers the signal)
-        mock_trigger_backfill.reset_mock()
-        mock_feature_enabled.reset_mock()
-
-        # Update the cohort filters to trigger the signal again
-        cohort.filters = {
-            "properties": {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "name",
-                                "type": "person",
-                                "value": ["test user"],
-                                "operator": "exact",
-                                "conditionHash": "xyz789",
-                                "bytecode": [4, 5, 6],
-                            }
-                        ],
-                    }
-                ],
-            }
-        }
-        cohort.save()
-
-        # Verify the feature flag was checked
-        mock_feature_enabled.assert_called_once_with(
-            "cohort-backfill-on-change",
-            str(cohort.team_id),
-            groups={"team": str(cohort.team_id)},
-            send_feature_flag_events=False,
-        )
-        # Verify backfill was not triggered due to disabled feature flag
-        mock_trigger_backfill.assert_not_called()
-
-    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
-    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_backfill_signal_not_triggered_when_person_properties_unchanged(
-        self, mock_feature_enabled, mock_trigger_backfill
-    ):
-        """Test that backfill is not triggered when person property filters haven't changed"""
-        cohort = self._create_cohort(
-            name="Test Cohort",
-            cohort_type=CohortType.REALTIME,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["test@example.com"],
-                                    "operator": "exact",
-                                    "conditionHash": "abc123",
-                                    "bytecode": [1, 2, 3],
-                                }
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-
-        # Reset mock after creation (since creation also triggers the signal)
-        mock_trigger_backfill.reset_mock()
-        mock_feature_enabled.reset_mock()
-
-        # Update the cohort name but not the filters - should not trigger backfill
-        cohort.name = "Updated Test Cohort"
-        cohort.save()
-
-        # Feature flag should not be checked since person properties didn't change
-        mock_feature_enabled.assert_not_called()
-        # Verify backfill was not triggered
-        mock_trigger_backfill.assert_not_called()
-
-    def test_extract_person_property_filters(self):
-        """Test that _extract_person_property_filters correctly extracts and normalizes filters"""
-        cohort = self._create_cohort(
-            name="Test Cohort",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": ["test@example.com"],
-                                    "operator": "exact",
-                                    "conditionHash": "abc123",
-                                    "bytecode": [1, 2, 3],
-                                },
-                                {
-                                    "key": "age",
-                                    "type": "person",
-                                    "value": [25],
-                                    "operator": "gt",
-                                    "conditionHash": "def456",
-                                    "bytecode": [4, 5, 6],
-                                },
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-
-        filters_hash = _extract_person_property_filters(cohort)
-
-        # Should return a non-empty hash string for filters with person properties
-        self.assertIsInstance(filters_hash, str)
-        self.assertTrue(len(filters_hash) > 0)
-
-    def test_extract_person_property_filters_empty(self):
-        """Test that _extract_person_property_filters returns empty string for no filters"""
-        cohort = self._create_cohort(name="Test Cohort", filters={})
-        filters_hash = _extract_person_property_filters(cohort)
-        self.assertEqual(filters_hash, "")
-
-    def test_extract_person_property_filters_behavioral_only(self):
-        """Test that _extract_person_property_filters ignores behavioral filters"""
-        cohort = self._create_cohort(
-            name="Test Cohort",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "type": "event",
-                            "value": ["performed_event"],
-                            "operator": "exact",
-                        }
-                    ],
-                }
-            },
-        )
-
-        filters_hash = _extract_person_property_filters(cohort)
-        self.assertEqual(filters_hash, "")
-
-    def test_extract_person_property_filters_order_independence(self):
-        """Test that _extract_person_property_filters produces same hash regardless of child order"""
-        # Create two cohorts with same conditions but different order
-        cohort_order_1 = self._create_cohort(
-            name="Test Cohort Order 1",
-            filters={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": ["test@example.com"],
-                            "operator": "exact",
-                            "conditionHash": "condition_1",
-                            "bytecode": [1, 2, 3],
-                        },
-                        {
-                            "key": "age",
-                            "type": "person",
-                            "value": [25],
-                            "operator": "gte",
-                            "conditionHash": "condition_2",
-                            "bytecode": [4, 5, 6],
-                        },
-                    ],
-                }
-            },
-        )
-
-        cohort_order_2 = self._create_cohort(
-            name="Test Cohort Order 2",
-            filters={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "age",
-                            "type": "person",
-                            "value": [25],
-                            "operator": "gte",
-                            "conditionHash": "condition_2",
-                            "bytecode": [4, 5, 6],
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": ["test@example.com"],
-                            "operator": "exact",
-                            "conditionHash": "condition_1",
-                            "bytecode": [1, 2, 3],
-                        },
-                    ],
-                }
-            },
-        )
-
-        hash_1 = _extract_person_property_filters(cohort_order_1)
-        hash_2 = _extract_person_property_filters(cohort_order_2)
-
-        # Both hashes should be identical despite different child order
-        self.assertEqual(hash_1, hash_2)
-        # And both should be non-empty since they have person property filters
-        self.assertTrue(len(hash_1) > 0)
-
-    def test_person_property_filters_changed_new_cohort(self):
-        """Test that _person_property_filters_changed returns True for new cohorts"""
-        cohort = self._create_cohort(name="Test Cohort")
-        cohort.pk = None  # Simulate new cohort
-
-        result = _person_property_filters_changed(cohort)
-        self.assertTrue(result)
-
-    def test_person_property_filters_changed_filters_changed(self):
-        """Test that _person_property_filters_changed detects changes"""
-        # Create original cohort with one filter
-        original_cohort = self._create_cohort(
-            name="Test Cohort",
-            filters={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": ["test@example.com"],
-                            "operator": "exact",
-                            "conditionHash": "abc123",
-                            "bytecode": [1, 2, 3],
-                        }
-                    ],
-                }
-            },
-        )
-
-        # Create modified cohort with different filters
-        modified_cohort = self._create_cohort(
-            name="Test Cohort",
-            filters={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "age",
-                            "type": "person",
-                            "value": [25],
-                            "operator": "gt",
-                            "conditionHash": "def456",
-                            "bytecode": [4, 5, 6],
-                        }
-                    ],
-                }
-            },
-        )
-
-        # Simulate pre_save capturing the original state hash
-        original_hash = _extract_person_property_filters(original_cohort)
-        modified_cohort._previous_person_property_filters = original_hash
-
-        result = _person_property_filters_changed(modified_cohort)
-        self.assertTrue(result)
-
-    def test_person_property_filters_changed_no_change(self):
-        """Test that _person_property_filters_changed returns False when filters haven't changed"""
-        # Create cohorts with identical filters
-        filters = {
-            "properties": {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "email",
-                        "type": "person",
-                        "value": ["test@example.com"],
-                        "operator": "exact",
-                        "conditionHash": "abc123",
-                        "bytecode": [1, 2, 3],
-                    }
-                ],
-            }
-        }
-
-        cohort = self._create_cohort(name="Test Cohort", filters=filters)
-
-        # Simulate pre_save capturing the same state hash
-        current_hash = _extract_person_property_filters(cohort)
-        cohort._previous_person_property_filters = current_hash
-
-        result = _person_property_filters_changed(cohort)
-        self.assertFalse(result)
-
-    def test_person_property_filters_changed_structural_change(self):
-        """Test that _person_property_filters_changed detects structural changes even with same conditions"""
-        # Original: (A AND B) OR C
-        original_filters = {
-            "properties": {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "name",
-                                "type": "person",
-                                "value": ["Alice"],
-                                "operator": "exact",
-                                "conditionHash": "hashA",
-                                "bytecode": [1, 2, 3],
-                            },
-                            {
-                                "key": "age",
-                                "type": "person",
-                                "value": [25],
-                                "operator": "gt",
-                                "conditionHash": "hashB",
-                                "bytecode": [4, 5, 6],
-                            },
-                        ],
-                    },
-                    {
-                        "key": "email",
-                        "type": "person",
-                        "value": ["test@example.com"],
-                        "operator": "exact",
-                        "conditionHash": "hashC",
-                        "bytecode": [7, 8, 9],
-                    },
-                ],
-            }
-        }
-
-        # Modified: A OR B OR C (same conditions, different structure)
-        modified_filters = {
-            "properties": {
-                "type": "OR",
-                "values": [
-                    {
-                        "key": "name",
-                        "type": "person",
-                        "value": ["Alice"],
-                        "operator": "exact",
-                        "conditionHash": "hashA",
-                        "bytecode": [1, 2, 3],
-                    },
-                    {
-                        "key": "age",
-                        "type": "person",
-                        "value": [25],
-                        "operator": "gt",
-                        "conditionHash": "hashB",
-                        "bytecode": [4, 5, 6],
-                    },
-                    {
-                        "key": "email",
-                        "type": "person",
-                        "value": ["test@example.com"],
-                        "operator": "exact",
-                        "conditionHash": "hashC",
-                        "bytecode": [7, 8, 9],
-                    },
-                ],
-            }
-        }
-
-        original_cohort = self._create_cohort(name="Test Cohort", filters=original_filters)
-        modified_cohort = self._create_cohort(name="Test Cohort", filters=modified_filters)
-
-        # Simulate pre_save capturing the original structure hash
-        original_hash = _extract_person_property_filters(original_cohort)
-        modified_cohort._previous_person_property_filters = original_hash
-
-        result = _person_property_filters_changed(modified_cohort)
-        self.assertTrue(result)
-
-    def test_person_property_filters_changed_identical_structure(self):
-        """Test that _person_property_filters_changed returns False for identical structure"""
-        # Both: A OR B OR C (identical structure and conditions)
-        filters = {
-            "properties": {
-                "type": "OR",
-                "values": [
-                    {
-                        "key": "name",
-                        "type": "person",
-                        "value": ["Alice"],
-                        "operator": "exact",
-                        "conditionHash": "hashA",
-                        "bytecode": [1, 2, 3],
-                    },
-                    {
-                        "key": "age",
-                        "type": "person",
-                        "value": [25],
-                        "operator": "gt",
-                        "conditionHash": "hashB",
-                        "bytecode": [4, 5, 6],
-                    },
-                    {
-                        "key": "email",
-                        "type": "person",
-                        "value": ["test@example.com"],
-                        "operator": "exact",
-                        "conditionHash": "hashC",
-                        "bytecode": [7, 8, 9],
-                    },
-                ],
-            }
-        }
-
-        cohort = self._create_cohort(name="Test Cohort", filters=filters)
-
-        # Simulate pre_save capturing the same structure hash
-        current_hash = _extract_person_property_filters(cohort)
-        cohort._previous_person_property_filters = current_hash
-
-        result = _person_property_filters_changed(cohort)
-        self.assertFalse(result)
 
 
 class TestFlagExcludedBehavioralCohortIds(BaseTest):

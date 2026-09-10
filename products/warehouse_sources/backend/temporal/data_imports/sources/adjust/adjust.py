@@ -352,7 +352,10 @@ def adjust_source(
         partition_format="month",
         partition_keys=["day"],
         sort_mode="asc",
-        # Aggregated dimension keys can collide when a dimension value comes back blank
-        # (e.g. organic traffic with no campaign).
-        has_duplicate_primary_keys=True,
+        # Aggregated dimension keys can collide when a dimension value comes back blank (e.g.
+        # organic traffic with no campaign) — an expected trait of report data, not a data-quality
+        # problem the user can fix. Don't set has_duplicate_primary_keys: that flag tells
+        # validate_incremental_sync to block incremental syncing altogether, which would make
+        # `day` (the only incremental field this source offers) permanently unusable. The merge's
+        # own per-batch dedup (keep-last-per-key) already resolves the collision safely.
     )

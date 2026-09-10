@@ -9,6 +9,7 @@ import {
     type HarnessRow,
     type KPIData,
     type KPIMetric,
+    type ModelRow,
     type NotableSession,
     type ToolDailySeries,
     type ToolRow,
@@ -16,6 +17,7 @@ import {
 import { ActivityChart } from './ActivityChart'
 import { HarnessDonut } from './HarnessDonut'
 import { KpiTiles } from './KpiTiles'
+import { ModelBarChart } from './ModelBarChart'
 import { NotableSessionsTable } from './NotableSessionsTable'
 import { ToolErrorRateChart } from './ToolErrorRateChart'
 import { ToolUsageChart } from './ToolUsageChart'
@@ -26,6 +28,14 @@ const DAILY_ACTIVITY: DailyActivity = {
     labels: DAYS,
     successes: [4180, 4360, 4560, 4430, 4720, 4920, 5130],
     errors: [120, 140, 160, 170, 180, 176, 168],
+}
+
+// The shape the in-progress stories exist for: the last bucket is a few hours into the day, so its
+// counts sit far below its neighbours. Dashing it is what stops that reading as a collapse.
+const DAILY_ACTIVITY_PARTIAL_TAIL: DailyActivity = {
+    labels: DAYS,
+    successes: [4180, 4360, 4560, 4430, 4720, 4920, 1680],
+    errors: [120, 140, 160, 170, 180, 176, 54],
 }
 
 const TOOL_DAILY: ToolDailySeries = {
@@ -53,6 +63,17 @@ const HARNESS_ROWS: HarnessRow[] = [
     { category: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180 },
     { category: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240 },
     { category: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
+]
+
+const MODEL_ROWS: ModelRow[] = [
+    { model: 'claude-sonnet-5', total_calls: 4200 },
+    { model: 'gpt-5.6-sol', total_calls: 3100 },
+    { model: 'claude-opus-4', total_calls: 2200 },
+    { model: 'Unknown', total_calls: 1400 },
+    { model: 'gemini-2.5-pro', total_calls: 900 },
+    { model: 'gpt-4o', total_calls: 750 },
+    { model: 'Other', total_calls: 580 },
+    { model: 'grok-3', total_calls: 320 },
 ]
 
 const NOTABLE_SESSIONS: NotableSession[] = [
@@ -146,7 +167,28 @@ export const KeyMetrics: Story = {
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                showIntentClusters
                 theme={buildTheme()}
+                interval="day"
+                incompleteTail={false}
+            />
+        </div>
+    ),
+}
+
+export const KeyMetricsInProgressBucket: Story = {
+    render: () => (
+        <div className="w-[960px]">
+            <KpiTiles
+                kpis={KPIS}
+                users={metric(1840, 1655, [], 'up')}
+                intentClusterCount={metric(6, 0, [], 'up')}
+                kpisLoading={false}
+                usersLoading={false}
+                showIntentClusters
+                theme={buildTheme()}
+                interval="day"
+                incompleteTail
             />
         </div>
     ),
@@ -154,12 +196,56 @@ export const KeyMetrics: Story = {
 
 export const DailyCallsAndErrors: Story = {
     render: withTheme((theme) => (
-        <ActivityChart daily={DAILY_ACTIVITY} loading={false} theme={theme} timezone="UTC" interval="day" />
+        <ActivityChart
+            daily={DAILY_ACTIVITY}
+            loading={false}
+            theme={theme}
+            timezone="UTC"
+            interval="day"
+            incompleteTail={false}
+        />
+    )),
+}
+
+export const DailyCallsAndErrorsInProgressBucket: Story = {
+    render: withTheme((theme) => (
+        <ActivityChart
+            daily={DAILY_ACTIVITY_PARTIAL_TAIL}
+            loading={false}
+            theme={theme}
+            timezone="UTC"
+            interval="day"
+            incompleteTail
+        />
     )),
 }
 
 export const ShareByHarness: Story = {
     render: withTheme((theme) => <HarnessDonut rows={HARNESS_ROWS} loading={false} theme={theme} />),
+}
+
+export const ShareByModel: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={MODEL_ROWS} theme={theme} />),
+}
+
+export const ShareByModelNarrow: Story = {
+    render: () => (
+        <div className="w-80">
+            <ModelBarChart
+                rows={[
+                    { model: 'Other', total_calls: 30 },
+                    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
+                    { model: 'gpt-5.6-sol', total_calls: 3100 },
+                    { model: 'Unknown', total_calls: 1400 },
+                    { model: 'example-model-c', total_calls: 800 },
+                    { model: 'example-model-d', total_calls: 600 },
+                    { model: 'example-model-e', total_calls: 400 },
+                    { model: 'example-model-f', total_calls: 1 },
+                ]}
+                theme={buildTheme()}
+            />
+        </div>
+    ),
 }
 
 export const ErrorRateByTool: Story = {

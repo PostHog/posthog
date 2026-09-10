@@ -137,7 +137,11 @@ def _execute(
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
-    if response.status_code == 429 or response.status_code >= 500:
+    # MONDAY_API_URL is a fixed constant, never derived from customer input, so a 404 on it can't
+    # mean "this resource doesn't exist" — it's the edge/gateway dropping the request before it
+    # reaches the GraphQL engine (monday.com's own docs don't list 404 as a GraphQL response code).
+    # Treat it like the other transport-layer blips (429/5xx) instead of failing the sync outright.
+    if response.status_code in (404, 429) or response.status_code >= 500:
         raise MondayRetryableError(f"monday.com API error (retryable): status={response.status_code}")
 
     if not response.ok:

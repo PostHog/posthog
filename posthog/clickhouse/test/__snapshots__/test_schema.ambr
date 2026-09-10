@@ -106,6 +106,27 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_billing_usage_records]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_billing_usage_records
+  (
+      schema_version UInt8,
+      record_id String,
+      producer_id LowCardinality(String),
+      team_id Int64,
+      organization_id UUID,
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      timestamp DateTime64(6, 'UTC'),
+      inserted_at DateTime64(6, 'UTC')
+  )
+  ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_billing_usage_records_test', kafka_group_name = 'clickhouse_billing_usage_records', kafka_format = 'JSONEachRow')
+  SETTINGS date_time_input_format = 'best_effort'
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_cohort_membership]
   '''
   
@@ -144,6 +165,7 @@
       issue_name Nullable(VARCHAR),
       issue_description Nullable(VARCHAR),
       issue_status VARCHAR,
+      issue_severity Nullable(VARCHAR),
       assigned_user_id Nullable(Int64),
       assigned_role_id Nullable(UUID),
       first_seen DateTime64(3, 'UTC'),
@@ -286,6 +308,26 @@
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_events_json_native_json', kafka_format = 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_flag_evaluations]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_flag_evaluations
+  (
+      uuid UUID,
+      event LowCardinality(String),
+      properties String,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      inserted_at DateTime64(6, 'UTC')
+  )
+  ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_flag_evaluations_test', kafka_group_name = 'clickhouse_flag_evaluations', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
   
   '''
 # ---
@@ -599,6 +641,20 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_person_property_mutation_log]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_property_mutation_log
+  (
+      team_id Int64,
+      uuid UUID,
+      properties String
+  )
+  ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_plugin_log_entries]
   '''
   
@@ -683,7 +739,7 @@
       `property_value` String,
       `property_count` UInt64
   ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
-  SETTINGS kafka_num_consumers = 8, kafka_thread_per_consumer = 1
+  SETTINGS kafka_num_consumers = 1, kafka_thread_per_consumer = 1
   
   '''
 # ---
@@ -712,6 +768,7 @@
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
+      snapshot_mode LowCardinality(Nullable(String)),
       retention_period_days Nullable(Int64),
       is_deleted UInt8,
       ai_tags_fixed Array(String),
@@ -1097,6 +1154,54 @@
   
   '''
 # ---
+# name: test_create_table_query[billing_usage_records]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS billing_usage_records
+  (
+      schema_version UInt8,
+      record_id String,
+      producer_id LowCardinality(String),
+      team_id Int64,
+      organization_id UUID,
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      timestamp DateTime64(6, 'UTC'),
+      inserted_at DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'sharded_billing_usage_records', cityHash64(team_id))
+  
+  '''
+# ---
+# name: test_create_table_query[billing_usage_records_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS billing_usage_records_mv
+  TO writable_billing_usage_records
+  AS SELECT
+      schema_version,
+      record_id,
+      producer_id,
+      team_id,
+      organization_id,
+      usage_key,
+      unit,
+      quantity,
+      timestamp,
+      inserted_at,
+      _timestamp,
+      _offset,
+      _partition
+  FROM kafka_billing_usage_records
+  
+  '''
+# ---
 # name: test_create_table_query[channel_definition]
   '''
   
@@ -1359,6 +1464,7 @@
       issue_name Nullable(VARCHAR),
       issue_description Nullable(VARCHAR),
       issue_status VARCHAR,
+      issue_severity Nullable(VARCHAR),
       assigned_user_id Nullable(Int64),
       assigned_role_id Nullable(UUID),
       first_seen DateTime64(3, 'UTC'),
@@ -1385,6 +1491,7 @@
   issue_name,
   issue_description,
   issue_status,
+  issue_severity,
   assigned_user_id,
   assigned_role_id,
   first_seen,
@@ -1857,6 +1964,66 @@
   
   '''
 # ---
+# name: test_create_table_query[flag_evaluations]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS flag_evaluations
+  (
+      uuid UUID,
+      event LowCardinality(String),
+      properties String,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      inserted_at DateTime64(6, 'UTC') DEFAULT timestamp
+      
+      , $group_0 String COMMENT 'column_materializer::$group_0'
+      , $group_1 String COMMENT 'column_materializer::$group_1'
+      , $group_2 String COMMENT 'column_materializer::$group_2'
+      , $group_3 String COMMENT 'column_materializer::$group_3'
+      , $group_4 String COMMENT 'column_materializer::$group_4'
+      , flag_key String COMMENT 'column_materializer::properties::$feature_flag'
+      , response LowCardinality(String) COMMENT 'column_materializer::properties::$feature_flag_response'
+      , session_id String COMMENT 'column_materializer::properties::$session_id'
+      , request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id'
+  
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_flag_evaluations', sipHash64(distinct_id))
+  
+  '''
+# ---
+# name: test_create_table_query[flag_evaluations_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS flag_evaluations_mv
+  TO posthog_test.writable_flag_evaluations
+  AS SELECT
+      uuid,
+      event,
+      properties,
+      timestamp,
+      team_id,
+      distinct_id,
+      created_at,
+      person_id,
+      -- Fall back to the Kafka message timestamp, which is stable across replays
+      -- (inserted_at checkpoints the sync_feature_flag_last_called task, and an
+      -- epoch-stamped row would stay invisible to it forever).
+      if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
+      _timestamp,
+      _offset,
+      _partition
+  FROM posthog_test.kafka_flag_evaluations
+  
+  '''
+# ---
 # name: test_create_table_query[groups]
   '''
   
@@ -2240,6 +2407,27 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_billing_usage_records]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_billing_usage_records
+  (
+      schema_version UInt8,
+      record_id String,
+      producer_id LowCardinality(String),
+      team_id Int64,
+      organization_id UUID,
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      timestamp DateTime64(6, 'UTC'),
+      inserted_at DateTime64(6, 'UTC')
+  )
+  ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_billing_usage_records_test', kafka_group_name = 'clickhouse_billing_usage_records', kafka_format = 'JSONEachRow')
+  SETTINGS date_time_input_format = 'best_effort'
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_cohort_membership]
   '''
   
@@ -2278,6 +2466,7 @@
       issue_name Nullable(VARCHAR),
       issue_description Nullable(VARCHAR),
       issue_status VARCHAR,
+      issue_severity Nullable(VARCHAR),
       assigned_user_id Nullable(Int64),
       assigned_role_id Nullable(UUID),
       first_seen DateTime64(3, 'UTC'),
@@ -2420,6 +2609,26 @@
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_events_json_native_json', kafka_format = 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_flag_evaluations]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_flag_evaluations
+  (
+      uuid UUID,
+      event LowCardinality(String),
+      properties String,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      inserted_at DateTime64(6, 'UTC')
+  )
+  ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_flag_evaluations_test', kafka_group_name = 'clickhouse_flag_evaluations', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
   
   '''
 # ---
@@ -2733,6 +2942,20 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_person_property_mutation_log]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_property_mutation_log
+  (
+      team_id Int64,
+      uuid UUID,
+      properties String
+  )
+  ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_plugin_log_entries]
   '''
   
@@ -2817,7 +3040,7 @@
       `property_value` String,
       `property_count` UInt64
   ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
-  SETTINGS kafka_num_consumers = 8, kafka_thread_per_consumer = 1
+  SETTINGS kafka_num_consumers = 1, kafka_thread_per_consumer = 1
   
   '''
 # ---
@@ -2846,6 +3069,7 @@
       message_count Int64,
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
+      snapshot_mode LowCardinality(Nullable(String)),
       retention_period_days Nullable(Int64),
       is_deleted UInt8,
       ai_tags_fixed Array(String),
@@ -3142,6 +3366,11 @@
       `_bytes_compressed` UInt64 CODEC(DoubleDelta, ZSTD(1)),
       `_record_count` UInt64 CODEC(DoubleDelta, ZSTD(1)),
   
+      -- The dev and test schema builds logs_distributed on this shard, so these columns have to
+      -- match the ones on logs34. HogQL reads logs_distributed for every logs query.
+      `pattern` String,
+      `pattern_version` UInt8,
+  
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -3330,6 +3559,8 @@
       `_bytes_uncompressed` UInt64,
       `_bytes_compressed` UInt64,
       `_record_count` UInt64,
+      `pattern` String,
+      `pattern_version` UInt8,
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -3427,57 +3658,6 @@
   
   '''
 # ---
-# name: test_create_table_query[logs34_to_log_attributes]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs34_to_log_attributes TO posthog_test.log_attributes2
-  (
-      `team_id` Int32,
-      `time_bucket` DateTime64(0),
-      `original_expiry_time_bucket` DateTime64(0),
-      `service_name` LowCardinality(String),
-      `resource_fingerprint` UInt64,
-      `attribute_key` LowCardinality(String),
-      `attribute_value` String,
-      `attribute_type` LowCardinality(String),
-      `attribute_count` SimpleAggregateFunction(sum, UInt64)
-  )
-  AS SELECT
-      team_id,
-      time_bucket,
-      original_expiry_time_bucket,
-      service_name,
-      resource_fingerprint,
-      attribute_key,
-      attribute_value,
-      attribute_type,
-      attribute_count
-  FROM
-  (
-      SELECT
-          team_id AS team_id,
-          toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-          toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
-          service_name AS service_name,
-          resource_fingerprint,
-          mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
-          arrayJoin(attributes) AS attribute,
-          'log' AS attribute_type,
-          attribute.1 AS attribute_key,
-          attribute.2 AS attribute_value,
-          sumSimpleState(1) AS attribute_count
-      FROM posthog_test.logs34
-      GROUP BY
-          team_id,
-          time_bucket,
-          original_expiry_time_bucket,
-          service_name,
-          resource_fingerprint,
-          attributes
-  )
-  
-  '''
-# ---
 # name: test_create_table_query[logs34_to_resource_attributes3]
   '''
   
@@ -3532,53 +3712,51 @@
   
   '''
 # ---
-# name: test_create_table_query[logs34_to_resource_attributes]
+# name: test_create_table_query[logs34_to_volume_buckets]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs34_to_resource_attributes TO posthog_test.log_attributes2
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs34_to_volume_buckets TO posthog_test.logs_volume_buckets
   (
       `team_id` Int32,
-      `time_bucket` DateTime64(0),
-      `original_expiry_time_bucket` DateTime64(0),
+      `time_bucket` DateTime('UTC'),
       `service_name` LowCardinality(String),
-      `resource_fingerprint` UInt64,
-      `attribute_key` LowCardinality(String),
-      `attribute_value` String,
-      `attribute_type` LowCardinality(String),
-      `attribute_count` SimpleAggregateFunction(sum, UInt64)
+      `namespace` LowCardinality(String),
+      `environment` LowCardinality(String),
+      `severity_text` LowCardinality(String),
+      `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   AS SELECT
       team_id,
       time_bucket,
-      original_expiry_time_bucket,
       service_name,
-      resource_fingerprint,
-      attribute_key,
-      attribute_value,
-      attribute_type,
-      attribute_count
+      namespace,
+      environment,
+      severity_text,
+      sumSimpleState(1) AS log_count
   FROM
   (
       SELECT
-          team_id AS team_id,
-          toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-          toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
-          service_name AS service_name,
-          resource_fingerprint,
-          arrayJoin(resource_attributes) AS attribute,
-          'resource' AS attribute_type,
-          attribute.1 AS attribute_key,
-          attribute.2 AS attribute_value,
-          sumSimpleState(1) AS attribute_count
-      FROM posthog_test.logs34
-      GROUP BY
           team_id,
-          time_bucket,
-          original_expiry_time_bucket,
+          toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
           service_name,
-          resource_fingerprint,
-          resource_attributes
+          if(
+              resource_attributes['k8s.namespace.name'] != '',
+              resource_attributes['k8s.namespace.name'],
+              resource_attributes['service.namespace']
+          ) AS namespace,
+          if(
+              resource_attributes['deployment.environment.name'] != '',
+              resource_attributes['deployment.environment.name'],
+              if(
+                  resource_attributes['deployment.environment'] != '',
+                  resource_attributes['deployment.environment'],
+                  resource_attributes['env']
+              )
+          ) AS environment,
+          lower(severity_text) AS severity_text
+      FROM posthog_test.logs34
   )
+  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text
   
   '''
 # ---
@@ -3646,6 +3824,65 @@
   '''
   
   CREATE TABLE IF NOT EXISTS posthog_test.logs_kafka_metrics_distributed AS posthog_test.logs_kafka_metrics ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'logs_kafka_metrics')
+  
+  '''
+# ---
+# name: test_create_table_query[logs_pattern_buckets]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.logs_pattern_buckets
+  (
+      `team_id` Int32,
+      `time_bucket` DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
+      `service_name` LowCardinality(String),
+      `namespace` LowCardinality(String),
+      `environment` LowCardinality(String),
+      `severity_text` LowCardinality(String),
+      `pattern_version` UInt8,
+      `pattern` String,
+      `log_count` SimpleAggregateFunction(sum, UInt64)
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_pattern_buckets', '{replica}-{shard}')
+  PARTITION BY toDate(time_bucket)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
+  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
+  TTL time_bucket + INTERVAL 42 DAY
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[logs_pattern_buckets_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.logs_pattern_buckets_distributed AS posthog_test.logs_pattern_buckets ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'logs_pattern_buckets')
+  
+  '''
+# ---
+# name: test_create_table_query[logs_volume_buckets]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.logs_volume_buckets
+  (
+      `team_id` Int32,
+      `time_bucket` DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
+      `service_name` LowCardinality(String),
+      `namespace` LowCardinality(String),
+      `environment` LowCardinality(String),
+      `severity_text` LowCardinality(String),
+      `log_count` SimpleAggregateFunction(sum, UInt64)
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_volume_buckets', '{replica}-{shard}')
+  PARTITION BY toDate(time_bucket)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+  TTL time_bucket + INTERVAL 42 DAY
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[logs_volume_buckets_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.logs_volume_buckets_distributed AS posthog_test.logs_volume_buckets ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'logs_volume_buckets')
   
   '''
 # ---
@@ -3836,17 +4073,45 @@
   
   '''
 # ---
+# name: test_create_table_query[metric_attributes2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes2
+  (
+      `team_id` Int32,
+      `time_bucket` DateTime64(0),
+      `original_expiry_time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64),
+      INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_attributes2', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_time_bucket)
+  ORDER BY (team_id, attribute_type, time_bucket, attribute_key, attribute_value)
+  TTL original_expiry_time_bucket
+  SETTINGS
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[metric_attributes]
   '''
   
   CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes
   (
-      `team_id` Int32 CODEC(DoubleDelta, ZSTD(1)),
-      `time_bucket` DateTime64(0) CODEC(DoubleDelta, ZSTD(1)),
-      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
-      `resource_fingerprint` UInt64 DEFAULT 0 CODEC(DoubleDelta, ZSTD(1)),
-      `attribute_key` LowCardinality(String) CODEC(ZSTD(1)),
-      `attribute_value` String CODEC(ZSTD(1)),
+      `team_id` Int32,
+      `time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `resource_fingerprint` UInt64 DEFAULT 0,
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
       `attribute_count` SimpleAggregateFunction(sum, UInt64),
       `attribute_type` LowCardinality(String),
       INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -3862,6 +4127,9 @@
       index_granularity = 8192
   
   '''
+# ---
+# name: test_create_table_query[metric_attributes_distributed]
+  "CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes_distributed AS posthog_test.metric_attributes2 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metric_attributes2')"
 # ---
 # name: test_create_table_query[metric_samples1]
   '''
@@ -3919,38 +4187,72 @@
   
   '''
 # ---
+# name: test_create_table_query[metric_series2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_series2
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `series_fingerprint` UInt64 CODEC(Delta, Default),
+      `metric_type` LowCardinality(String),
+      `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
+      `service_name` LowCardinality(String),
+      `instrumentation_scope` String,
+      `resource_attributes` Map(LowCardinality(String), String),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+      `attributes` Map(LowCardinality(String), String),
+      `last_seen` DateTime64(6),
+      `original_expiry_timestamp` DateTime64(6),
+      INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
+      INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series2', '{replica}-{shard}', last_seen)
+  ORDER BY (team_id, metric_name, series_fingerprint)
+  TTL original_expiry_timestamp
+  SETTINGS index_granularity = 8192
+  
+  '''
+# ---
 # name: test_create_table_query[metric_series]
   "CREATE TABLE IF NOT EXISTS posthog_test.metric_series AS posthog_test.metric_series1 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metric_series1')"
+# ---
+# name: test_create_table_query[metric_series_distributed]
+  "CREATE TABLE IF NOT EXISTS posthog_test.metric_series_distributed AS posthog_test.metric_series2 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metric_series2')"
 # ---
 # name: test_create_table_query[metrics1]
   '''
   
   CREATE TABLE IF NOT EXISTS posthog_test.metrics1
   (
-      `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp) CODEC(DoubleDelta, ZSTD(1)),
-      `uuid` String CODEC(ZSTD(1)),
-      `team_id` Int32 CODEC(ZSTD(1)),
-      `trace_id` String CODEC(ZSTD(1)),
-      `span_id` String CODEC(ZSTD(1)),
-      `trace_flags` Int32 CODEC(ZSTD(1)),
-      `timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
-      `observed_timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
-      `created_at` DateTime64(6) MATERIALIZED now() CODEC(DoubleDelta, ZSTD(1)),
-      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
-      `metric_name` LowCardinality(String) CODEC(ZSTD(1)),
-      `metric_type` LowCardinality(String) CODEC(ZSTD(1)),
-      `value` Float64 CODEC(Gorilla, ZSTD(1)),
-      `count` UInt64 DEFAULT 1 CODEC(T64, ZSTD(1)),
-      `histogram_bounds` Array(Float64) CODEC(ZSTD(1)),
-      `histogram_counts` Array(UInt64) CODEC(ZSTD(1)),
-      `unit` LowCardinality(String) CODEC(ZSTD(1)),
-      `aggregation_temporality` LowCardinality(String) CODEC(ZSTD(1)),
-      `is_monotonic` Bool DEFAULT false CODEC(ZSTD(1)),
-      `resource_attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes) CODEC(DoubleDelta, ZSTD(1)),
-      `instrumentation_scope` String CODEC(ZSTD(1)),
-      `attributes_map_str` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-      `attributes_map_float` Map(LowCardinality(String), Float64) CODEC(ZSTD(1)),
+      `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp),
+      `uuid` String,
+      `team_id` Int32,
+      `trace_id` String,
+      `span_id` String,
+      `trace_flags` Int32,
+      `timestamp` DateTime64(6),
+      `observed_timestamp` DateTime64(6),
+      `created_at` DateTime64(6) MATERIALIZED now(),
+      `service_name` LowCardinality(String),
+      `metric_name` LowCardinality(String),
+      `metric_type` LowCardinality(String),
+      `value` Float64 CODEC(Gorilla),
+      `count` UInt64 DEFAULT 1 CODEC(T64),
+      `histogram_bounds` Array(Float64),
+      `histogram_counts` Array(UInt64),
+      `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
+      `resource_attributes` Map(LowCardinality(String), String),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+      `instrumentation_scope` String,
+      `attributes_map_str` Map(LowCardinality(String), String),
+      `attributes_map_float` Map(LowCardinality(String), Float64),
       `time_minute` DateTime ALIAS toStartOfMinute(timestamp),
       `attributes` Map(String, String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
       INDEX idx_metric_name_set metric_name TYPE set(100) GRANULARITY 1,
@@ -4086,12 +4388,273 @@
   
   '''
 # ---
+# name: test_create_table_query[metrics2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metrics2
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `time_bucket` DateTime MATERIALIZED toStartOfHour(timestamp),
+      `series_fingerprint` UInt64 CODEC(Delta, Default),
+      `resource_fingerprint` UInt64 DEFAULT 0,
+      `timestamp` DateTime64(6) CODEC(DoubleDelta),
+      `observed_timestamp` DateTime64(6),
+      `original_expiry_timestamp` DateTime64(6),
+      `created_at` DateTime64(6) MATERIALIZED now(),
+      `service_name` LowCardinality(String),
+      `metric_type` LowCardinality(String),
+      `value` Float64 CODEC(Gorilla),
+      `count` UInt64 DEFAULT 1 CODEC(T64),
+      `histogram_bounds` Array(Float64),
+      `histogram_counts` Array(UInt64),
+      `trace_id` String,
+      `span_id` String,
+      `trace_flags` Int32,
+      `has_labels` Bool DEFAULT false,
+      `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
+      `instrumentation_scope` String,
+      `_partition` UInt32,
+      `_topic` String,
+      `_offset` UInt64,
+      INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
+      INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
+      INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+      PROJECTION projection_series_activity
+      (
+          SELECT
+              team_id,
+              service_name,
+              metric_name,
+              metric_type,
+              resource_fingerprint,
+              series_fingerprint,
+              toStartOfHour(timestamp) AS hour,
+              count() AS sample_count,
+              max(timestamp) AS last_seen
+          GROUP BY
+              team_id,
+              service_name,
+              metric_name,
+              metric_type,
+              resource_fingerprint,
+              series_fingerprint,
+              hour
+      )
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics2', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_timestamp)
+  ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, timestamp)
+  TTL original_expiry_timestamp
+  SETTINGS
+      index_granularity_bytes = 104857600,
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[metrics2_input]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metrics2_input
+  (
+      `uuid` String,
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `series_fingerprint` UInt64,
+      `resource_fingerprint` UInt64,
+      `timestamp` DateTime64(6),
+      `observed_timestamp` DateTime64(6),
+      `original_expiry_timestamp` DateTime64(6),
+      `service_name` LowCardinality(String),
+      `metric_type` LowCardinality(String),
+      `value` Float64,
+      `count` UInt64,
+      `histogram_bounds` Array(Float64),
+      `histogram_counts` Array(UInt64),
+      `trace_id` String,
+      `span_id` String,
+      `trace_flags` Int32,
+      `has_labels` Bool,
+      `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool,
+      `instrumentation_scope` String,
+      `resource_attributes` Map(LowCardinality(String), String),
+      `attributes` Map(LowCardinality(String), String),
+      `_partition` UInt32,
+      `_topic` String,
+      `_offset` UInt64
+  )
+  ENGINE = Null
+  
+  '''
+# ---
+# name: test_create_table_query[metrics2_input_to_metric_attributes]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metric_attributes TO posthog_test.metric_attributes2
+  (
+      `team_id` Int32,
+      `time_bucket` DateTime64(0),
+      `original_expiry_time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64)
+  )
+  AS SELECT
+      team_id,
+      time_bucket,
+      original_expiry_time_bucket,
+      service_name,
+      attribute_key,
+      attribute_value,
+      attribute_type,
+      attribute_count
+  FROM
+  (
+      SELECT
+          team_id AS team_id,
+          toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
+          toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
+          service_name AS service_name,
+          mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
+          arrayJoin(filtered_attributes) AS attribute,
+          'metric' AS attribute_type,
+          attribute.1 AS attribute_key,
+          attribute.2 AS attribute_value,
+          sumSimpleState(1) AS attribute_count
+      FROM posthog_test.metrics2_input
+      WHERE has_labels
+      GROUP BY
+          team_id,
+          time_bucket,
+          original_expiry_time_bucket,
+          service_name,
+          filtered_attributes
+  )
+  
+  '''
+# ---
+# name: test_create_table_query[metrics2_input_to_metric_series]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metric_series TO posthog_test.metric_series2
+  AS SELECT
+      team_id,
+      metric_name,
+      series_fingerprint,
+      metric_type,
+      unit,
+      aggregation_temporality,
+      is_monotonic,
+      service_name,
+      instrumentation_scope,
+      resource_attributes,
+      attributes,
+      timestamp AS last_seen,
+      original_expiry_timestamp
+  FROM posthog_test.metrics2_input
+  WHERE has_labels
+  
+  '''
+# ---
+# name: test_create_table_query[metrics2_input_to_metrics]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metrics TO posthog_test.metrics2
+  AS SELECT
+      team_id,
+      metric_name,
+      series_fingerprint,
+      resource_fingerprint,
+      timestamp,
+      observed_timestamp,
+      original_expiry_timestamp,
+      service_name,
+      metric_type,
+      value,
+      count,
+      histogram_bounds,
+      histogram_counts,
+      trace_id,
+      span_id,
+      trace_flags,
+      has_labels,
+      unit,
+      aggregation_temporality,
+      is_monotonic,
+      instrumentation_scope,
+      _partition,
+      _topic,
+      _offset
+  FROM posthog_test.metrics2_input
+  
+  '''
+# ---
+# name: test_create_table_query[metrics2_input_to_resource_attributes]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_resource_attributes TO posthog_test.metric_attributes2
+  (
+      `team_id` Int32,
+      `time_bucket` DateTime64(0),
+      `original_expiry_time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64)
+  )
+  AS SELECT
+      team_id,
+      time_bucket,
+      original_expiry_time_bucket,
+      service_name,
+      attribute_key,
+      attribute_value,
+      attribute_type,
+      attribute_count
+  FROM
+  (
+      SELECT
+          team_id AS team_id,
+          toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
+          toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
+          service_name AS service_name,
+          resource_attributes AS filtered_attributes,
+          arrayJoin(filtered_attributes) AS attribute,
+          'resource' AS attribute_type,
+          attribute.1 AS attribute_key,
+          attribute.2 AS attribute_value,
+          sumSimpleState(1) AS attribute_count
+      FROM posthog_test.metrics2_input
+      WHERE has_labels
+      GROUP BY
+          team_id,
+          time_bucket,
+          original_expiry_time_bucket,
+          service_name,
+          filtered_attributes
+  )
+  
+  '''
+# ---
 # name: test_create_table_query[metrics]
   '''
   
   CREATE TABLE IF NOT EXISTS posthog_test.metrics AS posthog_test.metrics1 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metrics1')
   
   '''
+# ---
+# name: test_create_table_query[metrics_distributed]
+  "CREATE TABLE IF NOT EXISTS posthog_test.metrics_distributed AS posthog_test.metrics2 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metrics2')"
 # ---
 # name: test_create_table_query[ops_query_log_archive_mv]
   '''
@@ -4501,6 +5064,57 @@
           -- created_at,
           version
       FROM `posthog_test`.`kafka_person_overrides`
+  
+  '''
+# ---
+# name: test_create_table_query[person_property_mutation_log]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_property_mutation_log
+  (
+      team_id Int64,
+      event_uuid UUID,
+      properties String,
+      ingested_at DateTime('UTC')
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'person_property_mutation_log_data')
+  
+  '''
+# ---
+# name: test_create_table_query[person_property_mutation_log_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_property_mutation_log_data
+  (
+      team_id Int64,
+      event_uuid UUID,
+      properties String,
+      ingested_at DateTime('UTC')
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at)
+  PARTITION BY toDate(ingested_at)
+  ORDER BY (team_id, event_uuid)
+  TTL ingested_at + INTERVAL 30 DAY
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[person_property_mutation_log_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_property_mutation_log_mv
+  TO person_property_mutation_log
+  AS SELECT
+      team_id,
+      uuid AS event_uuid,
+      concat('{', arrayStringConcat(arrayMap(
+          property -> concat(toJSONString(property.1), ':', property.2),
+          arrayFilter(property -> property.1 IN ('$set', '$set_once', '$unset'),
+              JSONExtractKeysAndValuesRaw(source.properties))
+      ), ','), '}') AS properties,
+      toDateTime(_timestamp, 'UTC') AS ingested_at
+  FROM kafka_person_property_mutation_log AS source
+  WHERE JSONHas(source.properties, '$set') OR JSONHas(source.properties, '$set_once') OR JSONHas(source.properties, '$unset')
   
   '''
 # ---
@@ -5138,6 +5752,7 @@
       issue_name Nullable(VARCHAR),
       issue_description Nullable(VARCHAR),
       issue_status VARCHAR,
+      issue_severity Nullable(VARCHAR),
       assigned_user_id Nullable(Int64),
       assigned_role_id Nullable(UUID),
       first_seen DateTime64(3, 'UTC'),
@@ -5803,6 +6418,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -5847,6 +6463,7 @@
   ,`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
   ,`ai_highlighted` SimpleAggregateFunction(max, UInt8)
   ,`surfacing_score` SimpleAggregateFunction(max, Nullable(Float32))
+  ,`snapshot_mode` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
   )
   AS SELECT
   session_id,
@@ -5888,6 +6505,7 @@
   ,groupUniqArrayArray(ai_tags_freeform) as ai_tags_freeform
   ,max(ai_highlighted) as ai_highlighted
   ,max(surfacing_score) as surfacing_score
+  ,argMinState(snapshot_mode, first_timestamp) as snapshot_mode
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -6329,6 +6947,33 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_billing_usage_records]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_billing_usage_records
+  (
+      schema_version UInt8,
+      record_id String,
+      producer_id LowCardinality(String),
+      team_id Int64,
+      organization_id UUID,
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      timestamp DateTime64(6, 'UTC'),
+      inserted_at DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id)
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_conversion_goal_attributed_preaggregated]
   '''
   
@@ -6675,7 +7320,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_events_recent', '{replica}', _timestamp)
   PARTITION BY toStartOfDay(inserted_at)
   ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
-  TTL toDateTime(inserted_at) + INTERVAL 7 DAY
+  TTL toDate(inserted_at) + INTERVAL 9 DAY
   
   SETTINGS ttl_only_drop_parts = 1
   
@@ -6746,6 +7391,56 @@
   ORDER BY (team_id, job_id, entity_id, timestamp, event_uuid)
   TTL expires_at
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_flag_evaluations]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_flag_evaluations
+  (
+      uuid UUID,
+      event LowCardinality(String),
+      properties String,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      inserted_at DateTime64(6, 'UTC') DEFAULT timestamp
+      
+      , $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
+      , $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
+      , $group_2 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2'
+      , $group_3 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3'
+      , $group_4 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
+      , flag_key String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag'
+      , response LowCardinality(String) DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_response'
+      , session_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$session_id'
+      , request_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id'
+  
+      
+      , INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX person_id_idx   person_id   TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX session_id_idx  session_id  TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
+  
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.flag_evaluations', '{replica}')
+  -- Monthly, matching the events family. Daily partitions would put ~90 of them
+  -- under a 90-day TTL, and enough parts across them to strain merges. The cost
+  -- is coarser expiry: with ttl_only_drop_parts a part only drops once its newest
+  -- row expires, so rows survive up to a month past the TTL.
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id))
+  
+  SETTINGS ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -7568,6 +8263,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -8772,6 +9468,31 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_billing_usage_records]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_billing_usage_records
+  (
+      schema_version UInt8,
+      record_id String,
+      producer_id LowCardinality(String),
+      team_id Int64,
+      organization_id UUID,
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      timestamp DateTime64(6, 'UTC'),
+      inserted_at DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'sharded_billing_usage_records', cityHash64(team_id))
+  
+  '''
+# ---
 # name: test_create_table_query[writable_cohort_membership]
   '''
   
@@ -8810,6 +9531,7 @@
       issue_name Nullable(VARCHAR),
       issue_description Nullable(VARCHAR),
       issue_status VARCHAR,
+      issue_severity Nullable(VARCHAR),
       assigned_user_id Nullable(Int64),
       assigned_role_id Nullable(UUID),
       first_seen DateTime64(3, 'UTC'),
@@ -8998,6 +9720,31 @@
   
       
   ) ENGINE = Distributed('posthog_writable', 'posthog_test', 'sharded_events_recent', sipHash64(distinct_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_flag_evaluations]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_flag_evaluations
+  (
+      uuid UUID,
+      event LowCardinality(String),
+      properties String,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      inserted_at DateTime64(6, 'UTC') DEFAULT timestamp
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_flag_evaluations', sipHash64(distinct_id))
   
   '''
 # ---
@@ -9619,6 +10366,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -10235,6 +10983,11 @@
       `_bytes_compressed` UInt64 CODEC(DoubleDelta, ZSTD(1)),
       `_record_count` UInt64 CODEC(DoubleDelta, ZSTD(1)),
   
+      -- The dev and test schema builds logs_distributed on this shard, so these columns have to
+      -- match the ones on logs34. HogQL reads logs_distributed for every logs query.
+      `pattern` String,
+      `pattern_version` UInt8,
+  
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -10314,6 +11067,8 @@
       `_bytes_uncompressed` UInt64,
       `_bytes_compressed` UInt64,
       `_record_count` UInt64,
+      `pattern` String,
+      `pattern_version` UInt8,
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -10395,6 +11150,51 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[logs_pattern_buckets]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.logs_pattern_buckets
+  (
+      `team_id` Int32,
+      `time_bucket` DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
+      `service_name` LowCardinality(String),
+      `namespace` LowCardinality(String),
+      `environment` LowCardinality(String),
+      `severity_text` LowCardinality(String),
+      `pattern_version` UInt8,
+      `pattern` String,
+      `log_count` SimpleAggregateFunction(sum, UInt64)
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_pattern_buckets', '{replica}-{shard}')
+  PARTITION BY toDate(time_bucket)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
+  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
+  TTL time_bucket + INTERVAL 42 DAY
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[logs_volume_buckets]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.logs_volume_buckets
+  (
+      `team_id` Int32,
+      `time_bucket` DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
+      `service_name` LowCardinality(String),
+      `namespace` LowCardinality(String),
+      `environment` LowCardinality(String),
+      `severity_text` LowCardinality(String),
+      `log_count` SimpleAggregateFunction(sum, UInt64)
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_volume_buckets', '{replica}-{shard}')
+  PARTITION BY toDate(time_bucket)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+  TTL time_bucket + INTERVAL 42 DAY
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[message_assets_data]
   '''
   
@@ -10434,17 +11234,45 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[metric_attributes2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes2
+  (
+      `team_id` Int32,
+      `time_bucket` DateTime64(0),
+      `original_expiry_time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64),
+      INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_attributes2', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_time_bucket)
+  ORDER BY (team_id, attribute_type, time_bucket, attribute_key, attribute_value)
+  TTL original_expiry_time_bucket
+  SETTINGS
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[metric_attributes]
   '''
   
   CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes
   (
-      `team_id` Int32 CODEC(DoubleDelta, ZSTD(1)),
-      `time_bucket` DateTime64(0) CODEC(DoubleDelta, ZSTD(1)),
-      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
-      `resource_fingerprint` UInt64 DEFAULT 0 CODEC(DoubleDelta, ZSTD(1)),
-      `attribute_key` LowCardinality(String) CODEC(ZSTD(1)),
-      `attribute_value` String CODEC(ZSTD(1)),
+      `team_id` Int32,
+      `time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `resource_fingerprint` UInt64 DEFAULT 0,
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
       `attribute_count` SimpleAggregateFunction(sum, UInt64),
       `attribute_type` LowCardinality(String),
       INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -10514,35 +11342,66 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[metric_series2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_series2
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `series_fingerprint` UInt64 CODEC(Delta, Default),
+      `metric_type` LowCardinality(String),
+      `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
+      `service_name` LowCardinality(String),
+      `instrumentation_scope` String,
+      `resource_attributes` Map(LowCardinality(String), String),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+      `attributes` Map(LowCardinality(String), String),
+      `last_seen` DateTime64(6),
+      `original_expiry_timestamp` DateTime64(6),
+      INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
+      INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series2', '{replica}-{shard}', last_seen)
+  ORDER BY (team_id, metric_name, series_fingerprint)
+  TTL original_expiry_timestamp
+  SETTINGS index_granularity = 8192
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[metrics1]
   '''
   
   CREATE TABLE IF NOT EXISTS posthog_test.metrics1
   (
-      `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp) CODEC(DoubleDelta, ZSTD(1)),
-      `uuid` String CODEC(ZSTD(1)),
-      `team_id` Int32 CODEC(ZSTD(1)),
-      `trace_id` String CODEC(ZSTD(1)),
-      `span_id` String CODEC(ZSTD(1)),
-      `trace_flags` Int32 CODEC(ZSTD(1)),
-      `timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
-      `observed_timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
-      `created_at` DateTime64(6) MATERIALIZED now() CODEC(DoubleDelta, ZSTD(1)),
-      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
-      `metric_name` LowCardinality(String) CODEC(ZSTD(1)),
-      `metric_type` LowCardinality(String) CODEC(ZSTD(1)),
-      `value` Float64 CODEC(Gorilla, ZSTD(1)),
-      `count` UInt64 DEFAULT 1 CODEC(T64, ZSTD(1)),
-      `histogram_bounds` Array(Float64) CODEC(ZSTD(1)),
-      `histogram_counts` Array(UInt64) CODEC(ZSTD(1)),
-      `unit` LowCardinality(String) CODEC(ZSTD(1)),
-      `aggregation_temporality` LowCardinality(String) CODEC(ZSTD(1)),
-      `is_monotonic` Bool DEFAULT false CODEC(ZSTD(1)),
-      `resource_attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes) CODEC(DoubleDelta, ZSTD(1)),
-      `instrumentation_scope` String CODEC(ZSTD(1)),
-      `attributes_map_str` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-      `attributes_map_float` Map(LowCardinality(String), Float64) CODEC(ZSTD(1)),
+      `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp),
+      `uuid` String,
+      `team_id` Int32,
+      `trace_id` String,
+      `span_id` String,
+      `trace_flags` Int32,
+      `timestamp` DateTime64(6),
+      `observed_timestamp` DateTime64(6),
+      `created_at` DateTime64(6) MATERIALIZED now(),
+      `service_name` LowCardinality(String),
+      `metric_name` LowCardinality(String),
+      `metric_type` LowCardinality(String),
+      `value` Float64 CODEC(Gorilla),
+      `count` UInt64 DEFAULT 1 CODEC(T64),
+      `histogram_bounds` Array(Float64),
+      `histogram_counts` Array(UInt64),
+      `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
+      `resource_attributes` Map(LowCardinality(String), String),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+      `instrumentation_scope` String,
+      `attributes_map_str` Map(LowCardinality(String), String),
+      `attributes_map_float` Map(LowCardinality(String), Float64),
       `time_minute` DateTime ALIAS toStartOfMinute(timestamp),
       `attributes` Map(String, String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
       INDEX idx_metric_name_set metric_name TYPE set(100) GRANULARITY 1,
@@ -10582,6 +11441,112 @@
       index_granularity_bytes = 104857600,
       index_granularity = 8192,
       ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[metrics2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metrics2
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `time_bucket` DateTime MATERIALIZED toStartOfHour(timestamp),
+      `series_fingerprint` UInt64 CODEC(Delta, Default),
+      `resource_fingerprint` UInt64 DEFAULT 0,
+      `timestamp` DateTime64(6) CODEC(DoubleDelta),
+      `observed_timestamp` DateTime64(6),
+      `original_expiry_timestamp` DateTime64(6),
+      `created_at` DateTime64(6) MATERIALIZED now(),
+      `service_name` LowCardinality(String),
+      `metric_type` LowCardinality(String),
+      `value` Float64 CODEC(Gorilla),
+      `count` UInt64 DEFAULT 1 CODEC(T64),
+      `histogram_bounds` Array(Float64),
+      `histogram_counts` Array(UInt64),
+      `trace_id` String,
+      `span_id` String,
+      `trace_flags` Int32,
+      `has_labels` Bool DEFAULT false,
+      `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
+      `instrumentation_scope` String,
+      `_partition` UInt32,
+      `_topic` String,
+      `_offset` UInt64,
+      INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
+      INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
+      INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+      PROJECTION projection_series_activity
+      (
+          SELECT
+              team_id,
+              service_name,
+              metric_name,
+              metric_type,
+              resource_fingerprint,
+              series_fingerprint,
+              toStartOfHour(timestamp) AS hour,
+              count() AS sample_count,
+              max(timestamp) AS last_seen
+          GROUP BY
+              team_id,
+              service_name,
+              metric_name,
+              metric_type,
+              resource_fingerprint,
+              series_fingerprint,
+              hour
+      )
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics2', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_timestamp)
+  ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, timestamp)
+  TTL original_expiry_timestamp
+  SETTINGS
+      index_granularity_bytes = 104857600,
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[metrics2_input]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metrics2_input
+  (
+      `uuid` String,
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `series_fingerprint` UInt64,
+      `resource_fingerprint` UInt64,
+      `timestamp` DateTime64(6),
+      `observed_timestamp` DateTime64(6),
+      `original_expiry_timestamp` DateTime64(6),
+      `service_name` LowCardinality(String),
+      `metric_type` LowCardinality(String),
+      `value` Float64,
+      `count` UInt64,
+      `histogram_bounds` Array(Float64),
+      `histogram_counts` Array(UInt64),
+      `trace_id` String,
+      `span_id` String,
+      `trace_flags` Int32,
+      `has_labels` Bool,
+      `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool,
+      `instrumentation_scope` String,
+      `resource_attributes` Map(LowCardinality(String), String),
+      `attributes` Map(LowCardinality(String), String),
+      `_partition` UInt32,
+      `_topic` String,
+      `_offset` UInt64
+  )
+  ENGINE = Null
   
   '''
 # ---
@@ -10779,6 +11744,24 @@
       -- the newest known mapping for it in the table. Query side we will need to
       -- ensure that we are always querying the latest version of the mapping.
       ORDER BY (team_id, old_person_id)
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[person_property_mutation_log_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_property_mutation_log_data
+  (
+      team_id Int64,
+      event_uuid UUID,
+      properties String,
+      ingested_at DateTime('UTC')
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at)
+  PARTITION BY toDate(ingested_at)
+  ORDER BY (team_id, event_uuid)
+  TTL ingested_at + INTERVAL 30 DAY
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -11006,6 +11989,7 @@
       issue_name Nullable(VARCHAR),
       issue_description Nullable(VARCHAR),
       issue_status VARCHAR,
+      issue_severity Nullable(VARCHAR),
       assigned_user_id Nullable(Int64),
       assigned_role_id Nullable(UUID),
       first_seen DateTime64(3, 'UTC'),
@@ -11191,6 +12175,33 @@
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_billing_usage_records]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_billing_usage_records
+  (
+      schema_version UInt8,
+      record_id String,
+      producer_id LowCardinality(String),
+      team_id Int64,
+      organization_id UUID,
+      usage_key LowCardinality(String),
+      unit LowCardinality(String),
+      quantity Int64,
+      timestamp DateTime64(6, 'UTC'),
+      inserted_at DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id)
   
   '''
 # ---
@@ -11540,7 +12551,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_events_recent', '{replica}', _timestamp)
   PARTITION BY toStartOfDay(inserted_at)
   ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
-  TTL toDateTime(inserted_at) + INTERVAL 7 DAY
+  TTL toDate(inserted_at) + INTERVAL 9 DAY
   SETTINGS storage_policy = 'hot_to_cold'
   SETTINGS ttl_only_drop_parts = 1
   
@@ -11611,6 +12622,56 @@
   ORDER BY (team_id, job_id, entity_id, timestamp, event_uuid)
   TTL expires_at
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_flag_evaluations]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_flag_evaluations
+  (
+      uuid UUID,
+      event LowCardinality(String),
+      properties String,
+      timestamp DateTime64(6, 'UTC'),
+      team_id Int64,
+      distinct_id String,
+      created_at DateTime64(6, 'UTC'),
+      person_id UUID,
+      inserted_at DateTime64(6, 'UTC') DEFAULT timestamp
+      
+      , $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
+      , $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
+      , $group_2 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2'
+      , $group_3 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3'
+      , $group_4 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
+      , flag_key String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag'
+      , response LowCardinality(String) DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_response'
+      , session_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$session_id'
+      , request_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id'
+  
+      
+      , INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX person_id_idx   person_id   TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX session_id_idx  session_id  TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1
+      , INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
+  
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.flag_evaluations', '{replica}')
+  -- Monthly, matching the events family. Daily partitions would put ~90 of them
+  -- under a 90-day TTL, and enough parts across them to strain merges. The cost
+  -- is coarser expiry: with ttl_only_drop_parts a part only drops once its newest
+  -- row expires, so rows survive up to a month past the TTL.
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id))
+  
+  SETTINGS ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -12433,6 +13494,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -13330,6 +14392,7 @@
       snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),

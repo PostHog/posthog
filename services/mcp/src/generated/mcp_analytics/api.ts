@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * Create a new MCP feedback submission for the current project.
  */
-export const McpAnalyticsFeedbackCreateParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsFeedbackCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -46,7 +46,7 @@ export const mcpAnalyticsFeedbackCreateBodyFeedbackMax = 5000
 
 export const mcpAnalyticsFeedbackCreateBodyCategoryDefault = `other`
 
-export const McpAnalyticsFeedbackCreateBody = /* @__PURE__ */ zod.object({
+export const McpAnalyticsFeedbackCreateBody = () => zod.object({
     attempted_tool: zod
         .string()
         .max(mcpAnalyticsFeedbackCreateBodyAttemptedToolMax)
@@ -104,7 +104,7 @@ export const McpAnalyticsFeedbackCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Return the most recent intent cluster snapshot for the current project. Returns an empty IDLE snapshot when no clustering run has happened yet.
  */
-export const McpAnalyticsIntentClustersRetrieveParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsIntentClustersRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -112,10 +112,19 @@ export const McpAnalyticsIntentClustersRetrieveParams = /* @__PURE__ */ zod.obje
         ),
 })
 
+export const McpAnalyticsIntentClustersRetrieveQueryParams = () => zod.object({
+    tool: zod
+        .string()
+        .optional()
+        .describe(
+            "Narrow the response to one tool: its pivot entry, the clusters it serves or switches with, and the overlap pairs it belongs to. Coverage meta stays whole-snapshot. Use this for single-tool views so they don't download every cluster and pivot to render one row. An unknown tool returns empty sections, not a 404."
+        ),
+})
+
 /**
  * Trigger an asynchronous recompute of the intent cluster snapshot. The task runs in the background; poll the GET endpoint for progress (status transitions to 'idle' or 'error').
  */
-export const McpAnalyticsIntentClustersRecomputeParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsIntentClustersRecomputeParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -126,7 +135,7 @@ export const McpAnalyticsIntentClustersRecomputeParams = /* @__PURE__ */ zod.obj
 /**
  * Create a new missing capability report for the current project.
  */
-export const McpAnalyticsMissingCapabilitiesCreateParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsMissingCapabilitiesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -161,7 +170,7 @@ export const mcpAnalyticsMissingCapabilitiesCreateBodyMissingCapabilityMax = 500
 
 export const mcpAnalyticsMissingCapabilitiesCreateBodyBlockedDefault = true
 
-export const McpAnalyticsMissingCapabilitiesCreateBody = /* @__PURE__ */ zod.object({
+export const McpAnalyticsMissingCapabilitiesCreateBody = () => zod.object({
     attempted_tool: zod
         .string()
         .max(mcpAnalyticsMissingCapabilitiesCreateBodyAttemptedToolMax)
@@ -214,7 +223,7 @@ export const McpAnalyticsMissingCapabilitiesCreateBody = /* @__PURE__ */ zod.obj
 /**
  * List MCP sessions for the current project, derived by grouping $mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.
  */
-export const McpAnalyticsSessionsListParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsSessionsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -231,7 +240,7 @@ export const mcpAnalyticsSessionsListQueryOffsetMin = 0
 export const mcpAnalyticsSessionsListQueryOrderByDefault = ``
 export const mcpAnalyticsSessionsListQuerySearchDefault = ``
 
-export const McpAnalyticsSessionsListQueryParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsSessionsListQueryParams = () => zod.object({
     date_from: zod
         .string()
         .optional()
@@ -272,7 +281,7 @@ export const McpAnalyticsSessionsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Generate (or return the cached) LLM summary of the agent's goal for a session, derived from its recorded $mcp_intents. The first call summarises and persists the result; subsequent calls return the stored summary.
  */
-export const McpAnalyticsSessionsGenerateIntentParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsSessionsGenerateIntentParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this mcp analytics submission.'),
     project_id: zod
         .string()
@@ -281,7 +290,7 @@ export const McpAnalyticsSessionsGenerateIntentParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const McpAnalyticsSessionsGenerateIntentQueryParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsSessionsGenerateIntentQueryParams = () => zod.object({
     date_from: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -293,7 +302,7 @@ export const McpAnalyticsSessionsGenerateIntentQueryParams = /* @__PURE__ */ zod
 /**
  * List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.
  */
-export const McpAnalyticsSessionsToolCallsParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsSessionsToolCallsParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this mcp analytics submission.'),
     project_id: zod
         .string()
@@ -308,7 +317,7 @@ export const mcpAnalyticsSessionsToolCallsQueryLimitMax = 500
 export const mcpAnalyticsSessionsToolCallsQueryOffsetDefault = 0
 export const mcpAnalyticsSessionsToolCallsQueryOffsetMin = 0
 
-export const McpAnalyticsSessionsToolCallsQueryParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsSessionsToolCallsQueryParams = () => zod.object({
     date_from: zod.iso
         .datetime({ offset: true })
         .optional()

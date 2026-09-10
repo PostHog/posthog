@@ -6,7 +6,9 @@
 #![allow(clippy::disallowed_methods)]
 
 use std::cell::Cell;
-use std::collections::HashSet;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -179,6 +181,16 @@ pub enum StoreError {
     )]
     SchemaMismatch { found: Option<u32>, expected: u32 },
 
+    /// A batched read answered fewer slots than it was asked keys. RocksDB answers one slot per
+    /// key, so this is a backend contract break rather than a data problem, and pairing a slot
+    /// with the wrong key would attribute one person's stored state to another.
+    #[error("{op}: batched read answered {answered} of {asked} keys")]
+    ShortRead {
+        op: &'static str,
+        asked: usize,
+        answered: usize,
+    },
+
     #[error("store offload cancelled by runtime shutdown")]
     OffloadCancelled,
 }
@@ -188,10 +200,15 @@ pub type RawKv = (Vec<u8>, Vec<u8>);
 
 #[derive(Debug, Default)]
 struct Stage2DirtyTracking {
-    /// The set of cohort prefixes with a reconcile drain currently capturing dirty rows. At most one
-    /// job per prefix ever holds a lease (admission supersedes same `(partition, team, cohort)`, and
-    /// the partition worker is serial), so a set — not a refcount — models the real invariant.
-    active: RwLock<HashSet<Stage2CohortPrefix>>,
+    /// Cohort prefixes with a reconcile drain currently capturing dirty rows, refcounted by lease.
+    ///
+    /// No path holds two leases on one prefix today: the prefix carries `partition_id`, there is one
+    /// `ReconcileQueue` per partition worker, and only that queue's head is ever leased — kind-scoped
+    /// supersession puts a mixed cohort's two runs in the same queue, not in the same lease. Counting
+    /// rather than setting is what keeps this correct if that ever stops holding: the last release
+    /// wins instead of the first, so capture stays on for the surviving job rather than silently
+    /// dropping every concurrent mutation from its snapshot.
+    active: RwLock<HashMap<Stage2CohortPrefix, NonZeroUsize>>,
     active_count: AtomicUsize,
 }
 
@@ -201,11 +218,10 @@ impl Stage2DirtyTracking {
             .active
             .write()
             .expect("Stage 2 dirty-tracking lock is not held across fallible work");
-        let inserted = active.insert(prefix);
-        debug_assert!(
-            inserted,
-            "a cohort prefix cannot hold two dirty-tracking leases"
-        );
+        active
+            .entry(prefix)
+            .and_modify(|leases| *leases = leases.saturating_add(1))
+            .or_insert(NonZeroUsize::MIN);
         self.active_count.fetch_add(1, Ordering::Release);
         Stage2DirtyTrackingGuard {
             tracking: self.clone(),
@@ -226,7 +242,7 @@ impl Stage2DirtyTracking {
         self.active
             .read()
             .expect("Stage 2 dirty-tracking lock is not held across fallible work")
-            .contains(&prefix)
+            .contains_key(&prefix)
     }
 
     /// The dirty marker to stage for a `cf_stage2` write, or `None` when no drain tracks its cohort.
@@ -239,12 +255,20 @@ impl Stage2DirtyTracking {
     }
 
     fn release(&self, prefix: Stage2CohortPrefix) {
-        let removed = self
+        let mut active = self
             .active
             .write()
-            .expect("Stage 2 dirty-tracking lock is not held across fallible work")
-            .remove(&prefix);
-        debug_assert!(removed, "every dirty-tracking guard owns one active lease");
+            .expect("Stage 2 dirty-tracking lock is not held across fallible work");
+        match active.entry(prefix) {
+            Entry::Occupied(mut entry) => match NonZeroUsize::new(entry.get().get() - 1) {
+                Some(remaining) => *entry.get_mut() = remaining,
+                None => {
+                    entry.remove();
+                }
+            },
+            Entry::Vacant(_) => debug_assert!(false, "every guard owns one active lease"),
+        }
+        drop(active);
         let previous = self.active_count.fetch_sub(1, Ordering::Release);
         debug_assert!(previous > 0, "dirty-tracking reference count underflow");
     }
@@ -422,22 +446,33 @@ impl CohortStore {
         self.get(Cf::Behavioral, &key.encode())
     }
 
-    /// Batch-read several `cf_behavioral` values in one call, preserving input order.
-    pub fn multi_get_behavioral(
+    /// One batched read of `cf`, preserving input order. Every typed `multi_get_*` routes through
+    /// it, so none can skip the empty-batch or answer-length checks or label its errors differently.
+    fn multi_get_ordered<K, B: AsRef<[u8]>>(
         &self,
-        keys: &[BehavioralKey],
+        cf: Cf,
+        keys: &[K],
+        encode: impl Fn(&K) -> B,
     ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
         // An empty batch is not a read: skip it so it records no phantom read-latency sample.
         if keys.is_empty() {
             return Ok(Vec::new());
         }
-        let handle = self.cf(Cf::Behavioral)?;
-        let encoded: Vec<_> = keys.iter().map(BehavioralKey::encode).collect();
+        let handle = self.cf(cf)?;
+        let encoded: Vec<B> = keys.iter().map(encode).collect();
         let started = Instant::now();
         let results = self
             .db
-            .multi_get_cf(encoded.iter().map(|key| (handle, key.as_slice())));
+            .multi_get_cf(encoded.iter().map(|key| (handle, key.as_ref())));
         record_multi_get(started, keys.len());
+        if results.len() != keys.len() {
+            counter!(STORE_ERRORS_TOTAL, "op" => OP_MULTI_GET).increment(1);
+            return Err(StoreError::ShortRead {
+                op: OP_MULTI_GET,
+                asked: keys.len(),
+                answered: results.len(),
+            });
+        }
         results
             .into_iter()
             .map(|result| {
@@ -450,6 +485,30 @@ impl CohortStore {
                 })
             })
             .collect()
+    }
+
+    /// Batch-read several `cf_behavioral` values in one call, preserving input order.
+    pub fn multi_get_behavioral(
+        &self,
+        keys: &[BehavioralKey],
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        self.multi_get_ordered(Cf::Behavioral, keys, BehavioralKey::encode)
+    }
+
+    /// Batch-read several `cf_person_records` values in one call, preserving input order.
+    pub fn multi_get_person_records(
+        &self,
+        keys: &[PersonRecordKey],
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        self.multi_get_ordered(Cf::PersonRecords, keys, PersonRecordKey::encode)
+    }
+
+    /// Batch-read several `cf_merge_tombstones` values in one call, preserving input order.
+    pub fn multi_get_tombstones(
+        &self,
+        keys: &[TombstoneKey],
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        self.multi_get_ordered(Cf::MergeTombstones, keys, TombstoneKey::encode)
     }
 
     /// Point-read one person's `cf_person_records` value as raw bytes. Decoding into a
@@ -583,29 +642,7 @@ impl CohortStore {
 
     /// Batch-read several `cf_stage2` values in one call, preserving input order.
     pub fn multi_get_stage2(&self, keys: &[Stage2Key]) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
-        // An empty batch is not a read: skip it so it records no phantom read-latency sample.
-        if keys.is_empty() {
-            return Ok(Vec::new());
-        }
-        let handle = self.cf(Cf::Stage2)?;
-        let encoded: Vec<_> = keys.iter().map(Stage2Key::encode).collect();
-        let started = Instant::now();
-        let results = self
-            .db
-            .multi_get_cf(encoded.iter().map(|key| (handle, key.as_slice())));
-        record_multi_get(started, keys.len());
-        results
-            .into_iter()
-            .map(|result| {
-                result.map_err(|source| {
-                    counter!(STORE_ERRORS_TOTAL, "op" => OP_MULTI_GET).increment(1);
-                    StoreError::Backend {
-                        op: OP_MULTI_GET,
-                        source,
-                    }
-                })
-            })
-            .collect()
+        self.multi_get_ordered(Cf::Stage2, keys, Stage2Key::encode)
     }
 
     /// Scan up to `limit` keys in one partition/team/cohort slice of `cf_stage2`, in person order,
@@ -1436,6 +1473,14 @@ mod tests {
         PersonRecordKey::new(partition, 7, Uuid::from_u128(person))
     }
 
+    fn tombstone_key(person: u128) -> TombstoneKey {
+        TombstoneKey {
+            partition_id: 3,
+            team_id: 7,
+            person: Uuid::from_u128(person),
+        }
+    }
+
     #[test]
     fn wipe_on_start_clears_existing_state_and_is_a_noop_when_off() {
         let dir = TempDir::new().unwrap();
@@ -1620,6 +1665,65 @@ mod tests {
             store.multi_get_behavioral(&[]).unwrap().is_empty(),
             "an empty key set reads no values",
         );
+    }
+
+    /// A hole that shifted the answers would pair one person's record with another person's key,
+    /// folding a seed onto the wrong state.
+    #[test]
+    fn multi_get_person_records_preserves_order_and_reports_absent_keys() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        let a = record_key(3, 1);
+        let b = record_key(3, 2);
+        let absent = record_key(3, 9);
+        store
+            .write_batch(|batch| {
+                batch.put::<PersonRecords>(&a, b"alpha");
+                batch.put::<PersonRecords>(&b, b"bravo");
+            })
+            .unwrap();
+
+        let results = store.multi_get_person_records(&[a, absent, b]).unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].as_deref(), Some(b"alpha".as_slice()));
+        assert_eq!(results[1], None);
+        assert_eq!(results[2].as_deref(), Some(b"bravo".as_slice()));
+
+        assert!(store.multi_get_person_records(&[]).unwrap().is_empty());
+    }
+
+    /// A shifted answer here would route a seed through another person's merge chain.
+    #[test]
+    fn multi_get_tombstones_preserves_order_and_reports_absent_keys() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        let a = tombstone_key(1);
+        let b = tombstone_key(2);
+        let absent = tombstone_key(9);
+        store
+            .write_batch(|batch| {
+                batch.put_tombstone(&a, b"alpha");
+                batch.put_tombstone(&b, b"bravo");
+            })
+            .unwrap();
+
+        let results = store.multi_get_tombstones(&[a, absent, b]).unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].as_deref(), Some(b"alpha".as_slice()));
+        assert_eq!(results[1], None);
+        assert_eq!(results[2].as_deref(), Some(b"bravo".as_slice()));
+
+        assert!(store.multi_get_tombstones(&[]).unwrap().is_empty());
     }
 
     #[test]
@@ -1881,6 +1985,53 @@ mod tests {
                 .unwrap()
                 .is_empty(),
             "idle Stage 2 writes do not accumulate permanent dirty metadata",
+        );
+    }
+
+    #[test]
+    fn stage2_dirty_capture_survives_until_the_last_lease_releases() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        let key = Stage2Key {
+            partition_id: 3,
+            team_id: 7,
+            cohort_id: 100,
+            person_id: Uuid::from_u128(1),
+        };
+        let prefix = key.cohort_prefix();
+
+        // No production path holds two leases on one prefix today, but the refcount is what keeps
+        // capture on for a surviving lease if that ever changes — the last release must win, not
+        // the first.
+        let first = store.track_stage2_dirty(prefix);
+        let second = store.track_stage2_dirty(prefix);
+        drop(first);
+        store
+            .write_batch(|batch| batch.put_stage2(&key, b"during"))
+            .unwrap();
+        assert_eq!(
+            store.scan_stage2_dirty(prefix, None, 10).unwrap().len(),
+            1,
+            "capture stays on while any lease is held",
+        );
+
+        drop(second);
+        store
+            .write_batch(|batch| {
+                batch.delete_stage2_dirty(&Stage2DirtyKey::new(key));
+                batch.put_stage2(&key, b"after");
+            })
+            .unwrap();
+        assert!(
+            store
+                .scan_stage2_dirty(prefix, None, 10)
+                .unwrap()
+                .is_empty(),
+            "the last release disables capture",
         );
     }
 

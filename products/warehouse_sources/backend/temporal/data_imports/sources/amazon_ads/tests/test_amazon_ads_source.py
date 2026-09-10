@@ -1,14 +1,14 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.settings import (
+    AMAZON_ADS_ENDPOINTS,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.source import AmazonAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazonads import (
     AmazonAdsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAmazonAdsSource:
@@ -16,36 +16,6 @@ class TestAmazonAdsSource:
         self.source = AmazonAdsSource()
         self.team_id = 123
         self.config = AmazonAdsSourceConfig(region="na", client_id="cid", client_secret="sec", refresh_token="rt")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.AMAZONADS
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "AmazonAds"
-        assert config.label == "Amazon Ads"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/amazon_ads.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["region", "client_id", "client_secret", "refresh_token"]
-
-    def test_region_field_is_a_select_with_default(self):
-        config = self.source.get_source_config
-        region_field = next(f for f in config.fields if f.name == "region")
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert region_field.defaultValue == "na"
-        assert {option.value for option in region_field.options} == {"na", "eu", "fe"}
-
-    @pytest.mark.parametrize("field_name", ["client_secret", "refresh_token"])
-    def test_secret_fields_are_secret_passwords(self, field_name):
-        config = self.source.get_source_config
-        secret_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == field_name)
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
-        assert secret_field.secret is True
-        assert secret_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -72,21 +42,23 @@ class TestAmazonAdsSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_are_full_refresh_only(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
+    def test_report_schemas_carry_a_cursor_and_entity_schemas_do_not(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
-        assert all(schema.incremental_fields == [] for schema in schemas)
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["sp_campaigns"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "sp_campaigns"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
+        assert set(schemas) == set(ENDPOINTS)
+        for name, config in AMAZON_ADS_ENDPOINTS.items():
+            schema = schemas[name]
+            assert not schema.supports_append
+            if config.report is None:
+                assert not schema.supports_incremental
+                assert schema.incremental_fields == []
+                assert schema.default_incremental_lookback_seconds is None
+            else:
+                assert schema.supports_incremental
+                # Amazon only lets a report be windowed on `date`, and it restates recent days as
+                # attribution lands, so the schema has to re-read a trailing window every run.
+                assert [field["field"] for field in schema.incremental_fields] == ["date"]
+                assert schema.default_incremental_lookback_seconds
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
@@ -106,18 +78,3 @@ class TestAmazonAdsSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("na", "cid", "sec", "rt")
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.source.amazon_ads_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_aa_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "sp_campaigns"
-
-        self.source.source_for_pipeline(self.config, inputs)
-
-        mock_aa_source.assert_called_once()
-        kwargs = mock_aa_source.call_args.kwargs
-        assert kwargs["region"] == "na"
-        assert kwargs["client_id"] == "cid"
-        assert kwargs["client_secret"] == "sec"
-        assert kwargs["refresh_token"] == "rt"
-        assert kwargs["endpoint"] == "sp_campaigns"

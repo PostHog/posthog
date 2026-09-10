@@ -1,17 +1,18 @@
-import { Node } from '~/queries/schema/schema-general'
+import { MarketingAnalyticsDrillDownLevel, Node } from '~/queries/schema/schema-general'
 import {
     isAccountsQuery,
+    isAccountsTableQuery,
     isActorsQuery,
     isEndpointsUsageTableQuery,
     isEventsQuery,
     isGroupsQuery,
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
-    isNonIntegratedConversionsTableQuery,
     isPersonsNode,
     isSessionAttributionExplorerQuery,
     isSessionsQuery,
     isTracesQuery,
+    isWebBotsTableQuery,
     isWebExternalClicksQuery,
     isWebGoalsQuery,
     isWebOverviewQuery,
@@ -40,8 +41,8 @@ export enum QueryFeature {
     testAccountFilters,
     supportTracesFilters,
     highlightExceptionEventRows,
-    /** Enables cell and row actions for non-integrated conversions mapping */
-    nonIntegratedConversionsActions,
+    /** Enables cell actions to map a campaign or source onto an integration */
+    campaignMappingActions,
     showCount,
 }
 
@@ -113,6 +114,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     if (
         isWebOverviewQuery(query) ||
         isWebExternalClicksQuery(query) ||
+        isWebBotsTableQuery(query) ||
         isWebStatsTableQuery(query) ||
         isWebGoalsQuery(query)
     ) {
@@ -127,14 +129,14 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.selectAndOrderByColumns)
-    }
-
-    if (isNonIntegratedConversionsTableQuery(query)) {
-        features.add(QueryFeature.columnsInResponse)
-        features.add(QueryFeature.resultIsArrayOfArrays)
-        features.add(QueryFeature.displayResponseError)
-        features.add(QueryFeature.selectAndOrderByColumns)
-        features.add(QueryFeature.nonIntegratedConversionsActions)
+        // Ad group and ad levels keep Campaign and Source as parent context, where they hold the
+        // platform's own names rather than the UTM tags a mapping works on.
+        if (
+            query.drillDownLevel !== MarketingAnalyticsDrillDownLevel.AdGroup &&
+            query.drillDownLevel !== MarketingAnalyticsDrillDownLevel.Ad
+        ) {
+            features.add(QueryFeature.campaignMappingActions)
+        }
     }
 
     if (isTracesQuery(query)) {
@@ -159,6 +161,10 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.selectAndOrderByColumns)
+    }
+
+    if (isAccountsTableQuery(query)) {
+        features.add(QueryFeature.displayResponseError)
     }
 
     return features

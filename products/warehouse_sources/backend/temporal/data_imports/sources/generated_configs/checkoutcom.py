@@ -11,3 +11,4 @@ class CheckoutComSourceConfig(config.Config):
     client_id: str
     client_secret: str
     environment: Literal["production", "sandbox"] = config.value(default="production")
+    start_date: str | None = None

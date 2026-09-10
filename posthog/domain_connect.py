@@ -23,6 +23,8 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 from posthog.schema import DomainConnectProviderName
 
+from posthog.dataclasses import frozen
+
 logger = logging.getLogger(__name__)
 
 # Maps _domainconnect TXT record values (provider endpoints) to display names.
@@ -106,8 +108,9 @@ def build_sync_apply_url(
     Constructs the URL that the user's browser is redirected to in order to
     approve DNS record changes at their provider.
 
-    If host is provided, it is included as a protocol-level parameter (used with
-    hostRequired templates to scope the template to a specific subdomain).
+    If host is provided, it is included as a protocol-level parameter. The provider
+    prefixes it to the host of each template record, which scopes the template to a
+    subdomain. Templates that set hostRequired must get one.
 
     If private_key is provided, the query string is signed with RS256 and
     sig= / key= parameters are appended (required by providers like Cloudflare).
@@ -159,8 +162,14 @@ def get_key_id() -> str:
     return getattr(settings, "DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
 
 
-def extract_root_domain_and_host(full_domain: str) -> tuple[str, str]:
-    """Split a full domain into (root_domain, host_prefix).
+@frozen
+class DomainParts:
+    root_domain: str
+    host: str
+
+
+def extract_root_domain_and_host(full_domain: str, *, include_private_suffixes: bool = False) -> DomainParts:
+    """Split a full domain into its root domain and host prefix.
 
     Examples:
         "ph.example.com"            → ("example.com", "ph")
@@ -170,12 +179,12 @@ def extract_root_domain_and_host(full_domain: str) -> tuple[str, str]:
     Uses the Public Suffix List via tldextract for correct TLD handling.
     """
     full_domain = full_domain.rstrip(".")
-    ext = tldextract.extract(full_domain)
+    ext = tldextract.extract(full_domain, include_psl_private_domains=include_private_suffixes)
     if ext.suffix:
         root = f"{ext.domain}.{ext.suffix}"
     else:
         root = ext.domain or full_domain
-    return (root, ext.subdomain)
+    return DomainParts(root_domain=root, host=ext.subdomain)
 
 
 def get_service_id_for_region(service_prefix: str) -> str:
@@ -195,10 +204,26 @@ def get_available_providers() -> list[dict[str, str]]:
 
 
 # --- Context resolvers ---
-# Each resolver returns (domain, service_id, variables) for a specific use case.
 
 
-def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, dict[str, str]]:
+@frozen
+class DomainConnectContext:
+    """The Domain Connect parameters for one use case.
+
+    Discovery and provider settings are always keyed on `root_domain`, because the
+    `_domainconnect` TXT record lives at the registrable domain and never at a
+    subdomain. `host` is the subdomain prefix, which scopes the template records to
+    the part of the zone the user configured. Keep the two apart, or a subdomain
+    fails discovery at its DNS provider.
+    """
+
+    root_domain: str
+    host: str
+    service_id: str
+    variables: dict[str, str]
+
+
+def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectContext:
     """Resolve Domain Connect parameters for an email integration.
 
     Triggers SES verification to get current tokens, then extracts the
@@ -214,7 +239,7 @@ def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, 
     verification_result = email_integration.verify()
 
     dns_records = verification_result.get("dnsRecords", [])
-    domain = instance.config.get("domain", "")
+    domain_parts = extract_root_domain_and_host(instance.config.get("domain", ""))
     mail_from_subdomain = instance.config.get("mail_from_subdomain", "feedback")
 
     verify_token = ""
@@ -243,26 +268,36 @@ def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, 
         "mailFromSub": mail_from_subdomain,
         "sesRegion": ses_region,
     }
-    return (domain, service_id, variables)
+    # The template variables are bare SES tokens and a subdomain label, so they stay
+    # the same when the records move from the full sender domain to root plus host.
+    return DomainConnectContext(
+        root_domain=domain_parts.root_domain,
+        host=domain_parts.host,
+        service_id=service_id,
+        variables=variables,
+    )
 
 
-def resolve_proxy_context(proxy_record_id: str, organization_id: str) -> tuple[str, str, str, dict[str, str]]:
+def resolve_proxy_context(proxy_record_id: str, organization_id: str) -> DomainConnectContext:
     """Resolve Domain Connect parameters for a proxy record.
 
     Extracts the root domain and host from the proxy record's full domain.
-    Returns (domain, service_id, host, variables) — host is a protocol-level
-    parameter (for hostRequired templates), not a template variable.
     """
     from posthog.models import ProxyRecord
 
     record = ProxyRecord.objects.get(id=proxy_record_id, organization_id=organization_id)
-    root_domain, host = extract_root_domain_and_host(record.domain)
+    domain_parts = extract_root_domain_and_host(record.domain)
 
     service_id = get_service_id_for_region("reverse-proxy")
     variables = {
         "target": record.target_cname,
     }
-    return (root_domain, service_id, host, variables)
+    return DomainConnectContext(
+        root_domain=domain_parts.root_domain,
+        host=domain_parts.host,
+        service_id=service_id,
+        variables=variables,
+    )
 
 
 def generate_apply_url(

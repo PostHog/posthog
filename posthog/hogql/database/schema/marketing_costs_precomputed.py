@@ -1,7 +1,14 @@
+from typing import TYPE_CHECKING
+
+import posthoganalytics
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DateTimeDatabaseField, FieldOrTable, LazyTable, LazyTableToAdd
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 # Deduplicated read interface over `marketing_costs_preaggregated`. `job_id` is in the raw ReplacingMergeTree
 # sort key, so a re-materialized cell survives as several rows and a bare SUM double-counts; this view collapses
@@ -20,8 +27,49 @@ _LATEST = {"cost", "clicks", "impressions", "reported_conversions", "reported_co
 # flips, so the latest job's value wins instead.
 _LATEST_LABELS = {"match_key"}
 _ARGMAX = _LATEST | _LATEST_LABELS
-# Full cell identity — always GROUP BY all of it so each cell collapses independently.
-_DIMENSIONS = [c for c in _RAW_FIELDS if c not in _INTERNAL | _ARGMAX | {"timestamp"}]
+# Renamable display labels, which split a cell the same way match_key does. Folded only behind the flag, so
+# the wider dedup stays reversible without a second view.
+_IDENTITY_LABELS = {"campaign_name", "ad_group_name", "ad_name"}
+
+COSTS_DEDUP_V2_FLAG = "marketing-analytics-costs-dedup-v2"
+_FLAG_CACHE_ATTR = "_ma_costs_dedup_v2"
+
+
+def costs_dedup_v2_enabled(team: "Team | None") -> bool:
+    """Whether the renamable display labels are folded into argMax alongside the metrics.
+
+    Evaluated locally and cached on the team instance: this sits on the query-compile path, which runs once
+    per lazy-table resolution, so a network round trip or a `$feature_flag_called` event per query would be
+    a real cost. Falls back to the legacy grouping when the team is unavailable or the flag can't resolve.
+    """
+    if team is None:
+        return False
+    cached = getattr(team, _FLAG_CACHE_ATTR, None)
+    if cached is not None:
+        return cached
+    organization = team.organization
+    enabled = bool(
+        posthoganalytics.feature_enabled(
+            COSTS_DEDUP_V2_FLAG,
+            str(team.uuid),
+            groups={"organization": str(organization.id)},
+            group_properties={"organization": {"id": str(organization.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
+    setattr(team, _FLAG_CACHE_ATTR, enabled)
+    return enabled
+
+
+def _argmax_columns(dedup_labels_by_identity: bool) -> set[str]:
+    return _ARGMAX | _IDENTITY_LABELS if dedup_labels_by_identity else _ARGMAX
+
+
+def _dimension_columns(dedup_labels_by_identity: bool) -> list[str]:
+    # Full cell identity — always GROUP BY all of it so each cell collapses independently.
+    argmax = _argmax_columns(dedup_labels_by_identity)
+    return [c for c in _RAW_FIELDS if c not in _INTERNAL | argmax | {"timestamp"}]
 
 
 class MarketingCostsPrecomputedTable(LazyTable):
@@ -41,13 +89,16 @@ class MarketingCostsPrecomputedTable(LazyTable):
         self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
     ) -> ast.SelectQuery:
         requested = table_to_add.fields_accessed
+        dedup_labels_by_identity = costs_dedup_v2_enabled(context.team)
+        argmax = _argmax_columns(dedup_labels_by_identity)
+        dimensions = _dimension_columns(dedup_labels_by_identity)
 
         def raw(col: str) -> ast.Field:
             return ast.Field(chain=[_RAW, col])
 
         select_fields: list[ast.Expr] = []
         for name in requested:
-            if name in _ARGMAX:
+            if name in argmax:
                 expr: ast.Expr = ast.Call(name="argMax", args=[raw(name), raw("computed_at")])
             elif name == "timestamp":
                 expr = ast.Call(name="toDateTime", args=[raw("cost_date")])
@@ -58,7 +109,7 @@ class MarketingCostsPrecomputedTable(LazyTable):
         return ast.SelectQuery(
             select=select_fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "marketing_costs_preaggregated"]), alias=_RAW),
-            group_by=[raw(dim) for dim in _DIMENSIONS],
+            group_by=[raw(dim) for dim in dimensions],
         )
 
     def to_printed_clickhouse(self, context):

@@ -12,7 +12,8 @@ use std::sync::RwLock;
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
 use posthog_replay_anonymizer::{
-    snapshot, AllowLists, FailKind, ImageCollection, ImagePolicy, PhaseTimings,
+    is_public_host, politeness_key, snapshot, try_canonicalize, AllowLists, FailKind,
+    ImageCollection, ImagePolicy, PhaseTimings, UrlCollection,
 };
 use serde::Deserialize;
 
@@ -99,14 +100,18 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     };
     let pseudo_team = opt_string_arg(&mut cx, 2)?;
     let content_key = opt_string_arg(&mut cx, 3)?;
-    let image_collection = match (pseudo_team, content_key) {
+    let url_key = opt_string_arg(&mut cx, 4)?;
+    if pseudo_team.is_none() && content_key.is_some() {
+        return cx.throw_error("contentKey requires pseudoTeam");
+    }
+    let image_collection = match (pseudo_team.clone(), content_key) {
         (Some(pseudo_team), Some(content_key)) => Some(ImageCollection {
             pseudo_team,
             content_key,
         }),
-        (None, None) => None,
-        _ => return cx.throw_error("pseudoTeam and contentKey must be passed together"),
+        _ => None,
     };
+    let url_collection = url_key.map(|url_key| UrlCollection { url_key });
     // Created on the JS thread so every offset shares one monotonic origin: the task-start mark
     // becomes the threadpool queue wait, and no wall clock is involved.
     let timings = PhaseTimings::new();
@@ -131,7 +136,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     };
                 timings.decompress_finished();
                 timings.scrub_started();
-                let scrubbed = snapshot::anonymize_kafka_payload_timed(
+                let scrubbed = snapshot::anonymize_kafka_payload_collecting(
                     allow,
                     &mut payload,
                     snapshot::AnonymizeOpts {
@@ -140,6 +145,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     },
                     Some(&timings),
                     image_collection,
+                    url_collection,
                 );
                 timings.scrub_finished();
                 match scrubbed {
@@ -222,9 +228,53 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     Ok(promise)
 }
 
+/// The registrable domain of a host. It needs no initialized state, so a lane that only fetches
+/// never calls `initAnonymizer`.
+fn politeness_key_ffi(mut cx: FunctionContext) -> JsResult<JsString> {
+    let host = cx.argument::<JsString>(0)?.value(&mut cx);
+    Ok(cx.string(politeness_key(&host)))
+}
+
+/// Whether the fetch lane may send a request to a host. It needs no initialized state, so a lane
+/// that only fetches never calls `initAnonymizer`.
+fn is_public_host_ffi(mut cx: FunctionContext) -> JsResult<JsBoolean> {
+    let host = cx.argument::<JsString>(0)?.value(&mut cx);
+    Ok(cx.boolean(is_public_host(&host)))
+}
+
+/// The URL policy's verdict for one URL: its canonical forms, or under `decline` the label of the
+/// rule that refused it. The fetch lane reads the label so that it can drop a beacon job without
+/// rejecting the record that carries it.
+fn try_canonicalize_url_ffi(mut cx: FunctionContext) -> JsResult<JsObject> {
+    let raw = cx.argument::<JsString>(0)?.value(&mut cx);
+    let result = cx.empty_object();
+    match try_canonicalize(&raw) {
+        Ok(canonical) => {
+            let fetch = cx.string(canonical.fetch);
+            result.set(&mut cx, "fetch", fetch)?;
+            let dedup = cx.string(canonical.dedup);
+            result.set(&mut cx, "dedup", dedup)?;
+            let host = cx.string(canonical.host);
+            result.set(&mut cx, "host", host)?;
+            let domain = cx.string(canonical.domain);
+            result.set(&mut cx, "domain", domain)?;
+        }
+        Err(decline) => {
+            let label = cx.string(decline.label());
+            result.set(&mut cx, "decline", label)?;
+            let unwanted = cx.boolean(decline.is_unwanted());
+            result.set(&mut cx, "unwanted", unwanted)?;
+        }
+    }
+    Ok(result)
+}
+
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("initAnonymizer", init_anonymizer)?;
     cx.export_function("anonymizeKafkaPayload", anonymize_kafka_payload_ffi)?;
+    cx.export_function("politenessKey", politeness_key_ffi)?;
+    cx.export_function("isPublicHost", is_public_host_ffi)?;
+    cx.export_function("tryCanonicalizeUrl", try_canonicalize_url_ffi)?;
     Ok(())
 }

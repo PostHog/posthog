@@ -52,10 +52,6 @@ class TestProductStripeBuilder(StripeSourceBaseTest):
             [{"name": PRODUCT_RESOURCE_NAME, "table_name": None}]
         )
 
-        # Set the table to None to simulate missing table
-        product_schema = self.get_stripe_schema_by_name(PRODUCT_RESOURCE_NAME)
-        product_schema.table = None
-
         query = build(self.stripe_handle)
 
         # Test the query structure

@@ -3,7 +3,10 @@ from enum import StrEnum
 
 from posthog.schema import AlertState
 
+from posthog.dataclasses import frozen
 from posthog.slo.types import SloConfig
+
+DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN = 300
 
 
 class PrepareAction(StrEnum):
@@ -31,6 +34,11 @@ class AlertInfo:
     insight_id: int
 
 
+@frozen
+class ScheduleDueAlertChecksWorkflowInputs:
+    max_alerts_per_run: int = DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN
+
+
 @dataclasses.dataclass(frozen=True)
 class CheckAlertWorkflowInputs:
     alert_id: str
@@ -55,6 +63,19 @@ class PrepareAlertResult:
 @dataclasses.dataclass(frozen=True)
 class EvaluateAlertActivityInputs:
     alert_id: str
+
+
+@dataclasses.dataclass(frozen=True)
+class RecordFailedEvaluationActivityInputs:
+    alert_id: str
+    error_message: str
+
+
+@dataclasses.dataclass(frozen=True)
+class RecordFailedEvaluationResult:
+    # None when there is no alert left to record against, e.g. it was deleted mid-workflow.
+    alert_check_id: str | None = None
+    should_notify: bool = False
 
 
 @dataclasses.dataclass(frozen=True)

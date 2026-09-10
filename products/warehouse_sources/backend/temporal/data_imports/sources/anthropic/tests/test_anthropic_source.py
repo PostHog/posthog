@@ -1,31 +1,13 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import AnthropicResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import ANTHROPIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-
-class TestAnthropicSourceConfig:
-    def test_source_type(self) -> None:
-        assert AnthropicSource().source_type == ExternalDataSourceType.ANTHROPIC
-
-    def test_config_exposes_single_secret_api_key_field(self) -> None:
-        config = AnthropicSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.ANTHROPIC
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/anthropic"
-        assert config.unreleasedSource is None
-        fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert [f.name for f in fields] == ["api_key"]
-        assert fields[0].secret is True and fields[0].required is True
+_CHECK_ANALYTICS_ACCESS = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source.check_analytics_access"
+)
 
 
 class TestAnthropicSchemas:
@@ -37,11 +19,13 @@ class TestAnthropicSchemas:
             "workspaces",
             "api_keys",
             "workspace_members",
-            "service_accounts",
             "usage_report",
             "cost_report",
             "claude_code_analytics",
             "claude_code_model_breakdown",
+            "analytics_user_activity",
+            "analytics_user_cost",
+            "analytics_user_usage",
         }
 
     @parameterized.expand([("usage_report",), ("cost_report",)])
@@ -62,9 +46,7 @@ class TestAnthropicSchemas:
         assert [f["field"] for f in schema.incremental_fields] == ["date"]
         assert schema.default_incremental_lookback_seconds == 60 * 60 * 24
 
-    @parameterized.expand(
-        [("users",), ("workspaces",), ("api_keys",), ("workspace_members",), ("invites",), ("service_accounts",)]
-    )
+    @parameterized.expand([("users",), ("workspaces",), ("api_keys",), ("workspace_members",), ("invites",)])
     def test_entity_endpoints_are_full_refresh_only(self, endpoint: str) -> None:
         # No updated-since filter exists on the entity lists, so they must not advertise incremental.
         schema = next(s for s in AnthropicSource().get_schemas(MagicMock(), team_id=1) if s.name == endpoint)
@@ -75,12 +57,16 @@ class TestAnthropicSchemas:
         schemas = AnthropicSource().get_schemas(MagicMock(), team_id=1, names=["usage_report"])
         assert [s.name for s in schemas] == ["usage_report"]
 
-
-class TestAnthropicResumableManager:
-    def test_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = AnthropicSource().get_resumable_source_manager(inputs)
-        assert manager._data_class is AnthropicResumeConfig
+    def test_no_endpoint_targets_an_admin_key_forbidden_path(self) -> None:
+        # This source authenticates with an Admin API key, which Anthropic does not accept on its
+        # service-account or federation endpoints (those require an org:admin OAuth token). An
+        # endpoint targeting one of those paths would fail every sync, so the catalog must exclude it.
+        offenders = [
+            name
+            for name, config in ANTHROPIC_ENDPOINTS.items()
+            if "service_accounts" in config.path or "/federation" in config.path
+        ]
+        assert offenders == []
 
 
 class TestAnthropicSourceForPipeline:
@@ -99,9 +85,11 @@ class TestAnthropicSourceForPipeline:
             ("cost_report", ["id"], "datetime"),
             ("users", ["id"], "datetime"),
             ("workspace_members", ["workspace_id", "user_id"], None),
-            ("service_accounts", ["workspace_id", "id"], "datetime"),
             ("claude_code_analytics", ["id"], "datetime"),
             ("claude_code_model_breakdown", ["id"], "datetime"),
+            ("analytics_user_activity", ["id"], "datetime"),
+            ("analytics_user_cost", ["id"], "datetime"),
+            ("analytics_user_usage", ["id"], "datetime"),
         ]
     )
     def test_primary_keys_and_partitioning(
@@ -125,3 +113,21 @@ class TestDocumentedTables:
         usage = next(t for t in tables if t["name"] == "usage_report")
         assert "Incremental" in usage["sync_methods"]
         assert usage["description"]  # canonical description is surfaced
+
+
+class TestAnalyticsEndpointPermissions:
+    @patch(_CHECK_ANALYTICS_ACCESS, return_value="needs read:analytics")
+    def test_only_the_analytics_tables_carry_the_probe_result(self, _probe) -> None:
+        permissions = AnthropicSource().get_endpoint_permissions(
+            MagicMock(api_key="sk-ant-admin-test"), team_id=1, endpoints=["users", "analytics_user_cost"]
+        )
+        assert permissions == {"users": None, "analytics_user_cost": "needs read:analytics"}
+
+    @patch(_CHECK_ANALYTICS_ACCESS)
+    def test_no_probe_when_no_analytics_table_is_requested(self, probe) -> None:
+        # The probe is a live request, so schema discovery must not pay for it unless a table needs it.
+        permissions = AnthropicSource().get_endpoint_permissions(
+            MagicMock(api_key="sk-ant-admin-test"), team_id=1, endpoints=["users", "cost_report"]
+        )
+        assert permissions == {"users": None, "cost_report": None}
+        probe.assert_not_called()

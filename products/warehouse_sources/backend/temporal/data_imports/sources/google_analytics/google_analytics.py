@@ -4,17 +4,18 @@ import dataclasses
 import collections.abc
 from typing import Any
 
-from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
 import requests
 import structlog
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -22,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleAnalyticsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.settings import (
-    GOOGLE_ANALYTICS_REPORT_SCHEMAS,
+    build_report_schemas,
 )
 
 logger = structlog.get_logger(__name__)
@@ -107,11 +108,12 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     integration = _get_integration(integration_id, team_id)
+    resolved = integration_secrets.get_secrets(["GOOGLE_ANALYTICS_APP_CLIENT_ID", "GOOGLE_ANALYTICS_APP_CLIENT_SECRET"])
     return OAuthCredentials(
         token=None,
         refresh_token=integration.refresh_token,
-        client_id=settings.GOOGLE_ANALYTICS_APP_CLIENT_ID,
-        client_secret=settings.GOOGLE_ANALYTICS_APP_CLIENT_SECRET,
+        client_id=resolved["GOOGLE_ANALYTICS_APP_CLIENT_ID"],
+        client_secret=resolved["GOOGLE_ANALYTICS_APP_CLIENT_SECRET"],
         token_uri="https://oauth2.googleapis.com/token",
         scopes=["https://www.googleapis.com/auth/analytics.readonly"],
     )
@@ -165,6 +167,23 @@ def _runreport_backoff_seconds(response: requests.Response, attempt: int) -> flo
     return RUNREPORT_BACKOFF_BASE_SECONDS * (2**attempt)
 
 
+def _is_transient_refresh_error(error: RefreshError) -> bool:
+    """Whether an OAuth token-refresh failure is a transient server-side blip worth retrying.
+
+    `AuthorizedSession` refreshes the access token before the Data API request, so a failing
+    token endpoint raises `RefreshError` from `session.post` before any response object exists —
+    the 5xx handling below never sees it. google-auth flags 500/503/504/408/429 (and JSON
+    `server_error`/`temporarily_unavailable`) as retryable, but omits 502 from its retryable
+    status codes, so a Bad Gateway from the token endpoint surfaces as a `RefreshError(retryable=False)`
+    carrying an HTML error page. Treat those as transient too. Permanent failures (`invalid_grant`,
+    `invalid_scope`) stay non-transient so they bubble up to `get_non_retryable_errors`.
+    """
+    if getattr(error, "retryable", False):
+        return True
+    message = str(error)
+    return "502" in message and "Server Error" in message
+
+
 def _run_report(
     session: AuthorizedSession,
     property_id: str,
@@ -188,7 +207,49 @@ def _run_report(
     url = f"{GA4_API_BASE}/properties/{pid}:runReport"
 
     for attempt in range(RUNREPORT_MAX_RETRIES + 1):
-        response = session.post(url, json=body)
+        try:
+            response = session.post(url, json=body)
+        except (
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ReadTimeout,
+        ) as e:
+            # The connection can drop before the response headers (ConnectionError / ReadTimeout) or
+            # part-way through the streamed body (ChunkedEncodingError). Neither leaves a status code
+            # for the 5xx handling below, and the shared adapter's DEFAULT_RETRY only retries GET,
+            # HEAD and OPTIONS, so this POST arrives here with no retry behind it. runReport is a
+            # read, so re-sending it is safe; back off inline like a 5xx, then let Temporal retry the
+            # activity and the resumable source restart from the last saved chunk.
+            if attempt == RUNREPORT_MAX_RETRIES:
+                raise
+            wait = RUNREPORT_BACKOFF_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "GA4 runReport connection dropped, backing off",
+                property_id=pid,
+                attempt=attempt,
+                wait_seconds=wait,
+                error=str(e),
+            )
+            time.sleep(wait)
+            continue
+        except RefreshError as e:
+            # A transient 5xx from Google's OAuth token endpoint (notably a 502, which
+            # google-auth doesn't count as retryable) is raised here while AuthorizedSession
+            # refreshes the access token, before any response exists. It clears on its own, so
+            # retry inline like a 5xx; permanent failures (invalid_grant / invalid_scope) bubble
+            # up so `get_non_retryable_errors` can stop the sync.
+            if not _is_transient_refresh_error(e) or attempt == RUNREPORT_MAX_RETRIES:
+                raise
+            wait = RUNREPORT_BACKOFF_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "GA4 runReport token refresh transient error, backing off",
+                property_id=pid,
+                attempt=attempt,
+                wait_seconds=wait,
+            )
+            time.sleep(wait)
+            continue
+
         if response.ok:
             return response.json()
 
@@ -299,10 +360,11 @@ def google_analytics_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
-    if resource_name not in GOOGLE_ANALYTICS_REPORT_SCHEMAS:
+    report_schemas = build_report_schemas(config.custom_reports)
+    if resource_name not in report_schemas:
         raise ValueError(f"Unknown Google Analytics schema: {resource_name}")
 
-    schema = GOOGLE_ANALYTICS_REPORT_SCHEMAS[resource_name]
+    schema = report_schemas[resource_name]
     dimensions = schema["dimensions"]
     metrics = schema["metrics"]
     primary_keys = list(schema["primary_key"])

@@ -1,5 +1,7 @@
 import json
+from collections.abc import Sequence
 from typing import Any, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -13,7 +15,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import capture_batch_internal, capture_internal
 from posthog.api.llm_prompt_serializers import (
     ALLOWED_LIST_ORDERINGS,
     LLMPromptDuplicateSerializer,
@@ -45,6 +47,7 @@ from posthog.api.services.llm_prompt import (
     archive_prompt,
     duplicate_prompt,
     get_active_prompt_queryset,
+    get_labeled_prompts_queryset,
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
     get_prompt_labels,
@@ -64,9 +67,9 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
@@ -123,8 +126,33 @@ class LLMPromptViewSet(
 
     def _prompt_not_found_response(self, prompt_name: str) -> Response:
         return Response(
-            {"detail": f"Prompt with name '{prompt_name}' not found."},
+            {
+                "detail": (
+                    f"No prompt matching '{prompt_name}' in this project. "
+                    "List the project's prompts to see which names exist."
+                )
+            },
             status=status.HTTP_404_NOT_FOUND,
+        )
+
+    def _resolve_prompt_name(self, prompt_name: str) -> str | None:
+        """Map the path segment onto a prompt name, accepting the `id` UUID of any of the prompt's
+        versions as well as the name itself. Both identify one prompt, and every list and get
+        response carries the id, so a caller holding one should not have to look the name up.
+        An id resolves to the prompt, never to the version it came from, so callers pin a version
+        with `version` or `label` rather than by holding that version's id.
+        Returns None when the segment is a UUID matching no prompt in this project."""
+        try:
+            version_id = UUID(prompt_name)
+        except ValueError:
+            return prompt_name
+        # Nothing stops a prompt from being named like a UUID, so the literal name wins the tie.
+        if LLMPrompt.objects.filter(team=self.team, deleted=False, name=prompt_name).exists():
+            return prompt_name
+        return (
+            LLMPrompt.objects.filter(team=self.team, deleted=False, id=version_id)
+            .values_list("name", flat=True)
+            .first()
         )
 
     def _serialize_prompt(self, prompt: LLMPrompt) -> dict[str, Any]:
@@ -164,10 +192,10 @@ class LLMPromptViewSet(
             prompt["config"] = prompt.get("config")
         return prompt
 
-    def _track_prompt_fetch(self, prompt: dict[str, Any]) -> None:
+    def _prompt_fetch_properties(self, prompt: dict[str, Any], fetch_path: str) -> dict[str, Any]:
         # prompt_label + prompt_version together answer "what was the production label
         # actually serving at time X" from the event stream alone.
-        properties = {
+        return {
             "prompt_id": prompt["id"],
             "prompt_name": prompt["name"],
             "prompt_version": prompt["version"],
@@ -175,7 +203,11 @@ class LLMPromptViewSet(
             "prompt_is_latest": prompt["is_latest"],
             "prompt_first_version_created_at": prompt["first_version_created_at"],
             "prompt_has_config": prompt.get("config") is not None,
+            "prompt_fetch_path": fetch_path,
         }
+
+    def _track_prompt_fetch(self, prompt: dict[str, Any]) -> None:
+        properties = self._prompt_fetch_properties(prompt, fetch_path="by_name")
         if not settings.TEST:
             try:
                 capture_internal(
@@ -191,6 +223,34 @@ class LLMPromptViewSet(
 
         report_team_action(self.team, "llma prompt fetched", properties)
 
+    def _track_labeled_list_fetches(self, prompts: Sequence[LLMPrompt], label: str) -> None:
+        # One batch call, not one capture_internal per prompt: capture_internal is a
+        # synchronous HTTP request, so per-prompt calls would multiply request latency
+        # by the page size.
+        properties_per_prompt = [
+            self._prompt_fetch_properties(self._labeled_list_fetch_payload(prompt, label), fetch_path="list")
+            for prompt in prompts
+        ]
+        if not settings.TEST and properties_per_prompt:
+            try:
+                capture_batch_internal(
+                    events=[
+                        {
+                            "event": PROMPT_FETCHED_EVENT,
+                            "distinct_id": str(self.team.uuid),
+                            "properties": properties,
+                        }
+                        for properties in properties_per_prompt
+                    ],
+                    token=self.team.api_token,
+                    event_source=PROMPT_FETCHED_EVENT_SOURCE,
+                )
+            except Exception as err:
+                capture_exception(err)
+
+        for properties in properties_per_prompt:
+            report_team_action(self.team, "llma prompt fetched", properties)
+
     def _get_list_params(self, request: Request) -> dict[str, Any]:
         serializer = LLMPromptListQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
@@ -199,7 +259,11 @@ class LLMPromptViewSet(
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMPrompt]:
         params = self._get_list_params(request)
 
-        queryset = get_latest_prompts_queryset(self.team).annotate(
+        label = params.get("label")
+        base_queryset = (
+            get_labeled_prompts_queryset(self.team, label) if label else get_latest_prompts_queryset(self.team)
+        )
+        queryset = base_queryset.annotate(
             prompt_size_bytes=Func(
                 Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()
             ),
@@ -264,11 +328,29 @@ class LLMPromptViewSet(
         version = cast(int | None, query_params.get("version"))
         label = cast(str | None, query_params.get("label"))
         content_mode = cast(str, query_params.get("content", "full"))
-        prompt = get_prompt_by_name_from_cache(self.team, prompt_name, version, label=label)
+        resolved_name = self._resolve_prompt_name(prompt_name)
+        if resolved_name is None:
+            return self._prompt_not_found_response(prompt_name)
+        prompt = get_prompt_by_name_from_cache(self.team, resolved_name, version, label=label)
         if prompt is None:
             if label is not None:
                 return Response(
-                    {"detail": f"Prompt '{prompt_name}' not found or has no label '{label}'."},
+                    {
+                        "detail": (
+                            f"No prompt matching '{prompt_name}' with label '{label}'. "
+                            "Fetch it without a label to see which labels it has."
+                        )
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if version is not None:
+                return Response(
+                    {
+                        "detail": (
+                            f"No prompt matching '{prompt_name}' at version {version}. "
+                            "Fetch it without a version to see which versions it has."
+                        )
+                    },
                     status=status.HTTP_404_NOT_FOUND,
                 )
             return self._prompt_not_found_response(prompt_name)
@@ -285,6 +367,11 @@ class LLMPromptViewSet(
         if auth_error is not None:
             return auth_error
 
+        # PATCH shares the GET's route, so the segment has to mean the same thing on both verbs.
+        resolved_name = self._resolve_prompt_name(prompt_name)
+        if resolved_name is None:
+            return self._prompt_not_found_response(prompt_name)
+
         payload = LLMPromptPublishSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
@@ -292,7 +379,7 @@ class LLMPromptViewSet(
             published_prompt = publish_prompt_version(
                 self.team,
                 user=cast(User, request.user),
-                prompt_name=prompt_name,
+                prompt_name=resolved_name,
                 prompt_payload=payload.validated_data.get("prompt"),
                 edits=payload.validated_data.get("edits"),
                 config=payload.validated_data.get("config"),
@@ -559,6 +646,18 @@ class LLMPromptViewSet(
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    def _labeled_list_fetch_payload(self, prompt: LLMPrompt, label: str) -> dict[str, Any]:
+        first_version_created_at = getattr(prompt, "first_version_created_at", None) or prompt.created_at
+        return {
+            "id": str(prompt.id),
+            "name": prompt.name,
+            "version": prompt.version,
+            "label": label,
+            "is_latest": prompt.is_latest,
+            "first_version_created_at": first_version_created_at.isoformat().replace("+00:00", "Z"),
+            "config": prompt.config,
+        }
+
     def _get_prompt_labels_map(self, prompt_names: list[str]) -> dict[str, list[dict[str, Any]]]:
         labels_map: dict[str, list[dict[str, Any]]] = {}
         labels = (
@@ -581,6 +680,13 @@ class LLMPromptViewSet(
         context = self.get_serializer_context()
         context["prompt_labels_by_name"] = self._get_prompt_labels_map([prompt.name for prompt in prompts])
         serializer = LLMPromptListSerializer(prompts, many=True, context=context)
+
+        label = self._get_list_params(request).get("label")
+        if label:
+            # Each prompt served through a labeled list counts as one fetch, matching
+            # get_by_name, so usage counts survive a caller migrating from per-name
+            # calls. The unlabeled list backs the prompts UI page and stays untracked.
+            self._track_labeled_list_fetches(prompts, label)
 
         if page is not None:
             return self.get_paginated_response(serializer.data)

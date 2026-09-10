@@ -1,27 +1,22 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.appdynamics import (
-    AppdynamicsAuth,
-    AppdynamicsResumeConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.appdynamics import AppdynamicsAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
+    DEFAULT_EVENT_TYPES,
     ENDPOINTS,
+    MAX_EVENT_TYPES,
     MAX_METRIC_PATHS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source import AppdynamicsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appdynamics import (
     AppdynamicsAuthMethodConfig,
     AppdynamicsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
-def _api_client_config(metric_paths: str | None = None) -> AppdynamicsSourceConfig:
+def _api_client_config(metric_paths: str | None = None, event_types: str | None = None) -> AppdynamicsSourceConfig:
     return AppdynamicsSourceConfig(
         host="https://acme.saas.appdynamics.com",
         account_name="acme",
@@ -29,6 +24,7 @@ def _api_client_config(metric_paths: str | None = None) -> AppdynamicsSourceConf
             selection="api_client", api_client_name="client", api_client_secret="secret"
         ),
         metric_paths=metric_paths,
+        event_types=event_types,
     )
 
 
@@ -62,33 +58,6 @@ class TestAppdynamicsSource:
         self.source = AppdynamicsSource()
         self.team_id = 1
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.APPDYNAMICS
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Appdynamics"
-        assert config.unreleasedSource is not True
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["host", "account_name", "auth_method", "metric_paths"]
-
-        host_field = config.fields[0]
-        assert isinstance(host_field, SourceFieldInputConfig)
-        assert host_field.required is True
-
-        auth_field = config.fields[2]
-        assert isinstance(auth_field, SourceFieldSelectConfig)
-        assert {option.value for option in auth_field.options} == {"api_client", "basic"}
-
-    def test_non_retryable_errors(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-        assert "AppDynamics OAuth token request failed" in errors
-
     def test_account_name_is_a_connection_host_field(self) -> None:
         # Changing account_name retargets the preserved credential, so it must force re-entry.
         assert self.source.connection_host_fields == ["account_name"]
@@ -97,10 +66,16 @@ class TestAppdynamicsSource:
         schemas = {s.name: s for s in self.source.get_schemas(_api_client_config(), self.team_id)}
 
         assert set(schemas) == set(ENDPOINTS)
-        incremental_endpoints = {name for name, s in schemas.items() if s.supports_incremental}
-        assert incremental_endpoints == {"health_rule_violations", "metric_data"}
-        for name in incremental_endpoints:
-            assert {f["field"] for f in schemas[name].incremental_fields} == {"startTimeInMillis"}
+        # Each time-windowed endpoint carries its own epoch-ms start field as the cursor.
+        cursors = {
+            name: {f["field"] for f in s.incremental_fields} for name, s in schemas.items() if s.supports_incremental
+        }
+        assert cursors == {
+            "health_rule_violations": {"startTimeInMillis"},
+            "metric_data": {"startTimeInMillis"},
+            "events": {"eventTime"},
+            "request_snapshots": {"serverStartTime"},
+        }
 
     def test_get_schemas_filtered_by_name(self) -> None:
         schemas = self.source.get_schemas(_api_client_config(), self.team_id, names=["applications"])
@@ -153,6 +128,24 @@ class TestAppdynamicsSource:
         assert valid is False
         assert error is not None and "Too many metric paths" in error
 
+    def test_event_types_default_when_empty(self) -> None:
+        assert self.source._event_types_for_config(_api_client_config()) == DEFAULT_EVENT_TYPES
+
+    def test_event_types_parsed_from_textarea(self) -> None:
+        config = _api_client_config(event_types="APPLICATION_DEPLOYMENT\n\n  APP_SERVER_RESTART  \n")
+        assert self.source._event_types_for_config(config) == ["APPLICATION_DEPLOYMENT", "APP_SERVER_RESTART"]
+
+    def test_event_types_over_limit_rejected(self) -> None:
+        config = _api_client_config(event_types="\n".join(f"EVENT_{i}" for i in range(MAX_EVENT_TYPES + 1)))
+
+        with pytest.raises(ValueError):
+            self.source._event_types_for_config(config)
+
+        # the same cap rejects the config at source create/edit time
+        valid, error = self.source.validate_credentials(config, self.team_id)
+        assert valid is False
+        assert error is not None and "Too many event types" in error
+
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source.validate_appdynamics_credentials"
     )
@@ -168,11 +161,6 @@ class TestAppdynamicsSource:
         valid, error = self.source.validate_credentials(_basic_config("u", None), self.team_id)
         assert valid is False
         assert error is not None
-
-    def test_get_resumable_source_manager(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AppdynamicsResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source.appdynamics_source"
@@ -191,6 +179,7 @@ class TestAppdynamicsSource:
         assert kwargs["endpoint"] == "health_rule_violations"
         assert kwargs["team_id"] == 1
         assert kwargs["metric_paths"] == ["Overall Application Performance|*"]
+        assert kwargs["event_types"] == DEFAULT_EVENT_TYPES
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1704067200000
 

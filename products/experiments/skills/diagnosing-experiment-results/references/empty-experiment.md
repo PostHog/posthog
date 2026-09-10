@@ -3,6 +3,14 @@
 Diagnose by walking the chain:
 SDK call → exposure event captured → ingested → matches the configured exposure criteria → counted.
 
+**Which exposure event?** When `exposure_criteria` doesn't name a custom event, the experiment counts
+exposures on its default event — read `resolved_exposure_event` from `experiment-get`
+(`$feature_flag_called`, or `$experiment_exposure` for newer experiments). `$experiment_exposure` is
+duplicated at ingestion from `$feature_flag_called` and carries the same properties, so the SDK-side
+diagnostics below apply to both: an SDK that never fires `$feature_flag_called` produces neither
+event. In the SQL below, substitute the experiment's resolved event name where `$feature_flag_called`
+appears as the exposure filter.
+
 ## Contents
 
 - Quick triage decision tree

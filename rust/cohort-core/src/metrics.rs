@@ -10,10 +10,17 @@ pub const FILTER_CATALOG_SKIPPED_LEAVES: &str = "filter_catalog_skipped_leaves_t
 pub const FILTER_CATALOG_COHORT_PARSE_ERRORS: &str = "filter_catalog_cohort_parse_errors_total";
 /// Teams whose timezone did not parse as an IANA zone and fell back to UTC (counter).
 pub const FILTER_CATALOG_TZ_FALLBACK: &str = "filter_catalog_tz_fallback_total";
-/// Cohorts whose persisted `behavioral_filters_shape_hash` failed to parse (counter). The cohort
-/// loads but reads as `HashUnknown`, so every reconcile for it discards — **alert on a sustained
-/// non-zero level**, it signals drift between the Python hash extractor and the Rust bounds.
+/// Cohorts whose persisted shape hash failed to parse, labelled by the `kind` whose column it was
+/// — `behavioral_filters_shape_hash` or `person_filters_shape_hash` (counter). The cohort loads but
+/// reads as `HashUnknown` for that kind, so every reconcile of that kind discards — **alert on a
+/// sustained non-zero level**, it signals drift between that kind's Python hash extractor and the
+/// Rust bounds. The two extractors are independent, so alert per `kind` rather than on the sum.
 pub const FILTER_CATALOG_INVALID_SHAPE_HASH: &str = "filter_catalog_invalid_shape_hash_total";
+/// Behavioral conditions analyzed at freeze, labelled by `outcome`: `reads` when the read set
+/// narrowed, `missing_bytecode` when the condition kept no program to analyze, otherwise the
+/// `FullColumnsReason` that widened it (counter). A catalog whose conditions mostly widen saves
+/// nothing, so watch the `reads` share rather than the absolute rate.
+pub const FILTER_CATALOG_CONDITION_PROJECTION: &str = "filter_catalog_condition_projection_total";
 /// Cohorts classified by composition eligibility at freeze, labelled by `class` (counter).
 pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
 /// Cohorts excluded because they sit in a cohort-reference cycle (counter).

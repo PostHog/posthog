@@ -10,13 +10,13 @@ from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.api.capture import CaptureInternalError, capture_internal
-from posthog.models.team import Team
+from posthog.api.capture import CaptureInternalError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import model_spec
+from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.scoped import scoped_temporal
 
@@ -111,7 +111,12 @@ def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags
 Available tags:
 {tag_list}
 
-{constraint} Only use tags from the list above. If no tags apply, return an empty list."""
+{constraint} Only use tags from the list above. If no tags apply, return an empty list.
+
+Respond with one JSON object and nothing else, in this exact shape:
+{{"tags": ["<tag name>", ...], "reasoning": "<brief explanation>"}}
+
+Always include both keys. Set "tags" to an array of tag name strings from the list above, and use an empty array when no tags apply. Do not send the tags as an object of names to true or false, and do not send a number or a bare string. Set "reasoning" to one or two sentences on why you selected those tags. Do not wrap the JSON in markdown fences, and do not add other keys."""
 
 
 @dataclass
@@ -223,9 +228,9 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
     if isinstance(properties, str):
         properties = json.loads(properties)
 
-    input_raw, output_raw = extract_event_io(event_type, properties)
-    input_data = extract_text_from_messages(input_raw)
-    output_data = extract_text_from_messages(output_raw)
+    io = extract_event_io(event_type, properties)
+    input_data = extract_text_from_messages(io.input_raw)
+    output_data = extract_text_from_messages(io.output_raw)
 
     system_prompt = build_tagger_system_prompt(prompt, tags, min_tags, max_tags)
     tag_names = [tag["name"] for tag in tags]
@@ -353,10 +358,10 @@ def run_hog_tagger(bytecode: list, event_data: dict[str, Any], valid_tag_names: 
         properties = json.loads(properties)
 
     event_type = event_data["event"]
-    input_raw, output_raw = extract_event_io(event_type, properties)
+    io = extract_event_io(event_type, properties)
 
-    input_val = json.dumps(input_raw) if isinstance(input_raw, list | dict) else (input_raw or "")
-    output_val = json.dumps(output_raw) if isinstance(output_raw, list | dict) else (output_raw or "")
+    input_val = json.dumps(io.input_raw) if isinstance(io.input_raw, list | dict) else (io.input_raw or "")
+    output_val = json.dumps(io.output_raw) if isinstance(io.output_raw, list | dict) else (io.output_raw or "")
 
     globals_dict: dict[str, Any] = {
         "input": input_val,
@@ -472,12 +477,6 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
     start_time = inputs.start_time
 
     def _emit():
-        try:
-            team = Team.objects.get(id=event_data["team_id"])
-        except Team.DoesNotExist:
-            logger.exception("Team not found", team_id=event_data["team_id"])
-            raise ValueError(f"Team {event_data['team_id']} not found")
-
         properties_raw = (
             json.loads(event_data["properties"])
             if isinstance(event_data["properties"], str)
@@ -514,18 +513,14 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
                 }
             )
 
-        event_timestamp = datetime.now(UTC)
-
-        routed_result = capture_internal(
-            token=team.api_token,
+        capture_internal_for_team(
+            team_id=event_data["team_id"],
             event_name="$ai_tag",
             event_source="llm_analytics_tagger",
             distinct_id=event_data["distinct_id"],
-            timestamp=event_timestamp,
+            timestamp=datetime.now(UTC),
             properties=properties,
-            process_person_profile=True,
         )
-        routed_result.raise_for_status()
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()

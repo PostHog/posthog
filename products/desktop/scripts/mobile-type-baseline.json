@@ -1,0 +1,83 @@
+{
+  "note": "Pre-existing apps/mobile type errors, counted per file and message. Remove entries as you fix them. Goal: empty.",
+  "files": {
+    "src/app/mcp-servers/add-custom.tsx": {
+      "TS2322 Type '\"none\"' is not assignable to type 'MCPAuthTypeEnum'.": 1,
+      "TS2345 Argument of type '\"none\"' is not assignable to parameter of type 'MCPAuthTypeEnum | (() => MCPAuthTypeEnum)'.": 1
+    },
+    "src/app/mcp-servers/installation/[id].tsx": {
+      "TS2559 Type 'McpServerInstallation' has no properties in common with type '{ transport_type?: string | null | undefined; }'.": 1
+    },
+    "src/app/mcp-servers/template/[id].tsx": {
+      "TS2559 Type 'MCPServerTemplate' has no properties in common with type '{ transport_type?: string | null | undefined; }'.": 1
+    },
+    "src/app/task/[id].tsx": {
+      "TS2322 Type 'TaskSession | undefined' is not assignable to type 'SessionActivityState | null | undefined'.": 1
+    },
+    "src/features/inbox/components/DiffBlock.tsx": {
+      "TS2305 Module '\"@posthog/core/inbox/activityLog\"' has no exported member 'parseDiffLines'.": 1,
+      "TS7006 Parameter 'i' implicitly has an 'any' type.": 1,
+      "TS7006 Parameter 'line' implicitly has an 'any' type.": 1
+    },
+    "src/features/mcp/components/McpAppHost.tsx": {
+      "TS2339 Property 'resource' does not exist on type 'NonNullable<NoInfer<TQueryFnData>>'.": 1,
+      "TS2339 Property 'serverName' does not exist on type '{ server: string; tool: string; }'.": 2,
+      "TS2339 Property 'tool' does not exist on type 'NonNullable<NoInfer<TQueryFnData>>'.": 1,
+      "TS2339 Property 'toolName' does not exist on type '{ server: string; tool: string; }'.": 2,
+      "TS2551 Property 'absoluteFillObject' does not exist on type 'typeof StyleSheet'. Did you mean 'absoluteFill'?": 1,
+      "TS2769 No overload matches this call.": 1
+    },
+    "src/features/mcp/components/McpServerRow.tsx": {
+      "TS2559 Type 'MCPServerTemplate' has no properties in common with type '{ transport_type?: string | null | undefined; }'.": 1,
+      "TS2559 Type 'McpServerInstallation' has no properties in common with type '{ transport_type?: string | null | undefined; }'.": 1
+    },
+    "src/features/mcp/hooks.ts": {
+      "TS2345 Argument of type 'InstallCustomMcpServerOptions' is not assignable to parameter of type '{ name: string; url: string; auth_type: MCPAuthTypeEnum; api_key?: string | undefined; description?: string | undefined; client_id?: string | undefined; client_secret?: string | undefined; install_source?: \"posthog\" | ... 1 more ... | undefined; posthog_code_callback_url?: string | undefined; } & McpGatewayInstallSh...'.": 1,
+      "TS2345 Argument of type 'InstallMcpTemplateOptions' is not assignable to parameter of type '{ template_id: string; api_key?: string | undefined; install_source?: \"posthog\" | \"posthog-code\" | undefined; posthog_code_callback_url?: string | undefined; } & McpGatewayInstallSharingOptions'.": 1,
+      "TS2345 Argument of type '{ installation_id: string; install_source?: \"posthog\" | \"posthog-code\" | \"posthog-mobile\" | undefined; posthog_code_callback_url?: string | undefined; }' is not assignable to parameter of type '{ installation_id: string; install_source?: \"posthog\" | \"posthog-code\" | undefined; posthog_code_callback_url?: string | undefined; }'.": 1
+    },
+    "src/features/mcp/sandbox/useMcpUiResource.ts": {
+      "TS2769 No overload matches this call.": 1
+    },
+    "src/features/navigation/components/NavDrawer.tsx": {
+      "TS2551 Property 'absoluteFillObject' does not exist on type 'typeof StyleSheet'. Did you mean 'absoluteFill'?": 2
+    },
+    "src/features/tasks/components/PlanApprovalCard.tsx": {
+      "TS2345 Argument of type 'CloudPermissionOption' is not assignable to parameter of type 'PermissionOption'.": 3
+    },
+    "src/features/tasks/components/TaskSessionView.test.tsx": {
+      "TS18047 'renderer' is possibly 'null'.": 1,
+      "TS2339 Property 'root' does not exist on type 'never'.": 1
+    },
+    "src/features/tasks/components/TaskSessionView.tsx": {
+      "TS2305 Module '\"../types\"' has no exported member 'SessionEvent'.": 1,
+      "TS2305 Module '\"../types\"' has no exported member 'SessionNotification'.": 1
+    },
+    "src/features/tasks/composer/DotBackground.tsx": {
+      "TS2551 Property 'absoluteFillObject' does not exist on type 'typeof StyleSheet'. Did you mean 'absoluteFill'?": 1
+    },
+    "src/features/tasks/hooks/useCloudAttachmentPreview.ts": {
+      "TS2305 Module '\"../types\"' has no exported member 'CloudArtifactRef'.": 1
+    },
+    "src/features/tasks/hooks/useIntegrations.ts": {
+      "TS2345 Argument of type '{ [key: string]: unknown; kind: string; id: string | number; }[]' is not assignable to parameter of type 'Integration[]'.": 1,
+      "TS2345 Argument of type '{ data: { integrationId: string | number; repos: any; }; isPending: boolean; isError: false; isRefetching: boolean; }[]' is not assignable to parameter of type 'readonly RepositoryQueryResult<TeamRepositoriesResult>[]'.": 1,
+      "TS7015 Element implicitly has an 'any' type because index expression is not of type 'number'.": 2
+    },
+    "src/features/tasks/stores/taskSessionStore.ts": {
+      "TS2305 Module '\"../types\"' has no exported member 'SessionEvent'.": 1,
+      "TS2305 Module '\"../types\"' has no exported member 'SessionNotification'.": 1
+    },
+    "src/features/tasks/utils/promptAttachments.test.ts": {
+      "TS2305 Module '\"../types\"' has no exported member 'SessionEvent'.": 1
+    },
+    "src/features/tasks/utils/promptAttachments.ts": {
+      "TS2305 Module '\"../types\"' has no exported member 'CloudArtifactRef'.": 1,
+      "TS2305 Module '\"../types\"' has no exported member 'SessionEvent'.": 1,
+      "TS2353 Object literal may only specify known properties, and 'cloudArtifact' does not exist in type 'SessionNotificationAttachment'.": 1
+    },
+    "src/features/tasks/utils/repositorySelection.test.ts": {
+      "TS2322 Type '{ installation_id: string; account: { name: string; }; } | { installation_id: string; }' is not assignable to type 'UserGithubIntegration'.": 1
+    }
+  }
+}

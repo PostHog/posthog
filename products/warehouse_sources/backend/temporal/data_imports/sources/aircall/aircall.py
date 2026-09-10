@@ -1,13 +1,15 @@
 import dataclasses
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
-from urllib.parse import urlencode
+from typing import Any, Optional, cast
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from requests import Request, Response
 from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.settings import (
     AIRCALL_ENDPOINTS,
+    PAGE_SIZE,
     AircallEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -15,14 +17,34 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 AIRCALL_BASE_URL = "https://api.aircall.io/v1"
-# Aircall caps list pages at 50 items.
-PAGE_SIZE = 50
+# Aircall refuses to serve any record past the 10,000th of a single query and answers with a
+# 400. It keeps advertising a `meta.next_page_link` across that boundary, so the link cannot be
+# followed blindly: the offset it points at has to be range-checked first.
+MAX_RECORDS_PER_QUERY = 10_000
+
+
+class AircallTruncationError(Exception):
+    """Raised when a capped window cannot advance, so the rest of it is unreachable.
+
+    Aircall serves at most 10,000 records per query. The paginator moves past that cap by
+    re-anchoring `from` on the latest cursor value seen. When every record in the filled window
+    shares the boundary timestamp, the cursor cannot move, the next window would repeat the same
+    query, and the remaining records are lost. Failing here surfaces that loss as a failed sync
+    instead of letting the run report success with missing data.
+    """
 
 
 @dataclasses.dataclass
@@ -62,6 +84,24 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{AIRCALL_BASE_URL}{path}?{urlencode(clean_params)}"
 
 
+def _reaches_record_cap(url: str) -> bool:
+    """Whether `url` asks Aircall for a record at or past the 10,000th of the current query.
+
+    Aircall's own next-page links carry `page` and `per_page`, so the offset a link starts at is
+    `(page - 1) * per_page`. Requesting a link whose offset lands on or past the cap returns a
+    400 that kills the extraction, which is why the link is range-checked instead of followed.
+    """
+    query = parse_qs(urlsplit(url).query)
+    try:
+        page = int(query["page"][0])
+        per_page = int(query.get("per_page", [str(PAGE_SIZE)])[0])
+    except (KeyError, IndexError, ValueError):
+        # A link carrying no usable page number cannot be range-checked here. The paginator's
+        # record counter is the backstop for that case.
+        return False
+    return (page - 1) * per_page >= MAX_RECORDS_PER_QUERY
+
+
 def _build_params(config: AircallEndpointConfig, from_value: Optional[int]) -> dict[str, Any]:
     params: dict[str, Any] = {"per_page": PAGE_SIZE}
     # Ascending creation order keeps already-fetched pages stable and lets the incremental
@@ -76,11 +116,16 @@ def _build_params(config: AircallEndpointConfig, from_value: Optional[int]) -> d
 class AircallPaginator(BasePaginator):
     """Follows Aircall's `meta.next_page_link` chain, re-anchoring around the 10k cap.
 
-    When a page chain ends on a capped endpoint (calls/contacts), the paginator re-anchors
-    the `from` query param to the latest value of the cursor field seen so far and starts a
-    fresh chain, to fetch records beyond Aircall's hard 10k-record-per-query cap. The
-    strict-advance guard prevents an infinite loop when many records share the boundary
-    timestamp.
+    On a capped endpoint (calls/contacts) the paginator re-anchors the `from` query param to the
+    latest value of the cursor field seen so far and starts a fresh chain, so records beyond
+    Aircall's hard 10k-record-per-query cap are still fetched. Reaching the cap is itself a
+    re-anchor trigger, because Aircall goes on advertising a next page past the cap and then
+    rejects that page with a 400: waiting for the page chain to end would never re-anchor the
+    tables that actually need it. The end of a page chain re-anchors too, since a chain that ends
+    at the cap boundary is indistinguishable from one that ends because the window is exhausted.
+    When many records share the boundary timestamp the cursor cannot advance, so a fresh window
+    would repeat the same query forever. The paginator raises `AircallTruncationError` there
+    rather than loop or drop the rest of the window silently.
     """
 
     def __init__(
@@ -96,6 +141,9 @@ class AircallPaginator(BasePaginator):
         # Latest value of the cursor field seen across the whole run.
         self._max_cursor: Optional[int] = None
         self._next_url: Optional[str] = None
+        # Records consumed since the current `from` window opened. Backs up the per-link range
+        # check for a next-page link that carries no page number.
+        self._window_records = 0
 
     def init_request(self, request: Request) -> None:
         # Apply a seeded resume URL to the first request so a resumed run starts at the
@@ -106,6 +154,7 @@ class AircallPaginator(BasePaginator):
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         items = data or []
+        self._window_records += len(items)
         if self._cursor_field is not None and items:
             page_max = max(
                 (
@@ -124,22 +173,39 @@ class AircallPaginator(BasePaginator):
             body = None
         next_url = ((body or {}).get("meta") or {}).get("next_page_link") if isinstance(body, dict) else None
 
-        if next_url:
+        capped = self._config.reanchor_field is not None and (
+            self._window_records >= MAX_RECORDS_PER_QUERY or (next_url is not None and _reaches_record_cap(next_url))
+        )
+
+        if next_url and not capped:
             self._next_url = next_url
             self._has_next_page = True
             return
 
-        # Page chain ended. For capped endpoints, re-anchor on the latest cursor value to
-        # fetch records beyond the 10k window.
+        # Either the page chain ended or the next page Aircall offered would be rejected for
+        # crossing the cap. Both call for the same move on a capped endpoint: anchor `from` on
+        # the latest cursor value seen and open a fresh window.
         if (
             self._config.reanchor_field is not None
             and self._max_cursor is not None
             and (self._from_value is None or self._max_cursor > self._from_value)
         ):
             self._from_value = self._max_cursor
+            self._window_records = 0
             self._next_url = _build_url(self._config.path, _build_params(self._config, self._from_value))
             self._has_next_page = True
             return
+
+        if capped:
+            # A window that fills the cap without its cursor advancing cannot be moved forward,
+            # because the next window would open on the same timestamp and return the same
+            # records. Fail rather than drop the rest of the window silently: a warning-only stop
+            # let the run finalize as complete with missing data, which is invisible to the user.
+            raise AircallTruncationError(
+                f"Aircall {self._config.path}: {self._config.reanchor_field} did not advance past "
+                f"{self._from_value} within the {MAX_RECORDS_PER_QUERY}-record query limit, so the "
+                "rest of this window cannot be fetched. The sync stopped to avoid losing data."
+            )
 
         self._has_next_page = False
 
@@ -171,6 +237,66 @@ def validate_credentials(api_id: str, api_token: str) -> bool:
     return ok
 
 
+def _client_config(api_id: str, api_token: str, paginator: BasePaginator) -> ClientConfig:
+    return {
+        "base_url": AIRCALL_BASE_URL,
+        "headers": {"Accept": "application/json"},
+        # Basic auth via the framework so the token is redacted from logs.
+        "auth": {"type": "http_basic", "username": api_id, "password": api_token},
+        "paginator": paginator,
+    }
+
+
+def _fanout_source(
+    api_id: str,
+    api_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    """Fan a per-call Conversation Intelligence endpoint out over the calls list.
+
+    The parent calls list is re-fetched each sync (there is no incremental filter on the child
+    sub-resource), so the parent keeps the calls paginator to page past the 10k cap and reach
+    every call. The child returns one flat object per call, so it needs a single-page paginator
+    and the whole body as the row — the parent and child therefore run different paginators,
+    set per endpoint rather than on the shared client.
+    """
+    config = AIRCALL_ENDPOINTS[endpoint]
+    assert config.fanout is not None
+    calls_config = AIRCALL_ENDPOINTS[config.fanout.parent_name]
+    parent_paginator = AircallPaginator(calls_config, calls_config.reanchor_field, from_value=None)
+
+    dependent_resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=AIRCALL_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(api_id, api_token, SinglePagePaginator()),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            # The child has no server-side time filter, so this fan-out is always full refresh.
+            db_incremental_field_last_value=None,
+            should_use_incremental_field=False,
+            page_size_param="per_page",
+            parent_endpoint_extra={"paginator": parent_paginator, "data_selector": calls_config.data_key},
+            child_endpoint_extra={"paginator": SinglePagePaginator(), "data_selector": config.data_key},
+        ),
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: dependent_resource,
+        primary_keys=[config.primary_key],
+        # Child rows arrive in the parent's ascending-by-started_at order.
+        sort_mode="asc",
+        partition_count=1,
+        partition_size=1,
+    )
+
+
 def aircall_source(
     api_id: str,
     api_token: str,
@@ -183,6 +309,9 @@ def aircall_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = AIRCALL_ENDPOINTS[endpoint]
+
+    if config.fanout is not None:
+        return _fanout_source(api_id, api_token, endpoint, team_id, job_id)
 
     cursor_field = incremental_field or config.reanchor_field
     from_value = _to_epoch(db_incremental_field_last_value) if should_use_incremental_field else None

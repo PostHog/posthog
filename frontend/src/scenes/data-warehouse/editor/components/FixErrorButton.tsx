@@ -20,7 +20,7 @@ interface FixErrorButtonProps {
 }
 
 export function FixErrorButton({ type, size, contentOverride, source }: FixErrorButtonProps): JSX.Element {
-    const { queryInput, fixErrorsError, metadata } = useValues(sqlEditorLogic)
+    const { queryInput, fixErrorsError, metadata, selectedConnectionId } = useValues(sqlEditorLogic)
     const { fixErrors: fixHogQLErrors } = useActions(sqlEditorLogic)
     const { responseError } = useValues(dataNodeLogic)
     const { responseLoading: fixHogQLErrorsLoading } = useValues(fixSQLErrorsLogic)
@@ -70,7 +70,7 @@ export function FixErrorButton({ type, size, contentOverride, source }: FixError
             disabledReason={disabledReason}
             icon={icon}
             onClick={() => {
-                fixHogQLErrors(queryInput ?? '', queryError)
+                fixHogQLErrors(queryInput ?? '', queryError, selectedConnectionId)
                 posthog.capture(`sql-editor-fix-error-click`, { source })
             }}
         >

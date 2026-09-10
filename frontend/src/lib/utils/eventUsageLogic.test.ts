@@ -1,3 +1,7 @@
+import posthog from 'posthog-js'
+
+import { SELF_DRIVING_ONBOARDING_EVENT_PROPS } from 'scenes/onboarding/onboardingEventUsageLogic'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
@@ -6,12 +10,55 @@ import type {
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentTrendsQuery,
+    Node,
 } from '~/queries/schema/schema-general'
-import { BaseMathType } from '~/types'
+import { initKeaTests } from '~/test/init'
+import { BaseMathType, BehavioralEventType, FilterLogicalOperator, PropertyFilterType } from '~/types'
 
-import { getEventPropertiesForMetric } from './eventUsageLogic'
+import {
+    type OnboardingEventProperties,
+    eventUsageLogic,
+    getEventPropertiesForMetric,
+    sanitizeQuery,
+} from './eventUsageLogic'
 
-describe('getEventPropertiesForMetric', () => {
+describe('eventUsageLogic', () => {
+    describe('onboarding funnel events', () => {
+        let capture: jest.SpyInstance
+
+        beforeEach(() => {
+            initKeaTests()
+            eventUsageLogic.mount()
+            capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        })
+
+        afterEach(() => {
+            capture.mockRestore()
+        })
+
+        const cases: [string, OnboardingEventProperties | undefined, string][] = [
+            ['legacy', undefined, 'product_selection'],
+            ['self-driving', SELF_DRIVING_ONBOARDING_EVENT_PROPS, 'welcome'],
+        ]
+
+        it.each(cases)('stamps the %s entry point on every funnel event', (_, properties, entryPoint) => {
+            eventUsageLogic.actions.reportOnboardingStarted(properties)
+            eventUsageLogic.actions.reportOnboardingStepCompleted('install', undefined, properties)
+            eventUsageLogic.actions.reportOnboardingStepSkipped('install', undefined, properties)
+            eventUsageLogic.actions.reportOnboardingCompleted('product_analytics', properties)
+
+            for (const event of [
+                'onboarding started',
+                'onboarding step completed',
+                'onboarding step skipped',
+                'onboarding completed',
+            ]) {
+                const call = capture.mock.calls.find(([name]) => name === event)
+                expect(call?.[1]).toMatchObject({ entry_point: entryPoint })
+            }
+        })
+    })
+
     describe('ExperimentMetric (new format)', () => {
         it('extracts funnel metric properties', () => {
             const metric: ExperimentFunnelMetric = {
@@ -207,6 +254,49 @@ describe('getEventPropertiesForMetric', () => {
 
             expect(result.funnel_steps_count).toBe(0)
             expect(result.property_filter_count).toBe(0)
+        })
+    })
+
+    describe('sanitizeQuery', () => {
+        it('counts behavioral filters across global and series filters', () => {
+            const query = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            properties: [
+                                {
+                                    type: PropertyFilterType.Behavioral,
+                                    key: 'signed up',
+                                    value: BehavioralEventType.PerformEvent,
+                                    event_type: 'events',
+                                },
+                            ],
+                        },
+                    ],
+                    properties: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.Behavioral,
+                                        key: 'completed onboarding',
+                                        value: BehavioralEventType.PerformEvent,
+                                        event_type: 'events',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            } as unknown as Node
+
+            expect(sanitizeQuery(query).behavioral_filter_count).toBe(2)
         })
     })
 

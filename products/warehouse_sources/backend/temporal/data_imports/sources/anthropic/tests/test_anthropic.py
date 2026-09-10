@@ -10,21 +10,39 @@ from parameterized import parameterized
 from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
+    ANALYTICS_ACCESS_MISSING,
     ANTHROPIC_VERSION,
     DEFAULT_CLAUDE_CODE_START,
+    MAX_RETRY_ATTEMPTS,
+    REPORT_MAX_RETRY_ATTEMPTS,
     AnthropicResumeConfig,
     ClaudeCodeDayPaginator,
+    _analytics_windows,
     _claude_code_start_day,
+    _flatten_analytics_user_activity,
+    _flatten_analytics_user_cost,
+    _flatten_analytics_user_usage,
     _flatten_claude_code_core,
     _flatten_claude_code_models,
     _flatten_cost_result,
     _flatten_usage_result,
     _row_id,
     anthropic_source,
+    check_analytics_access,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import ANTHROPIC_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
+    ANALYTICS_DATA_FLOOR,
+    ANALYTICS_ENGAGEMENT_LAG_DAYS,
+    ANALYTICS_PATH_PREFIX,
+    ANALYTICS_REPORT_MAX_HISTORY_DAYS,
+    ANTHROPIC_ENDPOINTS,
+    COST_REPORT_PAGE_BUCKETS,
+    USAGE_GROUP_BY_FALLBACKS,
+    USAGE_REPORT_PAGE_BUCKETS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -178,7 +196,7 @@ class TestReportParams:
         config = ANTHROPIC_ENDPOINTS["usage_report"]
         assert params[0]["params"]["starting_at"] == "2026-03-04T00:00:00Z"
         assert params[0]["params"]["bucket_width"] == "1d"
-        assert params[0]["params"]["limit"] == 7
+        assert params[0]["params"]["limit"] == USAGE_REPORT_PAGE_BUCKETS
         # requests encodes the list as one repeated group_by[] query param per dimension.
         assert params[0]["params"]["group_by[]"] == config.group_by
 
@@ -193,13 +211,17 @@ class TestReportParams:
 
         assert params[0]["params"]["starting_at"] == "2023-01-01T00:00:00Z"
 
-    def test_usage_report_page_size_stays_below_bucket_max(self) -> None:
-        # Grouping by every dimension multiplies the results per bucket, so requesting the 31-bucket
-        # max overflows the per-response result cap and the API 400s. Keep the page small while still
-        # grouping by the full set; pagination walks the rest.
-        config = ANTHROPIC_ENDPOINTS["usage_report"]
-        assert len(config.group_by) == 8
-        assert config.limit is not None and config.limit <= 7
+    def test_cost_report_pages_at_the_bucket_max(self) -> None:
+        # Every page is one request against a per-organization rate limit, so leaving the cost
+        # report on the API's default page walks history in four times as many requests.
+        assert ANTHROPIC_ENDPOINTS["cost_report"].limit == COST_REPORT_PAGE_BUCKETS == 31
+
+    def test_usage_group_by_fallbacks_narrow_to_nothing(self) -> None:
+        # The list is walked in order when the API rejects a query, so each step must be strictly
+        # narrower than the last and the final one must be a query the endpoint cannot refuse.
+        steps = list(zip(USAGE_GROUP_BY_FALLBACKS, USAGE_GROUP_BY_FALLBACKS[1:]))
+        assert steps and all(set(later) < set(earlier) for earlier, later in steps)
+        assert USAGE_GROUP_BY_FALLBACKS[-1] == []
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_version_header_is_set_on_session(self, MockSession) -> None:
@@ -490,6 +512,25 @@ class TestWorkspaceMembersFanOut:
 
         assert [(r["workspace_id"], r["user_id"]) for r in rows] == [("wrkspc_1", "u1")]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_workspace_that_does_not_serve_the_sub_resource_is_skipped(self, MockSession) -> None:
+        # A workspace can 404 on the fan-out child (it does not serve that sub-resource, or was
+        # archived between enumeration and the fetch). Skip only that workspace instead of failing
+        # the whole schema, and still deliver the workspaces that do serve it.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _entity_page([{"id": "wrkspc_1"}, {"id": "wrkspc_2"}], has_more=False, last_id="wrkspc_2"),
+                _response({"error": "not_found"}, status=404),
+                _entity_page([{"user_id": "u2", "workspace_id": "wrkspc_2"}], has_more=False, last_id="u2"),
+            ],
+        )
+
+        rows = _rows(_source("workspace_members", _make_manager()))
+
+        assert [(r["workspace_id"], r["user_id"]) for r in rows] == [("wrkspc_2", "u2")]
+
     def test_saved_state_shapes_still_parse(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — every historical shape must
         # keep parsing after the migration.
@@ -532,6 +573,113 @@ class TestRetries:
         with pytest.raises(requests.HTTPError):
             _rows(_source("users", _make_manager()))
         assert session.send.call_count == 1
+
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rate_limit_budget_outlasts_the_default(self, MockSession, _mock_sleep) -> None:
+        # The report endpoints 429 without a Retry-After, so the client falls back to exponential
+        # backoff; the default budget is spent in seconds, well short of a per-minute limit window.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                *[_response({}, status=429) for _ in range(MAX_RETRY_ATTEMPTS - 1)],
+                _entity_page([{"id": "user_1"}], has_more=False, last_id="user_1"),
+            ],
+        )
+
+        rows = _rows(_source("users", _make_manager()))
+
+        assert [r["id"] for r in rows] == ["user_1"]
+        assert session.send.call_count == MAX_RETRY_ATTEMPTS
+
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_report_endpoint_gets_a_wider_retry_budget(self, MockSession, _mock_sleep) -> None:
+        # The report endpoints share one organization rate limit and 429 without a Retry-After, so
+        # they need more attempts than the entity lists to outlast the window. A burst that would
+        # exhaust the entity budget still resolves for a report endpoint.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                *[_response({}, status=429) for _ in range(REPORT_MAX_RETRY_ATTEMPTS - 1)],
+                _report_page([{"starting_at": "2024-01-01", "results": []}], has_more=False, next_page=None),
+            ],
+        )
+
+        _rows(_source("cost_report", _make_manager()))
+
+        assert session.send.call_count == REPORT_MAX_RETRY_ATTEMPTS
+        assert REPORT_MAX_RETRY_ATTEMPTS > MAX_RETRY_ATTEMPTS
+
+
+class TestUsageReportGroupByFallback:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rejected_query_is_retried_with_a_narrower_group_by(self, MockSession) -> None:
+        # The usage report 400s a query that groups more finely than it will serve. Narrowing must
+        # keep the sync alive and still deliver rows, at the finest breakdown the API accepts.
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response({"error": "bad request"}, status=400),
+                _report_page(
+                    [{"starting_at": "2025-08-01T00:00:00Z", "results": [{"workspace_id": "wrkspc_1"}]}],
+                    has_more=False,
+                    next_page=None,
+                ),
+            ],
+        )
+
+        rows = _rows(_source("usage_report", _make_manager()))
+
+        assert [r["workspace_id"] for r in rows] == ["wrkspc_1"]
+        assert [p["params"]["group_by[]"] for p in params] == USAGE_GROUP_BY_FALLBACKS[:2]
+
+    @parameterized.expand(
+        [
+            # Every fallback rejected: there is nothing narrower left to try.
+            (
+                "all_rejected",
+                [_response({}, status=400) for _ in USAGE_GROUP_BY_FALLBACKS],
+                len(USAGE_GROUP_BY_FALLBACKS),
+            ),
+            # A 404 is not the API refusing the breakdown, so narrowing must not paper over it.
+            ("not_a_bad_request", [_response({}, status=404)], 1),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_error_propagates_instead_of_narrowing(
+        self, _name: str, responses: list[Response], expected_requests: int, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        _wire(session, responses)
+
+        with pytest.raises(requests.HTTPError):
+            _rows(_source("usage_report", _make_manager()))
+        assert session.send.call_count == expected_requests
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rejection_after_rows_are_out_is_not_narrowed(self, MockSession) -> None:
+        # Re-running at a coarser grain would re-emit the buckets already yielded under different
+        # synthesized ids, so once rows are out the 400 has to fail the sync instead.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _report_page(
+                    [{"starting_at": "2025-08-01T00:00:00Z", "results": [{"workspace_id": "wrkspc_1"}]}],
+                    has_more=True,
+                    next_page="page_2",
+                ),
+                _response({"error": "bad request"}, status=400),
+            ],
+        )
+
+        with pytest.raises(requests.HTTPError):
+            _rows(_source("usage_report", _make_manager()))
+        assert session.send.call_count == 2
 
 
 class TestValidateCredentials:
@@ -789,19 +937,277 @@ class TestClaudeCodeDayFanOut:
         assert params[0]["params"]["starting_at"] == today.isoformat()
 
 
-class TestServiceAccountsFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_emits_one_row_per_service_account_with_composite_key(self, MockSession) -> None:
+class TestRetiredEndpoint:
+    def test_a_dropped_endpoint_fails_non_retryably(self) -> None:
+        # A schema row discovered before an endpoint was dropped still names it, and its schedule
+        # keeps firing. The run must fail with a message the source classifies as non-retryable, so
+        # it disables the schema and pauses the schedule instead of retrying a KeyError forever.
+        with pytest.raises(ValueError) as exc:
+            _source("service_accounts", _make_manager())
+        assert error_message_matches(str(exc.value), AnthropicSource().get_non_retryable_errors().keys())
+
+
+def _analytics_page(rows: list[dict[str, Any]], *, next_page: str | None) -> Response:
+    # `/organizations/analytics/users` sends no `has_more`: a null `next_page` is the last page.
+    return _response({"data": rows, "next_page": next_page})
+
+
+def _activity_record(email: str = "dev@example.com") -> dict[str, Any]:
+    return {
+        "user": {"id": "user_1", "email_address": email, "type": "user"},
+        "chat_metrics": {"message_count": 7, "distinct_conversation_count": 2},
+        "claude_code_metrics": {
+            "core_metrics": {"commit_count": 3, "lines_of_code": {"added_count": 120, "removed_count": 30}},
+            "tool_actions": {"edit_tool": {"accepted_count": 10, "rejected_count": 2}},
+        },
+        "office_metrics": {"excel": {"message_count": 1}},
+        "web_search_count": 4,
+    }
+
+
+def _user_report_row(user_id: str = "user_1", starting_at: str = "2026-03-04T00:00:00Z") -> dict[str, Any]:
+    return {
+        "actor": {
+            "user_id": user_id,
+            "email": "dev@example.com",
+            "name": "Dev",
+            "deleted": False,
+            "type": "user_actor",
+        },
+        "starting_at": starting_at,
+        "ending_at": "2026-03-05T00:00:00Z",
+        "amount": "41280.000000",
+        "list_amount": "51600.000000",
+        "currency": "USD",
+        "requests": 128,
+        "uncached_input_tokens": 1284500,
+        "cache_read_input_tokens": 3200000,
+        "cache_creation": {"ephemeral_1h_input_tokens": 1000, "ephemeral_5m_input_tokens": 500},
+        "output_tokens": 891000,
+        "total_tokens": 5377000,
+        "server_tool_use": {"web_search_requests": 10},
+    }
+
+
+class TestAnalyticsWindows:
+    def test_full_refresh_starts_at_the_data_floor(self) -> None:
+        config = ANTHROPIC_ENDPOINTS["analytics_user_activity"]
+        windows = _analytics_windows(config, None, ANALYTICS_DATA_FLOOR + timedelta(days=4))
+        assert windows[0].start == ANALYTICS_DATA_FLOOR
+        # The engagement export lags, so the newest requested day stops short of today. Asking for a
+        # day it has not covered fails the whole request with a 400.
+        assert windows[-1].start == ANALYTICS_DATA_FLOOR + timedelta(days=4 - ANALYTICS_ENGAGEMENT_LAG_DAYS)
+
+    def test_report_floor_stays_inside_the_history_bound(self) -> None:
+        # The per-user reports reject a starting_at older than a year, so a full refresh cannot start
+        # at the data floor once the floor has aged past that bound.
+        config = ANTHROPIC_ENDPOINTS["analytics_user_cost"]
+        today = ANALYTICS_DATA_FLOOR + timedelta(days=500)
+        windows = _analytics_windows(config, None, today)
+        assert windows[0].start == today - timedelta(days=ANALYTICS_REPORT_MAX_HISTORY_DAYS)
+
+    @parameterized.expand(
+        [
+            ("datetime", datetime(2026, 3, 4, 12, 0, 0, tzinfo=UTC)),
+            ("rfc3339_string", "2026-03-04T12:00:00Z"),
+            ("date", date(2026, 3, 4)),
+        ]
+    )
+    def test_incremental_watermark_starts_the_fan_out(self, _name: str, watermark: Any) -> None:
+        config = ANTHROPIC_ENDPOINTS["analytics_user_cost"]
+        windows = _analytics_windows(config, watermark, date(2026, 3, 6))
+        assert [w.start for w in windows] == [date(2026, 3, 4), date(2026, 3, 5), date(2026, 3, 6)]
+        # The report endpoints take an exclusive end, so each window covers exactly its own day.
+        assert windows[0].end == date(2026, 3, 5)
+
+    def test_watermark_past_the_newest_available_day_re_pulls_that_day(self) -> None:
+        # A watermark at or after the newest available day must not request a day the endpoint
+        # rejects, and must still return work so the run keeps the recent day fresh.
+        config = ANTHROPIC_ENDPOINTS["analytics_user_activity"]
+        today = date(2026, 3, 10)
+        windows = _analytics_windows(config, today, today)
+        assert [w.start for w in windows] == [today - timedelta(days=ANALYTICS_ENGAGEMENT_LAG_DAYS)]
+
+    def test_resume_checkpoint_skips_days_already_yielded(self) -> None:
+        config = ANTHROPIC_ENDPOINTS["analytics_user_cost"]
+        windows = _analytics_windows(config, date(2026, 3, 1), date(2026, 3, 4), resume_from=date(2026, 3, 3))
+        assert [w.start for w in windows] == [date(2026, 3, 3), date(2026, 3, 4)]
+
+
+class TestFlattenAnalyticsRows:
+    def test_activity_flattens_product_blocks_and_stamps_the_day(self) -> None:
+        row = _flatten_analytics_user_activity(date(2026, 3, 4), _activity_record())
+        # The record carries no day, so the requested day is the only source for it.
+        assert row["date"] == "2026-03-04T00:00:00Z"
+        assert row["user_id"] == "user_1"
+        assert row["user_email_address"] == "dev@example.com"
+        assert row["chat_message_count"] == 7
+        assert row["claude_code_core_metrics_lines_of_code_added_count"] == 120
+        assert row["claude_code_tool_actions_edit_tool_accepted_count"] == 10
+        assert row["office_excel_message_count"] == 1
+        assert row["web_search_count"] == 4
+        assert "user" not in row
+
+    def test_activity_id_is_stable_across_metric_changes(self) -> None:
+        record = _activity_record()
+        busier = {**record, "web_search_count": 99, "chat_metrics": {"message_count": 100}}
+        assert (
+            _flatten_analytics_user_activity(date(2026, 3, 4), record)["id"]
+            == (_flatten_analytics_user_activity(date(2026, 3, 4), busier)["id"])
+        )
+
+    def test_activity_id_differs_by_day_and_user(self) -> None:
+        base = _flatten_analytics_user_activity(date(2026, 3, 4), _activity_record())
+        other_day = _flatten_analytics_user_activity(date(2026, 3, 5), _activity_record())
+        other_user = _activity_record()
+        other_user["user"] = {"id": "user_2", "email_address": "b@example.com"}
+        assert (
+            len({base["id"], other_day["id"], _flatten_analytics_user_activity(date(2026, 3, 4), other_user)["id"]})
+            == 3
+        )
+
+    def test_cost_surfaces_the_actor_and_keeps_amounts_as_strings(self) -> None:
+        row = _flatten_analytics_user_cost(_user_report_row())
+        assert row["user_id"] == "user_1"
+        assert row["user_email"] == "dev@example.com"
+        assert row["user_deleted"] is False
+        # Fractional cents can exceed exact float range, so the decimal string must survive intact.
+        assert row["amount"] == "41280.000000"
+        assert row["list_amount"] == "51600.000000"
+        assert row["starting_at"] == "2026-03-04T00:00:00Z"
+
+    def test_usage_flattens_nested_token_objects(self) -> None:
+        row = _flatten_analytics_user_usage(_user_report_row())
+        assert row["cache_creation_ephemeral_1h_input_tokens"] == 1000
+        assert row["cache_creation_ephemeral_5m_input_tokens"] == 500
+        assert row["web_search_requests"] == 10
+        assert row["total_tokens"] == 5377000
+
+    def test_usage_missing_nested_objects_yield_none_not_crash(self) -> None:
+        row = _flatten_analytics_user_usage({"actor": {"user_id": "user_1"}, "starting_at": "2026-03-04T00:00:00Z"})
+        assert row["cache_creation_ephemeral_1h_input_tokens"] is None
+        assert row["web_search_requests"] is None
+
+    def test_cost_and_usage_rows_for_the_same_day_and_user_share_an_id(self) -> None:
+        # Both reports key on (day, user), so a bucket restated between runs merges in place.
+        assert (
+            _flatten_analytics_user_cost(_user_report_row())["id"]
+            == (_flatten_analytics_user_usage(_user_report_row())["id"])
+        )
+
+
+class TestAnalyticsFanOut:
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_activity_fans_out_one_dated_request_per_day(self, MockSession) -> None:
         session = MockSession.return_value
-        # Service account objects here don't carry workspace_id, so the fan-out must inject it or the
-        # composite key's workspace_id lands null.
-        _wire(
+        today = datetime.now(UTC).date()
+        watermark = _midnight(today - timedelta(days=ANALYTICS_ENGAGEMENT_LAG_DAYS + 2))
+        params = _wire(session, [_analytics_page([_activity_record()], next_page=None) for _ in range(3)])
+        rows = _rows(_source("analytics_user_activity", _make_manager(), last_value=watermark))
+        assert len(rows) == 3
+        assert [p["params"]["date"] for p in params] == [
+            (watermark.date() + timedelta(days=i)).isoformat() for i in range(3)
+        ]
+        assert [r["date"] for r in rows] == [
+            f"{(watermark.date() + timedelta(days=i)).isoformat()}T00:00:00Z" for i in range(3)
+        ]
+
+    @parameterized.expand([("analytics_user_cost",), ("analytics_user_usage",)])
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_report_requests_carry_a_single_day_range_and_daily_buckets(self, endpoint: str, MockSession) -> None:
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        params = _wire(session, [_report_page([_user_report_row()], has_more=False, next_page=None)])
+        _rows(_source(endpoint, _make_manager(), last_value=_midnight(today)))
+        # A row only carries its own starting_at when a bucket width is set, and the range has to be
+        # one day wide so a row's day is unambiguous and rows arrive in ascending day order.
+        assert params[0]["params"]["starting_at"] == f"{today.isoformat()}T00:00:00Z"
+        assert params[0]["params"]["ending_at"] == f"{(today + timedelta(days=1)).isoformat()}T00:00:00Z"
+        assert params[0]["params"]["bucket_width"] == "1d"
+
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_paginates_within_a_day_on_next_page_alone(self, MockSession) -> None:
+        # The activity endpoint omits has_more, so a null next_page is the only stop signal.
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        params = _wire(
             session,
             [
-                _entity_page([{"id": "wrkspc_1"}, {"id": "wrkspc_2"}], has_more=False, last_id="wrkspc_2"),
-                _entity_page([{"id": "svac_1", "type": "service_account"}], has_more=False, last_id="svac_1"),
-                _entity_page([{"id": "svac_2", "type": "service_account"}], has_more=False, last_id="svac_2"),
+                _analytics_page([_activity_record("a@example.com")], next_page="P2"),
+                _analytics_page([_activity_record("b@example.com")], next_page=None),
             ],
         )
-        rows = _rows(_source("service_accounts", _make_manager()))
-        assert [(r["workspace_id"], r["id"]) for r in rows] == [("wrkspc_1", "svac_1"), ("wrkspc_2", "svac_2")]
+        rows = _rows(_source("analytics_user_activity", _make_manager(), last_value=_midnight(today)))
+        assert {r["user_email_address"] for r in rows} == {"a@example.com", "b@example.com"}
+        assert "page" not in params[0]["params"]
+        assert params[1]["params"]["page"] == "P2"
+        assert params[1]["params"]["date"] == params[0]["params"]["date"]
+
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_checkpoints_the_next_day_after_a_day_is_yielded(self, MockSession) -> None:
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        first_day = today - timedelta(days=ANALYTICS_ENGAGEMENT_LAG_DAYS + 1)
+        manager = _make_manager()
+        _wire(session, [_analytics_page([_activity_record()], next_page=None) for _ in range(2)])
+        _rows(_source("analytics_user_activity", manager, last_value=_midnight(first_day)))
+        saved = [call.args[0].analytics_window_state for call in manager.save_state.call_args_list]
+        # Only the day still to come is checkpointed; the final day saves nothing to resume to.
+        assert saved == [{"start": (first_day + timedelta(days=1)).isoformat()}]
+
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_resumes_from_the_saved_day(self, MockSession) -> None:
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        last_day = today - timedelta(days=ANALYTICS_ENGAGEMENT_LAG_DAYS)
+        manager = _make_manager(AnthropicResumeConfig(analytics_window_state={"start": last_day.isoformat()}))
+        params = _wire(session, [_analytics_page([_activity_record()], next_page=None)])
+        _rows(_source("analytics_user_activity", manager, last_value=_midnight(today - timedelta(days=30))))
+        assert [p["params"]["date"] for p in params] == [last_day.isoformat()]
+
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_legacy_resume_state_restarts_the_fan_out(self, MockSession) -> None:
+        # A resume state saved before this endpoint existed carries no analytics checkpoint; the run
+        # must restart from the watermark rather than fail reading it.
+        session = MockSession.return_value
+        today = datetime.now(UTC).date()
+        watermark = today - timedelta(days=ANALYTICS_ENGAGEMENT_LAG_DAYS)
+        manager = _make_manager(AnthropicResumeConfig(cursor="OLD"))
+        params = _wire(session, [_analytics_page([_activity_record()], next_page=None)])
+        _rows(_source("analytics_user_activity", manager, last_value=_midnight(watermark)))
+        assert [p["params"]["date"] for p in params] == [watermark.isoformat()]
+
+
+class TestAnalyticsAccessProbe:
+    @parameterized.expand(
+        [
+            ("granted", 200, None),
+            ("scope_missing", 403, ANALYTICS_ACCESS_MISSING),
+            ("route_absent_off_enterprise", 404, ANALYTICS_ACCESS_MISSING),
+            # A bad key is reported once for the whole source by validate_credentials.
+            ("bad_key", 401, None),
+            # A blip during schema discovery must not hide a table the customer can sync.
+            ("throttled", 429, None),
+            ("server_error", 500, None),
+        ]
+    )
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_status_mapping(self, _name: str, status: int, expected: str | None, MockSession) -> None:
+        MockSession.return_value.get.return_value = _response({}, status=status)
+        assert check_analytics_access("sk-ant-admin-test") == expected
+
+    @mock.patch(ANTHROPIC_SESSION_PATCH)
+    def test_network_error_leaves_the_tables_reachable(self, MockSession) -> None:
+        MockSession.return_value.get.side_effect = requests.ConnectionError("boom")
+        assert check_analytics_access("sk-ant-admin-test") is None
+
+
+class TestAnalyticsNonRetryableError:
+    def test_analytics_forbidden_reports_the_scope_not_admin_access(self) -> None:
+        # Both the analytics pattern and the generic api.anthropic.com 403 match this error, and the
+        # first matching entry supplies the message the customer reads.
+        errors = AnthropicSource().get_non_retryable_errors()
+        observed = f"403 Client Error: Forbidden for url: https://api.anthropic.com{ANALYTICS_PATH_PREFIX}users?limit=1"
+        matched = [message for pattern, message in errors.items() if error_message_matches(observed, [pattern])]
+        assert len(matched) == 2
+        assert "read:analytics" in (matched[0] or "")

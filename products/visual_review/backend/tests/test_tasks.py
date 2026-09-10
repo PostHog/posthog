@@ -10,7 +10,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from PIL import Image
 
-from products.visual_review.backend import diffing, logic
+from products.visual_review.backend import diffing
 from products.visual_review.backend.diffing import process_diffs
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
@@ -21,9 +21,15 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
+from products.visual_review.backend.logic import artifact_store, runs
 from products.visual_review.backend.models import RunSnapshot, ToleratedHash
 from products.visual_review.backend.tasks.tasks import post_approval_comment, process_run_diffs
-from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
+from products.visual_review.backend.tests.conftest import (
+    PRODUCT_DATABASES,
+    VisualReviewTeamScopedTestMixin,
+    insert_background_rows,
+    make_striped_png,
+)
 
 
 def _make_png(color: tuple[int, int, int, int], size: tuple[int, int] = (10, 10)) -> bytes:
@@ -39,6 +45,56 @@ def _make_png_with_single_changed_pixel() -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+# Every row has its own color, so row alignment has one answer: the page below
+# an insert moved down and nothing else changed.
+STRIPED_PAGE_ROWS = [(10 + (y * 2) % 240, 40 + y % 100, 200 - y % 150, 255) for y in range(100)]
+
+
+def _prepare_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes):
+    stored_bytes = {"old_hash": baseline_png, "new_hash": current_png}
+    artifact_store.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
+    artifact_store.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
+    create_result = api.create_run(
+        CreateRunInput(
+            repo_id=repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+            baseline_hashes={"Button": "old_hash"},
+        ),
+        team_id=repo.team_id,
+    )
+    with (
+        patch(
+            "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
+            return_value=({"Button": "old_hash"}, 0),
+        ),
+        patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+    ):
+        runs.complete_run(create_result.run_id)
+
+    mocker.patch(
+        "products.visual_review.backend.storage.ArtifactStorage.read",
+        autospec=True,
+        side_effect=lambda _storage, content_hash: stored_bytes.get(content_hash),
+    )
+    write = mocker.patch(
+        "products.visual_review.backend.storage.ArtifactStorage.write",
+        autospec=True,
+        side_effect=lambda _storage, content_hash, content: (
+            stored_bytes.setdefault(content_hash, content) and f"visual_review/{content_hash}"
+        ),
+    )
+    return create_result.run_id, write
+
+
+def _process_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes) -> RunSnapshot:
+    run_id, _write = _prepare_one_diff(repo, mocker, baseline_png, current_png)
+    assert process_diffs(run_id) == 1
+    return RunSnapshot.objects.get(run_id=run_id)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -92,14 +148,16 @@ class TestProcessRunDiffs:
         assert "Something went wrong" in (run.error_message or "")
 
     def test_metrics_event_uses_run_id_as_uuid(self, repo, mocker):
-        run, _ = logic.create_run(
-            repo_id=repo.id,
+        run, _ = runs.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="metrics-uuid",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="metrics-uuid",
-            branch="main",
-            pr_number=None,
-            snapshots=[],
         )
         capture = mocker.Mock()
 
@@ -107,9 +165,9 @@ class TestProcessRunDiffs:
         def scoped_capture():
             yield capture
 
-        mocker.patch.object(logic, "ph_scoped_capture", scoped_capture)
+        mocker.patch.object(runs, "ph_scoped_capture", scoped_capture)
 
-        logic.capture_run_processing_metrics(run.id, outcome="completed", diffed_count=0)
+        runs.capture_run_processing_metrics(run.id, outcome="completed", diffed_count=0)
 
         assert capture.call_args.kwargs["uuid"] == run.id
 
@@ -128,7 +186,7 @@ class TestProcessRunDiffs:
         with (
             patch("products.visual_review.backend.diffing.process_diffs", return_value=0),
             patch("products.visual_review.backend.diffing.count_processed_diffs", return_value=3),
-            patch("products.visual_review.backend.logic.capture_run_processing_metrics") as capture,
+            patch("products.visual_review.backend.logic.runs.capture_run_processing_metrics") as capture,
         ):
             process_run_diffs(repo.team_id, str(create_result.run_id))
 
@@ -151,7 +209,7 @@ class TestProcessRunDiffs:
         with (
             patch("products.visual_review.backend.diffing.process_diffs", side_effect=Exception("boom")),
             patch("products.visual_review.backend.diffing.count_processed_diffs", side_effect=Exception("count boom")),
-            patch("products.visual_review.backend.logic.capture_run_processing_metrics") as capture,
+            patch("products.visual_review.backend.logic.runs.capture_run_processing_metrics") as capture,
         ):
             with pytest.raises(Exception, match="boom"):
                 process_run_diffs(repo.team_id, str(create_result.run_id))
@@ -163,7 +221,7 @@ class TestProcessRunDiffs:
 
     def testprocess_diffs_skips_unchanged(self, repo):
         # Create artifact that exists for both baseline and current
-        logic.get_or_create_artifact(
+        artifact_store.get_or_create_artifact(
             repo_id=repo.id,
             content_hash="same_hash",
             storage_path="visual_review/same_hash",
@@ -183,10 +241,10 @@ class TestProcessRunDiffs:
 
         # Classification happens at complete_run time
         with patch(
-            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
             return_value=({"Button": "same_hash"}, 0),
         ):
-            logic.complete_run(create_result.run_id)
+            runs.complete_run(create_result.run_id)
 
         # Process - should skip unchanged snapshot
         process_diffs(create_result.run_id)
@@ -217,8 +275,8 @@ class TestProcessRunDiffs:
         assert snapshots[0].result == SnapshotResult.NEW
 
     def testprocess_diffs_skips_new_with_existing_thumbnail(self, repo, mocker):
-        thumbnail, _ = logic.get_or_create_artifact(repo.id, "thumb_hash", "visual_review/thumb_hash")
-        current, _ = logic.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
+        thumbnail, _ = artifact_store.get_or_create_artifact(repo.id, "thumb_hash", "visual_review/thumb_hash")
+        current, _ = artifact_store.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
         current.thumbnail = thumbnail
         current.save(update_fields=["thumbnail"])
         create_result = api.create_run(
@@ -239,13 +297,13 @@ class TestProcessRunDiffs:
 
     def testprocess_diffs_attempts_diff_for_changed(self, repo):
         # Create baseline artifact
-        logic.get_or_create_artifact(
+        artifact_store.get_or_create_artifact(
             repo_id=repo.id,
             content_hash="old_hash",
             storage_path="visual_review/old_hash",
         )
         # Create current artifact
-        logic.get_or_create_artifact(
+        artifact_store.get_or_create_artifact(
             repo_id=repo.id,
             content_hash="new_hash",
             storage_path="visual_review/new_hash",
@@ -266,12 +324,12 @@ class TestProcessRunDiffs:
         # Classification happens at complete_run time
         with (
             patch(
-                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
                 return_value=({"Button": "old_hash"}, 0),
             ),
             patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
         ):
-            logic.complete_run(create_result.run_id)
+            runs.complete_run(create_result.run_id)
 
         # Process - should attempt to diff but fail because artifacts aren't in storage
         with patch("products.visual_review.backend.diffing.logger") as mock_logger:
@@ -288,8 +346,8 @@ class TestProcessRunDiffs:
             "old_hash": _make_png((255, 0, 0, 255)),
             "new_hash": _make_png((0, 0, 255, 255)),
         }
-        logic.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
-        logic.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
+        artifact_store.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
+        artifact_store.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
         create_result = api.create_run(
             CreateRunInput(
                 repo_id=repo.id,
@@ -303,12 +361,12 @@ class TestProcessRunDiffs:
         )
         with (
             patch(
-                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
                 return_value=({"Button": "old_hash"}, 0),
             ),
             patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
         ):
-            logic.complete_run(create_result.run_id)
+            runs.complete_run(create_result.run_id)
 
         mocker.patch(
             "products.visual_review.backend.storage.ArtifactStorage.read",
@@ -329,48 +387,13 @@ class TestProcessRunDiffs:
         assert compare_images.call_count == 1
 
     def test_process_diffs_counts_below_threshold_comparisons(self, repo, mocker):
-        stored_bytes = {
-            "old_hash": _make_png((255, 0, 0, 255), size=(100, 100)),
-            "new_hash": _make_png_with_single_changed_pixel(),
-        }
-        logic.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
-        logic.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
-        create_result = api.create_run(
-            CreateRunInput(
-                repo_id=repo.id,
-                run_type=RunType.STORYBOOK,
-                commit_sha="abc123",
-                branch="main",
-                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
-                baseline_hashes={"Button": "old_hash"},
-            ),
-            team_id=repo.team_id,
-        )
-        with (
-            patch(
-                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
-                return_value=({"Button": "old_hash"}, 0),
-            ),
-            patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
-        ):
-            logic.complete_run(create_result.run_id)
-
-        mocker.patch(
-            "products.visual_review.backend.storage.ArtifactStorage.read",
-            autospec=True,
-            side_effect=lambda _storage, content_hash: stored_bytes.get(content_hash),
-        )
-        mocker.patch(
-            "products.visual_review.backend.storage.ArtifactStorage.write",
-            autospec=True,
-            side_effect=lambda _storage, content_hash, content: (
-                stored_bytes.setdefault(content_hash, content) and f"visual_review/{content_hash}"
-            ),
+        snapshot = _process_one_diff(
+            repo,
+            mocker,
+            baseline_png=_make_png((255, 0, 0, 255), size=(100, 100)),
+            current_png=_make_png_with_single_changed_pixel(),
         )
 
-        assert process_diffs(create_result.run_id) == 1
-
-        snapshot = RunSnapshot.objects.get(run_id=create_result.run_id)
         assert snapshot.result == SnapshotResult.UNCHANGED
         assert snapshot.classification_reason == ClassificationReason.BELOW_THRESHOLD
         assert snapshot.diff_pixel_count is not None
@@ -383,6 +406,56 @@ class TestProcessRunDiffs:
             baseline_hash="old_hash",
             alternate_hash="new_hash",
         ).exists()
+
+    def test_absorbed_shift_survives_a_failed_diff_upload(self, repo, mocker):
+        # The diff pass runs once per run. A noise row that stayed CHANGED
+        # because its courtesy diff image did not upload would fail the gate
+        # for a change nobody can see.
+        run_id, _write = _prepare_one_diff(
+            repo,
+            mocker,
+            baseline_png=make_striped_png(STRIPED_PAGE_ROWS, width=100),
+            current_png=insert_background_rows(
+                make_striped_png(STRIPED_PAGE_ROWS, width=100), y=20, rows=1, fill=(255, 255, 255, 255)
+            ),
+        )
+        mocker.patch.object(diffing, "_write_diff_artifact", side_effect=RuntimeError("object storage down"))
+
+        assert process_diffs(run_id) == 1
+
+        snapshot = RunSnapshot.objects.get(run_id=run_id)
+        assert snapshot.result == SnapshotResult.UNCHANGED
+        assert snapshot.classification_reason == ClassificationReason.BELOW_THRESHOLD
+        assert snapshot.diff_artifact is None
+        assert snapshot.diff_metadata["row_shift"]["inserted_rows"] == 1
+
+    def test_process_diffs_absorbs_a_one_row_shift_but_keeps_its_trace(self, repo, mocker):
+        # The whole point of row alignment: a page that moved down by a row is
+        # noise, but the run still has to say what moved, and the tolerated
+        # hash has to record what the run really cost. Recording the naive
+        # percentage here would eat the flakiness headroom of a clean story.
+        snapshot = _process_one_diff(
+            repo,
+            mocker,
+            baseline_png=make_striped_png(STRIPED_PAGE_ROWS, width=100),
+            current_png=insert_background_rows(
+                make_striped_png(STRIPED_PAGE_ROWS, width=100), y=20, rows=1, fill=(255, 255, 255, 255)
+            ),
+        )
+
+        assert snapshot.result == SnapshotResult.UNCHANGED
+        assert snapshot.classification_reason == ClassificationReason.BELOW_THRESHOLD
+        assert snapshot.diff_metadata["row_shift"]["inserted_rows"] == 1
+        assert snapshot.diff_metadata["row_shift"]["raw_diff_percentage"] > snapshot.diff_percentage
+        assert snapshot.diff_artifact is not None
+
+        tolerated = ToleratedHash.objects.get(
+            repo_id=repo.id,
+            identifier="Button",
+            baseline_hash="old_hash",
+            alternate_hash="new_hash",
+        )
+        assert tolerated.diff_percentage == snapshot.diff_percentage
 
 
 class TestCountProcessedDiffs(VisualReviewTeamScopedTestMixin, BaseTest):
@@ -417,14 +490,16 @@ class TestCountProcessedDiffs(VisualReviewTeamScopedTestMixin, BaseTest):
     )
     def test_from_persisted_state(self, _name: str, snapshot_fields: dict[str, object], expected: int) -> None:
         repo = api.create_repo(team_id=self.team.id, repo_external_id=99999, repo_full_name="org/test")
-        run, _ = logic.create_run(
-            repo_id=repo.id,
+        run, _ = runs.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha=f"count-{_name}",
+                branch=f"count-{_name}",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier=_name, content_hash=f"hash-{_name}")],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha=f"count-{_name}",
-            branch=f"count-{_name}",
-            pr_number=None,
-            snapshots=[{"identifier": _name, "content_hash": f"hash-{_name}"}],
         )
         RunSnapshot.objects.filter(run=run).update(**snapshot_fields)
 
@@ -438,7 +513,7 @@ class TestPostApprovalCommentTask:
         return api.create_repo(team_id=team.id, repo_external_id=88888, repo_full_name="org/approval")
 
     def test_calls_logic_helper(self, repo):
-        with patch("products.visual_review.backend.logic.post_approval_comment_for_run") as helper:
+        with patch("products.visual_review.backend.logic.comments.post_approval_comment_for_run") as helper:
             post_approval_comment(repo.team_id, "00000000-0000-0000-0000-000000000001")
         helper.assert_called_once()
         args, kwargs = helper.call_args
@@ -447,7 +522,7 @@ class TestPostApprovalCommentTask:
 
     def test_swallows_unexpected_errors(self, repo):
         with patch(
-            "products.visual_review.backend.logic.post_approval_comment_for_run",
+            "products.visual_review.backend.logic.comments.post_approval_comment_for_run",
             side_effect=RuntimeError("boom"),
         ):
             # Must not raise — failure to comment must never block other work.
@@ -458,7 +533,7 @@ class TestPostApprovalCommentTask:
 
         with (
             patch(
-                "products.visual_review.backend.logic.post_approval_comment_for_run",
+                "products.visual_review.backend.logic.comments.post_approval_comment_for_run",
                 side_effect=GitHubRateLimitError("rate limited", retry_after=42),
             ),
             patch.object(post_approval_comment, "retry", side_effect=RuntimeError("retry called")) as retry_mock,

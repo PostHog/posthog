@@ -1,4 +1,3 @@
-import json
 from typing import Any
 
 from django.db import models, transaction
@@ -8,19 +7,11 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
+from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
-
-
-def normalize_prompt_to_string(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    try:
-        return json.dumps(value, ensure_ascii=False)
-    except Exception:
-        return ""
 
 
 def get_prompt_outline(value: Any) -> list[dict[str, Any]]:
@@ -65,13 +56,8 @@ class LLMPrompt(UUIDModel):
     # Optional "what changed" note set when the version is published; immutable like the rest of the row
     version_description = models.CharField(max_length=400, null=True, blank=True)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-    )
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -111,13 +97,9 @@ class LLMPromptLabel(ModelActivityMixin, UUIDModel):
 
     # db_constraint=False: posthog_team / posthog_user are hot tables — adding a real FK
     # constraint locks the parent table during migration.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     created_at = models.DateTimeField(default=timezone.now)

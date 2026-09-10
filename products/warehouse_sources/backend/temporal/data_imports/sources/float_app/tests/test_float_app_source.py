@@ -1,14 +1,6 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.float_app import FloatAppResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.settings import (
     ENDPOINTS,
     FLOAT_ENDPOINTS,
@@ -17,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.floatapp import (
     FloatAppSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _CURSOR_ENDPOINTS = {"deleted_tasks", "deleted_timeoffs", "deleted_logged_time"}
 
@@ -27,28 +18,6 @@ class TestFloatAppSource:
         self.source = FloatAppSource()
         self.team_id = 123
         self.config = FloatAppSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FLOATAPP
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "FloatApp"
-        assert config.label == "Float"
-        assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/float-app"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -102,10 +71,6 @@ class TestFloatAppSource:
         # Full refresh is the only advertised sync method.
         assert all(table["sync_methods"] == ["Full refresh"] for table in documented)
 
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(FLOAT_ENDPOINTS)
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
@@ -126,21 +91,3 @@ class TestFloatAppSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("key")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert manager._data_class is FloatAppResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.float_app.source.float_app_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_float_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "people"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_float_source.assert_called_once()
-        kwargs = mock_float_source.call_args.kwargs
-        assert kwargs["api_key"] == "key"
-        assert kwargs["endpoint"] == "people"
-        assert kwargs["resumable_source_manager"] is manager

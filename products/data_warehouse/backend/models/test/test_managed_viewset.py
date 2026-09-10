@@ -81,6 +81,28 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
 
         reconcile.assert_called_once()
 
+    def test_failed_dag_sync_leaves_nothing_materialized(self):
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+        with (
+            patch(
+                "products.data_modeling.backend.logic.saved_query_dag_sync.sync_saved_query_to_dag",
+                side_effect=Exception("dependency resolution failed"),
+            ),
+            patch(
+                "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+                side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
+            ),
+        ):
+            managed_viewset.sync_views()
+
+        assert not DataWarehouseSavedQuery.objects.filter(
+            managed_viewset=managed_viewset, is_materialized=True
+        ).exists()
+
     def test_sync_views_creates_views(self):
         """Test that enabling managed viewset creates the expected views"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
@@ -89,7 +111,8 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         )
 
         # Call sync_views to create the views
-        managed_viewset.sync_views()
+        with patch(SCHEDULE_MATERIALIZATION):
+            managed_viewset.sync_views()
 
         # Check that views were created
         views = DataWarehouseSavedQuery.objects.filter(

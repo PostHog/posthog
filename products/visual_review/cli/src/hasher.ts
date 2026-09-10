@@ -12,9 +12,9 @@
  * Uses sharp (native libvips) for fast PNG decode.
  */
 import { Blake3Hasher } from '@napi-rs/blake-hash'
-import sharp from 'sharp'
+import sharp, { type Sharp } from 'sharp'
 
-function toRgba(pngData: Buffer): sharp.Sharp {
+function toRgba(pngData: Buffer): Sharp {
     return sharp(pngData).toColorspace('srgb').ensureAlpha().raw()
 }
 

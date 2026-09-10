@@ -7,11 +7,16 @@ import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtu
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
+import { workflowStepDispatchKeyFromInvocation } from '~/cdp/utils/workflow-step-dispatch-key'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { parseJSON } from '~/common/utils/json-parse'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
+import { HogExecutorAsyncService } from '../../hog-executor-async.service'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
@@ -31,7 +36,7 @@ describe('HogFunctionHandler', () => {
     let hub: Hub
     let team: Team
     let hogFunctionHandler: HogFunctionHandler
-    let mockHogFunctionExecutor: HogExecutorService
+    let mockHogFunctionExecutor: HogExecutorAsyncService
     let mockHogFunctionTemplateManager: HogFunctionTemplateManagerService
     let mockHogFlowFunctionsService: HogFlowFunctionsService
     let mockRecipientPreferencesService: RecipientPreferencesService
@@ -40,11 +45,11 @@ describe('HogFunctionHandler', () => {
     let invocation: CyclotronJobInvocationHogFlow
     let action: Extract<HogFlowAction, { type: 'function' }>
     let template: DBHogFunctionTemplate
+    let integrationId: number
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogInputsService = new HogInputsService(
@@ -62,26 +67,38 @@ describe('HogFunctionHandler', () => {
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
             },
             hub.integrationManager,
-            new TeamWorkflowsConfigService(hub.postgres),
+            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres)
         )
-        mockHogFunctionExecutor = new HogExecutorService(
+        mockHogFunctionExecutor = new HogExecutorAsyncService(
+            new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                siteUrl: hub.SITE_URL,
+                internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService,
-            undefined as any
+            {
+                teamManager: hub.teamManager,
+                conversationsTicketsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                    hub.CONVERSATIONS_TICKETS_JWT_SECRET
+                ),
+                customerAnalyticsAccountsJwt: new ScopedServiceJwt(
+                    PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                    hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
+                ),
+                hogInputsService,
+                emailService,
+                recipientTokensService,
+                pushNotificationService: undefined as any,
+            }
         )
         mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         mockHogFlowFunctionsService = new HogFlowFunctionsService(
@@ -105,7 +122,7 @@ describe('HogFunctionHandler', () => {
         // Simple hog function that prints the inputs
 
         template = await insertHogFunctionTemplate(hub.postgres, {
-            id: 'template-test-hogflow-executor',
+            id: `template-test-hogflow-executor-${team.id}`,
             name: 'Test Template',
             code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
             inputs_schema: [
@@ -122,8 +139,9 @@ describe('HogFunctionHandler', () => {
             ],
         })
 
+        integrationId = team.id
         await insertIntegration(hub.postgres, team.id, {
-            id: 1,
+            id: integrationId,
             kind: 'slack',
             config: { team: 'foobar' },
             sensitive_config: {
@@ -145,7 +163,7 @@ describe('HogFunctionHandler', () => {
                                     value: 'John Doe',
                                 },
                                 oauth: {
-                                    value: 1,
+                                    value: integrationId,
                                 },
                             },
                             mappings: [
@@ -191,20 +209,17 @@ describe('HogFunctionHandler', () => {
 
         const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
-        expect(mockFetch.mock.calls).toMatchInlineSnapshot(`
-            [
-              [
-                "http://localhost/test",
-                {
-                  "body": "{"name":"John Doe","oauth":{"$integration_id":1,"team":"foobar","access_token":"token","not_encrypted":"not-encrypted","access_token_raw":"token"}}",
-                  "headers": {
-                    "Content-Type": "application/json",
-                  },
-                  "method": "POST",
-                },
-              ],
-            ]
-        `)
+        expect(mockFetch.mock.calls[0][0]).toBe('http://localhost/test')
+        expect(parseJSON(mockFetch.mock.calls[0][1].body)).toEqual({
+            name: 'John Doe',
+            oauth: {
+                $integration_id: integrationId,
+                team: 'foobar',
+                access_token: 'token',
+                not_encrypted: 'not-encrypted',
+                access_token_raw: 'token',
+            },
+        })
 
         expect(handlerResult.nextAction?.id).toBe('exit')
         expect(invocationResult.logs).toHaveLength(1)
@@ -357,7 +372,7 @@ describe('HogFunctionHandler', () => {
                 value: 'John Doe',
             },
             oauth: {
-                value: 1,
+                value: integrationId,
             },
         })
         expect(calledConfig.inputs_schema).toEqual([
@@ -495,6 +510,41 @@ describe('HogFunctionHandler', () => {
         }
     )
 
+    // Live edits reach runs already in flight, so a run that entered on one version can send its
+    // message under a newer one. The conversion belongs to the version whose message the person
+    // received — the same version `email_sent` is counted under — so a send re-pins the attribution
+    // version. A non-message step must leave it alone.
+    it.each([
+        { billingType: 'email' as const, expected: 3 },
+        { billingType: 'push' as const, expected: 3 },
+        { billingType: 'fetch' as const, expected: 1 },
+    ])(
+        'a completed $billingType step leaves the attribution version at $expected',
+        async ({ billingType, expected }) => {
+            const handler = new HogFunctionHandler(
+                mockHogFlowFunctionsService,
+                mockRecipientPreferencesService,
+                mockEmailValidationService,
+                billingType
+            )
+            // The run entered on v1; v3 is what is live now and what this step executes under.
+            const republished = {
+                ...invocation,
+                hogFlow: { ...invocation.hogFlow, version: 3 },
+                state: { ...invocation.state, flowVersion: 1 },
+            }
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(republished, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await handler.execute({ invocation: republished, action, result: invocationResult })
+
+            expect(invocationResult.invocation.state.flowVersion).toBe(expected)
+        }
+    )
+
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
         jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
@@ -504,7 +554,8 @@ describe('HogFunctionHandler', () => {
             metrics: [],
             capturedPostHogEvents: [],
             warehouseWebhookPayloads: [],
-            emailAssets: [],
+            messageAssets: [],
+            conversionWatchers: [],
         })
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -546,7 +597,7 @@ describe('HogFunctionHandler', () => {
     describe('non_failure_status_codes propagation', () => {
         it('propagates non_failure_status_codes from action.config.inputs into the synthetic hog function', async () => {
             const templateWithNonFailure = await insertHogFunctionTemplate(hub.postgres, {
-                id: 'template-test-hogflow-non-failure-status',
+                id: `template-test-hogflow-non-failure-status-${team.id}`,
                 name: 'Test Template With Non-Failure Codes',
                 code: `fetch('http://localhost/test', { 'method': 'POST', 'body': {} })`,
                 inputs_schema: [
@@ -596,6 +647,295 @@ describe('HogFunctionHandler', () => {
             )
             expect(builtHogFunction.inputs?.non_failure_status_codes).toEqual({
                 value: ['4xx', 500],
+            })
+        })
+    })
+
+    describe('awaited templates', () => {
+        let TASK_TEMPLATE_ID: string
+        let awaitingHandler: HogFunctionHandler
+        let dispatchKey: string
+
+        const buildTaskFlow = (inputs: Record<string, { value: unknown }> = {}): void => {
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withWorkflow({
+                    actions: {
+                        task: { type: 'function', config: { template_id: TASK_TEMPLATE_ID, inputs } },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [{ from: 'task', to: 'exit', type: 'continue' }],
+                })
+                .build()
+            action = findActionByType(hogFlow, 'function')!
+            invocation = createExampleHogFlowInvocation(hogFlow)
+            invocation.state.actionStepCount = 3
+            invocation.state.currentAction = { id: action.id, startedAtTimestamp: DateTime.utc().toMillis() }
+            dispatchKey = `${invocation.id}:${action.id}:3`
+        }
+
+        const execute = async (handler: HogFunctionHandler = awaitingHandler) => {
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+            const handlerResult = await handler.execute({ invocation, action, result: invocationResult })
+            return { handlerResult, invocationResult }
+        }
+
+        beforeEach(async () => {
+            TASK_TEMPLATE_ID = `template-awaited-step-${team.id}`
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: TASK_TEMPLATE_ID,
+                name: 'Create task',
+                code: `if (inputs.skip) { return { 'skipped': true, 'reason': 'over the cap' } } return { 'id': 't1', 'run_id': 'r1', 'await': { 'max_wait': '190m', 'label': 'task' } }`,
+                inputs_schema: [{ key: 'skip', type: 'boolean', required: false }],
+            })
+            awaitingHandler = new HogFunctionHandler(
+                mockHogFlowFunctionsService,
+                mockRecipientPreferencesService,
+                mockEmailValidationService,
+                'fetch',
+                undefined,
+                { awaitedStepsEnabled: true }
+            )
+            buildTaskFlow()
+        })
+
+        it.each([
+            { rerunAttempts: 0, legacyDispatch: false },
+            { rerunAttempts: 1, legacyDispatch: false },
+            { rerunAttempts: 2, legacyDispatch: false },
+            { rerunAttempts: 1, legacyDispatch: true },
+        ])('uses the dispatch key when parking: %j', async ({ rerunAttempts, legacyDispatch }) => {
+            invocation.state.rerunAttempts = rerunAttempts
+            const originalBuild =
+                mockHogFlowFunctionsService.buildHogFunctionInvocation.bind(mockHogFlowFunctionsService)
+            const buildSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
+            if (legacyDispatch) {
+                buildSpy.mockImplementationOnce(async (...args) => {
+                    const child = await originalBuild(...args)
+                    delete child.state.rerunAttempts
+                    invocation.state.currentAction!.hogFunctionState = child.state
+                    return originalBuild(...args)
+                })
+            }
+            const { invocationResult } = await execute()
+            const child = await buildSpy.mock.results[0].value
+
+            expect(child.state.rerunAttempts).toBe(legacyDispatch ? undefined : rerunAttempts)
+            expect(workflowStepDispatchKeyFromInvocation(child)).toBe(
+                invocationResult.invocation.state.currentAction?.awaitingResume?.key
+            )
+            expect(invocationResult.invocation.state.currentAction?.awaitingResume?.key).toBe(
+                `${dispatchKey}${rerunAttempts && !legacyDispatch ? `.r${rerunAttempts}` : ''}`
+            )
+        })
+
+        it('parks after the dispatch until the task finishes', async () => {
+            const before = DateTime.now()
+            const { handlerResult, invocationResult } = await execute()
+
+            expect(handlerResult.nextAction).toBeUndefined()
+            expect(handlerResult.scheduledAt!.diff(before).as('minutes')).toBeGreaterThanOrEqual(190)
+            expect(handlerResult.result).toEqual({ id: 't1', run_id: 'r1' })
+            expect(invocationResult.invocation.state.currentAction?.awaitingResume).toEqual({
+                key: dispatchKey,
+                deadlineAt: handlerResult.scheduledAt!.toISO(),
+                dispatch: { id: 't1', run_id: 'r1' },
+                label: 'task',
+            })
+            expect(invocationResult.metrics.map((m) => m.metric_name)).toContain('billable_invocation')
+            expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
+                expect.stringContaining('Waiting for the task to finish')
+            )
+        })
+
+        it.each([
+            ['the template asks for no wait', { skip: { value: true } }, true],
+            ['waiting is turned off', {}, false],
+        ])('advances without waiting when %s', async (_, inputs, awaitedStepsEnabled) => {
+            buildTaskFlow(inputs)
+            const handler = new HogFunctionHandler(
+                mockHogFlowFunctionsService,
+                mockRecipientPreferencesService,
+                mockEmailValidationService,
+                'fetch',
+                undefined,
+                { awaitedStepsEnabled }
+            )
+
+            const { handlerResult, invocationResult } = await execute(handler)
+
+            expect(handlerResult.nextAction?.id).toBe('exit')
+            expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
+        })
+
+        it.each([
+            ['clamps a wait past the ceiling', { max_wait: '99d', label: 'export' }, 24 * 60, 'Waiting for the export'],
+            [
+                'continues and logs when it cannot parse the wait',
+                { max_wait: '190min' },
+                null,
+                `Ignored the template's wait request: await.max_wait must be a duration like '190m' or '2h', got "190min"`,
+            ],
+        ])('%s', async (_, awaitRequest, expectedMinutes, expectedLog) => {
+            jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
+                finished: true,
+                execResult: { id: 'x1', await: awaitRequest },
+                invocation: invocation as any,
+                logs: [],
+                metrics: [],
+                capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
+                messageAssets: [],
+                conversionWatchers: [],
+            })
+            const before = DateTime.now()
+
+            const { handlerResult, invocationResult } = await execute()
+
+            if (expectedMinutes === null) {
+                expect(handlerResult.nextAction?.id).toBe('exit')
+                expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
+            } else {
+                expect(Math.round(handlerResult.scheduledAt!.diff(before).as('minutes'))).toBe(expectedMinutes)
+                expect(handlerResult.result).toEqual({ id: 'x1' })
+            }
+            expect(invocationResult.logs.map((l) => l.message)).toContainEqual(expect.stringContaining(expectedLog))
+        })
+
+        describe('on resume', () => {
+            let executeSpy: jest.SpyInstance
+            const deadlineAt = DateTime.now().plus({ hours: 1 }).toISO()!
+
+            beforeEach(() => {
+                executeSpy = jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions')
+                invocation.state.currentAction!.awaitingResume = {
+                    key: dispatchKey,
+                    deadlineAt,
+                    dispatch: { id: 't1', run_id: 'r1' },
+                    label: 'task',
+                }
+            })
+
+            it.each([true, false])('resumes without dispatch when the flag is %s', async (awaitedStepsEnabled) => {
+                delete invocation.state.currentAction!.awaitingResume
+                const { invocationResult: parked } = await execute()
+                expect(executeSpy).toHaveBeenCalledTimes(1)
+                executeSpy.mockClear()
+                invocation = parked.invocation
+                invocation.state.currentAction!.resumeResult = {
+                    key: dispatchKey,
+                    status: 'completed',
+                    result: { final_message: 'done' },
+                }
+                const handler = new HogFunctionHandler(
+                    mockHogFlowFunctionsService,
+                    mockRecipientPreferencesService,
+                    mockEmailValidationService,
+                    'fetch',
+                    undefined,
+                    { awaitedStepsEnabled }
+                )
+
+                const { handlerResult } = await execute(handler)
+
+                expect(executeSpy).not.toHaveBeenCalled()
+                expect(handlerResult.nextAction?.id).toBe('exit')
+                expect(handlerResult.result).toMatchObject({ status: 'completed', final_message: 'done' })
+            })
+
+            it('advances with the dispatch and the run result merged, without re-running the step', async () => {
+                invocation.state.currentAction!.resumeResult = {
+                    key: dispatchKey,
+                    status: 'completed',
+                    result: { final_message: 'x'.repeat(5000), pr_urls: ['https://example.com/pr/1'] },
+                }
+
+                const { handlerResult, invocationResult } = await execute()
+
+                expect(executeSpy).not.toHaveBeenCalled()
+                expect(handlerResult.nextAction?.id).toBe('exit')
+                expect(handlerResult.result).toEqual({
+                    id: 't1',
+                    run_id: 'r1',
+                    status: 'completed',
+                    final_message: 'x'.repeat(1500),
+                    pr_urls: ['https://example.com/pr/1'],
+                })
+                expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
+                expect(invocationResult.invocation.state.currentAction?.resumeResult).toBeUndefined()
+            })
+
+            it.each([4000, 4700])('fits the resumed result with %s bytes of existing variables', async (usedBytes) => {
+                action.output_variable = { key: 'task_result' }
+                invocation.state.variables = { ticket_body: 'y'.repeat(usedBytes - '{"ticket_body":""}'.length) }
+                invocation.state.currentAction!.resumeResult = {
+                    key: dispatchKey,
+                    status: 'completed',
+                    result: { final_message: 'x'.repeat(5000), pr_urls: ['u'] },
+                }
+
+                const { handlerResult } = await execute()
+
+                const stored = handlerResult.result as Record<string, unknown>
+                expect(stored.pr_urls).toEqual(['u'])
+                expect(
+                    Buffer.byteLength(JSON.stringify({ ...invocation.state.variables, task_result: stored }))
+                ).toBeLessThanOrEqual(5120)
+            })
+
+            it('continues past a completed task whose output is off, and warns in the run log', async () => {
+                invocation.state.currentAction!.resumeResult = {
+                    key: dispatchKey,
+                    status: 'completed',
+                    result: { output: { verdict: 'ship' }, warnings: ["'score' is a required property"] },
+                }
+
+                const { handlerResult, invocationResult } = await execute()
+
+                expect(handlerResult.nextAction?.id).toBe('exit')
+                expect(handlerResult.result).toMatchObject({ output: { verdict: 'ship' } })
+                expect(invocationResult.logs).toContainEqual(
+                    expect.objectContaining({
+                        level: 'warn',
+                        message: expect.stringContaining("'score' is a required property"),
+                    })
+                )
+            })
+
+            it('fails the step when the task did not complete', async () => {
+                invocation.state.currentAction!.resumeResult = {
+                    key: dispatchKey,
+                    status: 'failed',
+                    result: { error_message: 'sandbox crashed' },
+                }
+
+                await expect(execute()).rejects.toThrow('The task failed: sandbox crashed')
+                expect(executeSpy).not.toHaveBeenCalled()
+            })
+
+            it('ignores a wake for an earlier visit and keeps waiting', async () => {
+                invocation.state.currentAction!.resumeResult = {
+                    key: `${invocation.id}:${action.id}:1`,
+                    status: 'completed',
+                }
+
+                const { handlerResult, invocationResult } = await execute()
+
+                expect(handlerResult.nextAction).toBeUndefined()
+                expect(handlerResult.scheduledAt!.toISO()).toBe(deadlineAt)
+                expect(invocationResult.invocation.state.currentAction?.resumeResult).toBeUndefined()
+                expect(invocationResult.invocation.state.currentAction?.awaitingResume?.key).toBe(dispatchKey)
+            })
+
+            it('fails the step when the deadline passes without a wake', async () => {
+                invocation.state.currentAction!.awaitingResume!.deadlineAt = DateTime.now()
+                    .minus({ minutes: 1 })
+                    .toISO()!
+
+                await expect(execute()).rejects.toThrow('Timed out waiting for the task to finish')
             })
         })
     })

@@ -1,10 +1,51 @@
+from collections.abc import Callable, Sequence
+
 import pytest
 
-from posthog.management.commands.start_temporal_worker import DATA_SYNC_WORKFLOWS, workflows_include_data_import_syncs
+from django.conf import settings
+
+from posthog.management.commands.start_temporal_worker import (
+    ACTIVITIES_DICT,
+    DATA_SYNC_WORKFLOWS,
+    WA_DIGEST_ACTIVITIES,
+    WA_DIGEST_WORKFLOWS,
+    WEEKLY_DIGEST_WORKFLOWS,
+    WORKFLOWS_DICT,
+    _task_queue_specs,
+    workflows_include_data_import_syncs,
+)
+
+from products.alerts.backend.facade.temporal import (
+    DELIVERY_ACTIVITIES,
+    DELIVERY_WORKFLOWS,
+    EVALUATION_ACTIVITIES,
+    EVALUATION_WORKFLOWS,
+)
+from products.wizard.backend.facade.temporal import (
+    ACTIVITIES as WIZARD_ACTIVITIES,
+    WORKFLOWS as WIZARD_WORKFLOWS,
+)
 
 
 class _NotADataSyncWorkflow:
     pass
+
+
+@pytest.mark.parametrize(
+    "task_queue,expected_workflows,expected_activities",
+    [
+        (settings.WIZARD_TASK_QUEUE, WIZARD_WORKFLOWS, WIZARD_ACTIVITIES),
+        ("alerts-product-evaluation-task-queue", EVALUATION_WORKFLOWS, EVALUATION_ACTIVITIES),
+        ("alerts-product-delivery-task-queue", DELIVERY_WORKFLOWS, DELIVERY_ACTIVITIES),
+    ],
+)
+def test_queue_registers_workflows_and_activities(
+    task_queue: str, expected_workflows: Sequence[type], expected_activities: Sequence[Callable[..., object]]
+) -> None:
+    assert expected_workflows
+    assert expected_activities
+    assert set(expected_workflows) <= WORKFLOWS_DICT[task_queue]
+    assert set(expected_activities) <= ACTIVITIES_DICT[task_queue]
 
 
 # Data-import sources import vendor SDKs (google-ads, etc.) that register protobuf descriptors into a
@@ -23,3 +64,21 @@ class _NotADataSyncWorkflow:
 )
 def test_only_data_import_queues_warm_sources(workflows: list[type], expected: bool) -> None:
     assert workflows_include_data_import_syncs(workflows) is expected
+
+
+# The WA digest schedules name their task queue explicitly, so if these workflows stop being
+# registered alongside the queue that serves it, the schedules still fire and nothing polls them,
+# which stays invisible for a week because both digests are weekly. Registration has two halves, and
+# a workflow registered without its activities fails at runtime the moment it dispatches one, so both
+# are asserted. Queue settings collapse to a single dev queue under DEBUG, so match on the spec entry
+# that carries the weekly digest rather than on a queue name.
+def test_wa_digests_are_registered_with_the_weekly_digest() -> None:
+    entries = [
+        (workflows, activities)
+        for _, workflows, activities in _task_queue_specs
+        if WEEKLY_DIGEST_WORKFLOWS[0] in workflows
+    ]
+    assert len(entries) == 1
+    workflows, activities = entries[0]
+    assert set(WA_DIGEST_WORKFLOWS) <= set(workflows)
+    assert set(WA_DIGEST_ACTIVITIES) <= set(activities)

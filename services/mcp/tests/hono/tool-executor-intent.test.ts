@@ -17,7 +17,7 @@ vi.mock('@/resources', () => ({
 // not a stub.
 vi.mock('@/lib/posthog', async () => {
     const { PostHogMCP } = await import('@posthog/mcp-analytics')
-    const client = new PostHogMCP('phc_test', { disabled: true })
+    const client = new PostHogMCP('phc_test', { disabled: true, captureModel: true })
     return { getPostHogClient: () => client }
 })
 
@@ -26,6 +26,7 @@ import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { getPostHogClient } from '@/lib/posthog'
+import { MAX_CAPTURED_DESCRIPTION_LENGTH } from '@/tools/toolDefinitions'
 
 function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
@@ -48,6 +49,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
@@ -56,6 +58,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
@@ -65,15 +68,18 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        flagGatedTools: [],
+        gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
+        metadataCompact: undefined,
         groupTypes: undefined,
         ...overrides,
     }
 }
 
-describe('ToolExecutor intent capture', () => {
+describe('ToolExecutor analytics capture', () => {
     let catalog: ToolCatalog
     let executor: ToolExecutor
 
@@ -83,7 +89,7 @@ describe('ToolExecutor intent capture', () => {
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
 
-    it('injects the context argument into advertised tools', async () => {
+    it('injects the analytics arguments into advertised tools', async () => {
         const state = makeState([], { useSingleExec: true })
 
         const result = await executor.handleToolsList(state)
@@ -93,64 +99,144 @@ describe('ToolExecutor intent capture', () => {
         // The SDK injects `context` (required, to nudge the agent to state intent)
         // while leaving the existing `command` arg untouched.
         expect(properties).toHaveProperty('context')
+        expect(properties).toHaveProperty('llm_model')
         expect(properties).toHaveProperty('command')
         expect(execEntry.inputSchema.required).toContain('context')
+        expect(execEntry.inputSchema.required).toContain('llm_model')
     })
 
     it.each([
         {
             label: 'forwards the agent intent and strips context before the handler',
-            args: { command: 'tools', context: 'investigating signup drop' },
+            args: {
+                command: 'tools',
+                context: 'investigating signup drop',
+                llm_model: 'gpt-5.6-codex',
+            },
             expectedIntent: 'investigating signup drop',
             expectedSource: 'context_parameter',
+            expectedModel: 'gpt-5.6-codex',
+            expectedModelSource: 'self_reported',
+        },
+        {
+            label: 'prefers Codex request metadata over an unknown self-report',
+            args: {
+                command: 'tools',
+                context: 'checking the available tools',
+                llm_model: 'unknown',
+            },
+            requestMeta: { 'x-codex-turn-metadata': { model: 'gpt-5.6-sol' } },
+            expectedIntent: 'checking the available tools',
+            expectedSource: 'context_parameter',
+            expectedModel: 'gpt-5.6-sol',
+            expectedModelSource: 'client_metadata',
         },
         {
             label: 'captures no intent when the agent omits context',
             args: { command: 'tools' },
             expectedIntent: undefined,
             expectedSource: undefined,
+            expectedModel: undefined,
+            expectedModelSource: undefined,
         },
-    ])('exec call $label', async ({ args, expectedIntent, expectedSource }) => {
+    ])(
+        'exec call $label',
+        async ({ args, requestMeta, expectedIntent, expectedSource, expectedModel, expectedModelSource }) => {
+            const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+
+            const filteredTools = catalog
+                .getFilteredTools({ scopes: ['*'] })
+                .filter((tool) => tool.name === 'execute-sql' || tool.name === 'organization-get')
+            const state = makeState(filteredTools, { useSingleExec: true })
+            await executor.handleToolsList(state)
+
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: args, _meta: requestMeta },
+                state
+            )) as any
+
+            // context (when present) must not break exec validation — proves it was stripped.
+            expect(result.isError).toBeFalsy()
+
+            expect(captureSpy).toHaveBeenCalledTimes(1)
+            const arg = captureSpy.mock.calls[0]![0]
+            expect(arg.toolName).toBe('exec')
+            expect(arg.intent).toBe(expectedIntent)
+            expect(arg.intentSource).toBe(expectedSource)
+            expect(arg.llmModel).toBe(expectedModel)
+            expect(arg.llmModelSource).toBe(expectedModelSource)
+
+            captureSpy.mockRestore()
+        }
+    )
+
+    // A native (non-exec) tool call with context: proves the native callTool path
+    // strips context and forwards intent. The native path now also tracks schema
+    // rejections, so "captureToolCall fired" alone no longer implies validation
+    // passed — assert the absence of a validation error explicitly, otherwise an
+    // unstripped `context` (rejected as an unrecognized key) would satisfy this
+    // test. (projects-get hits the API, which the harness can't fulfill, so we
+    // assert on the captured analytics, not the tool's own result.)
+    it('strips analytics arguments before a native tool validates and forwards their values', async () => {
+        const state = makeState([{ name: 'projects-get' }])
+        await executor.handleToolsList(state)
         const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
 
-        const filteredTools = catalog
-            .getFilteredTools({ scopes: ['*'] })
-            .filter((tool) => tool.name === 'execute-sql' || tool.name === 'organization-get')
-
-        const result = (await executor.handleToolCall(
-            { name: 'exec', arguments: args },
-            makeState(filteredTools, { useSingleExec: false })
-        )) as any
-
-        // context (when present) must not break exec validation — proves it was stripped.
-        expect(result.isError).toBeFalsy()
+        await executor.handleToolCall(
+            {
+                name: 'projects-get',
+                arguments: {
+                    context: 'looking up the current user',
+                    llm_model: 'claude-sonnet-4-20250514',
+                },
+            },
+            state
+        )
 
         expect(captureSpy).toHaveBeenCalledTimes(1)
         const arg = captureSpy.mock.calls[0]![0]
-        expect(arg.toolName).toBe('exec')
-        expect(arg.intent).toBe(expectedIntent)
-        expect(arg.intentSource).toBe(expectedSource)
+        expect(arg.toolName).toBe('projects-get')
+        expect(arg.intent).toBe('looking up the current user')
+        expect(arg.llmModel).toBe('claude-sonnet-4-20250514')
+        expect(arg.llmModelSource).toBe('self_reported')
+        expect(arg.properties?.$mcp_error_type).not.toBe('validation')
 
         captureSpy.mockRestore()
     })
 
-    // A native (non-exec) tool call with context: proves the native callTool path
-    // strips context and forwards intent. captureToolCall only fires *after*
-    // validation passes (the validation-error path returns before tracking), so its
-    // being called with the intent proves context was stripped before validation.
-    // (projects-get hits the API, which the harness can't fulfill, so we assert on
-    // the captured analytics, not the tool's own result.)
-    it('strips context before a native tool validates and still forwards intent', async () => {
+    // execute-sql is the one tool whose advertised description is formatted per
+    // request rather than served from the catalog; the stamped
+    // $mcp_tool_description must be the formatted text the agent saw. One case
+    // per dispatch path, since each wires the served description independently.
+    // (Both handlers fail against the harness's empty api; the error path still
+    // captures the event, which is the shape being pinned.)
+    it.each([
+        {
+            label: 'native path',
+            call: { name: 'execute-sql', arguments: { query: 'SELECT 1' } },
+            state: () => makeState([{ name: 'execute-sql' }]),
+        },
+        {
+            label: 'exec path',
+            call: { name: 'exec', arguments: { command: 'call execute-sql {"query": "SELECT 1"}' } },
+            state: () =>
+                makeState(
+                    catalog.getFilteredTools({ scopes: ['*'] }).filter((tool) => tool.name === 'execute-sql'),
+                    { useSingleExec: false }
+                ),
+        },
+    ])('stamps the formatted execute-sql description on the $label', async ({ call, state }) => {
         const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
 
-        await executor.handleToolCall(
-            { name: 'projects-get', arguments: { context: 'looking up the current user' } },
-            makeState([{ name: 'projects-get' }])
-        )
+        await executor.handleToolCall(call, state())
 
-        expect(captureSpy).toHaveBeenCalledTimes(1)
-        expect(captureSpy.mock.calls[0]![0].toolName).toBe('projects-get')
-        expect(captureSpy.mock.calls[0]![0].intent).toBe('looking up the current user')
+        // trackToolCall is fire-and-forget; wait for the capture to land so the
+        // assertion (and the spy restore) never race the pending promise.
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+        const arg = captureSpy.mock.calls[0]![0]
+        expect(arg.toolName).toBe('execute-sql')
+        const expected = new InstructionsBuilder('').formatExecuteSqlDescription()
+        expect(arg.properties?.$mcp_tool_description).toBe(expected.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH))
 
         captureSpy.mockRestore()
     })

@@ -25,6 +25,7 @@ import { SidePanelTab } from '~/types'
 import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
 
 import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
+import { SidePanelAccessDetail } from './panels/access_control/SidePanelAccessDetail'
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelExports, SidePanelExportsIcon } from './panels/exports/SidePanelExports'
@@ -70,6 +71,11 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'Access',
         Icon: IconLock,
         Content: SidePanelAccessControl,
+    },
+    [SidePanelTab.AccessDetail]: {
+        label: 'Access',
+        Icon: IconLock,
+        Content: SidePanelAccessDetail,
     },
     [SidePanelTab.Info]: {
         label: 'Actions',
@@ -123,16 +129,11 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
         }
     }, [desiredSize, sidePanelOpen, setMainContentRect, mainContentRef])
 
+    // A tab is unavailable both when the scene will never offer it and while the scene is still
+    // loading the object it describes. Staying open renders nothing until the tab resolves, which
+    // keeps deep links like #panel=access-control working on a cold load. Leaving a scene is what
+    // closes the panel, and sidePanelLogic handles that.
     const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && enabledTabs.includes(selectedTab)
-
-    // If the selected tab is no longer available (e.g. navigating away from a scene
-    // with Settings or Info), fall back to Info or Max instead of closing
-    useEffect(() => {
-        if (sidePanelOpen && selectedTab && !sidePanelOpenAndAvailable) {
-            const fallbackTab = enabledTabs.includes(SidePanelTab.Info) ? SidePanelTab.Info : SidePanelTab.Max
-            openSidePanel(fallbackTab)
-        }
-    }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, enabledTabs, openSidePanel])
 
     const { windowSize } = useWindowSize()
 

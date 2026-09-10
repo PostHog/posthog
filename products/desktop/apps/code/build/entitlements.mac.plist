@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	For forking the process (the shell does this for example)
+	- https://www.electronjs.org/de/docs/latest/api/utility-process#utilityprocessforkmodulepath-args-options -->
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+
+	<!-- Enable JIT compilation for V8 -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+
+	<!-- Microphone access for recording custom notification sounds -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

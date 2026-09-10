@@ -104,13 +104,18 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     case 'error_display':
                         return (
                             <div className="mx-3">
-                                <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                                <ErrorDisplay
+                                    eventProperties={properties}
+                                    eventId={idFrom(event as ErrorEventType)}
+                                    eventTimestamp={event.timestamp}
+                                />
                             </div>
                         )
                     case 'survey_response':
                         return (
                             <div className="mx-3">
                                 <SurveyResponseDisplay
+                                    eventName={event.event}
                                     eventProperties={properties}
                                     eventUuid={'uuid' in event && event.uuid ? event.uuid : undefined}
                                     distinctId={'distinct_id' in event ? event.distinct_id : undefined}

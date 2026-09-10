@@ -1,17 +1,20 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import redis
 from parameterized import parameterized
+
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
     get_idempotency_key,
+    get_redis_client,
     is_batch_already_processed,
     mark_batch_as_processed,
 )
 
-REDIS_CLIENT_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency.get_redis_client"
-)
+_IDEMPOTENCY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency"
+REDIS_CLIENT_PATH = f"{_IDEMPOTENCY_MODULE}.get_redis_client"
 
 
 def _redis_client(exists_value: int | None) -> MagicMock | None:
@@ -28,7 +31,7 @@ def _redis_client(exists_value: int | None) -> MagicMock | None:
 
 
 def _delta_helper(committed: bool | Exception | None) -> MagicMock | None:
-    """Build a `DeltaTableHelper`-shaped mock.
+    """Build a `DeltaTableRef`-shaped mock.
 
     - `True`  → `has_batch_been_committed` returns True
     - `False` → returns False
@@ -52,16 +55,32 @@ class TestGetIdempotencyKey:
 
 
 class TestIsBatchAlreadyProcessed:
+    @pytest.fixture(autouse=True)
+    def _writer_wraps_helper(self):
+        # The slow path wraps the helper in DeltaWriter(helper).has_batch_been_committed; an identity
+        # stand-in keeps the helper-shaped mocks below driving the same decision matrix.
+        with patch(f"{_IDEMPOTENCY_MODULE}.DeltaWriter", side_effect=lambda helper: helper):
+            yield
+
     @parameterized.expand(
         [
-            # (name, redis_exists, helper_state, expected_result)
-            ("redis_hit_no_helper", 1, None, True),
-            ("redis_hit_short_circuits_helper", 1, False, True),
-            ("redis_miss_no_helper", 0, None, False),
-            ("redis_miss_helper_hit", 0, True, True),
-            ("redis_miss_helper_miss", 0, False, False),
-            ("redis_unavailable_no_helper", None, None, False),
-            ("redis_unavailable_helper_hit", None, True, True),
+            # (name, redis_exists, helper_state, is_first_attempt, expected_result)
+            ("redis_hit_no_helper", 1, None, False, True),
+            ("redis_hit_short_circuits_helper", 1, False, False, True),
+            ("redis_miss_no_helper", 0, None, False, False),
+            ("redis_miss_helper_hit", 0, True, False, True),
+            ("redis_miss_helper_miss", 0, False, False, False),
+            ("redis_unavailable_no_helper", None, None, False, False),
+            ("redis_unavailable_helper_hit", None, True, False, True),
+            # A first delivery has no half-finished predecessor, so the scan is skipped even
+            # though the helper would have reported a commit. Contrast redis_miss_helper_hit.
+            ("first_attempt_skips_helper", 0, True, True, False),
+            # The Redis flag still wins on a first attempt — a batch redelivered after its
+            # flag was written must not be loaded twice.
+            ("first_attempt_redis_hit", 1, None, True, True),
+            # Redis down leaves the fast path inconclusive, so the scan is the only check
+            # left and must run whatever the attempt number says.
+            ("first_attempt_redis_unavailable_still_scans", None, True, True, True),
         ]
     )
     def test_decision_matrix(
@@ -69,6 +88,7 @@ class TestIsBatchAlreadyProcessed:
         _name: str,
         redis_exists: int | None,
         helper_state: bool | None,
+        is_first_attempt: bool,
         expected_result: bool,
     ):
         client = _redis_client(redis_exists)
@@ -81,7 +101,8 @@ class TestIsBatchAlreadyProcessed:
                 schema_id="s",
                 run_uuid="r",
                 batch_index=0,
-                delta_table_helper=helper,
+                delta_table_ref=helper,
+                is_first_attempt=is_first_attempt,
             )
 
         assert result is expected_result
@@ -101,7 +122,7 @@ class TestIsBatchAlreadyProcessed:
 
         with patch(REDIS_CLIENT_PATH) as mock_get_client:
             mock_get_client.return_value.__enter__.return_value = client
-            is_batch_already_processed(team_id=1, schema_id="s", run_uuid="r", batch_index=0, delta_table_helper=helper)
+            is_batch_already_processed(team_id=1, schema_id="s", run_uuid="r", batch_index=0, delta_table_ref=helper)
 
         assert helper is not None  # for mypy
         helper.has_batch_been_committed.assert_not_called()
@@ -117,7 +138,7 @@ class TestIsBatchAlreadyProcessed:
                 schema_id="s",
                 run_uuid="run-abc",
                 batch_index=3,
-                delta_table_helper=helper,
+                delta_table_ref=helper,
             )
 
         assert helper is not None
@@ -134,8 +155,33 @@ class TestIsBatchAlreadyProcessed:
             mock_get_client.return_value.__enter__.return_value = client
             with pytest.raises(RuntimeError, match="delta blew up"):
                 is_batch_already_processed(
-                    team_id=1, schema_id="s", run_uuid="r", batch_index=0, delta_table_helper=helper
+                    team_id=1, schema_id="s", run_uuid="r", batch_index=0, delta_table_ref=helper
                 )
+
+    @parameterized.expand(
+        [
+            # (name, error, expect_captured)
+            ("non_transient_error_is_reported", RuntimeError("delta blew up"), True),
+            ("non_reportable_error_is_not_reported", NonReportableError("transient object-store blip"), False),
+        ]
+    )
+    def test_capture_exception_respects_non_reportable_errors(self, _name, error, expect_captured):
+        """get_delta_table already classifies transient object-store blips as NonReportableError
+        and skips reporting them itself; this call site must not undo that by reporting again."""
+        client = _redis_client(0)
+        helper = _delta_helper(error)
+
+        with (
+            patch(REDIS_CLIENT_PATH) as mock_get_client,
+            patch(f"{_IDEMPOTENCY_MODULE}.capture_exception") as mock_capture,
+        ):
+            mock_get_client.return_value.__enter__.return_value = client
+            with pytest.raises(type(error)):
+                is_batch_already_processed(
+                    team_id=1, schema_id="s", run_uuid="r", batch_index=0, delta_table_ref=helper
+                )
+
+        assert mock_capture.called is expect_captured
 
 
 class TestMarkBatchAsProcessed:
@@ -153,3 +199,29 @@ class TestMarkBatchAsProcessed:
             mock_get_client.return_value.__enter__.return_value = None
             mark_batch_as_processed(team_id=1, schema_id="s", run_uuid="r", batch_index=0)
             # No exception — the function logs a warning and returns
+
+
+class TestGetRedisClient:
+    """A bare connection blip previously fell through to the delta history scan on
+    every batch with no retry (see `sync_lock.TestGetRedisClient` for the sibling
+    fix this mirrors)."""
+
+    @patch(f"{_IDEMPOTENCY_MODULE}.get_client")
+    def test_recovers_from_transient_connection_error(self, mock_get_client: MagicMock) -> None:
+        mock_redis = MagicMock()
+        mock_redis.ping.side_effect = [redis.exceptions.TimeoutError("Timeout connecting to server"), None]
+        mock_get_client.return_value = mock_redis
+
+        with get_redis_client() as client:
+            assert client is mock_redis
+        assert mock_redis.ping.call_count == 2
+
+    @patch(f"{_IDEMPOTENCY_MODULE}.get_client")
+    def test_fails_closed_after_exhausting_retries(self, mock_get_client: MagicMock) -> None:
+        mock_redis = MagicMock()
+        mock_redis.ping.side_effect = redis.exceptions.TimeoutError("Timeout connecting to server")
+        mock_get_client.return_value = mock_redis
+
+        with get_redis_client() as client:
+            assert client is None
+        assert mock_redis.ping.call_count == 3

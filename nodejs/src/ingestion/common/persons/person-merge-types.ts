@@ -24,6 +24,45 @@ export class PersonMergeLimitExceededError extends PersonMergeError {
 }
 
 /**
+ * A merge response that carried no verdict for the source it was asked
+ * about. Distinct from a settled failure: nothing is recorded against the
+ * op id, so a retry can still reach a real answer, and the batch must fail
+ * rather than ack a merge that never happened.
+ */
+export class PersonMergeResponseMismatchError extends PersonMergeError {
+    readonly type = 'RESPONSE_MISMATCH' as const
+
+    constructor(message: string) {
+        super(message)
+    }
+}
+
+/**
+ * A merge call that failed with no verdict at all. Retried in-process
+ * under the same op id; exhaustion gives up the way the Postgres path
+ * does. Personhog-only; the Postgres merge never throws it.
+ */
+export class PersonMergeCallFailedError extends PersonMergeError {
+    readonly type = 'CALL_FAILED' as const
+
+    constructor(
+        message: string,
+        public readonly failure: unknown
+    ) {
+        super(message)
+    }
+}
+
+/**
+ * The merge backend answered an unsettled verdict: a retry under the same
+ * op id may change the answer. Retried in-process; exhaustion drops the
+ * merge with the race warning, as Postgres drops a persistent conflict.
+ */
+export class PersonMergeUnsettledError extends PersonMergeError {
+    readonly type = 'UNSETTLED' as const
+}
+
+/**
  * Error when race condition is detected during merge
  */
 export class PersonMergeRaceConditionError extends PersonMergeError {
@@ -154,6 +193,13 @@ export function determineMergeMode(
     personMergeAsyncEnabled: boolean,
     personMergeSyncBatchSize: number
 ): MergeMode {
+    // The limit becomes the saga's move_limit: a non-integer throws a
+    // RangeError at request time and would fail every merge in the
+    // deployment, so a bad value fails startup here instead.
+    if (personMergeMoveDistinctIdLimit > 0 && !Number.isInteger(personMergeMoveDistinctIdLimit)) {
+        throw new Error(`PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT must be an integer, got ${personMergeMoveDistinctIdLimit}`)
+    }
+
     // If async merge is enabled, use async mode for over-limit merges
     if (personMergeAsyncEnabled && personMergeMoveDistinctIdLimit > 0) {
         return {

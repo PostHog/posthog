@@ -18,7 +18,7 @@ import json
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import temporalio
 from temporalio.common import RetryPolicy
@@ -28,9 +28,12 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
 from posthog.temporal.ai_observability.evaluation_llm_judge import LLM_JUDGE_RETRY_POLICY
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
@@ -44,6 +47,12 @@ from posthog.temporal.ai_observability.run_evaluation import (
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
+from posthog.temporal.ai_observability.run_session_evaluation import (
+    ExecuteSessionEvaluationInputs,
+    execute_session_hog_eval_activity,
+    execute_session_llm_judge_activity,
+    session_fetch_lookback,
+)
 from posthog.temporal.ai_observability.run_trace_evaluation import (
     TRACE_EVENTS_LOOKBACK,
     EmitTraceEvaluationEventInputs,
@@ -56,6 +65,17 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.models.evaluation_configs import (
+    DEFAULT_SETTLE_STRATEGY_BY_TARGET,
+    MAX_SESSION_EVAL_EVENTS,
+    SESSION_EVAL_DEFAULT_MAX_AGE_SECONDS,
+    SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+    SESSION_EVAL_DEFAULT_WINDOW_SECONDS,
+    SESSION_EVAL_MAX_MAX_AGE_SECONDS,
+    SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
+    SESSION_EVAL_MAX_WINDOW_SECONDS,
+    SESSION_EVAL_MIN_MAX_AGE_SECONDS,
+    SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
+    SESSION_EVAL_MIN_WINDOW_SECONDS,
     TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
     TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
@@ -126,16 +146,192 @@ def check_trace_settled_activity(inputs: CheckTraceSettledInputs) -> str:
         # Nothing visible yet (ingestion lag, replica flap, or a trace that never reached
         # ClickHouse): keep polling — the max-age cap is the backstop. Settling on NULL
         # would manufacture a trace_not_found verdict out of a lag spike.
-        increment_settle_poll("not_visible")
+        increment_settle_poll("not_visible", target="trace")
         raise ApplicationError("no trace activity visible yet", type="trace_not_settled")
     if last_seen.tzinfo is None:
         last_seen = last_seen.replace(tzinfo=UTC)
     quiet_for = (datetime.now(UTC) - last_seen).total_seconds()
     if quiet_for < inputs.quiet_period_seconds + INGESTION_LAG_MARGIN_SECONDS:
-        increment_settle_poll("not_settled")
+        increment_settle_poll("not_settled", target="trace")
         raise ApplicationError(f"trace active {int(quiet_for)}s ago", type="trace_not_settled")
-    increment_settle_poll("settled")
+    increment_settle_poll("settled", target="trace")
     return last_seen.isoformat()
+
+
+# Same liveness rules as the trace poll, keyed on session_id instead. `session_id` is
+# Nullable(String), so equality against a non-null constant already excludes NULL rows.
+#
+# Access path differs from the trace poll: session_id is not in the sort key, so pruning is the
+# team_id prefix plus the idx_session_id bloom filter (0.01 false-positive rate). The partition key
+# is toYYYYMM(drop_date), which derives from timestamp plus a per-row retention_days, so no
+# timestamp predicate prunes partitions — the _timestamp bound only filters within selected
+# granules. count() rides the same scan, which is what makes the runaway-session guard free.
+_SESSION_SETTLE_POLL_SQL = """
+SELECT maxOrNull(_timestamp) AS last_seen, count() AS event_count
+FROM posthog.ai_events AS ai_events
+WHERE event IN {liveness_events}
+  AND session_id = {session_id}
+  AND _timestamp >= {date_from}
+"""
+
+
+# Whether a session is small enough to evaluate is decided by one number in one place: the fetch
+# preflight's `MAX_SESSION_EVAL_EVENTS`, which counts exactly the rows the fetch reads, over the
+# same window and clock. This is not that number. It is a circuit breaker whose only job is to stop
+# a runaway session id (a constant "0", an id shared across every conversation) from holding a
+# workflow open for its entire max_age. It counts liveness events over the settle window, so it
+# undercounts a long session by construction — fine for a circuit breaker, and exactly why it must
+# sit far above the evaluation cap rather than pretending to be it.
+SESSION_RUNAWAY_CIRCUIT_BREAKER_EVENTS = 10 * MAX_SESSION_EVAL_EVENTS
+
+
+@dataclass
+class CheckSessionSettledInputs:
+    team_id: int
+    session_id: str
+    quiet_period_seconds: int
+    lookback_seconds: int
+    runaway_events: int = SESSION_RUNAWAY_CIRCUIT_BREAKER_EVENTS
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id, "session_id": self.session_id}
+
+
+@temporalio.activity.defn
+@close_db_connections
+def check_session_settled_activity(inputs: CheckSessionSettledInputs) -> str:
+    """One settle probe for a session. Raises the retryable `session_not_settled` error until the
+    session has had no structural activity for quiet_period + margin; the activity's retry
+    schedule is the poll loop, so this function never sleeps."""
+    team = Team.objects.get(id=inputs.team_id)
+    # Tagged like every other AI-observability query so it routes to the LLM_ANALYTICS ClickHouse
+    # user and takes its concurrency slot; untagged, a settling session's polls compete with
+    # interactive traffic on the default user.
+    with tags_context(product=Product.LLM_ANALYTICS):
+        result = query_ai_events(
+            query=parse_select(_SESSION_SETTLE_POLL_SQL),
+            placeholders={
+                "liveness_events": ast.Constant(value=list(_LIVENESS_EVENTS)),
+                "session_id": ast.Constant(value=inputs.session_id),
+                "date_from": ast.Constant(value=datetime.now(UTC) - timedelta(seconds=inputs.lookback_seconds)),
+            },
+            team=team,
+            query_type="SessionSettlePoll",
+            fall_back_to_events=False,
+            workload=Workload.OFFLINE,
+        )
+    row = result.results[0] if result.results else (None, 0)
+    last_seen, event_count = row[0], int(row[1] or 0)
+    if event_count > inputs.runaway_events:
+        # Stop waiting immediately rather than sitting out max_age. The fetch still decides the
+        # actual outcome and reports the real reason; this only bounds how long we wait for it.
+        increment_settle_poll("runaway", target="session")
+        raise ApplicationError(
+            f"session has {event_count} events in the settle window, over the "
+            f"{inputs.runaway_events} runaway threshold",
+            type="session_runaway",
+            non_retryable=True,
+        )
+    if last_seen is None:
+        increment_settle_poll("not_visible", target="session")
+        raise ApplicationError("no session activity visible yet", type="session_not_settled")
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=UTC)
+    quiet_for = (datetime.now(UTC) - last_seen).total_seconds()
+    if quiet_for < inputs.quiet_period_seconds + INGESTION_LAG_MARGIN_SECONDS:
+        increment_settle_poll("not_settled", target="session")
+        raise ApplicationError(f"session active {int(quiet_for)}s ago", type="session_not_settled")
+    increment_settle_poll("settled", target="session")
+    return last_seen.isoformat()
+
+
+# Bounds the array the quiet-point query builds. A unit with more liveness events than this is
+# past every evaluation cap already, so the fetch skips it whatever window we pick.
+QUIET_POINT_MAX_EVENTS = SESSION_RUNAWAY_CIRCUIT_BREAKER_EVENTS
+
+# Reads the client-set `timestamp`, not the arrival `_timestamp` the live probe polls on: the gap
+# this looks for has to sit on the same clock the fetch bounds by, or the window would cut the
+# transcript somewhere the events do not.
+_QUIET_POINT_SQL = """
+SELECT arraySort(groupArray(timestamp)) AS timestamps
+FROM (
+    SELECT timestamp
+    FROM posthog.ai_events AS ai_events
+    WHERE event IN {liveness_events}
+      AND {unit_predicate}
+      AND timestamp >= {window_start}
+      AND timestamp <= {window_cap}
+    ORDER BY timestamp ASC
+    LIMIT {max_events}
+)
+"""
+
+
+@frozen
+class FindQuietPointInputs:
+    team_id: int
+    target: str
+    unit_id: str
+    window_start: str
+    quiet_period_seconds: int
+    max_age_seconds: int
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id, "target": self.target, "unit_id": self.unit_id}
+
+
+def _quiet_point(timestamps: list[datetime], window_start: datetime, quiet: timedelta, cap: datetime) -> datetime:
+    """The instant an inactivity-settled run would have graded this unit.
+
+    The live path polls until the unit has been silent for the quiet period, then reads up to that
+    moment, so events after the first long gap never reach its verdict. A historical unit has all
+    its events already, so the same point is the first gap of at least the quiet period.
+    """
+    for index, timestamp in enumerate(timestamps):
+        following = timestamps[index + 1] if index + 1 < len(timestamps) else None
+        if following is None or following - timestamp >= quiet:
+            return min(timestamp + quiet, cap)
+    return cap
+
+
+@temporalio.activity.defn
+@close_db_connections
+def find_evaluation_quiet_point_activity(inputs: FindQuietPointInputs) -> str:
+    """Where an inactivity-settled backfill stops reading a unit, as an ISO timestamp."""
+    team = Team.objects.get(id=inputs.team_id)
+    window_start = as_utc_datetime(inputs.window_start)
+    quiet = timedelta(seconds=inputs.quiet_period_seconds + INGESTION_LAG_MARGIN_SECONDS)
+    cap = window_start + timedelta(seconds=inputs.max_age_seconds + INGESTION_LAG_MARGIN_SECONDS)
+    unit_field = "session_id" if inputs.target == "session" else "trace_id"
+    with tags_context(product=Product.LLM_ANALYTICS):
+        result = query_ai_events(
+            query=parse_select(_QUIET_POINT_SQL),
+            placeholders={
+                "liveness_events": ast.Constant(value=list(_LIVENESS_EVENTS)),
+                "unit_predicate": ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["ai_events", unit_field]),
+                    right=ast.Constant(value=inputs.unit_id),
+                ),
+                "window_start": ast.Constant(value=window_start),
+                "window_cap": ast.Constant(value=cap),
+                "max_events": ast.Constant(value=QUIET_POINT_MAX_EVENTS),
+            },
+            team=team,
+            query_type="EvaluationBackfillQuietPoint",
+            fall_back_to_events=False,
+            workload=Workload.OFFLINE,
+        )
+    rows = result.results or []
+    timestamps = [as_utc_datetime(value) if isinstance(value, str) else value for value in (rows[0][0] if rows else [])]
+    return _quiet_point(
+        [timestamp.replace(tzinfo=UTC) if timestamp.tzinfo is None else timestamp for timestamp in timestamps],
+        window_start,
+        quiet,
+        cap,
+    ).isoformat()
 
 
 def _clamp(value: Any, floor: int, ceiling: int, default: int) -> int:
@@ -144,45 +340,93 @@ def _clamp(value: Any, floor: int, ceiling: int, default: int) -> int:
     return int(min(max(value, floor), ceiling))
 
 
-def resolve_settle_plan(settle: dict[str, Any] | None) -> tuple[str, int, int]:
-    """Resolve the settle config into (strategy, primary_seconds, max_age_seconds).
+# (floor, ceiling, default) per field, per target. The workflow re-clamps what the serializer
+# already validated, so a payload written before a bound moved can never wedge the settle phase.
+_SETTLE_BOUNDS: dict[str, dict[str, tuple[int, int, int]]] = {
+    "trace": {
+        "window": (TRACE_EVAL_MIN_WINDOW_SECONDS, TRACE_EVAL_MAX_WINDOW_SECONDS, TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
+        "quiet": (
+            TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
+            TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
+            TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+        ),
+        "max_age": (TRACE_EVAL_MIN_MAX_AGE_SECONDS, TRACE_EVAL_MAX_MAX_AGE_SECONDS, TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS),
+    },
+    "session": {
+        "window": (
+            SESSION_EVAL_MIN_WINDOW_SECONDS,
+            SESSION_EVAL_MAX_WINDOW_SECONDS,
+            SESSION_EVAL_DEFAULT_WINDOW_SECONDS,
+        ),
+        "quiet": (
+            SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
+            SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
+            SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+        ),
+        "max_age": (
+            SESSION_EVAL_MIN_MAX_AGE_SECONDS,
+            SESSION_EVAL_MAX_MAX_AGE_SECONDS,
+            SESSION_EVAL_DEFAULT_MAX_AGE_SECONDS,
+        ),
+    },
+}
+
+
+# Ceiling on poll activities per settling run. Sessions accept quiet=10s alongside max_age=7d, and
+# a cadence derived from the quiet period alone would schedule ~60k ClickHouse aggregates for one
+# (evaluation, session). Large enough that no in-bounds trace config is affected, so in-flight trace
+# runs replay with an unchanged retry policy.
+MAX_SETTLE_POLLS_PER_RUN = 1000
+
+
+def resolve_poll_interval(primary_seconds: int, poll_budget_seconds: int) -> int:
+    """Seconds between settle probes: a quarter of the quiet period, floored so a long max-age
+    budget can't turn a short quiet period into tens of thousands of polls.
+
+    The budget floor rounds up, so the ceiling holds exactly rather than off by one.
+    """
+    budget_floor = -(-poll_budget_seconds // MAX_SETTLE_POLLS_PER_RUN)
+    return max(primary_seconds // 4, budget_floor, 10)
+
+
+@frozen
+class SettlePlan:
+    strategy: Literal["inactivity", "fixed_window"]
+    # The quiet period under inactivity, the window under fixed_window.
+    primary_seconds: int
+    max_age_seconds: int
+
+
+def resolve_settle_plan(settle: dict[str, Any] | None, target: str = "trace") -> SettlePlan:
+    """Resolve the settle config into a SettlePlan.
 
     Deterministic and exception-free on purpose: the serializer already validated the stored
     config, so anything malformed here is a payload bug — falling back to defaults keeps a bad
     payload from wedging the workflow. max_age is coerced to cover at least one quiet period.
     """
+    bounds = _SETTLE_BOUNDS.get(target, _SETTLE_BOUNDS["trace"])
     config = settle or {}
-    if config.get("strategy") == "inactivity":
-        quiet = _clamp(
-            config.get("quiet_period_seconds"),
-            TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
-            TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
-            TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-        )
-        max_age = _clamp(
-            config.get("max_age_seconds"),
-            TRACE_EVAL_MIN_MAX_AGE_SECONDS,
-            TRACE_EVAL_MAX_MAX_AGE_SECONDS,
-            TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
-        )
-        return ("inactivity", quiet, max(max_age, quiet))
-    window = _clamp(
-        config.get("window_seconds"),
-        TRACE_EVAL_MIN_WINDOW_SECONDS,
-        TRACE_EVAL_MAX_WINDOW_SECONDS,
-        TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
-    )
-    return ("fixed_window", window, window)
+    strategy = config.get("strategy") or DEFAULT_SETTLE_STRATEGY_BY_TARGET.get(target, "fixed_window")
+    if strategy == "inactivity":
+        quiet = _clamp(config.get("quiet_period_seconds"), *bounds["quiet"])
+        max_age = _clamp(config.get("max_age_seconds"), *bounds["max_age"])
+        return SettlePlan(strategy="inactivity", primary_seconds=quiet, max_age_seconds=max(max_age, quiet))
+    window = _clamp(config.get("window_seconds"), *bounds["window"])
+    return SettlePlan(strategy="fixed_window", primary_seconds=window, max_age_seconds=window)
 
 
-@dataclass
+@frozen
 class RunAggregateEvaluationInputs:
     evaluation_id: str
     team_id: int
     trace_id: str
     distinct_id: str
     session_id: str | None = None
+    ai_session_id: str | None = None
+    target: str = "trace"
     settle: dict[str, Any] | None = None
+    anchor_timestamp: str | None = None
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -191,6 +435,7 @@ class RunAggregateEvaluationInputs:
             "evaluation_id": self.evaluation_id,
             "team_id": self.team_id,
             "trace_id": self.trace_id,
+            "target": self.target,
         }
 
 
@@ -202,13 +447,24 @@ def _is_schedule_to_close_timeout(error: temporalio.exceptions.ActivityError) ->
     )
 
 
+# Both poll activities signal "keep waiting" with their own error type. This must stay a set
+# rather than become a rename: `trace_not_settled` is recorded in the history of every in-flight
+# trace run, and replay has to keep matching it.
+_NOT_SETTLED_ERROR_TYPES = frozenset({"trace_not_settled", "session_not_settled"})
+
+
 def _is_still_not_settled(error: temporalio.exceptions.ActivityError) -> bool:
     # Temporal delivers the last attempt's own failure once retries run out of
     # schedule-to-close budget rather than synthesizing a timeout — the first probe
-    # fires immediately, so there's always a prior `trace_not_settled` failure to
-    # report by the time the budget is exhausted.
+    # fires immediately, so there's always a prior not-settled failure to report by
+    # the time the budget is exhausted.
     cause = error.cause
-    return isinstance(cause, ApplicationError) and cause.type == "trace_not_settled"
+    return isinstance(cause, ApplicationError) and cause.type in _NOT_SETTLED_ERROR_TYPES
+
+
+def _is_session_runaway(error: temporalio.exceptions.ActivityError) -> bool:
+    cause = error.cause
+    return isinstance(cause, ApplicationError) and cause.type == "session_runaway"
 
 
 @temporalio.workflow.defn(name="run-aggregate-evaluation")
@@ -219,46 +475,113 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
-        window_start = temporalio.workflow.now()
+        # A historical unit is settled by definition, so a backfill skips the settle wait and
+        # aggregates from the anchor, its first matching generation. Live starts carry no anchor,
+        # so old histories never take this branch and it needs no patch marker.
+        is_backfill = inputs.anchor_timestamp is not None
+        window_start = (
+            as_utc_datetime(inputs.anchor_timestamp)
+            if inputs.anchor_timestamp is not None
+            else temporalio.workflow.now()
+        )
 
-        strategy, primary_seconds, max_age_seconds = resolve_settle_plan(inputs.settle)
-        if strategy == "inactivity":
+        # Fail loudly rather than falling through to the trace path, which would grade `trace_id`
+        # and emit a trace-shaped verdict under a session evaluation's name. Unreachable from the
+        # scheduler, which drops these as `no_ai_session_id`; this is the backstop for a malformed
+        # payload or a manual start. Emits no command, so trace histories replay unchanged.
+        if inputs.target == "session" and inputs.ai_session_id is None:
+            raise ApplicationError(
+                "A session-target evaluation needs an $ai_session_id", type="missing_ai_session_id", non_retryable=True
+            )
+
+        plan = resolve_settle_plan(inputs.settle, inputs.target)
+        is_session = inputs.target == "session" and inputs.ai_session_id is not None
+
+        # A backfilled unit is graded over the span the live path would have covered from its
+        # anchor, so events that arrived after that span stay out of the verdict.
+        window_end: str | None = None
+        if is_backfill:
+            window_end = (
+                window_start + timedelta(seconds=plan.max_age_seconds + INGESTION_LAG_MARGIN_SECONDS)
+            ).isoformat()
+            if plan.strategy == "inactivity":
+                # Under inactivity the live path stops at the first long gap, which is usually far
+                # short of the maximum age. Reading to the ceiling instead would hand the judge a
+                # transcript live never saw, and a long enough unit would cross the size cap and
+                # come back skipped where live returned a verdict.
+                unit_id = inputs.trace_id
+                if is_session and inputs.ai_session_id is not None:
+                    unit_id = inputs.ai_session_id
+                quiet_point: str = await temporalio.workflow.execute_activity(
+                    find_evaluation_quiet_point_activity,
+                    FindQuietPointInputs(
+                        team_id=inputs.team_id,
+                        target=inputs.target,
+                        unit_id=unit_id,
+                        window_start=window_start.isoformat(),
+                        quiet_period_seconds=plan.primary_seconds,
+                        max_age_seconds=plan.max_age_seconds,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=60),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                window_end = quiet_point
+
+        if plan.strategy == "inactivity" and not is_backfill:
             # Sleep past the lag margin too: a probe at exactly quiet_period can never pass
             # the `quiet_period + margin` settled bar, so it would burn a poll for nothing.
-            initial_sleep_seconds = min(primary_seconds + INGESTION_LAG_MARGIN_SECONDS, max_age_seconds)
+            initial_sleep_seconds = min(plan.primary_seconds + INGESTION_LAG_MARGIN_SECONDS, plan.max_age_seconds)
             await asyncio.sleep(initial_sleep_seconds)
-            poll_budget_seconds = max_age_seconds - initial_sleep_seconds
+            poll_budget_seconds = plan.max_age_seconds - initial_sleep_seconds
             if poll_budget_seconds > 0:
-                poll_interval = max(primary_seconds // 4, 10)
+                poll_interval = resolve_poll_interval(plan.primary_seconds, poll_budget_seconds)
+                retry_policy = RetryPolicy(
+                    initial_interval=timedelta(seconds=poll_interval),
+                    backoff_coefficient=1.0,
+                    maximum_attempts=0,
+                )
                 try:
-                    await temporalio.workflow.execute_activity(
-                        check_trace_settled_activity,
-                        CheckTraceSettledInputs(
-                            team_id=inputs.team_id,
-                            trace_id=inputs.trace_id,
-                            quiet_period_seconds=primary_seconds,
-                        ),
-                        start_to_close_timeout=timedelta(seconds=30),
-                        schedule_to_close_timeout=timedelta(seconds=poll_budget_seconds),
-                        retry_policy=RetryPolicy(
-                            initial_interval=timedelta(seconds=poll_interval),
-                            backoff_coefficient=1.0,
-                            maximum_attempts=0,
-                        ),
-                    )
+                    if is_session and inputs.ai_session_id is not None:
+                        await temporalio.workflow.execute_activity(
+                            check_session_settled_activity,
+                            CheckSessionSettledInputs(
+                                team_id=inputs.team_id,
+                                session_id=inputs.ai_session_id,
+                                quiet_period_seconds=plan.primary_seconds,
+                                lookback_seconds=int(session_fetch_lookback(plan.max_age_seconds).total_seconds()),
+                            ),
+                            start_to_close_timeout=timedelta(seconds=30),
+                            schedule_to_close_timeout=timedelta(seconds=poll_budget_seconds),
+                            retry_policy=retry_policy,
+                        )
+                    else:
+                        await temporalio.workflow.execute_activity(
+                            check_trace_settled_activity,
+                            CheckTraceSettledInputs(
+                                team_id=inputs.team_id,
+                                trace_id=inputs.trace_id,
+                                quiet_period_seconds=plan.primary_seconds,
+                            ),
+                            start_to_close_timeout=timedelta(seconds=30),
+                            schedule_to_close_timeout=timedelta(seconds=poll_budget_seconds),
+                            retry_policy=retry_policy,
+                        )
                 except temporalio.exceptions.ActivityError as e:
-                    # A schedule-to-close or still-not-settled timeout means the trace never settled
-                    # within max_age — anything else is a real failure and should propagate.
-                    if not (_is_schedule_to_close_timeout(e) or _is_still_not_settled(e)):
+                    if _is_session_runaway(e):
+                        # Stop waiting; the fetch's own preflight decides the outcome and reports
+                        # the real reason, so no skip result has to be synthesized here.
+                        pass
+                    elif _is_schedule_to_close_timeout(e) or _is_still_not_settled(e):
+                        # Temporal stops polling once the next retry would overrun schedule-to-close, so it
+                        # can give up as much as one poll_interval before max_age. Wait out the remainder so
+                        # we always honor the full max-age window before grading a still-active unit.
+                        remaining = plan.max_age_seconds - (temporalio.workflow.now() - window_start).total_seconds()
+                        if remaining > 0:
+                            await asyncio.sleep(remaining)
+                    else:
                         raise
-                    # Temporal stops polling once the next retry would overrun schedule-to-close, so it
-                    # can give up as much as one poll_interval before max_age. Wait out the remainder so
-                    # we always honor the full max-age window before grading a still-active trace.
-                    remaining = max_age_seconds - (temporalio.workflow.now() - window_start).total_seconds()
-                    if remaining > 0:
-                        await asyncio.sleep(remaining)
-        elif primary_seconds:
-            await asyncio.sleep(primary_seconds)
+        elif plan.primary_seconds and not is_backfill:
+            await asyncio.sleep(plan.primary_seconds)
 
         eval_start = temporalio.workflow.now()
 
@@ -282,36 +605,67 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
             }
             return disabled_result
 
-        execute_inputs = ExecuteTraceEvaluationInputs(
-            evaluation=evaluation,
-            team_id=inputs.team_id,
-            trace_id=inputs.trace_id,
-            window_start=window_start.isoformat(),
-        )
-
-        if evaluation_type == "hog":
-            # Unlike single-event hog evals, this activity includes a ClickHouse fetch, so
-            # allow one retry for transient query failures (the bytecode is deterministic).
-            result = await temporalio.workflow.execute_activity(
-                execute_trace_hog_eval_activity,
-                execute_inputs,
-                schedule_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=2),
+        if is_session and inputs.ai_session_id is not None:
+            session_inputs = ExecuteSessionEvaluationInputs(
+                evaluation=evaluation,
+                team_id=inputs.team_id,
+                session_id=inputs.ai_session_id,
+                window_start=window_start.isoformat(),
+                window_end=window_end,
             )
-        else:
-            try:
+            if evaluation_type == "hog":
                 result = await temporalio.workflow.execute_activity(
-                    execute_trace_llm_judge_activity,
-                    execute_inputs,
-                    # > single-event judge timeout: the activity also fetches the trace from ClickHouse
-                    schedule_to_close_timeout=timedelta(minutes=8),
-                    retry_policy=LLM_JUDGE_RETRY_POLICY,
+                    execute_session_hog_eval_activity,
+                    session_inputs,
+                    # Longer than the trace equivalent: the fetch spans every trace of the session.
+                    schedule_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
                 )
-            except temporalio.exceptions.ActivityError as e:
-                handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
-                if handled is not None:
-                    return handled
-                raise
+            else:
+                try:
+                    result = await temporalio.workflow.execute_activity(
+                        execute_session_llm_judge_activity,
+                        session_inputs,
+                        schedule_to_close_timeout=timedelta(minutes=15),
+                        retry_policy=LLM_JUDGE_RETRY_POLICY,
+                    )
+                except temporalio.exceptions.ActivityError as e:
+                    handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
+                    if handled is not None:
+                        return handled
+                    raise
+        else:
+            execute_inputs = ExecuteTraceEvaluationInputs(
+                evaluation=evaluation,
+                team_id=inputs.team_id,
+                trace_id=inputs.trace_id,
+                window_start=window_start.isoformat(),
+                window_end=window_end,
+            )
+
+            if evaluation_type == "hog":
+                # Unlike single-event hog evals, this activity includes a ClickHouse fetch, so
+                # allow one retry for transient query failures (the bytecode is deterministic).
+                result = await temporalio.workflow.execute_activity(
+                    execute_trace_hog_eval_activity,
+                    execute_inputs,
+                    schedule_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            else:
+                try:
+                    result = await temporalio.workflow.execute_activity(
+                        execute_trace_llm_judge_activity,
+                        execute_inputs,
+                        # > single-event judge timeout: the activity also fetches the trace from ClickHouse
+                        schedule_to_close_timeout=timedelta(minutes=8),
+                        retry_policy=LLM_JUDGE_RETRY_POLICY,
+                    )
+                except temporalio.exceptions.ActivityError as e:
+                    handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
+                    if handled is not None:
+                        return handled
+                    raise
 
         if is_terminal_user_error_result(result):
             return await handle_terminal_user_error_result(
@@ -331,6 +685,10 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                     session_id=inputs.session_id,
                     result=result,
                     start_time=eval_start,
+                    target=inputs.target,
+                    ai_session_id=inputs.ai_session_id,
+                    backfill_id=inputs.backfill_id,
+                    event_timestamp=inputs.anchor_timestamp,
                 ),
                 schedule_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),

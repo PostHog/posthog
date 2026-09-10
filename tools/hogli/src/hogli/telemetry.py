@@ -44,6 +44,10 @@ _DEFAULT_HOST = "https://us.i.posthog.com"
 # suppress real local signal -- deliberately not listed here.
 _CI_ENV_VARS = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
 
+# Shared by the writer (:func:`add_command_properties`) and the reader in
+# hogli.cli, which would otherwise drift on a literal.
+COMMAND_PROPERTIES_META_KEY = "hogli.command_properties"
+
 
 def is_ci() -> bool:
     """True when any common CI provider's environment variable is present."""
@@ -303,6 +307,20 @@ def show_first_run_notice_if_needed() -> None:
 
 def track(event: str, properties: dict[str, Any] | None = None) -> None:
     _client.track(event, properties)
+
+
+def add_command_properties(**properties: Any) -> None:
+    """Attach properties to this invocation's ``command_completed`` event.
+
+    Lets a command record context the framework cannot know, such as why it
+    failed, on the same event that already carries the command name and the
+    environment. A separate event would need a join to answer any question
+    that mixes the two. No-ops outside a click invocation.
+    """
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return
+    ctx.meta.setdefault(COMMAND_PROPERTIES_META_KEY, {}).update(properties)
 
 
 def flush(timeout: float = 2.0) -> None:

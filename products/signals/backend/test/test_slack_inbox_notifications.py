@@ -12,6 +12,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
@@ -26,14 +27,13 @@ from products.signals.backend.slack_inbox_notifications import (
     _build_signal_thread_blocks,
     _meets_min_priority,
     _resolve_reviewer_mentions,
+    _resolve_suggested_reviewer_user_ids,
     _signal_source_line,
     _summary_excerpt,
     dispatch_inbox_item_notifications,
     dispatch_reviewer_added_notifications,
 )
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications
-
-from ee.models.rbac.access_control import AccessControl
 
 
 @pytest.mark.parametrize(
@@ -101,8 +101,8 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
     )
 
     assert blocks[0]["text"]["text"] == "Checkout errors spiked"
-    section_text = blocks[1]["text"]["text"]
-    assert section_text.startswith("*❗ P1 · Error tracking*")
+    section_text = blocks[1]["text"]
+    assert section_text.startswith("**❗ P1 · Error tracking**")
     assert "Error rate rose after deploy." in section_text
     assert "Ignored second line." not in section_text
     # A mention in plain_text would render as the raw token, never pinging anyone.
@@ -115,7 +115,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
     assert len(buttons) == 1
     assert buttons[0]["text"]["text"] == "Review in PostHog"
     assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
-    assert text == "Inbox item (P1): Checkout errors spiked"
+    assert text == "Report (P1): Checkout errors spiked"
 
 
 def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
@@ -127,7 +127,7 @@ def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
         reviewer_mentions=["<@U1>", "<@U2>"],
     )
 
-    assert blocks[1]["text"]["text"] == "*🟠 P2*"
+    assert blocks[1]["text"] == "**🟠 P2**"
     assert blocks[2]["elements"][0]["text"] == "👤 Suggested reviewers: <@U1> <@U2>"
 
 
@@ -141,7 +141,7 @@ def test_build_message_blocks_includes_repository_in_metadata_line() -> None:
         repository="PostHog/posthog",
     )
 
-    assert blocks[1]["text"]["text"] == "*🟠 P2 · Error tracking · PostHog/posthog*"
+    assert blocks[1]["text"] == "**🟠 P2 · Error tracking · PostHog/posthog**"
 
 
 def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields() -> None:
@@ -160,12 +160,15 @@ def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields() -> None:
         repository="<!channel>/repo",
     )
 
-    section_text = blocks[1]["text"]["text"]
+    section_text = blocks[1]["text"]
     assert "<!here>" not in section_text
     assert "<@U999>" not in section_text
     assert "<!channel>" not in section_text
     assert "&lt;!here&gt;" in section_text
-    assert "&amp;" in section_text
+    # `&` is left alone. Slack decodes an entity without re-reading it as a token, so escaping it
+    # buys no safety, and it does not decode inside a link destination, where it would corrupt the
+    # query string of every link a report carries.
+    assert "everyone & " in section_text
 
 
 @pytest.mark.parametrize(
@@ -187,7 +190,7 @@ def test_build_message_blocks_prefixes_priority_with_emoji(priority: str, expect
         reviewer_mentions=["<@U123>"],
     )
 
-    assert blocks[1]["text"]["text"] == f"*{expected_priority_label}*"
+    assert blocks[1]["text"] == f"**{expected_priority_label}**"
     assert blocks[2]["elements"][0]["text"] == "👤 Suggested reviewers: <@U123>"
 
 
@@ -303,15 +306,23 @@ def test_dispatch_no_notification_without_team_channel_or_user_config(org_and_te
     assert slack_cls.call_count == 0
 
 
+@pytest.mark.parametrize(
+    ("target", "expected_conversation", "expects_mention"),
+    [
+        ("C123|#inbox", "C123", True),
+        # A member target is delivered as a direct message, which mentions nobody.
+        ("U0123ABC456|@reviewer", "U0123ABC456", False),
+    ],
+)
 @pytest.mark.django_db
-def test_dispatch_sends_to_configured_reviewer(org_and_team):
+def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_conversation, expects_mention):
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer2@example.com", "another-bot")
     integration = _make_slack_integration(team, user)
     SignalUserAutonomyConfig.objects.create(
         user=user,
         slack_notification_integration=integration,
-        slack_notification_channel="C123|#inbox",
+        slack_notification_channel=target,
     )
     report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["another-bot"])
 
@@ -329,14 +340,41 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert sent == 1
     assert fake_client.chat_postMessage.call_count == 1
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
-    assert call_kwargs["channel"] == "C123"
-    assert "Inbox item (P1)" in call_kwargs["text"]
+    assert call_kwargs["channel"] == expected_conversation
+    assert "Report (P1)" in call_kwargs["text"]
     blocks = call_kwargs["blocks"]
     assert blocks[0]["text"]["text"] == "Test report"
-    assert blocks[1]["text"]["text"].startswith("*❗ P1 · Error tracking*")
-    assert "👤 Suggested reviewers: <@U_REVIEWER>" in blocks[2]["elements"][0]["text"]
+    assert blocks[1]["text"].startswith("**❗ P1 · Error tracking**")
+    context_text = blocks[2]["elements"][0]["text"]
+    if expects_mention:
+        assert "👤 Suggested reviewers: <@U_REVIEWER>" in context_text
+    else:
+        assert "Suggested reviewers" not in context_text
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     assert blocks[3]["elements"][0]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
+
+
+@pytest.mark.django_db
+def test_dispatch_skips_a_direct_message_to_an_ineligible_member(org_and_team):
+    # Report contents must not follow a member who left the workspace or became a guest.
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "reviewer-dm@example.com", "dm-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="U0123ABC456|@reviewer",
+    )
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["dm-bot"])
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        slack_cls.return_value.get_user_by_id.return_value = None
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 0
+    assert fake_client.chat_postMessage.call_count == 0
 
 
 @pytest.mark.django_db
@@ -382,6 +420,28 @@ def test_dispatch_falls_back_to_team_channel_without_suggested_reviewers(org_and
     assert fake_client.chat_postMessage.call_count == 1
     assert fake_client.chat_postMessage.call_args.kwargs["channel"] == "CTEAM"
     assert "Suggested reviewers" not in json.dumps(fake_client.chat_postMessage.call_args.kwargs["blocks"])
+
+
+@pytest.mark.django_db
+def test_reviewer_resolution_uses_only_the_latest_reviewer_row(org_and_team):
+    org, team = org_and_team
+    old_reviewer = _make_reviewer_user(org, "old@example.com", "old-reviewer")
+    current_reviewer = _make_reviewer_user(org, "current@example.com", "current-reviewer")
+    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        content=json.dumps([{"user_uuid": str(old_reviewer.uuid)}]),
+    )
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        content=json.dumps([{"user_uuid": str(current_reviewer.uuid)}]),
+    )
+
+    assert _resolve_suggested_reviewer_user_ids(report) == {current_reviewer.id}
 
 
 @pytest.mark.django_db
@@ -485,8 +545,11 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
         return {"own@example.com": "U_OWN", "fallback@example.com": "U_FALLBACK"}.get(email.strip().lower())
 
     fake_client = MagicMock()
+    capture_context = MagicMock()
+    capture = capture_context.__enter__.return_value
     with (
         patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.ph_scoped_capture", return_value=capture_context),
         patch(
             "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
             side_effect=_slack_id,
@@ -499,6 +562,7 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
     assert fake_client.chat_postMessage.call_count == 1
     body = fake_client.chat_postMessage.call_args.kwargs["blocks"][2]["elements"][0]["text"]
     assert "<@U_OWN>" in body and "<@U_FALLBACK>" in body
+    assert capture.call_args.kwargs["properties"]["destination"] == "team"
 
 
 @pytest.mark.django_db
@@ -603,7 +667,7 @@ def test_dispatch_includes_repository_from_repo_selection_artefact(org_and_team)
 
     assert sent == 1
     blocks = fake_client.chat_postMessage.call_args.kwargs["blocks"]
-    assert "PostHog/posthog" in blocks[1]["text"]["text"]
+    assert "PostHog/posthog" in blocks[1]["text"]
 
 
 @pytest.mark.django_db
@@ -768,6 +832,7 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
         ("error_tracking", "issue_spiking", "Error tracking · Volume spike"),
         ("session_replay", "session_problem", "Session replay · Session problem"),
         ("session_replay", "session_analysis_cluster", "Session replay · Session analysis cluster"),
+        ("replay_vision", "scanner_finding", "Replay Vision · Scanner finding"),
         ("llm_analytics", "evaluation", "AI observability · Evaluation"),
         ("llm_analytics", "evaluation_report", "AI observability · Evaluation report"),
         ("github", "issue", "GitHub · Issue"),
@@ -817,7 +882,7 @@ def test_build_signal_thread_blocks_renders_header_content_and_github_details() 
     blocks, fallback = _build_signal_thread_blocks(signal)
 
     assert blocks[0]["elements"][0]["text"] == "*GitHub · Issue*"
-    assert blocks[1]["text"]["text"] == "Users report the export button does nothing"
+    assert blocks[1]["text"] == "Users report the export button does nothing"
     detail = blocks[2]["elements"][0]["text"]
     assert "#42" in detail
     assert "bug, export" in detail
@@ -834,7 +899,7 @@ def test_build_signal_thread_blocks_escapes_content_to_block_mention_injection()
         "extra": {},
     }
     blocks, fallback = _build_signal_thread_blocks(signal)
-    content_text = blocks[1]["text"]["text"]
+    content_text = blocks[1]["text"]
     assert "<!here>" not in content_text
     assert "<@U999>" not in content_text
     assert "&lt;!here&gt;" in content_text
@@ -876,30 +941,33 @@ def test_build_signal_thread_blocks_rejects_unsafe_detail_url() -> None:
     assert "javascript:" not in detail
 
 
-def test_build_signal_thread_blocks_renders_markdown_content_as_mrkdwn() -> None:
-    # Markdown in the description (headings, bullets, emphasis, links) renders as Slack mrkdwn
-    # rather than showing literal `##`, `**`, and `[text](url)` noise.
+def test_build_signal_thread_blocks_delivers_markdown_for_slack_to_render() -> None:
+    # Slack renders the Markdown, so headings, emphasis, links, and table cells reach it as the
+    # author wrote them. Converting to mrkdwn here dropped the links inside a table: the converter
+    # lifted the table out before it converted anything, then put the cells back untouched.
     signal = {
         "source_product": "github",
         "source_type": "issue",
         "weight": 1.0,
-        "content": "## Bug\n**Export** is broken, see [issue](https://example.com/i?a=1&b=2)\n- step one\n- step two",
+        "content": (
+            "## Bug\n**Export** is broken, see [issue](https://example.com/i?a=1&b=2)\n- step one\n\n"
+            "| PR | Status |\n| --- | --- |\n| [#42 fix export](https://example.com/pull/42) | ready |"
+        ),
         "extra": {},
     }
     blocks, _ = _build_signal_thread_blocks(signal)
-    content_text = blocks[1]["text"]["text"]
-    assert "*Bug*" in content_text
-    assert "*Export*" in content_text
-    assert "<https://example.com/i?a=1&amp;b=2|issue>" in content_text
-    assert "• step one" in content_text
-    # No raw markdown syntax should survive the conversion.
-    assert "##" not in content_text
-    assert "**" not in content_text
-    assert "[issue]" not in content_text
+    content_text = blocks[1]["text"]
+    assert "## Bug" in content_text
+    # The link destination reaches Slack byte for byte, `&` included. Escaping it to `&amp;` here
+    # put that entity in the rendered link's href and broke the query string.
+    assert "**Export** is broken, see [issue](https://example.com/i?a=1&b=2)" in content_text
+    assert "- step one" in content_text
+    assert "| [#42 fix export](https://example.com/pull/42) | ready |" in content_text
 
 
 def test_build_signal_thread_blocks_neutralizes_injection_in_markdown_content() -> None:
-    # Even when converting markdown, raw mention/link syntax in untrusted content stays inert.
+    # Slack reads its own tokens inside a markdown block, so untrusted content must not keep a live
+    # one — neither a broadcast nor a `<url|label>` link whose label hides where it points.
     signal = {
         "source_product": "github",
         "source_type": "issue",
@@ -908,18 +976,20 @@ def test_build_signal_thread_blocks_neutralizes_injection_in_markdown_content() 
         "extra": {},
     }
     blocks, _ = _build_signal_thread_blocks(signal)
-    content_text = blocks[1]["text"]["text"]
-    assert "*Heads up*" in content_text  # markdown still rendered
+    content_text = blocks[1]["text"]
+    assert "**Heads up**" in content_text  # the Markdown itself is left for Slack to render
     assert "<!here>" not in content_text
     assert "<@U999>" not in content_text
     assert "<https://evil.com|click here>" not in content_text
     assert "&lt;!here&gt;" in content_text
     assert "&lt;@U999&gt;" in content_text
+    assert "&lt;https://evil.com|click here&gt;" in content_text
 
 
-def test_build_signal_thread_blocks_defangs_mention_injection_via_markdown_links() -> None:
-    # `markdown_to_mrkdwn` turns `[text](dest)` into Slack's `<dest|label>` form; an untrusted
-    # description could smuggle a broadcast/ping by pointing the link at `!channel` / `@U123`.
+def test_build_signal_thread_blocks_never_turns_a_markdown_link_into_a_mention() -> None:
+    # A markdown link pointing at `!channel` / `@U123` used to reach Slack as a live broadcast: the
+    # mrkdwn converter rewrote every `[text](dest)` into Slack's `<dest|label>` token form, whatever
+    # the destination was. Delivering the Markdown as written can synthesize no token at all.
     signal = {
         "source_product": "github",
         "source_type": "issue",
@@ -928,14 +998,11 @@ def test_build_signal_thread_blocks_defangs_mention_injection_via_markdown_links
         "extra": {},
     }
     blocks, _ = _build_signal_thread_blocks(signal)
-    content_text = blocks[1]["text"]["text"]
-    # No live mention/broadcast token survives.
-    assert "<!channel|" not in content_text
-    assert "<@U12345678|" not in content_text
-    assert "&lt;!channel|ping everyone&gt;" in content_text
-    assert "&lt;@U12345678|dm me&gt;" in content_text
-    # A genuine http(s) link is still rendered as a clickable Slack link.
-    assert "<https://example.com|real>" in content_text
+    content_text = blocks[1]["text"]
+    assert "<!channel" not in content_text
+    assert "<@U12345678" not in content_text
+    assert "[ping everyone](!channel)" in content_text
+    assert "[real](https://example.com)" in content_text
 
 
 @pytest.mark.django_db
@@ -1190,3 +1257,23 @@ def test_reviewer_added_task_still_dispatches_when_source_product_lookup_fails(o
 
     mock_dispatch.assert_called_once()
     assert mock_dispatch.call_args.kwargs["source_products"] is None
+
+
+@pytest.mark.django_db
+def test_reviewer_added_task_decodes_uuid_from_the_legacy_argument(org_and_team):
+    _, team = org_and_team
+    with (
+        patch(
+            "products.signals.backend.signal_metadata.fetch_source_products_for_reports",
+            return_value={},
+        ),
+        patch("products.signals.backend.tasks.dispatch_reviewer_added_notifications") as mock_dispatch,
+    ):
+        send_reviewer_added_slack_notifications(
+            report_id="019f0000-0000-7000-8000-000000000000",
+            team_id=team.id,
+            added_github_logins=["linked-user", "user:019f0000-0000-7000-8000-000000000001"],
+        )
+
+    assert mock_dispatch.call_args.kwargs["added_github_logins"] == ["linked-user"]
+    assert mock_dispatch.call_args.kwargs["added_user_uuids"] == ["019f0000-0000-7000-8000-000000000001"]

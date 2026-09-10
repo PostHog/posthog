@@ -182,6 +182,7 @@ describe('HogFlow Quota Limiting', () => {
                 actions: [],
                 trigger: { type: 'event' },
                 billable_action_types: [],
+                version: 4,
             } as unknown as HogFlow,
         } as CyclotronJobInvocationHogFlow
 
@@ -244,6 +245,7 @@ describe('HogFlow Quota Limiting', () => {
                     metric_kind: 'failure',
                     metric_name: 'quota_limited',
                     count: 1,
+                    app_source_version: { id: expect.any(String), version: 4 },
                 },
                 'hog_flow'
             )

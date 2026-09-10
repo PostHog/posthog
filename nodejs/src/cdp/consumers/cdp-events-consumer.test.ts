@@ -1,3 +1,4 @@
+import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
@@ -9,9 +10,8 @@ import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import {
     createOrganization,
     createTeam,
-    getFirstTeam,
+    createTestTeamFixture,
     getTeam,
-    resetTestDatabase,
     updateOrganizationAvailableFeatures,
 } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
@@ -50,9 +50,12 @@ describe('CdpEventsConsumer', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres) // This team has data_pipelines feature by default (legacy addon)
+        const fixture = await createTestTeamFixture(hub.postgres)
+        team = fixture.team
+        await updateOrganizationAvailableFeatures(hub.postgres, fixture.organizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
 
         // Create second organization without data_pipelines for testing quota limiting
         const otherOrganizationId = await createOrganization(hub.postgres)
@@ -68,13 +71,6 @@ describe('CdpEventsConsumer', () => {
             hogQueue: mockJobQueue,
             hogflowQueue: mockJobQueue,
         })
-
-        // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
-        processor['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(),
-        } as any
 
         mockQueueInvocations = mockJobQueue.queueInvocations
 
@@ -225,7 +221,7 @@ describe('CdpEventsConsumer', () => {
                         instance_id: globals.event.uuid,
                         metric_kind: 'billing',
                         metric_name: 'billable_invocation',
-                        team_id: 2,
+                        team_id: team.id,
                     })
                 }
             })
@@ -254,7 +250,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'filtered',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -267,7 +263,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'triggered',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -282,7 +278,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'billing',
                             metric_name: 'billable_invocation',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -307,7 +303,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'failure',
                             metric_name: 'disabled_permanently',
-                            team_id: 2,
+                            team_id: team.id,
                         },
                     },
                     {
@@ -318,7 +314,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'failure',
                             metric_name: 'disabled_permanently',
-                            team_id: 2,
+                            team_id: team.id,
                         },
                     },
                 ])
@@ -533,7 +529,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'filtering_failed',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -565,9 +561,12 @@ describe('hog flow processing', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        const fixture = await createTestTeamFixture(hub.postgres)
+        team = fixture.team
+        await updateOrganizationAvailableFeatures(hub.postgres, fixture.organizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
         const mockQueue = createMockJobQueue()
 
         processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub), {
@@ -576,12 +575,6 @@ describe('hog flow processing', () => {
         })
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
-        processor['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(),
-        } as any
-
         await processor.start()
     })
 
@@ -679,7 +672,7 @@ describe('hog flow processing', () => {
                     event: globals.event,
                     actionStepCount: 0,
                 },
-                teamId: 2,
+                teamId: team.id,
             })
         })
 
@@ -1157,6 +1150,40 @@ describe('hog flow processing', () => {
 
             expect(invocations).toHaveLength(1)
             expect(globals.groups).toEqual({})
+        })
+    })
+
+    describe('push open tracking', () => {
+        it('emits a push_opened app-metric for a $push_notification_opened event, attributed to its workflow', async () => {
+            const flow = await _insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
+
+            const globals = createHogExecutionGlobals({
+                project: { id: team.id } as any,
+                event: {
+                    uuid: 'push-open-uuid',
+                    event: '$push_notification_opened',
+                    properties: {
+                        $notification_workflow_id: flow.id,
+                        $notification_invocation_id: 'inv-open-1',
+                        $notification_action_id: 'push_step_1',
+                    },
+                } as any,
+            })
+
+            const { backgroundTask } = await processor.processBatch([globals])
+            await backgroundTask
+
+            const pushOpened = mockProducerObserver
+                .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                .filter((m: any) => m.value.metric_name === 'push_opened')
+            expect(pushOpened).toHaveLength(1)
+            expect(pushOpened[0].value).toMatchObject({
+                app_source: 'hog_flow',
+                app_source_id: flow.id,
+                instance_id: 'push_step_1',
+                metric_name: 'push_opened',
+                count: 1,
+            })
         })
     })
 })

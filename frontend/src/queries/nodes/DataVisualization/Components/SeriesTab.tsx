@@ -19,6 +19,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DataColorToken, getSeriesColor, getSeriesColorPalette } from 'lib/colors'
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { INSIGHT_UNIT_OPTIONS_SHORT } from 'scenes/insights/aggregationAxisFormat'
@@ -26,7 +27,8 @@ import { INSIGHT_UNIT_OPTIONS_SHORT } from 'scenes/insights/aggregationAxisForma
 import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { AxisSeries, Column, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { BoxPlotSeriesTab } from './BoxPlotSeriesTab'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { getAvailableSeriesBreakdownColumns } from './seriesBreakdownUtils'
@@ -53,17 +55,30 @@ export const SeriesTab = (): JSX.Element => {
     const { selectedSeriesBreakdownColumn, showSeriesBreakdown } = useValues(breakdownLogic)
     const { addSeriesBreakdown } = useActions(breakdownLogic)
 
+    const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
+    const isMetric = effectiveVisualizationType === ChartDisplayType.Metric
     const availableBreakdownColumns = getAvailableSeriesBreakdownColumns(columns, selectedXAxis, selectedYAxis)
-    const hideAddYSeries = yData.length >= numericalColumns.length
+    const hideAddYSeries = isMetric ? yData.length >= 1 : yData.length >= numericalColumns.length
+    // Metric and scatter charts accept one series, so a breakdown does not apply.
     const hideAddSeriesBreakdown =
-        showSeriesBreakdown || selectedXAxis === null || availableBreakdownColumns.length === 0
+        isScatterPlot ||
+        isMetric ||
+        showSeriesBreakdown ||
+        selectedXAxis === null ||
+        availableBreakdownColumns.length === 0
     const showSeriesBreakdownSelector =
+        !isScatterPlot &&
+        !isMetric &&
         selectedXAxis !== null &&
         showSeriesBreakdown &&
         (selectedSeriesBreakdownColumn !== null || availableBreakdownColumns.length > 0)
 
     if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         return <HeatmapSeriesTab />
+    }
+
+    if (effectiveVisualizationType === ChartDisplayType.BoxPlot) {
+        return <BoxPlotSeriesTab />
     }
 
     if (showTableSettings) {
@@ -88,7 +103,7 @@ export const SeriesTab = (): JSX.Element => {
         )
     }
 
-    const options = columns.map(({ name, type }) => ({
+    const toColumnOption = ({ name, type }: Column): { value: string; label: JSX.Element } => ({
         value: name,
         label: (
             <div className="items-center flex-1">
@@ -98,9 +113,13 @@ export const SeriesTab = (): JSX.Element => {
                 </LemonTag>
             </div>
         ),
-    }))
+    })
 
-    if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+    const options = columns.map(toColumnOption)
+    // A scatter's x axis holds a second measure rather than a category, so only numeric columns fit.
+    const xAxisOptions = isScatterPlot ? numericalColumns.map(toColumnOption) : options
+
+    if (PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
         const valueColumn = selectedYAxis?.find((series) => series !== null)?.name ?? null
         const valueOptions = numericalColumns.map(({ name, type }) => ({
             value: name,
@@ -166,7 +185,7 @@ export const SeriesTab = (): JSX.Element => {
             <LemonSelect
                 className="w-full"
                 value={xData !== null ? xData.column.name : 'None'}
-                options={options}
+                options={xAxisOptions}
                 disabledReason={responseLoading ? 'Query loading...' : undefined}
                 onChange={(value) => {
                     const column = columns.find((n) => n.name === value)
@@ -282,7 +301,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
     const { isSettingsOpen, canOpenSettings, activeSettingsTab } = useValues(seriesLogic)
     const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
-    const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
+    const isPieChart = PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
     const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn
 
@@ -485,7 +504,12 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { updateSeriesIndex } = useActions(dataVisualizationLogic)
 
-    const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
+    const isPieChart = PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)
+    const hideChartSpecificOptions =
+        isPieChart ||
+        effectiveVisualizationType === ChartDisplayType.ActionsBarValue ||
+        effectiveVisualizationType === ChartDisplayType.Metric ||
+        effectiveVisualizationType === ChartDisplayType.ScatterPlot
     const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
 
@@ -542,7 +566,7 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                     )}
                 </div>
             )}
-            {!showTableSettings && !isPieChart && (
+            {!showTableSettings && !hideChartSpecificOptions && (
                 <>
                     {!selectedSeriesBreakdownColumn && (
                         <LemonField name="trendLine" label="Trend line">

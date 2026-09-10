@@ -131,7 +131,8 @@ export const experimentSessionContextResponse: ExperimentSessionContextResponseA
             flag_key: 'search-bar-placement',
             variant: 'control',
             variants_seen: ['control'],
-            // Exposure captured just before the recording's playable range — seen, but nothing to jump to.
+            // Exposure captured before the recording's first frame. Renders a negative offset that
+            // jumps to the first frame.
             first_exposure_timestamp: '2023-05-01T14:45:00.000000Z',
         }),
         makeExperimentSessionContextItem({
@@ -139,6 +140,31 @@ export const experimentSessionContextResponse: ExperimentSessionContextResponseA
             experiment_name: 'Onboarding checklist',
             flag_key: 'onboarding-checklist',
             first_exposure_timestamp: null,
+        }),
+    ],
+}
+
+/** Pinning only happens for the experiment whose page the player is embedded in, so callers put the
+ * router on this id. */
+export const ENROLLED_CURRENT_EXPERIMENT_ID = 201
+
+/** The experiment the viewer arrived from has no exposure event in this session, so the pinned row has
+ * to say so rather than read as exposure. Ids here are deliberately absent from the response above:
+ * stories share a router, and reusing one would pin a row in whichever story renders next.
+ * The second, exposed experiment is what makes the pin engage at all. */
+export const experimentSessionContextEnrolledCurrentResponse: ExperimentSessionContextResponseApi = {
+    session_id: 'experiment-context-enrolled-current',
+    results: [
+        makeExperimentSessionContextItem({
+            experiment_id: ENROLLED_CURRENT_EXPERIMENT_ID,
+            experiment_name: 'Trial length',
+            flag_key: 'trial-length',
+            first_exposure_timestamp: null,
+        }),
+        makeExperimentSessionContextItem({
+            experiment_id: 202,
+            experiment_name: 'Nav redesign',
+            flag_key: 'nav-redesign',
         }),
     ],
 }

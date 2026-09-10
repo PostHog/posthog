@@ -4,8 +4,10 @@ import { type ChartTheme } from '@posthog/quill-charts'
 import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
+import { IntervalType } from '~/types'
+
 import { type KPIData, KPIMetric } from '../mcpDashboardOverviewLogic'
-import { formatBucketLabel, formatMs, formatNumber } from './formatters'
+import { formatMs, formatNumber } from './formatters'
 import { MetricTile } from './MetricTile'
 
 interface TileSpec {
@@ -21,8 +23,20 @@ interface TileSpec {
     subtitle?: string
 }
 
-function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.Element {
+function KPITile({
+    tile,
+    theme,
+    interval,
+    incompleteTail,
+}: {
+    tile: TileSpec
+    theme: ChartTheme
+    interval: IntervalType
+    incompleteTail: boolean
+}): JSX.Element {
     const { metric } = tile
+    // Tiles whose metric carries no sparkline (Users, Intent clusters) have no segment to dash.
+    const dashedFromIndex = incompleteTail && metric.sparkline.length >= 2 ? metric.sparkline.length - 1 : undefined
 
     return (
         <Link to={tile.href} subtle className="group/tile flex h-full">
@@ -32,7 +46,8 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
                 loading={tile.loading}
                 value={metric.value}
                 data={metric.sparkline}
-                labels={metric.sparklineLabels.map(formatBucketLabel)}
+                labels={metric.sparklineLabels}
+                interval={interval}
                 theme={theme}
                 color={tile.color}
                 goodDirection={metric.goodDirection}
@@ -46,6 +61,7 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
                 hoverChangeFromPreviousPoint
                 restingSubtitle={tile.subtitle ?? tile.summaryLabel}
                 sparklineHeight={50}
+                sparklineDashedFromIndex={dashedFromIndex}
             />
         </Link>
     )
@@ -57,14 +73,23 @@ export function KpiTiles({
     intentClusterCount,
     kpisLoading,
     usersLoading,
+    showIntentClusters,
     theme,
+    interval,
+    incompleteTail,
 }: {
     kpis: KPIData
     users: KPIMetric
     intentClusterCount: KPIMetric
     kpisLoading: boolean
     usersLoading: boolean
+    showIntentClusters: boolean
     theme: ChartTheme
+    interval: IntervalType
+    // When true, the sparklines' final point is the current in-progress interval — dash it so a
+    // partial period doesn't read as a decline. Required rather than optional: an omitted prop
+    // silently renders the partial bucket as settled data.
+    incompleteTail: boolean
 }): JSX.Element {
     const tiles: TileSpec[] = [
         {
@@ -113,29 +138,42 @@ export function KpiTiles({
             loading: kpisLoading,
             summaryLabel: 'Latest',
         },
-        {
-            label: 'Intent clusters',
-            metric: intentClusterCount,
-            href: urls.mcpAnalyticsIntentClustering(),
-            format: formatNumber,
-            color: theme.colors[6],
-            loading: false,
-            summaryLabel: 'Total',
-            // Clusters come from the latest clustering snapshot across all sessions, so
-            // unlike the other tiles this count isn't scoped by the date or test-account
-            // filters. Label it so the grid doesn't read as a single consistent scope.
-            subtitle: 'Latest run · all sessions',
-        },
+        ...(showIntentClusters
+            ? [
+                  {
+                      label: 'Intent clusters',
+                      metric: intentClusterCount,
+                      href: urls.mcpAnalyticsIntentClustering(),
+                      format: formatNumber,
+                      color: theme.colors[6],
+                      loading: false,
+                      summaryLabel: 'Total',
+                      // Clusters come from the latest clustering snapshot across all sessions, so
+                      // unlike the other tiles this count isn't scoped by the date or test-account
+                      // filters. Label it so the grid doesn't read as a single consistent scope.
+                      subtitle: 'Latest run · all sessions',
+                  },
+              ]
+            : []),
     ]
 
-    // Wrap the six tiles only into rows that divide evenly (6 → 3+3 → 2+2+2), never a lone
-    // trailing card. Container queries key off the card area's own width, so the sidebar can't
-    // push it to an awkward 5+1 the way viewport breakpoints or plain auto-fit would.
+    // Keep both flag states balanced: six tiles wrap as 3+3 or 2+2+2, while five stay on one
+    // wide row. Container queries key off the card area's width rather than the viewport.
     return (
         <div className="@container">
-            <div className="grid grid-cols-2 gap-3 @xl:grid-cols-3 @6xl:grid-cols-6">
+            <div
+                className={`grid gap-3 ${
+                    showIntentClusters ? 'grid-cols-2 @xl:grid-cols-3 @6xl:grid-cols-6' : 'grid-cols-1 @xl:grid-cols-5'
+                }`}
+            >
                 {tiles.map((tile) => (
-                    <KPITile key={tile.label} tile={tile} theme={theme} />
+                    <KPITile
+                        key={tile.label}
+                        tile={tile}
+                        theme={theme}
+                        interval={interval}
+                        incompleteTail={incompleteTail}
+                    />
                 ))}
             </div>
         </div>

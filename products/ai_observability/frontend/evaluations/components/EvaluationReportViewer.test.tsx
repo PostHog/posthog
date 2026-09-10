@@ -159,8 +159,25 @@ describe('EvaluationReportViewer', () => {
             expectedUrl: '/ai-observability/traces/trace%255D%2528id',
             expectedLabel: 'trace',
         },
+        // The trace the agent read inside the session is kept on the citation, but the link is to
+        // the session — that's the unit the report is about.
+        {
+            name: 'session citation',
+            citedId: 'session-9',
+            citation: { session_id: 'session-9', trace_id: 'trace-inside', reason: 'example' },
+            expectedUrl: '/ai-observability/sessions/session-9',
+            expectedLabel: 'session-...',
+        },
+        // Colons are common in real session IDs and are safe in a path segment, so they stay linked.
+        {
+            name: 'session citation with colons',
+            citedId: 'session:group:16-16:81008d53',
+            citation: { session_id: 'session:group:16-16:81008d53', reason: 'example' },
+            expectedUrl: '/ai-observability/sessions/session:group:16-16:81008d53',
+            expectedLabel: 'session',
+        },
     ])(
-        'links a $name to the correct trace view',
+        'links a $name to the correct destination',
         ({ citedId, citation, expectedUrl, expectedLabel, content, expectedPlainText }) => {
             const reportRun = buildReportRun(buildMetrics({ pass_rate: 80 }))
             reportRun.content.sections = [{ title: 'Finding', content: content ?? `See \`${citedId}\`.` }]
@@ -169,10 +186,33 @@ describe('EvaluationReportViewer', () => {
             render(<EvaluationReportViewer reportRun={reportRun} compact />)
 
             const markdown = document.querySelector('[data-testid="react-markdown"]')
-            expect(markdown?.textContent).toContain(`[\`${expectedLabel}\`](${expectedUrl})`)
+            // Angle-bracketed destination so an opaque ID containing ")" can't truncate the link.
+            expect(markdown?.textContent).toContain(`[\`${expectedLabel}\`](<${expectedUrl}>)`)
             if (expectedPlainText) {
                 expect(markdown?.textContent).toContain(expectedPlainText)
             }
         }
     )
+
+    // $ai_session_id comes from ingestion, so it is attacker-controllable with the public project
+    // token. Escaping the link destination turns the rest of the ID into live Markdown in a report
+    // the team trusts — verified in a browser to render an external link and an image beacon.
+    it.each([
+        ['a closing paren', 'sess)1 [CLICK](https://evil.example.com)'],
+        ['an angle bracket', 'sess> ![beacon](https://evil.example.com/p.png)'],
+        ['a bracket', 'sess] and [more](https://evil.example.com)'],
+        ['a space', 'sess 1'],
+    ])('leaves a session ID containing %s unlinked', (_label, sessionId) => {
+        const reportRun = buildReportRun(buildMetrics({ pass_rate: 80 }))
+        reportRun.content.sections = [{ title: 'Finding', content: `See \`${sessionId}\`.` }]
+        reportRun.content.citations = [{ session_id: sessionId, reason: 'example' }]
+
+        render(<EvaluationReportViewer reportRun={reportRun} compact />)
+
+        const rendered = document.querySelector('[data-testid="react-markdown"]')?.textContent ?? ''
+        // No link is generated, so the ID keeps the backticks the section already had and
+        // CommonMark renders it as inert inline code rather than parsing the payload.
+        expect(rendered).not.toContain('/ai-observability/sessions/')
+        expect(rendered).toBe(`See \`${sessionId}\`.`)
+    })
 })

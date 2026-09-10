@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { parseURLFilters, parseURLVariables } from 'scenes/dashboard/dashboardUtils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -11,7 +12,8 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { ActivityScope, InsightShortId, InsightType, ItemMode } from '~/types'
 
@@ -216,6 +218,49 @@ describe('insightSceneLogic', () => {
         expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
     })
 
+    it("applies a shared link's #q= query to a saved insight on in-app navigation", async () => {
+        // Opening a shared link inside the app is a router PUSH, not a cold load, so it misses the
+        // upgradeQuery path.
+        const savedQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                dateRange: { date_from: '-7d' },
+                interval: 'day',
+            },
+        }) as InsightVizNode
+        const sharedQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                dateRange: { date_from: '-30d' },
+                interval: 'week',
+            },
+        }) as InsightVizNode
+
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': {
+                    results: [{ id: 42, short_id: Insight42, result: ['result from api'], query: savedQuery }],
+                },
+            },
+        })
+
+        router.actions.push(urls.insightView(Insight42))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push(combineUrl(urls.insightView(Insight42), {}, { q: JSON.stringify(sharedQuery) }).url)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const dataLogic = logic.values.insightDataLogicRef
+        expect(dataLogic).not.toBeNull()
+        expect(dataLogic!.logic.values.query).toEqual(sharedQuery)
+    })
+
     it('does not overwrite an existing productKey on a DataTableNode drill-down query', async () => {
         // A drill-down query that already declares its product (e.g. web analytics) must keep it.
         const dataTableQuery = {
@@ -315,6 +360,46 @@ describe('insightSceneLogic', () => {
         expect(logic.values.insightLogicRef?.logic.values.insight.id).toBeUndefined()
         expect(logic.values.insightLogicRef?.logic.values.insight.dashboards).toEqual([6])
     })
+
+    const VARIABLE_ID = '00000000-0000-0000-0000-00000000beef'
+    const CARD_NAME_OVERRIDE: Record<string, HogQLVariable> = {
+        [VARIABLE_ID]: {
+            variableId: VARIABLE_ID,
+            code_name: 'card_name',
+            value: 'Polukranos, Unchained',
+            isNull: false,
+        },
+    }
+
+    it.each<
+        [
+            string,
+            Record<string, HogQLVariable> | undefined,
+            DashboardFilter | undefined,
+            Record<string, any>,
+            DashboardFilter,
+        ]
+    >([
+        ['a variable value', CARD_NAME_OVERRIDE, undefined, { card_name: 'Polukranos, Unchained' }, {}],
+        ['a filter that clears a saved one', undefined, { properties: [] }, {}, { properties: [] }],
+    ])(
+        'points the dashboard breadcrumb back at the dashboard with %s',
+        async (_name, variablesOverride, filtersOverride, expectedVariables, expectedFilters) => {
+            router.actions.push(urls.insightView(Insight42, 6, variablesOverride, filtersOverride))
+            logic = insightSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const dashboardBreadcrumb = logic.values.breadcrumbs.find(
+                (breadcrumb) => breadcrumb.key === Scene.Dashboard
+            )
+            const { pathname, searchParams } = combineUrl(dashboardBreadcrumb?.path ?? '')
+
+            expect(pathname).toEqual(urls.dashboard(6))
+            expect(parseURLVariables(searchParams)).toEqual(expectedVariables)
+            expect(parseURLFilters(searchParams)).toEqual(expectedFilters)
+        }
+    )
 
     it('remounts when URL insight id disagrees with dashboard tile id on the mounted editor (save-as regression)', async () => {
         useMocks({
@@ -431,7 +516,7 @@ describe('insightSceneLogic', () => {
     })
 
     it.each([
-        ['new subscription', 'new', 'new'],
+        ['new subscription', 'new', null],
         ['a specific subscription', '5', 5],
     ])(
         'updates itemId when navigating from subscriptions list to %s',

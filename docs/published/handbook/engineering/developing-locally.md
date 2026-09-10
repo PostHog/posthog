@@ -62,6 +62,10 @@ This is the recommended option for most developers.
 
 ### Prerequisites
 
+**GitHub access.**
+Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github) using Secretive or 1Password.
+Signing is required: an org-wide ruleset rejects unsigned commits in every PostHog repository, so an unsigned push fails with `GH013: Commits must have verified signatures`.
+
 #### macOS
 
 1. Install Xcode Command Line Tools if you haven't already: `xcode-select --install`.
@@ -101,7 +105,12 @@ Clone the [PostHog repo](https://github.com/posthog/posthog). All future command
 git clone --filter=blob:none https://github.com/PostHog/posthog && cd posthog/
 ```
 
-**Performance tip:** The `--filter=blob:none` flag downloads all commit history and tree structure, but defers file contents (blobs) until needed. This reduces the clone from ~3 GB to a few hundred MB and makes the initial clone **15-17x faster**. You still get full git history for commands like `git log` and `git diff` – blobs are fetched on demand as you use them.
+**Performance tip:** The `--filter=blob:none` flag downloads all commit history and tree structure, but defers file contents (blobs) until needed.
+File contents are about 95% of this repository, so the clone is a few hundred MB instead of several GB, and it finishes much faster.
+You still get full git history for commands like `git log` and `git diff`. Blobs are fetched on demand as you use them.
+
+`hogli start` keeps a blobless clone healthy, because git does not consolidate the pack files these on-demand fetches create.
+It repacks in the background when they build up. Run `hogli doctor:git` to do it yourself.
 
 > The `feature-flags` container relies on the presence of the GeoLite cities
 > database in the `/share` directory. If you haven't run `hogli start` this database may not exist.
@@ -373,6 +382,10 @@ This command automatically turns any feature flag ending in `_EXPERIMENT` as a m
 Backend side flags are automatically configured in DEBUG mode using the
 dev API key created by `manage.py setup_local_api_key`.
 If you need to override the key, set the `POSTHOG_PERSONAL_API_KEY` env var.
+
+That dev key's full value is also shown in [Settings > Personal API keys](http://localhost:8010/settings/user-api-keys), so you can copy it without rerunning the command.
+This needs `DEBUG=1` and `ALLOW_DEV_API_KEY_REVEAL=1`, both of which are already set in `.env.development`.
+No other personal API key is ever shown in full: the dev key is the only one whose value is a repo constant rather than a hash.
 
 ## Extra: Debugging with VS Code
 

@@ -1,1 +1,1 @@
-0004_delete_revenue_analytics_insights
+0010_alter_insight_created_by_and_more

@@ -4,7 +4,9 @@ import pytest
 from unittest import mock
 
 from posthog.models.integration import UndecryptedIntegrationSecretError
+from posthog.temporal.common.errors import NonReportableError
 
+from products.warehouse_sources.backend.models.external_data_schema import SchemaSyncResult
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import sync_new_schemas as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
@@ -28,7 +30,9 @@ def _patch_common(source_mock, schemas_created=None, source_api_version=None):
         "is_registered": mock.patch.object(module.SourceRegistry, "is_registered", return_value=True),
         "get_source": mock.patch.object(module.SourceRegistry, "get_source", return_value=source_mock),
         "sync_old_schemas_with_new_schemas": mock.patch.object(
-            module, "sync_old_schemas_with_new_schemas", return_value=(schemas_created or [], [])
+            module,
+            "sync_old_schemas_with_new_schemas",
+            return_value=SchemaSyncResult(created=schemas_created or [], deleted=[]),
         ),
         "auto_enable_new_schemas": mock.patch.object(module, "auto_enable_new_schemas", return_value=[]),
     }
@@ -43,26 +47,29 @@ def _run_activity(source_mock, schemas_created=None, source_api_version=None):
 
 
 @pytest.mark.parametrize(
-    "error_msg,non_retryable,expected_exc",
+    "error_msg,non_retryable,retryable,expected_exc",
     [
         (
             "('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})",
             {"invalid_grant": None},
+            set(),
             None,
         ),
         (
             "UNAVAILABLE: transient network blip",
             {"invalid_grant": None},
+            set(),
             "transient network blip",
         ),
     ],
     ids=["non_retryable_error_is_skipped", "unknown_error_propagates"],
 )
-def test_get_schemas_error_handling(error_msg, non_retryable, expected_exc):
+def test_get_schemas_error_handling(error_msg, non_retryable, retryable, expected_exc):
     source_mock = mock.MagicMock()
     source_mock.parse_config.return_value = {}
     source_mock.get_schemas.side_effect = Exception(error_msg)
     source_mock.get_non_retryable_errors.return_value = non_retryable
+    source_mock.get_retryable_errors.return_value = retryable
 
     if expected_exc is None:
         _run_activity(source_mock)
@@ -71,15 +78,28 @@ def test_get_schemas_error_handling(error_msg, non_retryable, expected_exc):
             _run_activity(source_mock)
 
 
+def test_retryable_error_is_reraised_for_temporal_retry():
+    # A retryable source error (a transient connect blip) must fail the activity as NonReportableError,
+    # not complete it. NonReportableError keeps the workflow's Temporal retry (the activity interceptor
+    # re-raises it without capturing), so discovery retries within the run instead of skipping the whole
+    # ~6h pass. Mirrors import_data_sync's handling of the same get_retryable_errors set.
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = Exception("250001: Could not connect to Snowflake backend after 3 attempt(s)")
+    source_mock.get_non_retryable_errors.return_value = {}
+    source_mock.get_retryable_errors.return_value = {"Could not connect to Snowflake backend after"}
+
+    with pytest.raises(NonReportableError):
+        _run_activity(source_mock)
+
+
 def test_undecrypted_integration_secret_error_is_skipped():
     # Checked by type, not message, so it must be skipped even when get_non_retryable_errors
     # has no matching entry — otherwise discovery retries forever on an unrecoverable decryption
     # failure and spams error tracking every cycle.
     source_mock = mock.MagicMock()
     source_mock.parse_config.return_value = {}
-    source_mock.get_schemas.side_effect = UndecryptedIntegrationSecretError(
-        "Integration.sensitive_config['refresh_token'] is still encrypted; the stored credentials could not be decrypted"
-    )
+    source_mock.get_schemas.side_effect = UndecryptedIntegrationSecretError()
     source_mock.get_non_retryable_errors.return_value = {}
 
     _run_activity(source_mock)

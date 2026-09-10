@@ -4,7 +4,9 @@ import uuid
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import httpx
@@ -13,16 +15,28 @@ from rest_framework import status
 
 from posthog.models import Organization, Team, User
 
-from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
+from products.mcp_store.backend.models import (
+    MCPAuditEvent,
+    MCPGatewayServer,
+    MCPServerInstallation,
+    MCPServerInstallationTool,
+    MCPToolPolicy,
+)
 from products.mcp_store.backend.proxy import _build_sse_response
 
 
 class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
-        patcher = patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # Policy checks now flow through url_policy (check_mcp_url_policy);
+        # proxy.is_url_allowed still guards same-origin redirect targets.
+        for target in (
+            "products.mcp_store.backend.url_policy.is_url_allowed",
+            "products.mcp_store.backend.proxy.is_url_allowed",
+        ):
+            patcher = patch(target, return_value=(True, None))
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _proxy_url(self, installation_id: str) -> str:
         return f"/api/environments/{self.team.id}/mcp_server_installations/{installation_id}/proxy/"
@@ -496,7 +510,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         assert response.json()["error"] == "No credentials configured"
 
-    @patch("products.mcp_store.backend.proxy.is_url_allowed")
+    @patch("products.mcp_store.backend.url_policy.is_url_allowed")
     def test_proxy_rejects_ssrf_private_ips(self, mock_is_url_allowed):
         mock_is_url_allowed.return_value = (False, "Private IP address not allowed")
         installation = self._create_installation(
@@ -533,9 +547,15 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
     def setUp(self):
         super().setUp()
-        patcher = patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # Policy checks now flow through url_policy (check_mcp_url_policy);
+        # proxy.is_url_allowed still guards same-origin redirect targets.
+        for target in (
+            "products.mcp_store.backend.url_policy.is_url_allowed",
+            "products.mcp_store.backend.proxy.is_url_allowed",
+        ):
+            patcher = patch(target, return_value=(True, None))
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _proxy_url(self, installation_id: str) -> str:
         return f"/api/environments/{self.team.id}/mcp_server_installations/{installation_id}/proxy/"
@@ -712,18 +732,89 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert [entry["error"]["code"] for entry in body] == [-32001, -32002]
         mock_client_cls.assert_not_called()
 
+    def test_gateway_audit_query_count_does_not_grow_with_batch_size(self) -> None:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Audited tools",
+            url="https://mcp.audited-tools.example.com/mcp",
+        )
+        installation = self._installation()
+        installation.gateway_server = server
+        installation.save(update_fields=["gateway_server", "updated_at"])
+        for index in range(5):
+            self._tool(installation, f"pending-{index}", "needs_approval")
+
+        single_call = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "pending-0"},
+        }
+        assert self.client.post(self._proxy_url(installation.id), data=single_call, format="json").status_code == 200
+        MCPAuditEvent.objects.for_team(self.team.id).all().delete()
+
+        with CaptureQueriesContext(connection) as single_call_queries:
+            single_response = self.client.post(
+                self._proxy_url(installation.id),
+                data=single_call,
+                format="json",
+            )
+        with CaptureQueriesContext(connection) as batch_call_queries:
+            batch_response = self.client.post(
+                self._proxy_url(installation.id),
+                data=[
+                    {
+                        "jsonrpc": "2.0",
+                        "id": index,
+                        "method": "tools/call",
+                        "params": {"name": f"pending-{index}"},
+                    }
+                    for index in range(5)
+                ],
+                format="json",
+            )
+
+        assert single_response.status_code == 200
+        assert batch_response.status_code == 200
+        assert len(batch_call_queries.captured_queries) == len(single_call_queries.captured_queries)
+        assert MCPAuditEvent.objects.for_team(self.team.id).count() == 6
+
     @patch("products.mcp_store.backend.proxy.httpx.Client")
     def test_mixed_batch_rejects_whole_request_with_batch_code(self, mock_client_cls):
-        """Mixed batches are rejected atomically with a batch-level code, not a per-item code."""
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Audited batch",
+            url="https://mcp.audited-batch.example.com/mcp",
+        )
         installation = self._installation()
+        installation.gateway_server = server
+        installation.save(update_fields=["gateway_server", "updated_at"])
         self._tool(installation, "approved-tool", "approved")
+        self._tool(installation, "auto-tool", "approved")
         self._tool(installation, "unapproved-tool", "needs_approval")
+        MCPToolPolicy.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            tool_name="approved-tool",
+            scope_type="member",
+            scope_user=self.user,
+            state="approved",
+        )
+        MCPToolPolicy.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            tool_name="unapproved-tool",
+            scope_type="member",
+            scope_user=self.user,
+            state="needs_approval",
+        )
 
         response = self.client.post(
             self._proxy_url(installation.id),
             data=[
                 {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "approved-tool"}},
-                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "unapproved-tool"}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "auto-tool"}},
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "unapproved-tool"}},
             ],
             format="json",
         )
@@ -735,6 +826,13 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         for entry in body:
             assert entry["error"]["code"] == -32000
         mock_client_cls.assert_not_called()
+        assert list(
+            MCPAuditEvent.objects.for_team(self.team.id)
+            .filter(gateway_server=server)
+            .values_list("tool_name", "decision")
+        ) == [("unapproved-tool", "pending")]
+        installation.refresh_from_db()
+        assert installation.last_used_at is None
 
     @patch("products.mcp_store.backend.proxy.httpx.Client")
     def test_mixed_batch_with_tools_list_sibling_uses_batch_code(self, mock_client_cls):
@@ -767,9 +865,15 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     def setUp(self):
         super().setUp()
-        patcher = patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # Policy checks now flow through url_policy (check_mcp_url_policy);
+        # proxy.is_url_allowed still guards same-origin redirect targets.
+        for target in (
+            "products.mcp_store.backend.url_policy.is_url_allowed",
+            "products.mcp_store.backend.proxy.is_url_allowed",
+        ):
+            patcher = patch(target, return_value=(True, None))
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _proxy_url(self, installation_id: str, team_id: int | None = None) -> str:
         tid = team_id if team_id is not None else self.team.id

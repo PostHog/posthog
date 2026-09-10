@@ -4,7 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { hasRecentAIEvents } from './aiEvents'
+import { hasRecentAIEvents, pollRecentAIEvents } from './aiEvents'
 
 describe('aiEventsUtils', () => {
     beforeEach(() => {
@@ -189,6 +189,27 @@ describe('aiEventsUtils', () => {
             expect(result).toBe(false)
         })
 
+        // A rejection from either request files one error tracking issue per poll tick.
+        it.each([
+            [
+                'the event definitions request fails',
+                (): void => {
+                    jest.spyOn(api.eventDefinitions, 'list').mockRejectedValue(new Error('Failed to fetch'))
+                },
+            ],
+            [
+                'the ClickHouse probe fails',
+                (): void => {
+                    jest.spyOn(api.eventDefinitions, 'list').mockResolvedValue({ results: [], count: 0 } as any)
+                    jest.spyOn(api, 'query').mockRejectedValue(new Error('Failed to fetch'))
+                },
+            ],
+        ])('answers null rather than rejecting when %s', async (_, arrange) => {
+            arrange()
+
+            await expect(hasRecentAIEvents()).resolves.toBeNull()
+        })
+
         it('handles undefined results from ClickHouse gracefully', async () => {
             useMocks({
                 get: {
@@ -204,6 +225,29 @@ describe('aiEventsUtils', () => {
             const result = await hasRecentAIEvents()
 
             expect(result).toBe(false)
+        })
+    })
+
+    describe('pollRecentAIEvents', () => {
+        // One sequential test: the page-load cache is module state, so ordering within a single
+        // test is the only way to exercise failure, dedupe, and cache without cross-test coupling.
+        it('resolves false on failure, dedupes concurrent checks, then caches a hit for the page load', async () => {
+            const listSpy = jest.spyOn(api.eventDefinitions, 'list').mockRejectedValueOnce(new Error('network down'))
+            jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
+            await expect(pollRecentAIEvents()).resolves.toBe(false)
+            expect(listSpy).toHaveBeenCalledTimes(1)
+
+            listSpy.mockResolvedValue({
+                results: [{ id: '1', name: '$ai_generation', last_seen_at: dayjs().subtract(1, 'day').toISOString() }],
+                count: 1,
+            } as any)
+            const [first, second] = await Promise.all([pollRecentAIEvents(), pollRecentAIEvents()])
+            expect(first).toBe(true)
+            expect(second).toBe(true)
+            expect(listSpy).toHaveBeenCalledTimes(2)
+
+            await expect(pollRecentAIEvents()).resolves.toBe(true)
+            expect(listSpy).toHaveBeenCalledTimes(2)
         })
     })
 })

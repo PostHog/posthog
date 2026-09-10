@@ -1,12 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -14,7 +11,7 @@ import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { AlertState, ProductKey } from '~/queries/schema/schema-general'
+import { AlertState } from '~/queries/schema/schema-general'
 
 import { AlertStateIndicator } from '../components/AlertDefinition'
 import { AlertsFiltersBar } from '../components/AlertsFiltersBar'
@@ -24,8 +21,7 @@ import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { alertsLogic } from '../logic/alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
-
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+import { AlertNotFoundModal } from './EditAlertModal/AlertNotFoundModal'
 
 interface InsightAlertsProps {
     alertId: AlertType['id'] | null
@@ -81,13 +77,12 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
         alertsResponseLoading,
         deletingAlertIds,
         pagination,
-        alertsCount,
         isFiltering,
         togglingAlertIds,
         alertDestinationCounts,
     } = useValues(logic)
 
-    const { alert } = useValues(alertLogic({ alertId }))
+    const { alert, alertLoading } = useValues(alertLogic({ alertId }))
 
     const columns: LemonTableColumns<AlertType> = [
         {
@@ -118,7 +113,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
             title: 'Status',
             dataIndex: 'state',
             render: function renderStateIndicator(_, alert: AlertType) {
-                return alert.enabled ? <AlertStateIndicator alert={alert} /> : null
+                return <AlertStateIndicator alert={alert} />
             },
         },
         {
@@ -223,28 +218,9 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
         },
     ]
 
-    const isEmpty = alertsCount === 0 && !alertsResponseLoading && !isFiltering
     const alertForEditModal = alert ?? alertsSortedByState.find((candidate) => candidate.id === alertId)
     return (
         <>
-            {isEmpty && (
-                <ProductIntroduction
-                    productName="Alerts"
-                    productKey={ProductKey.ALERTS}
-                    thingName="alert"
-                    description="Alerts enable you to monitor your insight and notify you when certain conditions are met."
-                    isEmpty
-                    customHog={HedgehogMagnifyingGlass}
-                    actionElementOverride={
-                        <span className="italic">
-                            To get started, open a <Link to={urls.insights()}>saved insight</Link>, then select Alerts
-                            from the Actions sidebar.
-                        </span>
-                    }
-                    mcpSurfaceKey="alerts.create"
-                />
-            )}
-
             {alertForEditModal && (
                 <EditAlertModal
                     onClose={() => push(urls.alerts())}
@@ -258,27 +234,32 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
                 />
             )}
 
-            {isEmpty ? null : (
-                <>
-                    <AlertsFiltersBar />
-                    <LemonTable
-                        loading={alertsResponseLoading}
-                        columns={columns}
-                        dataSource={alertsSortedByState}
-                        noSortingCancellation
-                        rowKey="id"
-                        loadingSkeletonRows={5}
-                        nouns={['alert', 'alerts']}
-                        pagination={pagination}
-                        rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
-                        emptyState={
-                            isFiltering ? (
-                                <div className="py-8 text-center text-secondary">No alerts match your filters</div>
-                            ) : undefined
-                        }
-                    />
-                </>
+            {alertId && !alertForEditModal && !alertLoading && (
+                <AlertNotFoundModal isOpen onClose={() => push(urls.alerts())} />
             )}
+
+            <AlertsFiltersBar />
+            <LemonTable
+                loading={alertsResponseLoading}
+                columns={columns}
+                dataSource={alertsSortedByState}
+                noSortingCancellation
+                rowKey="id"
+                loadingSkeletonRows={5}
+                nouns={['alert', 'alerts']}
+                pagination={pagination}
+                rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
+                emptyState={
+                    isFiltering ? (
+                        <div className="py-8 text-center text-secondary">No alerts match your filters</div>
+                    ) : (
+                        <div className="py-8 text-center text-secondary">
+                            Insight alerts start on the insight. Open a <Link to={urls.insights()}>saved insight</Link>,
+                            then pick Alerts in its actions sidebar.
+                        </div>
+                    )
+                }
+            />
         </>
     )
 }

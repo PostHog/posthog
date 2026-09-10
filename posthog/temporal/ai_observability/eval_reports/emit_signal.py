@@ -1,14 +1,13 @@
 """Emit a signal per evaluation report run.
 
-Parallel to `products/signals/backend/temporal/emit_eval_signal.py` which emits
-one signal per individual `$ai_evaluation` result. This module emits one signal
-per report run, which is strictly more useful because a report already aggregates
-the underlying results into an analytical narrative (trend, patterns, citations)
-— the signal inherits that narrative rather than the per-result verdict.
+This is the only path from AI observability evaluations into Signals. Emitting one
+signal per individual `$ai_evaluation` result flooded inboxes and said little; a
+report already aggregates the underlying results into an analytical narrative
+(trend, patterns, citations), so the signal inherits that narrative rather than a
+single verdict.
 
 Gated by its own team-level `SignalSourceConfig(LLM_ANALYTICS, EVALUATION_REPORT)`
-toggle (surfaced in the inbox sources UI), independent of the per-evaluation
-allowlist that gates per-result emission.
+toggle, surfaced in the inbox sources UI.
 
 Lives in `posthog/temporal/ai_observability/` (not `products/signals/`) because
 this is fundamentally an LLMA operation: it runs on the LLMA worker, reads the
@@ -131,7 +130,12 @@ def _build_eval_report_signal_prompt(inputs: EmitEvalReportSignalInputs, content
 async def summarize_report_for_signal(
     inputs: EmitEvalReportSignalInputs, content: dict[str, Any]
 ) -> EvalReportSignalSummary:
-    """Use the signals LLM to produce a signal-sized summary of a report run."""
+    """Use the signals LLM to produce a signal-sized summary of a report run.
+
+    `ai_product` is the Go-gateway opt-in. A call without it routes to the legacy Python
+    gateway under the bare `signals` slug. This tag stays separate from the report agent's
+    `aio_eval_reports`: a budget denial on one must not stop the other.
+    """
     user_prompt = _build_eval_report_signal_prompt(inputs, content)
 
     def validate(text: str) -> EvalReportSignalSummary:
@@ -145,6 +149,7 @@ async def summarize_report_for_signal(
         validate=validate,
         thinking=True,
         stage="eval_report_signal_summary",
+        ai_product="aio_eval_reports_for_signals",
     )
 
 

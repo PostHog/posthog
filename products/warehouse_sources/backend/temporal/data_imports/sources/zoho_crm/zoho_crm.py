@@ -9,6 +9,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dat
     coerce_datetime_to_utc,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+    RESTClientRetryableError,
+    _looks_like_json,
+    _safe_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.settings import (
@@ -19,18 +25,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.s
 
 DEFAULT_API_VERSION = "v8"
 
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class RegionHosts:
+    accounts_host: str
+    api_domain: str
+
+
 # Zoho accounts are pinned to one data center; the accounts host mints the token and the
 # API host serves the records. The token response also names the account's real API domain,
 # which wins over this mapping when present.
-ZOHO_REGIONS: dict[str, tuple[str, str]] = {
-    "us": ("https://accounts.zoho.com", "https://www.zohoapis.com"),
-    "eu": ("https://accounts.zoho.eu", "https://www.zohoapis.eu"),
-    "in": ("https://accounts.zoho.in", "https://www.zohoapis.in"),
-    "au": ("https://accounts.zoho.com.au", "https://www.zohoapis.com.au"),
-    "jp": ("https://accounts.zoho.jp", "https://www.zohoapis.jp"),
-    "ca": ("https://accounts.zohocloud.ca", "https://www.zohoapis.ca"),
-    "cn": ("https://accounts.zoho.com.cn", "https://www.zohoapis.com.cn"),
+ZOHO_REGIONS: dict[str, RegionHosts] = {
+    "us": RegionHosts(accounts_host="https://accounts.zoho.com", api_domain="https://www.zohoapis.com"),
+    "eu": RegionHosts(accounts_host="https://accounts.zoho.eu", api_domain="https://www.zohoapis.eu"),
+    "in": RegionHosts(accounts_host="https://accounts.zoho.in", api_domain="https://www.zohoapis.in"),
+    "au": RegionHosts(accounts_host="https://accounts.zoho.com.au", api_domain="https://www.zohoapis.com.au"),
+    "jp": RegionHosts(accounts_host="https://accounts.zoho.jp", api_domain="https://www.zohoapis.jp"),
+    "ca": RegionHosts(accounts_host="https://accounts.zohocloud.ca", api_domain="https://www.zohoapis.ca"),
+    "cn": RegionHosts(accounts_host="https://accounts.zoho.com.cn", api_domain="https://www.zohoapis.com.cn"),
 }
+
+# Zoho answers a request that matched nothing with 204. It answers a conditional read whose
+# records are all older than `If-Modified-Since` with 304. Both bodies are empty, and
+# `raise_for_status()` lets 304 through, so each read site must check for both.
+NO_CONTENT_STATUSES = frozenset({204, 304})
 
 # Zoho caps `per_page` at 200.
 PAGE_SIZE = 200
@@ -62,7 +80,7 @@ class ZohoCRMResumeConfig:
     page_tokens: list[str] = dataclasses.field(default_factory=list)
 
 
-def resolve_hosts(region: str) -> tuple[str, str]:
+def resolve_hosts(region: str) -> RegionHosts:
     hosts = ZOHO_REGIONS.get(region)
     if hosts is None:
         raise ValueError(f"Invalid Zoho CRM region: {region}")
@@ -75,6 +93,24 @@ def format_modified_since(value: Any) -> str:
     if parsed is None:
         return str(value)
     return parsed.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
+def _parse_json_body(response: requests.Response) -> Optional[Any]:
+    """Decode a 2xx JSON body, or classify a body that does not decode.
+
+    An empty body is a complete "no data" answer, so it becomes `None`. A body that starts as a
+    JSON value is a truncated read and stays retryable. A body that never starts as JSON is an
+    error, login, or maintenance page, which a retry can only fetch again, so it is non-retryable.
+    """
+    try:
+        return response.json()
+    except requests.exceptions.JSONDecodeError as e:
+        if not response.content or not response.content.strip():
+            return None
+        # `_safe_url` drops the query string, which carries the page token and the field list.
+        if not _looks_like_json(response.content):
+            raise RESTClientNonRetryableError(f"Non-JSON response from {_safe_url(response.url)}") from e
+        raise RESTClientRetryableError(f"Malformed JSON response from {_safe_url(response.url)}: {e}") from e
 
 
 def chunk_fields(names: list[str], size: int = MAX_FIELDS_PER_REQUEST) -> list[list[str]]:
@@ -97,7 +133,11 @@ class ZohoCRMClient:
         client_secret: str,
         refresh_token: str,
     ) -> None:
-        self._accounts_host, self._api_domain = resolve_hosts(region)
+        hosts = resolve_hosts(region)
+        self._accounts_host = hosts.accounts_host
+        # Instance attribute (not the frozen hosts value) because the token response's
+        # `api_domain` overrides it after auth.
+        self._api_domain = hosts.api_domain
         self._client_id = client_id
         self._client_secret = client_secret
         self._refresh_token = refresh_token
@@ -124,7 +164,7 @@ class ZohoCRMClient:
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-        body = response.json()
+        body = _parse_json_body(response) or {}
 
         access_token = body.get("access_token")
         if not access_token:
@@ -165,8 +205,7 @@ class ZohoCRMClient:
             self.mint_access_token()
             response = _send()
 
-        # 204 is Zoho's "nothing matched" — an empty body, not an error.
-        if response.status_code != 204:
+        if response.status_code not in NO_CONTENT_STATUSES:
             response.raise_for_status()
         return response
 
@@ -174,11 +213,15 @@ class ZohoCRMClient:
 def readable_field_names(client: ZohoCRMClient, api_version: str, module: str) -> list[str]:
     """Field API names Get Records can project for `module`, from the fields metadata API."""
     response = client.get(f"/crm/{api_version}/settings/fields", params={"module": module})
-    if response.status_code == 204:
+    if response.status_code in NO_CONTENT_STATUSES:
+        return []
+
+    body = _parse_json_body(response)
+    if body is None:
         return []
 
     names: list[str] = []
-    for field in response.json().get("fields") or []:
+    for field in body.get("fields") or []:
         api_name = field.get("api_name")
         if not api_name:
             continue
@@ -198,10 +241,13 @@ def _fetch_page(
     headers: dict[str, str],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     response = client.get(f"/crm/{api_version}/{config.path}", params=params, headers=headers)
-    if response.status_code == 204:
+    if response.status_code in NO_CONTENT_STATUSES:
         return [], {}
 
-    body = response.json()
+    body = _parse_json_body(response)
+    if body is None:
+        return [], {}
+
     return list(body.get(config.data_key) or []), dict(body.get("info") or {})
 
 

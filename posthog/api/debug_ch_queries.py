@@ -29,7 +29,6 @@ from posthog.clickhouse.preaggregation.experiment_metric_events_sql import (
     SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.cloud_utils import is_cloud
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
@@ -163,6 +162,33 @@ def _cache_table_stats() -> list[dict]:
     return list(stats.values())
 
 
+def _bucket_axis(hours: int) -> tuple[str, str, list[str], dict[str, int]]:
+    """Zero-fillable time axis for the timeseries endpoints: hourly buckets up to 48h, daily beyond.
+
+    Returns the ClickHouse bucketing function, the interval name, the bucket keys (ISO strings in
+    explicit UTC, matching what the SQL's formatDateTime emits — so no assumption about the
+    ClickHouse server timezone or driver naive/aware behavior is needed), and a key→index lookup.
+    """
+    bucket_fn = "toStartOfHour" if hours <= 48 else "toStartOfDay"
+    bucket_delta = timedelta(hours=1) if hours <= 48 else timedelta(days=1)
+    interval = "hour" if hours <= 48 else "day"
+
+    window_start = datetime.now(UTC) - timedelta(hours=hours)
+    if interval == "hour":
+        first_bucket = window_start.replace(minute=0, second=0, microsecond=0)
+    else:
+        first_bucket = window_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    buckets: list[datetime] = []
+    cursor = first_bucket
+    end = datetime.now(UTC)
+    while cursor <= end:
+        buckets.append(cursor)
+        cursor += bucket_delta
+    bucket_keys = [b.strftime("%Y-%m-%dT%H:%M:%SZ") for b in buckets]
+    index_by_bucket = {key: i for i, key in enumerate(bucket_keys)}
+    return bucket_fn, interval, bucket_keys, index_by_bucket
+
+
 @extend_schema(exclude=True)
 class DebugCHQueries(viewsets.ViewSet):
     """
@@ -188,14 +214,22 @@ class DebugCHQueries(viewsets.ViewSet):
     _ALLOWED_FILTER_KEYS = frozenset({"insight_id", "experiment_id"})
 
     def _log_comment_filter(self, filter_key: str, filter_value: str) -> str:
-        """Build a WHERE clause filtering on a log_comment JSON field."""
+        """Build a WHERE clause filtering on a log_comment JSON field, scoped to one team.
+
+        Insight and experiment ids are sequential integers, so the log_comment match on its own
+        reads any team's rows — every caller binds `team_id` alongside it.
+        """
         if filter_key not in self._ALLOWED_FILTER_KEYS:
             raise ValueError(f"Invalid filter_key: {filter_key!r}")
-        return f"JSONExtractRaw(log_comment, '{filter_key}') = %(filter_value)s"
+        return (
+            f"JSONExtractRaw(log_comment, '{filter_key}') = %(filter_value)s"
+            " AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s"
+        )
 
-    def hourly_stats(self, filter_key: str, filter_value: str):
+    def hourly_stats(self, filter_key: str, filter_value: str, team_id: int):
         params = {
             "filter_value": filter_value,
+            "team_id": team_id,
             "start_time": (datetime.now() - timedelta(days=14)).timestamp(),
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
@@ -247,9 +281,10 @@ class DebugCHQueries(viewsets.ViewSet):
             for resp in response
         ]
 
-    def stats(self, filter_key: str, filter_value: str):
+    def stats(self, filter_key: str, filter_value: str, team_id: int):
         params = {
             "filter_value": filter_value,
+            "team_id": team_id,
             "start_time": (datetime.now(UTC) - timedelta(days=14)).timestamp(),
             "cluster": CLICKHOUSE_CLUSTER,
         }
@@ -285,7 +320,13 @@ class DebugCHQueries(viewsets.ViewSet):
             "exception_percentage": response[0][4],
         }
 
-    def queries(self, request: Request, filter_key: Optional[str] = None, filter_value: Optional[str] = None):
+    def queries(
+        self,
+        request: Request,
+        team_id: Optional[int] = None,
+        filter_key: Optional[str] = None,
+        filter_value: Optional[str] = None,
+    ):
         params: dict = {
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
@@ -296,6 +337,7 @@ class DebugCHQueries(viewsets.ViewSet):
             # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal _log_comment_filter
             where_clause = self._log_comment_filter(filter_key, filter_value)
             params["filter_value"] = filter_value
+            params["team_id"] = team_id
             limit_clause = "LIMIT 10"
         else:
             where_clause = "query LIKE %(query)s AND event_time > %(start_time)s"
@@ -350,7 +392,7 @@ class DebugCHQueries(viewsets.ViewSet):
         ]
 
     def list(self, request):
-        if not (request.user.is_staff or DEBUG or is_impersonated_session(request) or not is_cloud()):
+        if not (request.user.is_staff or DEBUG or is_impersonated_session(request)):
             raise exceptions.PermissionDenied("You're not allowed to see queries.")
 
         tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
@@ -365,11 +407,18 @@ class DebugCHQueries(viewsets.ViewSet):
         elif experiment_id:
             filter_key, filter_value = "experiment_id", experiment_id
 
-        queries = self.queries(request, filter_key, filter_value)
-        response = {"queries": queries}
+        team_id: Optional[int] = None
         if filter_key and filter_value:
-            response["stats"] = self.stats(filter_key, filter_value)
-            response["hourly_stats"] = self.hourly_stats(filter_key, filter_value)
+            team = request.user.team
+            if team is None:
+                raise exceptions.PermissionDenied("You're not allowed to see queries.")
+            team_id = team.pk
+
+        queries = self.queries(request, team_id, filter_key, filter_value)
+        response = {"queries": queries}
+        if filter_key and filter_value and team_id is not None:
+            response["stats"] = self.stats(filter_key, filter_value, team_id)
+            response["hourly_stats"] = self.hourly_stats(filter_key, filter_value, team_id)
         return Response(response)
 
     def _serialize_precomputation_team(
@@ -444,7 +493,10 @@ class DebugCHQueries(viewsets.ViewSet):
 
         config = get_or_create_team_extension(team, TeamExperimentsConfig)
         config.experiment_precomputation_enabled = enabled
-        config.save(update_fields=["experiment_precomputation_enabled"])
+        # A human toggling precomputation must stick: the auto-enrollment job only
+        # writes when precomputation_enabled_set_by is null or "auto".
+        config.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
+        config.save(update_fields=["experiment_precomputation_enabled", "precomputation_enabled_set_by"])
 
         org_id = str(team.organization.id) if team.organization else None
         arr_by_org = self._fetch_org_arr({org_id}) if org_id else {}
@@ -939,9 +991,9 @@ class DebugCHQueries(viewsets.ViewSet):
         """Bucketed history of the precompute overview's headline numbers, for the trend charts.
 
         Returns arrays aligned to `buckets` (zero-filled, so charts get a continuous axis):
-        read counts by path outcome, failed-build counts by exit code, and bytes wasted on
-        failed builds. Hourly buckets up to 48h, daily beyond; window capped at 21 days
-        (query_log_archive retention).
+        read counts by path outcome, latency and bytes per precomputed read, failed-build
+        counts by exit code, and bytes wasted on failed builds. Hourly buckets up to 48h,
+        daily beyond; window capped at 21 days (query_log_archive retention).
         """
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff users can view the precompute timeseries.")
@@ -954,29 +1006,53 @@ class DebugCHQueries(viewsets.ViewSet):
             raise exceptions.ValidationError("hours must be an integer.")
         hours = max(1, min(hours, 504))  # clamp to 1h–21d
 
-        bucket_fn = "toStartOfHour" if hours <= 48 else "toStartOfDay"
-        bucket_delta = timedelta(hours=1) if hours <= 48 else timedelta(days=1)
-        interval = "hour" if hours <= 48 else "day"
+        bucket_fn, interval, bucket_keys, index_by_bucket = _bucket_axis(hours)
 
         params: dict = {
             "hours": hours,
             "not_query": "%request:_api_debug_ch_queries_%",
         }
 
+        # Latency and bytes stats cover successful precomputed reads only, matching the
+        # overview endpoint (failed reads have truncated durations). ifNotFinite guards the
+        # empty buckets, where quantileIf/avgIf return nan and nan is not valid JSON.
+        # The bytes series requires the metric-events side to be precomputed too: read_bytes
+        # covers the whole metric query, so a direct events scan on the metric-events side
+        # (breakdowns, CUPED, ineligible metrics) swamps the cache read by orders of magnitude.
+        # Fully precomputed reads touch only the preaggregation tables, so their bytes directly
+        # measure whether cache reads prune to their own jobs' rows.
         # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
         reads_sql = f"""
             SELECT
                 formatDateTime({bucket_fn}(event_time, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS bucket,
                 count() AS reads,
                 countIf(exposures_path = 'precomputed') AS precomputed_reads,
-                countIf(exposures_path != 'precomputed' AND skip_reason = '') AS fallback_reads
+                countIf(exposures_path != 'precomputed' AND skip_reason = '') AS fallback_reads,
+                ifNotFinite(
+                    quantileIf(0.5)(query_duration_ms, exposures_path = 'precomputed' AND exception_code = 0), 0
+                ) AS precomputed_p50_duration_ms,
+                ifNotFinite(
+                    quantileIf(0.9)(query_duration_ms, exposures_path = 'precomputed' AND exception_code = 0), 0
+                ) AS precomputed_p90_duration_ms,
+                ifNotFinite(
+                    avgIf(
+                        read_bytes,
+                        exposures_path = 'precomputed'
+                            AND metric_events_path = 'precomputed'
+                            AND exception_code = 0
+                    ), 0
+                ) AS fully_precomputed_avg_read_bytes
             FROM (
                 SELECT
                     event_time,
+                    query_duration_ms,
+                    read_bytes,
+                    exception_code,
                     coalesce(
                         nullIf(toString(log_comment.experiment_exposures_path), ''),
                         ifNull(toString(log_comment.experiment_execution_path), '')
                     ) AS exposures_path,
+                    ifNull(toString(log_comment.experiment_metric_events_path), '') AS metric_events_path,
                     ifNull(toString(log_comment.experiment_precompute_skip_reason), '') AS skip_reason
                 FROM query_log_archive
                 WHERE
@@ -1013,36 +1089,34 @@ class DebugCHQueries(viewsets.ViewSet):
         reads_response = sync_execute(reads_sql, params)
         builds_response = sync_execute(builds_sql, params)
 
-        # Zero-filled bucket axis from window start to now (UTC, matching toStartOfHour/Day above).
-        window_start = datetime.now(UTC) - timedelta(hours=hours)
-        if interval == "hour":
-            first_bucket = window_start.replace(minute=0, second=0, microsecond=0)
-        else:
-            first_bucket = window_start.replace(hour=0, minute=0, second=0, microsecond=0)
-        buckets: list[datetime] = []
-        cursor = first_bucket
-        end = datetime.now(UTC)
-        while cursor <= end:
-            buckets.append(cursor)
-            cursor += bucket_delta
-        # Buckets are matched as ISO strings: the SQL formats them in explicit UTC, so no
-        # assumption about the ClickHouse server timezone or driver naive/aware behavior is needed.
-        bucket_keys = [b.strftime("%Y-%m-%dT%H:%M:%SZ") for b in buckets]
-        index_by_bucket = {key: i for i, key in enumerate(bucket_keys)}
-        n = len(buckets)
+        n = len(bucket_keys)
 
         reads = [0] * n
         precomputed_reads = [0] * n
         fallback_reads = [0] * n
+        precomputed_p50_duration_ms = [0] * n
+        precomputed_p90_duration_ms = [0] * n
+        fully_precomputed_avg_read_bytes = [0] * n
         failed_build_read_bytes = [0] * n
         failed_builds_by_code: dict[str, list[int]] = {}
-        for bucket, bucket_reads, bucket_precomputed, bucket_fallback in reads_response:
+        for (
+            bucket,
+            bucket_reads,
+            bucket_precomputed,
+            bucket_fallback,
+            bucket_p50,
+            bucket_p90,
+            bucket_bytes,
+        ) in reads_response:
             i = index_by_bucket.get(bucket)
             if i is None:
                 continue
             reads[i] = bucket_reads
             precomputed_reads[i] = bucket_precomputed
             fallback_reads[i] = bucket_fallback
+            precomputed_p50_duration_ms[i] = round(bucket_p50)
+            precomputed_p90_duration_ms[i] = round(bucket_p90)
+            fully_precomputed_avg_read_bytes[i] = round(bucket_bytes)
         for bucket, exception_code, bucket_builds, bucket_read_bytes in builds_response:
             i = index_by_bucket.get(bucket)
             if i is None or exception_code == 0:
@@ -1060,6 +1134,9 @@ class DebugCHQueries(viewsets.ViewSet):
                     "total": reads,
                     "precomputed": precomputed_reads,
                     "fallback": fallback_reads,
+                    "precomputed_p50_duration_ms": precomputed_p50_duration_ms,
+                    "precomputed_p90_duration_ms": precomputed_p90_duration_ms,
+                    "fully_precomputed_avg_read_bytes": fully_precomputed_avg_read_bytes,
                 },
                 "builds": {
                     "failed_by_code": failed_builds_by_code,
@@ -1076,3 +1153,77 @@ class DebugCHQueries(viewsets.ViewSet):
         tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
 
         return Response({"tables": _cache_table_stats()})
+
+    # Keys match the experiment_precompute_table tag on build INSERTs; both are always present in
+    # the response so the charts render a (zero) series even for a table with no builds in window.
+    _CACHE_GROWTH_TABLES = ("exposures", "metric_events")
+
+    @action(detail=False, methods=["GET"], url_path="cache_growth", required_scopes=["query_performance:read"])
+    def cache_growth(self, request):
+        """Bucketed written rows/bytes per preaggregation table, from the tagged build INSERTs in
+        query_log_archive — the growth-over-time companion to cache_health's point-in-time snapshot.
+
+        written_bytes is ClickHouse's uncompressed INSERT accounting, so it will read higher than
+        the compressed bytes_on_disk in cache_health. Window capped at 21 days (archive retention).
+        """
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can view cache growth.")
+
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
+        try:
+            hours = int(request.query_params.get("hours", 336))
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError("hours must be an integer.")
+        hours = max(1, min(hours, 504))  # clamp to 1h–21d
+
+        bucket_fn, interval, bucket_keys, index_by_bucket = _bucket_axis(hours)
+
+        params: dict = {
+            "hours": hours,
+            "not_query": "%request:_api_debug_ch_queries_%",
+        }
+        # Failed builds are excluded: their written_rows is unreliable and their (retried) work
+        # would double-count against the successful build that actually populated the table.
+        # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
+        growth_sql = f"""
+            SELECT
+                formatDateTime({bucket_fn}(event_time, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS bucket,
+                ifNull(toString(log_comment.experiment_precompute_table), '') AS build_table,
+                sum(written_rows) AS written_rows,
+                sum(written_bytes) AS written_bytes
+            FROM query_log_archive
+            WHERE
+                event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                AND event_time > now() - INTERVAL %(hours)s HOUR
+                AND lc_product = 'experiments'
+                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
+                AND is_initial_query
+                AND toInt8(type) > 1
+                AND exception_code = 0
+                AND query NOT LIKE %(not_query)s
+            GROUP BY bucket, build_table
+            SETTINGS skip_unavailable_shards=1
+            """
+        response = sync_execute(growth_sql, params)
+
+        n = len(bucket_keys)
+        tables: dict[str, dict[str, list[int]]] = {
+            table: {"written_rows": [0] * n, "written_bytes": [0] * n} for table in self._CACHE_GROWTH_TABLES
+        }
+        for bucket, build_table, written_rows, written_bytes in response:
+            i = index_by_bucket.get(bucket)
+            entry = tables.get(build_table)
+            if i is None or entry is None:
+                continue
+            entry["written_rows"][i] += written_rows
+            entry["written_bytes"][i] += written_bytes
+
+        return Response(
+            {
+                "hours": hours,
+                "interval": interval,
+                "buckets": bucket_keys,
+                "tables": tables,
+            }
+        )

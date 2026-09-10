@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const MessagingTemplatesListParams = /* @__PURE__ */ zod.object({
+export const MessagingTemplatesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,12 +16,12 @@ export const MessagingTemplatesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const MessagingTemplatesListQueryParams = /* @__PURE__ */ zod.object({
+export const MessagingTemplatesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const MessagingTemplatesCreateParams = /* @__PURE__ */ zod.object({
+export const MessagingTemplatesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -34,7 +34,7 @@ export const messagingTemplatesCreateBodyNameMax = 400
 export const messagingTemplatesCreateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesCreateBodyTypeMax = 24
 
-export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
+export const MessagingTemplatesCreateBody = () => zod.object({
     name: zod
         .string()
         .max(messagingTemplatesCreateBodyNameMax)
@@ -62,12 +62,6 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
-                        html: zod
-                            .string()
-                            .optional()
-                            .describe(
-                                "Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise."
-                            ),
                         design: zod
                             .object({
                                 counters: zod
@@ -118,7 +112,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
 })
 
-export const MessagingTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
+export const MessagingTemplatesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this message template.'),
     project_id: zod
         .string()
@@ -127,7 +121,7 @@ export const MessagingTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const MessagingTemplatesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const MessagingTemplatesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this message template.'),
     project_id: zod
         .string()
@@ -141,7 +135,7 @@ export const messagingTemplatesPartialUpdateBodyNameMax = 400
 export const messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 
-export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const MessagingTemplatesPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(messagingTemplatesPartialUpdateBodyNameMax)
@@ -170,12 +164,6 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
-                        html: zod
-                            .string()
-                            .optional()
-                            .describe(
-                                "Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise."
-                            ),
                         design: zod
                             .object({
                                 counters: zod
@@ -226,7 +214,7 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
 })
 
-export const MessagingTemplatesDesignPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const MessagingTemplatesDesignPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this message template.'),
     project_id: zod
         .string()
@@ -235,7 +223,7 @@ export const MessagingTemplatesDesignPartialUpdateParams = /* @__PURE__ */ zod.o
         ),
 })
 
-export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const MessagingTemplatesDesignPartialUpdateBody = () => zod.object({
     operations: zod
         .array(
             zod.object({

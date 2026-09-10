@@ -46,6 +46,7 @@ _SELECT = """
         countIf(quarantined_in_run) AS quarantined_failed_run_count,
         max(run_signal_at) AS last_signal_at
     FROM (__RUN_EVIDENCE__)
+    __RUNNER_FILTER__
     GROUP BY runner, nodeid
     HAVING same_commit_recovery_run_count > 0
         OR quarantined_failed_run_count > 0
@@ -69,6 +70,7 @@ def query_flaky_tests(
     date_to: datetime | None,
     min_failed_prs: int,
     limit: int,
+    runner: CITestRunner | None,
 ) -> FlakyTestList:
     repository = curated.repository
     # Fail closed: the spans are scoped to the source's repository. Without a repository identity we
@@ -79,11 +81,19 @@ def query_flaky_tests(
 
     placeholders = scan_placeholders(repository=repository, date_from=date_from, date_to=date_to)
     placeholders["min_failed_prs"] = ast.Constant(value=min_failed_prs)
+    runner_filter = ""
+    if runner is not None:
+        runner_filter = "WHERE runner = {runner}"
+        placeholders["runner"] = ast.Constant(value=runner.value)
     # +1 so a full page tells us more tests qualified than returned.
     placeholders["limit_plus_one"] = ast.Constant(value=limit + 1)
 
+    query = _SELECT.replace("__RUN_EVIDENCE__", run_evidence(bounded=date_to is not None)).replace(
+        "__RUNNER_FILTER__", runner_filter
+    )
+
     response = curated.run(
-        _SELECT.replace("__RUN_EVIDENCE__", run_evidence(bounded=date_to is not None)),
+        query,
         query_type="engineering_analytics.flaky_tests",
         placeholders=placeholders,
         # trace_spans lives on the LOGS ClickHouse cluster, not the warehouse default.

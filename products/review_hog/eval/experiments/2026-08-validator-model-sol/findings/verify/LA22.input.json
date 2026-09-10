@@ -1,0 +1,12 @@
+{
+    "id": "LA22",
+    "file": "products/review_hog/backend/receivers.py",
+    "lines": "114-114,154-154",
+    "priority": "must_fix",
+    "title": "Pin approval gate reads to the writer",
+    "problem": "ReviewUserSettings.load() uses a normal read, so ReplicaRouter can send these gate checks to a lagging replica. After an opt-out, the replica can still return true. The receiver or webhook resolver can then authorize a real GitHub approval after the user disabled it. After an opt-in, a stale false value can also drop the initial review.",
+    "suggestion": "Read this gate with .using(router.db_for_write(ReviewUserSettings)). Put the writer pin in ReviewUserSettings.load() or a decision-specific loader. Use the same loader for the queued worker recheck.",
+    "cluster": 76,
+    "cluster_issue": "Claim that ReviewUserSettings toggle gates read from a lagging replica and need writer-DB pinning (false \u2014 the model is main-DB and load() already reads the primary)",
+    "cluster_verified": "0/1"
+}

@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const AnnotationsListParams = /* @__PURE__ */ zod.object({
+export const AnnotationsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19,7 +19,7 @@ export const AnnotationsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AnnotationsListQueryParams = /* @__PURE__ */ zod.object({
+export const AnnotationsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
@@ -28,7 +28,7 @@ export const AnnotationsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const AnnotationsCreateParams = /* @__PURE__ */ zod.object({
+export const AnnotationsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -40,7 +40,7 @@ export const annotationsCreateBodyContentMax = 8192
 
 export const annotationsCreateBodyEmojiMax = 16
 
-export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
+export const AnnotationsCreateBody = () => zod.object({
     content: zod
         .string()
         .max(annotationsCreateBodyContentMax)
@@ -57,8 +57,14 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
+    dashboard_item: zod
+        .number()
+        .nullish()
+        .describe('Optional insight ID to attach this annotation to. Must belong to the current project.'),
+    dashboard_id: zod
+        .number()
+        .nullish()
+        .describe('Optional dashboard ID to attach this annotation to. Must belong to the current project.'),
     deleted: zod
         .boolean()
         .optional()
@@ -88,7 +94,7 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const AnnotationsRetrieveParams = /* @__PURE__ */ zod.object({
+export const AnnotationsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this annotation.'),
     project_id: zod
         .string()
@@ -100,7 +106,7 @@ export const AnnotationsRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const AnnotationsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const AnnotationsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this annotation.'),
     project_id: zod
         .string()
@@ -113,7 +119,7 @@ export const annotationsPartialUpdateBodyContentMax = 8192
 
 export const annotationsPartialUpdateBodyEmojiMax = 16
 
-export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const AnnotationsPartialUpdateBody = () => zod.object({
     content: zod
         .string()
         .max(annotationsPartialUpdateBodyContentMax)
@@ -130,8 +136,14 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
+    dashboard_item: zod
+        .number()
+        .nullish()
+        .describe('Optional insight ID to attach this annotation to. Must belong to the current project.'),
+    dashboard_id: zod
+        .number()
+        .nullish()
+        .describe('Optional dashboard ID to attach this annotation to. Must belong to the current project.'),
     deleted: zod
         .boolean()
         .optional()
@@ -161,7 +173,7 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const AnnotationsDestroyParams = /* @__PURE__ */ zod.object({
+export const AnnotationsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this annotation.'),
     project_id: zod
         .string()

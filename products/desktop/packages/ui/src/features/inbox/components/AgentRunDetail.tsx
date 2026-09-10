@@ -1,0 +1,492 @@
+import {
+  ArrowRightIcon,
+  CaretDownIcon,
+  FileTextIcon,
+  GitPullRequestIcon,
+  LinkIcon,
+  MagnifyingGlassIcon,
+  TerminalIcon,
+  WarningIcon,
+} from "@phosphor-icons/react";
+import {
+  deriveHeadline,
+  parsePrUrl,
+} from "@posthog/core/inbox/reportPresentation";
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Text,
+} from "@posthog/quill";
+import {
+  isTerminalStatus,
+  type SignalReport,
+  type TaskRunStatus,
+} from "@posthog/shared/types";
+import {
+  RUN_VARIANT_TIMESTAMP_LABEL,
+  resolveRunVariant,
+} from "@posthog/ui/features/inbox/components/AgentRunCard";
+import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
+import { ReportActivitySection } from "@posthog/ui/features/inbox/components/detail/ReportActivitySection";
+import { InboxDetailPageHeader } from "@posthog/ui/features/inbox/components/InboxDetailPageHeader";
+import {
+  InboxMetaSeparator,
+  InboxMetaText,
+} from "@posthog/ui/features/inbox/components/InboxMetaRow";
+import { InboxMetaSourceStack } from "@posthog/ui/features/inbox/components/InboxMetaSourceStack";
+import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
+import { PrDiffStats } from "@posthog/ui/features/inbox/components/PrDiffStats";
+import { RightColumnSection } from "@posthog/ui/features/inbox/components/RightColumnSection";
+import {
+  SignalsList,
+  SignalsListSkeleton,
+} from "@posthog/ui/features/inbox/components/SignalsList";
+import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouBadge";
+import { InboxBadge } from "@posthog/ui/features/inbox/components/utils/InboxBadge";
+import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
+import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
+import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
+import {
+  getSourceProductMeta,
+  hasKnownSourceProduct,
+} from "@posthog/ui/features/inbox/components/utils/source-product-icons";
+import { useInboxReportSignals } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import {
+  type ReportTaskData,
+  useReportTasks,
+} from "@posthog/ui/features/inbox/hooks/useReportTasks";
+import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
+import { TaskLogsPanel } from "@posthog/ui/features/task-detail/components/TaskLogsPanel";
+import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
+import {
+  navigationSourceHref,
+  reportNavigationState,
+} from "@posthog/ui/router/reportNavigation";
+import { openTask } from "@posthog/ui/router/useOpenTask";
+import { Link } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+
+function TaskRunStatusDot({ status }: { status: TaskRunStatus }) {
+  const terminal = isTerminalStatus(status);
+  const color = terminal
+    ? status === "failed" || status === "cancelled"
+      ? "bg-(--red-9)"
+      : "bg-(--green-9)"
+    : "bg-(--blue-9)";
+  const animate = terminal ? "" : " animate-pulse";
+  return (
+    <span
+      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${color}${animate}`}
+      aria-hidden
+    />
+  );
+}
+
+/** Prefer in-motion tasks; tie-break by most-recently-created. */
+function pickPrimaryTask(tasks: ReportTaskData[]): ReportTaskData | null {
+  if (tasks.length === 0) return null;
+  return [...tasks].sort((a, b) => {
+    const aInMotion = !isTerminalStatus(a.task.latest_run?.status ?? "");
+    const bInMotion = !isTerminalStatus(b.task.latest_run?.status ?? "");
+    if (aInMotion !== bInMotion) return aInMotion ? -1 : 1;
+    return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
+  })[0];
+}
+
+function RunOutputWidget({ report }: { report: SignalReport }) {
+  if (report.status === "ready") {
+    return <RunOutputReadyCard report={report} />;
+  }
+
+  if (report.status === "failed") {
+    return (
+      <div className="flex items-center gap-3 rounded-(--radius-2) border border-(--red-5) bg-(--red-2) px-4 py-3.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-(--red-3) ring-(--red-6) ring-1 ring-inset">
+          <WarningIcon size={16} className="text-(--red-11)" />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <Text className="font-medium text-[13px] text-gray-12">
+            Run failed
+          </Text>
+          <Text className="text-[12px] text-gray-11 leading-snug">
+            Research couldn't complete – check the task log below for the error.
+            The agent may retry automatically.
+          </Text>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <DetailSection Icon={FileTextIcon} title="Draft summary">
+      <SignalReportSummaryMarkdown
+        content={report.summary}
+        fallback={
+          report.status === "in_progress"
+            ? "The agent is investigating – partial signals will appear here as they land."
+            : "Queued for research."
+        }
+        variant="detail"
+        pending={report.status === "in_progress"}
+      />
+    </DetailSection>
+  );
+}
+
+function RunOutputReadyCard({ report }: { report: SignalReport }) {
+  const prUrl = report.implementation_pr_url;
+  const isPr = !!prUrl;
+  const prRef = prUrl ? parsePrUrl(prUrl) : null;
+  const sourceMeta = getSourceProductMeta(report.source_products?.[0]);
+  const headline = deriveHeadline(report.summary);
+  // This card renders only on /inbox/runs/$reportId, which a source href must
+  // not be (it would make the report's breadcrumb point at another report).
+  // The run's own tab is the list the reader came from.
+  const source = navigationSourceHref() ?? "/inbox/runs";
+
+  return (
+    <Link
+      to="/reports/$reportId"
+      state={reportNavigationState}
+      search={{ from: source }}
+      params={{ reportId: report.id }}
+      className="group block rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 no-underline transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm focus-visible:outline-none"
+    >
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-(--green-2) ring-(--green-5) ring-1 ring-inset">
+            {isPr ? (
+              <GitPullRequestIcon size={11} className="text-(--green-11)" />
+            ) : (
+              <FileTextIcon size={11} className="text-(--green-11)" />
+            )}
+          </div>
+          {prRef ? (
+            <span className="font-mono text-[12.5px] text-gray-12">
+              {prRef.repoSlug}#{prRef.number}
+            </span>
+          ) : (
+            <span className="font-medium text-[13px] text-gray-12">Report</span>
+          )}
+          <span className="flex-1" />
+          {prUrl ? (
+            <PrDiffStats prUrl={prUrl} hideWhileLoading />
+          ) : sourceMeta ? (
+            <div className="flex items-center gap-1.5 text-[12px] text-gray-11">
+              <span
+                className="inline-flex shrink-0 items-center"
+                style={{ color: sourceMeta.color }}
+                aria-hidden
+              >
+                <sourceMeta.Icon size={12} />
+              </span>
+              <span>{sourceMeta.label}</span>
+            </div>
+          ) : null}
+        </div>
+        {(report.title || headline) && (
+          <span className="line-clamp-2 text-[12.5px] text-gray-11 leading-snug">
+            {report.title || headline}
+          </span>
+        )}
+        <div className="flex items-center gap-1 text-[12px] text-gray-10">
+          <span>{isPr ? "Open the pull request" : "Open the report"}</span>
+          <ArrowRightIcon
+            size={12}
+            className="transition-transform group-hover:translate-x-0.5"
+          />
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+interface AgentRunDetailProps {
+  reportId: string;
+}
+
+export function AgentRunDetail({ reportId }: AgentRunDetailProps) {
+  return (
+    <InboxReportDetailGate
+      reportId={reportId}
+      backTo="/inbox/runs"
+      backLabel="Back to runs"
+      missingCopy="This run couldn't be found. It may have completed or been removed."
+    >
+      {(report) => <AgentRunDetailContent report={report} />}
+    </InboxReportDetailGate>
+  );
+}
+
+function AgentRunDetailContent({ report }: { report: SignalReport }) {
+  const { data: signalsResp } = useInboxReportSignals(report.id);
+  const { data: reportTasks, isLoading: isLoadingReportTasks } = useReportTasks(
+    report.id,
+    report.status,
+  );
+  const signals = signalsResp?.signals ?? [];
+  const hasSource = hasKnownSourceProduct(report.source_products);
+  const isLive = report.status === "in_progress";
+  const headerVariant = resolveRunVariant(report);
+  const headerTimestamp =
+    headerVariant === "live"
+      ? report.created_at
+      : (report.updated_at ?? report.created_at);
+  // UUIDs are time-based here, so the prefix collides across reports — show
+  // the random tail segment instead so adjacent runs read as distinct.
+  const runId = `…-${report.id.split("-").pop() ?? report.id}`;
+
+  const primaryTask = useMemo(
+    () => pickPrimaryTask(reportTasks ?? []),
+    [reportTasks],
+  );
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const selectedEntry =
+    reportTasks?.find((rt) => rt.task.id === selectedTaskId) ?? primaryTask;
+  const selectedTask = selectedEntry?.task ?? null;
+
+  // Any prior terminal research counts — completed, failed, or cancelled —
+  // because a re-run signals "we already tried, now we're trying again",
+  // regardless of how the first attempt ended.
+  const isReResearch = useMemo(() => {
+    if (!reportTasks) return false;
+    const researchTasks = reportTasks.filter((rt) => rt.purpose === "research");
+    if (researchTasks.length < 2) return false;
+    const hasInFlight = researchTasks.some(
+      (rt) =>
+        rt.task.latest_run?.status &&
+        !isTerminalStatus(rt.task.latest_run.status),
+    );
+    const hasPriorTerminal = researchTasks.some((rt) =>
+      isTerminalStatus(rt.task.latest_run?.status ?? ""),
+    );
+    return hasInFlight && hasPriorTerminal;
+  }, [reportTasks]);
+
+  return (
+    <div className="flex min-h-full flex-col">
+      <InboxDetailPageHeader
+        backTo="/inbox/runs"
+        backLabel="Back to runs"
+        breadcrumb={
+          <>
+            <span className="text-(--gray-8)">/</span>
+            <Text className="font-mono text-[12px] text-gray-11">{runId}</Text>
+          </>
+        }
+        reportTitle={report.title}
+        fallbackTitle="Untitled run"
+        badges={
+          <>
+            {isLive ? (
+              <InboxBadge variant="info" className="gap-1.5">
+                <span
+                  className="block h-1.5 w-1.5 animate-pulse rounded-full bg-(--blue-9)"
+                  aria-hidden
+                />
+                Running
+              </InboxBadge>
+            ) : (
+              <InboxBadge variant="default">Finished</InboxBadge>
+            )}
+            {isReResearch && (
+              <InboxBadge
+                variant="warning"
+                title="A prior research run on this report already completed – this is a re-attempt."
+              >
+                Re-research
+              </InboxBadge>
+            )}
+            {report.priority && (
+              <SignalReportPriorityBadge priority={report.priority} />
+            )}
+            {report.is_suggested_reviewer && <ForYouBadge />}
+          </>
+        }
+        meta={
+          <>
+            <InboxMetaText>
+              {RUN_VARIANT_TIMESTAMP_LABEL[headerVariant]}
+            </InboxMetaText>
+            <RelativeTimestamp
+              timestamp={headerTimestamp}
+              className="text-[12px]"
+            />
+            {hasSource && (
+              <>
+                <InboxMetaSeparator />
+                <InboxMetaSourceStack
+                  sourceProducts={report.source_products}
+                  labelPrefix="Triggered by "
+                />
+              </>
+            )}
+            {signals.length > 0 && (
+              <>
+                <InboxMetaSeparator />
+                <InboxMetaText className="tabular-nums">
+                  {signals.length} signal{signals.length === 1 ? "" : "s"}
+                </InboxMetaText>
+              </>
+            )}
+          </>
+        }
+        actions={
+          <>
+            {selectedTask && (
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={() => void openTask(selectedTask)}
+              >
+                Open task
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => copyInboxReportLink(report)}
+              title="Copy a deep link to this run"
+            >
+              <LinkIcon size={12} />
+              Copy link
+            </Button>
+          </>
+        }
+      />
+
+      <div className="@container mx-auto w-full max-w-[calc(160ch+5rem)] px-6 py-5 text-[13px]">
+        <div className="grid @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] grid-cols-1 gap-5">
+          <div className="flex min-w-0 flex-col gap-5">
+            <ReportTrackerIssueLink report={report} />
+            <RunOutputWidget report={report} />
+
+            <DetailSection
+              Icon={TerminalIcon}
+              title="Task log"
+              rightSlot={
+                <TaskLogRightSlot
+                  entries={reportTasks ?? []}
+                  selectedEntry={selectedEntry}
+                  onSelect={(id) => setSelectedTaskId(id)}
+                />
+              }
+            >
+              {isLoadingReportTasks ? (
+                <div className="flex flex-col gap-2">
+                  <span className="h-4 w-36 animate-pulse rounded bg-(--gray-3)" />
+                  <span className="h-28 w-full animate-pulse rounded-(--radius-2) bg-(--gray-2)" />
+                </div>
+              ) : selectedTask ? (
+                <div className="h-[calc(100vh-22rem)] min-h-[420px] w-full overflow-hidden rounded-(--radius-2) border border-border bg-(--color-panel-solid)">
+                  <TaskLogsPanel
+                    taskId={selectedTask.id}
+                    task={selectedTask}
+                    hideInput
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5">
+                  <Text className="font-medium text-[13px] text-gray-12">
+                    Waiting for the linked task
+                  </Text>
+                  <Text className="max-w-2xl text-[12.5px] text-gray-11 leading-snug">
+                    Once Self-driving links this run to a task, this panel will
+                    show the same live log UI as the task detail page. No
+                    separate mock log is shown here.
+                  </Text>
+                </div>
+              )}
+            </DetailSection>
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-5">
+            {(signals.length > 0 || report.signal_count > 0) && (
+              <RightColumnSection
+                Icon={MagnifyingGlassIcon}
+                title="Evidence so far"
+                rightSlot={
+                  <Text className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
+                    {signals.length || report.signal_count} signal
+                    {(signals.length || report.signal_count) === 1 ? "" : "s"}
+                  </Text>
+                }
+              >
+                {signals.length > 0 ? (
+                  <SignalsList signals={signals} />
+                ) : (
+                  <SignalsListSkeleton count={report.signal_count} />
+                )}
+              </RightColumnSection>
+            )}
+            <ReportActivitySection reportId={report.id} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TaskLogRightSlot({
+  entries,
+  selectedEntry,
+  onSelect,
+}: {
+  entries: ReportTaskData[];
+  selectedEntry: ReportTaskData | null | undefined;
+  onSelect: (id: string) => void;
+}) {
+  if (!selectedEntry) return null;
+  if (entries.length <= 1) {
+    return (
+      <Text className="font-mono text-[12px] text-gray-10">
+        {selectedEntry.task.id}
+      </Text>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-(--radius-1) px-1.5 py-0.5 font-medium text-[12px] text-gray-11 hover:bg-(--gray-3) hover:text-gray-12 focus-visible:bg-(--gray-3) focus-visible:outline-none"
+            aria-label="Switch task"
+          >
+            <TaskRunStatusDot
+              status={selectedEntry.task.latest_run?.status ?? "not_started"}
+            />
+            {selectedEntry.purposeLabel}
+            <CaretDownIcon size={12} className="text-gray-10" />
+          </button>
+        }
+      />
+      <DropdownMenuContent align="end" sideOffset={4}>
+        {entries.map((entry) => {
+          const status = entry.task.latest_run?.status ?? "not_started";
+          return (
+            <DropdownMenuItem
+              key={entry.task.id}
+              onClick={() => onSelect(entry.task.id)}
+            >
+              <div className="flex min-w-[200px] items-center gap-2">
+                <TaskRunStatusDot status={status} />
+                <Text className="font-medium text-[12.5px]">
+                  {entry.purposeLabel}
+                </Text>
+                <Text className="ml-auto font-mono text-[11px] text-gray-10">
+                  {entry.task.id.slice(0, 8)}
+                </Text>
+              </div>
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

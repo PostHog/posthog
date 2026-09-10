@@ -2,6 +2,7 @@ import time as time_mod
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
@@ -19,7 +20,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -36,12 +36,13 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     PREAGGREGATION_INSERT_QUORUM,
     PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
     LazyComputationExecutor,
+    LazyComputationQuery,
     LazyComputationResult,
     LazyComputationTable,
-    QueryInfo,
     TtlSchedule,
     _build_manual_insert_sql,
     _get_insert_settings,
+    _written_rows,
     build_lazy_computation_insert_sql,
     compute_query_hash,
     create_lazy_computation_job,
@@ -54,6 +55,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     split_ranges_by_ttl,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 
 
 class TestComputationJob(BaseTest):
@@ -76,6 +78,35 @@ class TestComputationJob(BaseTest):
         assert retrieved is not None
         assert retrieved.id == job.id
         assert retrieved.query_hash == query_hash
+
+    @parameterized.expand(
+        [
+            ("pending_blocks", PreaggregationJob.Status.PENDING, False),
+            ("ready_does_not_block", PreaggregationJob.Status.READY, True),
+        ]
+    )
+    def test_create_job_conflicts_only_with_pending_rows(self, _name, seeded_status, expect_created):
+        query_hash = "abc123def456"
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
+        PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=start,
+            time_range_end=end,
+            status=seeded_status,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        job = create_lazy_computation_job(self.team, query_hash, start, end)
+
+        row_count = PreaggregationJob.objects.filter(team=self.team, query_hash=query_hash).count()
+        if expect_created:
+            assert job is not None
+            assert row_count == 2
+        else:
+            assert job is None
+            assert row_count == 1
 
 
 class TestComputeQueryHash(BaseTest):
@@ -105,8 +136,8 @@ class TestComputeQueryHash(BaseTest):
         s2 = parse_select(q2)
         assert isinstance(s1, ast.SelectQuery)
         assert isinstance(s2, ast.SelectQuery)
-        query_info1 = QueryInfo(query=s1, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=t1)
-        query_info2 = QueryInfo(query=s2, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=t2)
+        query_info1 = LazyComputationQuery(query=s1, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=t1)
+        query_info2 = LazyComputationQuery(query=s2, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=t2)
 
         hash1 = compute_query_hash(query_info1)
         hash2 = compute_query_hash(query_info2)
@@ -485,7 +516,9 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
 
         result = LazyComputationExecutor().execute(
             team=self.team,
@@ -517,7 +550,9 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
 
         # First: run for Jan 1-2
         first_result = LazyComputationExecutor().execute(
@@ -562,7 +597,9 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
 
         # First: Create job for Jan 2 only
         jan2_result = LazyComputationExecutor().execute(
@@ -616,6 +653,70 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         assert ch_results[0][4] == 1  # Jan 1: user1
         assert ch_results[1][4] == 1  # Jan 2: user2
         assert ch_results[2][4] == 1  # Jan 3: user3
+
+    def test_takes_over_expired_pending_job(self):
+        self._create_pageview_events()
+
+        query = self._make_computation_query()
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
+
+        # A PENDING row whose executor died: past expires_at, so it is invisible
+        # to find_existing_jobs but still holds the unique-index slot.
+        blocker = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=compute_query_hash(query_info),
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 4, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() - timedelta(hours=1),
+        )
+
+        result = LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 4, tzinfo=UTC),
+        )
+
+        assert result.ready is True
+        assert len(result.job_ids) == 1
+        assert result.job_ids[0] != blocker.id
+
+        blocker.refresh_from_db()
+        assert blocker.status == PreaggregationJob.Status.FAILED
+        assert blocker.error == "Expired while pending (owning executor never finished)"
+
+        ch_results = self._query_computation_results(result.job_ids)
+        assert len(ch_results) == 3
+
+    def test_does_not_fail_live_pending_job(self):
+        query = self._make_computation_query()
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
+
+        # A healthy in-flight build: PENDING with a future expires_at.
+        live_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=compute_query_hash(query_info),
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 4, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        result = LazyComputationExecutor(wait_timeout_seconds=0.3).execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 4, tzinfo=UTC),
+        )
+
+        assert result.ready is False
+        live_job.refresh_from_db()
+        assert live_job.status == PreaggregationJob.Status.PENDING
 
 
 class TestHogQLQueryWithPrecomputation(ClickhouseTestMixin, BaseTest):
@@ -1312,6 +1413,59 @@ class TestParseTtlSchedule(BaseTest):
         with pytest.raises(ValueError, match="must be positive"):
             parse_ttl_schedule(ttl)
 
+    @parameterized.expand(
+        [
+            ("zero_empty_ttl", {"empty_result_ttl_seconds": 0}),
+            ("negative_empty_ttl", {"empty_result_ttl_seconds": -60}),
+            ("zero_max_age", {"empty_result_max_age_seconds": 0}),
+            ("negative_max_age", {"empty_result_max_age_seconds": -60}),
+            ("zero_jitter", {"default_ttl_jitter_seconds": 0}),
+            ("negative_jitter", {"default_ttl_jitter_seconds": -60}),
+        ]
+    )
+    def test_rejects_non_positive_optional_settings(self, name, kwargs):
+        # Validated like every sibling TTL: 0 would expire a job the moment it is created.
+        with pytest.raises(ValueError, match="must be positive"):
+            parse_ttl_schedule(3600, **kwargs)
+
+    def test_carries_empty_result_settings(self):
+        schedule = parse_ttl_schedule(
+            {"default": 3600}, "UTC", empty_result_ttl_seconds=600, empty_result_max_age_seconds=86400
+        )
+        assert schedule.empty_result_ttl_seconds == 600
+        assert schedule.empty_result_max_age_seconds == 86400
+
+        uncapped = parse_ttl_schedule(3600)
+        assert uncapped.empty_result_ttl_seconds is None
+        assert uncapped.empty_result_max_age_seconds is None
+
+    def test_carries_default_ttl_jitter(self):
+        schedule = parse_ttl_schedule({"default": 3600}, "UTC", default_ttl_jitter_seconds=600)
+        assert schedule.default_ttl_jitter_seconds == 600
+        assert parse_ttl_schedule(3600, default_ttl_jitter_seconds=600).default_ttl_jitter_seconds == 600
+        assert parse_ttl_schedule(3600).default_ttl_jitter_seconds is None
+
+    def test_jittered_ttl_is_deterministic_and_spread_within_the_default_band(self):
+        now = django_timezone.now()
+        jitter = 14 * 24 * 60 * 60
+        schedule = TtlSchedule(
+            rules=[(now - timedelta(days=1), 60)],
+            default_ttl_seconds=86400,
+            default_ttl_jitter_seconds=jitter,
+        )
+        windows = [now - timedelta(days=30 + i) for i in range(20)]
+        first = [schedule.get_ttl(w, jittered=True) for w in windows]
+        second = [schedule.get_ttl(w, jittered=True) for w in windows]
+        assert first == second
+        assert all(86400 <= ttl < 86400 + jitter for ttl in first)
+        assert len(set(first)) > 1
+        assert schedule.get_ttl(now, jittered=True) == 60
+        assert all(schedule.get_ttl(w) == 86400 for w in windows)
+
+    def test_jittered_ttl_without_jitter_configured_is_the_band_ttl(self):
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=86400)
+        assert schedule.get_ttl(django_timezone.now() - timedelta(days=30), jittered=True) == 86400
+
 
 class TestSplitRangesByTtl(BaseTest):
     def test_single_range_uniform_ttl(self):
@@ -1356,6 +1510,18 @@ class TestSplitRangesByTtl(BaseTest):
         assert result[1] == (datetime(2024, 1, 5, tzinfo=UTC), datetime(2024, 1, 7, tzinfo=UTC), 3600)
 
 
+class TestWrittenRows(BaseTest):
+    """`sync_execute` only swaps an INSERT's result for the `written_rows` counter when that
+    counter is nonzero, so the driver's passthrough result is how a zero-row insert shows up."""
+
+    def test_int_result_is_the_row_count(self):
+        assert _written_rows(42) == 42
+
+    def test_passthrough_driver_result_means_zero_rows(self):
+        assert _written_rows([]) == 0
+        assert _written_rows(None) == 0
+
+
 class TestComputationExecutor(BaseTest):
     def test_executor_with_custom_settings(self):
         default_executor = LazyComputationExecutor()
@@ -1393,9 +1559,11 @@ class TestRaceConditionHandling(BaseTest):
         assert isinstance(s, ast.SelectQuery)
         return s
 
-    def test_integrity_error_on_create_loops_back_and_picks_up_pending_job(self):
+    def test_lost_create_race_loops_back_and_picks_up_pending_job(self):
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
         query_hash = compute_query_hash(query_info)
 
         executor = LazyComputationExecutor(wait_timeout_seconds=2.0, poll_interval_seconds=0.05)
@@ -1419,18 +1587,21 @@ class TestRaceConditionHandling(BaseTest):
         with (
             patch(
                 "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
-                side_effect=IntegrityError("duplicate key"),
+                return_value=None,
             ),
             patch(
                 "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.find_existing_jobs",
                 side_effect=[
                     [],  # First call: miss the job (race window)
-                    [existing_pending],  # Second call: find it as PENDING after IntegrityError loops back
+                    [existing_pending],  # Second call: find it as PENDING after losing the create race
                     [existing_pending],  # Third call (in loop): find it as READY, no pending → break
                     [existing_pending],  # Fourth call: final collection after loop
                 ],
             ),
             patch.object(executor, "_wait_for_notification", side_effect=mock_wait),
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time.sleep"
+            ) as mock_sleep,
         ):
             result = executor.execute(
                 team=self.team,
@@ -1442,6 +1613,9 @@ class TestRaceConditionHandling(BaseTest):
 
         assert result.ready is True
         assert existing_pending.id in result.job_ids
+        # A single lost race must not pace: the rescan finds the winner's row,
+        # so any sleep here is pure added latency on the fan-out path.
+        mock_sleep.assert_not_called()
 
     def test_for_loop_creates_duplicate_after_peer_completes_mid_loop(self):
         """Wasted-INSERT pattern under concurrent first-readers — documented in CONSISTENCY.md.
@@ -1458,7 +1632,9 @@ class TestRaceConditionHandling(BaseTest):
         rather than a correctness bug.
         """
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
         query_hash = compute_query_hash(query_info)
 
         range_a_start = datetime(2024, 1, 1, tzinfo=UTC)
@@ -1531,7 +1707,9 @@ class TestRaceConditionHandling(BaseTest):
 
     def test_unique_constraint_prevents_duplicate_pending_jobs(self):
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
         query_hash = compute_query_hash(query_info)
 
         # Create a PENDING job directly
@@ -1557,7 +1735,7 @@ class TestRaceConditionHandling(BaseTest):
 
 
 class TestComputationExecutorExecute(BaseTest):
-    def _make_query_info(self) -> tuple[QueryInfo, str]:
+    def _make_query_info(self) -> tuple[LazyComputationQuery, str]:
         s = parse_select(
             """
             SELECT
@@ -1570,7 +1748,7 @@ class TestComputationExecutorExecute(BaseTest):
             """
         )
         assert isinstance(s, ast.SelectQuery)
-        qi = QueryInfo(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        qi = LazyComputationQuery(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         return qi, compute_query_hash(qi)
 
     # --- Happy path ---
@@ -1633,6 +1811,125 @@ class TestComputationExecutorExecute(BaseTest):
         assert job.expires_at is not None
         time_diff = (job.expires_at - django_timezone.now()).total_seconds()
         assert one_hour - 100 < time_diff < one_hour + 100
+
+    # --- Empty inserts ---
+    #
+    # A job that writes no rows is only provisionally computed: the source may have had no
+    # activity, or it may not have been synced through the window yet. Coverage keys on the job
+    # existing rather than on rows existing, so an empty job holding a full band TTL freezes the
+    # window at zero even after the data lands. Callers that read a source which can lag opt into
+    # a capped TTL for that case.
+
+    LONG_TTL = 7 * 24 * 60 * 60
+    EMPTY_TTL = 6 * 60 * 60
+
+    def _expires_in_seconds(self, job_id) -> float:
+        job = PreaggregationJob.objects.get(id=job_id)
+        assert job.expires_at is not None
+        return (job.expires_at - django_timezone.now()).total_seconds()
+
+    def _execute_with_insert(self, run_insert, ttl_schedule) -> LazyComputationResult:
+        query_info, _ = self._make_query_info()
+        return LazyComputationExecutor(ttl_schedule=ttl_schedule).execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=run_insert,
+        )
+
+    def test_zero_row_insert_caps_ttl_when_opted_in(self):
+        result = self._execute_with_insert(
+            lambda t, j: 0,
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=self.EMPTY_TTL),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.EMPTY_TTL) < 100
+
+    def test_zero_row_insert_keeps_band_ttl_when_not_opted_in(self):
+        # Shared infrastructure: a caller whose source can't lag (event tables) is unaffected.
+        result = self._execute_with_insert(lambda t, j: 0, TtlSchedule.from_seconds(self.LONG_TTL))
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    def test_zero_row_insert_does_not_lengthen_a_shorter_ttl(self):
+        one_hour = 60 * 60
+        result = self._execute_with_insert(
+            lambda t, j: 0,
+            TtlSchedule.from_seconds(one_hour, empty_result_ttl_seconds=self.EMPTY_TTL),
+        )
+
+        assert result.ready is True
+        # The cap is a ceiling, not a floor — today's short band must still come back sooner.
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - one_hour) < 100
+
+    def test_productive_insert_keeps_the_band_ttl(self):
+        result = self._execute_with_insert(
+            lambda t, j: 42,
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=self.EMPTY_TTL),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    def test_insert_that_cannot_report_a_row_count_keeps_the_band_ttl(self):
+        # Returning None isn't a claim that the window was empty, so leave the TTL alone.
+        result = self._execute_with_insert(
+            lambda t, j: None,
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_ttl_seconds=self.EMPTY_TTL),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    def test_empty_window_older_than_the_max_age_keeps_the_band_ttl(self):
+        # Past the horizon a sync could deliver in, empty means empty. Re-capping forever would
+        # turn the long band into a rescan of history that will never change. The fixed 2024
+        # window the helper uses is far outside any sane max age.
+        result = self._execute_with_insert(
+            lambda t, j: 0,
+            TtlSchedule.from_seconds(
+                self.LONG_TTL,
+                empty_result_ttl_seconds=self.EMPTY_TTL,
+                empty_result_max_age_seconds=14 * 24 * 60 * 60,
+            ),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
+
+    def test_empty_window_inside_the_max_age_is_still_capped(self):
+        query_info, _ = self._make_query_info()
+        # A window that ended an hour ago is well inside the horizon.
+        end = django_timezone.now()
+        result = LazyComputationExecutor(
+            ttl_schedule=TtlSchedule.from_seconds(
+                self.LONG_TTL,
+                empty_result_ttl_seconds=self.EMPTY_TTL,
+                empty_result_max_age_seconds=14 * 24 * 60 * 60,
+            )
+        ).execute(
+            team=self.team,
+            query_info=query_info,
+            start=end - timedelta(hours=1),
+            end=end,
+            run_insert=lambda t, j: 0,
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.EMPTY_TTL) < 100
+
+    def test_max_age_alone_does_not_cap_anything(self):
+        # The horizon only bounds an opt-in that must still be made explicitly.
+        result = self._execute_with_insert(
+            lambda t, j: 0,
+            TtlSchedule.from_seconds(self.LONG_TTL, empty_result_max_age_seconds=14 * 24 * 60 * 60),
+        )
+
+        assert result.ready is True
+        assert abs(self._expires_in_seconds(result.job_ids[0]) - self.LONG_TTL) < 100
 
     def test_short_ttl_does_not_infinite_loop(self):
         query_info, _ = self._make_query_info()
@@ -1900,6 +2197,34 @@ class TestComputationExecutorExecute(BaseTest):
             ttl = (j.expires_at - j.created_at).total_seconds()
             assert ttl > 80000  # ~1 day
 
+    def test_jittered_jobs_survive_past_the_base_ttl(self):
+        # If the freshness check used the base TTL while creation used the jittered one,
+        # this job would be judged stale before its expiry and recomputed on every read.
+        query_info, _ = self._make_query_info()
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, default_ttl_jitter_seconds=14 * 24 * 60 * 60)
+        executor = LazyComputationExecutor(ttl_schedule=schedule)
+
+        with freeze_time("2026-01-15T12:00:00Z") as frozen:
+            start = datetime(2026, 1, 5, tzinfo=UTC)
+            end = datetime(2026, 1, 6, tzinfo=UTC)
+            result = executor.execute(
+                team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: None
+            )
+            assert result.ready is True
+            [job] = PreaggregationJob.objects.filter(id__in=result.job_ids)
+            assert job.expires_at is not None
+            jittered_ttl = (job.expires_at - job.created_at).total_seconds()
+            # This window's deterministic offset is nonzero, so the job outlives the base TTL
+            assert jittered_ttl > 3600
+
+            frozen.tick(timedelta(seconds=(3600 + jittered_ttl) / 2))
+            result = executor.execute(
+                team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: None
+            )
+            assert result.ready is True
+            assert result.job_ids == [job.id]
+            assert PreaggregationJob.objects.count() == 1
+
     def test_timezone_aware_ttl_creates_jobs_with_correct_expiry(self):
         query_info, _ = self._make_query_info()
 
@@ -1961,7 +2286,7 @@ class TestComputationExecutorExecute(BaseTest):
             poll_interval_seconds=0.05,
         )
 
-        # Simulate: our create hits IntegrityError (another executor got there first),
+        # Simulate: our create loses the race (another executor got there first),
         # then on the next loop we find their PENDING job, then it completes.
         other_pending = PreaggregationJob.objects.create(
             team=self.team,
@@ -2516,7 +2841,9 @@ class TestPubsubAndStaleDetection(BaseTest):
                 "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
             )
             assert isinstance(query, ast.SelectQuery)
-            query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+            query_info = LazyComputationQuery(
+                query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+            )
 
             executor = LazyComputationExecutor()
             result = executor.execute(
@@ -2538,7 +2865,9 @@ class TestPubsubAndStaleDetection(BaseTest):
                 "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
             )
             assert isinstance(query, ast.SelectQuery)
-            query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+            query_info = LazyComputationQuery(
+                query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+            )
 
             executor = LazyComputationExecutor(max_retries=0)
             result = executor.execute(
@@ -2579,12 +2908,12 @@ class TestJobLifecycleCounters(BaseTest):
 
     TABLE = LazyComputationTable.PREAGGREGATION_RESULTS
 
-    def _query_info(self) -> QueryInfo:
+    def _query_info(self) -> LazyComputationQuery:
         query = parse_select(
             "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
         )
         assert isinstance(query, ast.SelectQuery)
-        return QueryInfo(query=query, table=self.TABLE, timezone="UTC")
+        return LazyComputationQuery(query=query, table=self.TABLE, timezone="UTC")
 
     @staticmethod
     def _delta(metric, labels: dict[str, str], before: float) -> float:
@@ -2728,22 +3057,29 @@ class TestJobLifecycleCounters(BaseTest):
             == 1.0
         )
 
-    def test_integrity_error_on_create_does_not_increment_created(self):
-        """Two executors racing on the same range produce one row in PG, not two —
-        the loser's IntegrityError path must not double-count creates."""
+    def test_lost_create_race_increments_conflicts_not_created(self):
+        """Two executors racing on the same range produce one row in PG, not two:
+        the loser must count a conflict, never a create."""
         from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL,
             LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
         )
 
         miss_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(cache_state="miss", table=str(self.TABLE))._value.get()
+        conflicts_before = LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL.labels(table=str(self.TABLE))._value.get()
 
         # Range has no existing coverage, so the executor enters the create path
         # on every loop iteration. Patching `create_lazy_computation_job` to
-        # always raise IntegrityError simulates losing the partial-unique-index
-        # race on every attempt; the executor times out shortly after.
-        with patch(
-            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
-            side_effect=IntegrityError("partial unique index race"),
+        # always return None simulates losing the partial-unique-index race on
+        # every attempt; the executor times out shortly after.
+        with (
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
+                return_value=None,
+            ),
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time.sleep"
+            ) as mock_sleep,
         ):
             executor = LazyComputationExecutor(wait_timeout_seconds=0.2, poll_interval_seconds=0.05)
             result = executor.execute(
@@ -2754,6 +3090,9 @@ class TestJobLifecycleCounters(BaseTest):
                 run_insert=lambda t, j: None,
             )
             assert result.ready is False  # Timed out: every create attempt lost the race.
+        # Repeated conflicts on a still-missing window must pace instead of
+        # hot-spinning no-op inserts for the whole wait budget.
+        assert mock_sleep.call_count >= 1
 
         assert (
             self._delta(
@@ -2762,6 +3101,14 @@ class TestJobLifecycleCounters(BaseTest):
                 miss_before,
             )
             == 0.0
+        )
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL,
+                {"table": str(self.TABLE)},
+                conflicts_before,
+            )
+            > 0
         )
 
     def test_stale_mark_increments_finished_stale(self):
@@ -2936,7 +3283,7 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
+        query_info = LazyComputationQuery(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
 
         with patch(
             "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
@@ -2945,6 +3292,70 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
 
         assert mock_execute.call_count == 1
         assert mock_execute.call_args.kwargs["settings"] == _get_insert_settings(self.team.pk)
+
+
+class TestInsertsReportRowsWritten(BaseTest):
+    """Both insert wrappers must hand `sync_execute`'s row count back to the executor.
+
+    The empty-window cap keys entirely on this return value, and `None` is deliberately read as
+    "no claim of emptiness" — so a wrapper that stopped returning would disable the cap silently,
+    with no exception and no failing assertion anywhere else.
+    """
+
+    INSERT_QUERY = TestInsertSettingsAppliedToInserts.INSERT_QUERY
+
+    def _pending_job(self) -> PreaggregationJob:
+        return PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+    def _query_info(self) -> LazyComputationQuery:
+        query = parse_select(
+            self.INSERT_QUERY,
+            placeholders={
+                "time_window_min": ast.Constant(value=datetime(2024, 1, 1, tzinfo=UTC)),
+                "time_window_max": ast.Constant(value=datetime(2024, 1, 2, tzinfo=UTC)),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return LazyComputationQuery(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
+
+    @parameterized.expand([("productive", 42, 42), ("empty_passthrough", [], 0), ("empty_none", None, 0)])
+    def test_ast_insert_returns_rows_written(self, _name, sync_execute_result, expected):
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+            return_value=sync_execute_result,
+        ):
+            assert run_lazy_computation_insert(self.team, self._pending_job(), self._query_info()) == expected
+
+    @parameterized.expand([("productive", 42, 42), ("empty_passthrough", [], 0), ("empty_none", None, 0)])
+    def test_manual_insert_returns_rows_written(self, _name, sync_execute_result, expected):
+        # `_run_manual_insert` is a closure inside ensure_precomputed, so drive it the way the
+        # executor does and read the count back off the capped TTL.
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+            return_value=sync_execute_result,
+        ):
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                ttl_seconds=7 * 24 * 60 * 60,
+                empty_result_ttl_seconds=60 * 60,
+            )
+
+        assert result.ready is True
+        job = PreaggregationJob.objects.get(id=result.job_ids[0])
+        assert job.expires_at is not None
+        expires_in = (job.expires_at - django_timezone.now()).total_seconds()
+        # Only a reported 0 caps the TTL; 42 and None must leave the 7-day band alone.
+        assert abs(expires_in - (60 * 60 if expected == 0 else 7 * 24 * 60 * 60)) < 100
 
 
 class TestMaxWindowDaysCap(BaseTest):
@@ -2972,9 +3383,19 @@ class TestMaxWindowDaysCap(BaseTest):
             (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC), 3600)
         ]
 
+    def test_jitter_does_not_affect_merging(self):
+        # If jitter leaked into the TTLs this function merges on, every daily window would
+        # get a distinct TTL and this backfill would split into 14 daily jobs, not two.
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=7, default_ttl_jitter_seconds=86400)
+        ranges = [(datetime(2020, 1, 1, tzinfo=UTC), datetime(2020, 1, 15, tzinfo=UTC))]
+        assert split_ranges_by_ttl(ranges, schedule) == [
+            (datetime(2020, 1, 1, tzinfo=UTC), datetime(2020, 1, 8, tzinfo=UTC), 3600),
+            (datetime(2020, 1, 8, tzinfo=UTC), datetime(2020, 1, 15, tzinfo=UTC), 3600),
+        ]
+
 
 class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
-    def _query_info(self) -> QueryInfo:
+    def _query_info(self) -> LazyComputationQuery:
         s = parse_select(
             """
             SELECT toStartOfDay(timestamp) as time_window_start, [] as breakdown_value,
@@ -2983,7 +3404,7 @@ class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
             """
         )
         assert isinstance(s, ast.SelectQuery)
-        return QueryInfo(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        return LazyComputationQuery(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
     def test_surfaces_memory_exceeded_on_oom(self):
         def oom_insert(_t, _j) -> None:
@@ -3060,7 +3481,9 @@ class TestCheckOnlyMode(BaseTest):
     def _execute(self, start: datetime, end: datetime) -> LazyComputationResult:
         query = parse_select("SELECT 1")
         assert isinstance(query, ast.SelectQuery)
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
 
         def forbidden_insert(team, job):
             raise AssertionError("check-only mode must never run inserts")
@@ -3079,7 +3502,7 @@ class TestCheckOnlyMode(BaseTest):
         return PreaggregationJob.objects.create(
             team=self.team,
             query_hash=compute_query_hash(
-                QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+                LazyComputationQuery(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
             ),
             time_range_start=start,
             time_range_end=end,

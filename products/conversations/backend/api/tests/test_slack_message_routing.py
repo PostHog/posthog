@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
@@ -8,6 +9,7 @@ from django.test import override_settings
 
 from celery.exceptions import MaxRetriesExceededError, Retry
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -17,6 +19,7 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
+    SlackConfirmationNeedsRetry,
     create_ticket_from_confirmation,
     handle_member_joined_channel,
     handle_member_left_channel,
@@ -24,10 +27,15 @@ from products.conversations.backend.slack import (
     handle_support_message,
     handle_support_reaction,
 )
-from products.conversations.backend.tasks import process_supporthog_interactivity
+from products.conversations.backend.tasks.slack import process_supporthog_interactivity
+from products.customer_analytics.backend.facade import api as customer_analytics
+from products.customer_analytics.backend.facade.testing import create_account
 
 MODULE = "products.conversations.backend.slack"
-TASKS_MODULE = "products.conversations.backend.tasks"
+TASKS_MODULE = "products.conversations.backend.tasks.slack"
+MESSAGE_TS = "1700000000.000100"
+MESSAGE_SENT_AT = datetime(2023, 11, 14, 22, 13, 20, 100, tzinfo=UTC)
+USE_TEAMMATE_EMAIL = "use-the-org-members-own-email"
 
 
 class TestSlackMessageRouting(BaseTest):
@@ -449,6 +457,66 @@ class TestSlackMessageRouting(BaseTest):
         mock_create_or_update.assert_not_called()
 
 
+class TestSlackLastCustomerMessage(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.team.conversations_settings = {"slack_enabled": True, "slack_channel_id": "C_CONFIG"}
+        self.team.save()
+        self.account = create_account(team_id=self.team.id, _properties={"slack_channel_id": "C_CONFIG"})
+        for target in ("create_or_update_slack_ticket", "get_slack_client", "post_ticket_confirmation_prompt"):
+            patcher = patch(f"{MODULE}.{target}")
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _handle(self, **overrides) -> None:
+        event = {
+            "type": "message",
+            "channel": "C_CONFIG",
+            "ts": MESSAGE_TS,
+            "user": "U123",
+            "text": "Our exports are failing again",
+            **overrides,
+        }
+        handle_support_message(event, self.team, "T123")
+
+    def _recorded_values(self, account=None) -> list:
+        account_id = (account or self.account).id
+        return [
+            value.value for value in customer_analytics.list_active_custom_property_values(self.team.id, account_id)
+        ]
+
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Customer", "email": "customer@acme.com"})
+    def test_customer_message_is_recorded_on_the_bound_account(self, _mock_resolve):
+        self._handle()
+
+        assert self._recorded_values() == [MESSAGE_SENT_AT]
+
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Customer", "email": "customer@acme.com"})
+    def test_a_bound_channel_outside_the_support_channels_is_still_recorded(self, _mock_resolve):
+        other = create_account(team_id=self.team.id, name="Beta Corp", _properties={"slack_channel_id": "C_OTHER"})
+
+        self._handle(channel="C_OTHER")
+
+        assert self._recorded_values(other) == [MESSAGE_SENT_AT]
+
+    @parameterized.expand(
+        [
+            ("bot", {"bot_id": "B1"}, "customer@acme.com"),
+            ("system subtype", {"subtype": "channel_join"}, "customer@acme.com"),
+            ("unbound channel", {"channel": "C_UNBOUND"}, "customer@acme.com"),
+            ("posthog teammate", {}, USE_TEAMMATE_EMAIL),
+            ("unresolved author", {}, None),
+        ]
+    )
+    def test_non_customer_messages_are_not_recorded(self, _name, overrides, email):
+        resolved = self.user.email if email == USE_TEAMMATE_EMAIL else email
+        with patch(f"{MODULE}.resolve_slack_user", return_value={"name": "X", "email": resolved}):
+            self._handle(**overrides)
+
+        assert self._recorded_values() == []
+
+
 class TestSlackNudge(BaseTest):
     def setUp(self):
         super().setUp()
@@ -845,14 +913,26 @@ class TestSlackNudge(BaseTest):
         assert kwargs["channel_detail"] == ChannelDetail.SLACK_CHANNEL_MESSAGE
         mock_backfill.assert_called_once()
 
+    @parameterized.expand(
+        [
+            (
+                "wrong_ts",
+                {
+                    "messages": [
+                        {"user": "U_SOMEONE_ELSE", "text": "Unrelated earlier message", "ts": "1699999999.000001"}
+                    ]
+                },
+            ),
+            ("empty_history", {"messages": []}),
+            ("empty_content", {"messages": [{"user": "U_OP", "text": "   ", "ts": "1700000000.000100"}]}),
+        ]
+    )
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
-    def test_create_ticket_from_confirmation_rejects_wrong_message(self, mock_create_or_update, mock_get_client):
-        # `latest` is an upper bound: if the source message was deleted, Slack returns the
-        # previous channel message instead. That must not seed a ticket.
-        mock_get_client.return_value.conversations_history.return_value = {
-            "messages": [{"user": "U_SOMEONE_ELSE", "text": "Unrelated earlier message", "ts": "1699999999.000001"}]
-        }
+    def test_create_ticket_from_confirmation_returns_none_for_unusable_source(
+        self, _name, history, mock_create_or_update, mock_get_client
+    ):
+        mock_get_client.return_value.conversations_history.return_value = history
 
         result = create_ticket_from_confirmation(
             team=self.team,
@@ -863,6 +943,37 @@ class TestSlackNudge(BaseTest):
 
         assert result is None
         mock_create_or_update.assert_not_called()
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_create_ticket_from_confirmation_fetch_failure_is_retryable(self, mock_create_or_update, mock_get_client):
+        mock_get_client.return_value.conversations_history.side_effect = RuntimeError("slack down")
+
+        with self.assertRaises(SlackConfirmationNeedsRetry):
+            create_ticket_from_confirmation(
+                team=self.team,
+                slack_team_id="T123",
+                slack_channel_id="C_OTHER",
+                message_ts="1700000000.000100",
+            )
+
+        mock_create_or_update.assert_not_called()
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_create_ticket_from_confirmation_create_none_is_retryable(self, mock_create_or_update, mock_get_client):
+        mock_get_client.return_value.conversations_history.return_value = {
+            "messages": [{"user": "U_OP", "text": "Original message", "ts": "1700000000.000100"}]
+        }
+        mock_create_or_update.return_value = None
+
+        with self.assertRaises(SlackConfirmationNeedsRetry):
+            create_ticket_from_confirmation(
+                team=self.team,
+                slack_team_id="T123",
+                slack_channel_id="C_OTHER",
+                message_ts="1700000000.000100",
+            )
 
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
@@ -1131,12 +1242,8 @@ class TestSupporthogInteractivity(BaseTest):
 
     @patch(f"{TASKS_MODULE}.get_slack_client")
     @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
-    def test_open_retries_when_create_returns_none(self, mock_create, mock_get_client):
-        # A duplicate delivery that loses the per-thread create lock gets None back while
-        # the sibling's ticket is mid-create. The task must retry — resolving to the
-        # committed ticket on the re-run — not report a false "couldn't open a ticket"
-        # to the user and a false ticket_created=false to the funnel.
-        mock_create.return_value = None
+    def test_open_retries_when_create_needs_retry(self, mock_create, mock_get_client):
+        mock_create.side_effect = SlackConfirmationNeedsRetry()
 
         with self.assertRaises(Retry):
             process_supporthog_interactivity(
@@ -1193,22 +1300,46 @@ class TestSupporthogInteractivity(BaseTest):
         client.chat_update.assert_called_once()
         assert "ticket #7" in client.chat_update.call_args.kwargs["text"].lower()
 
-    @parameterized.expand(
-        [
-            ("create_raises", RuntimeError("boom")),
-            ("create_returns_none", None),
-        ]
-    )
     @patch(f"{TASKS_MODULE}.get_slack_client")
     @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
-    def test_open_shows_error_when_retries_exhausted(self, _name, failure, mock_create, mock_get_client):
-        # A persistent failure (create raising, or a None that never resolves into a
-        # ticket) retries and eventually exhausts — the prompt must still be replaced
-        # with the error state, not left with live buttons forever.
-        if isinstance(failure, Exception):
-            mock_create.side_effect = failure
-        else:
-            mock_create.return_value = failure
+    def test_open_does_not_retry_permanent_prompt_update_failure(self, mock_create, mock_get_client):
+        mock_create.return_value = Mock(ticket_number=42, id="ticket-1")
+        mock_get_client.return_value.chat_update.side_effect = SlackApiError(
+            "message_not_found", response={"error": "message_not_found"}
+        )
+
+        process_supporthog_interactivity(
+            self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+            "T123",
+        )
+
+        self.mock_capture_event.assert_called_once()
+        _team, event_name, event_props = self.mock_capture_event.call_args.args
+        assert event_name == "support nudge open ticket clicked"
+        assert event_props["ticket_created"] is True
+
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_shows_error_when_create_returns_none(self, mock_create, mock_get_client):
+        mock_create.return_value = None
+
+        process_supporthog_interactivity(
+            self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+            "T123",
+        )
+
+        client = mock_get_client.return_value
+        assert client.chat_update.call_count == 2
+        assert "couldn't" in client.chat_update.call_args.kwargs["text"].lower()
+        self.mock_capture_event.assert_called_once()
+        _team, event_name, event_props = self.mock_capture_event.call_args.args
+        assert event_name == "support nudge open ticket clicked"
+        assert event_props["ticket_created"] is False
+
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_shows_error_when_retries_exhausted(self, mock_create, mock_get_client):
+        mock_create.side_effect = RuntimeError("boom")
 
         with patch.object(process_supporthog_interactivity, "retry", side_effect=MaxRetriesExceededError()):
             process_supporthog_interactivity(

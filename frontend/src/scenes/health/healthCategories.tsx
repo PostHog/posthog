@@ -1,4 +1,13 @@
-import { IconBug, IconCode, IconDatabase, IconDecisionTree, IconPulse, IconTrending, IconWarning } from '@posthog/icons'
+import {
+    IconBug,
+    IconCode,
+    IconDatabase,
+    IconDecisionTree,
+    IconPulse,
+    IconToggle,
+    IconTrending,
+    IconWarning,
+} from '@posthog/icons'
 
 export type HealthIssueCategory =
     | 'ingestion'
@@ -7,6 +16,7 @@ export type HealthIssueCategory =
     | 'data_modeling'
     | 'pipelines'
     | 'error_tracking'
+    | 'feature_flags'
     | 'other'
 
 export type HealthIssueKind =
@@ -17,12 +27,14 @@ export type HealthIssueKind =
     | 'reverse_proxy'
     | 'partial_proxy'
     | 'web_vitals'
+    | 'path_cleaning_suggestions'
     | 'ingestion_lag'
     | 'ingestion_warning'
     | 'sdk_outdated'
     | 'materialized_view_failure'
     | 'external_data_failure'
     | 'error_tracking_missing_source_maps'
+    | 'stale_feature_flags'
 
 export interface CategoryConfig {
     label: string
@@ -75,6 +87,13 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
         icon: <IconBug className="size-5" />,
         showInSummary: true,
     },
+    feature_flags: {
+        label: 'Feature flags',
+        description: 'Feature flags that may be ready for cleanup',
+        healthyDescription: 'No stale flags',
+        icon: <IconToggle className="size-5" />,
+        showInSummary: true,
+    },
     other: {
         label: 'Other',
         description: 'Other health issues',
@@ -100,6 +119,9 @@ const KIND_TO_CATEGORY: Record<HealthIssueKind, HealthIssueCategory> = {
     // Error tracking
     error_tracking_missing_source_maps: 'error_tracking',
 
+    // Feature flags
+    stale_feature_flags: 'feature_flags',
+
     // Web analytics
     no_live_events: 'web_analytics',
     no_pageleave_events: 'web_analytics',
@@ -108,6 +130,7 @@ const KIND_TO_CATEGORY: Record<HealthIssueKind, HealthIssueCategory> = {
     reverse_proxy: 'web_analytics',
     partial_proxy: 'web_analytics',
     web_vitals: 'web_analytics',
+    path_cleaning_suggestions: 'web_analytics',
 }
 
 export const KIND_LABELS: Record<HealthIssueKind, string> = {
@@ -118,12 +141,14 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     reverse_proxy: 'No reverse proxy',
     partial_proxy: 'Partial reverse proxy',
     web_vitals: 'No web vitals',
+    path_cleaning_suggestions: 'Path cleaning suggestions',
     ingestion_lag: 'Ingestion lag',
     external_data_failure: 'External data failures',
     ingestion_warning: 'Ingestion warning',
     sdk_outdated: 'SDK outdated',
     materialized_view_failure: 'Materialized view failure',
     error_tracking_missing_source_maps: 'Missing source maps',
+    stale_feature_flags: 'Stale feature flag',
 }
 
 export const categoryForKind = (kind: string): HealthIssueCategory => {
@@ -143,5 +168,6 @@ export const CATEGORY_ORDER: HealthIssueCategory[] = [
     'data_modeling',
     'pipelines',
     'error_tracking',
+    'feature_flags',
     'other',
 ]

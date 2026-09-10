@@ -81,7 +81,7 @@ export function TranslatePopover({ content, title = 'Translate' }: TranslatePopo
                             </div>
                         ) : translationError ? (
                             <div className="text-center py-2">
-                                <p className="text-danger mb-2">Translation failed. Please try again.</p>
+                                <p className="text-danger mb-2">{translationError}</p>
                             </div>
                         ) : translationText ? (
                             <div className="whitespace-pre-wrap text-sm bg-bg-light rounded p-2 max-h-80 overflow-y-auto">

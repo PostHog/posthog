@@ -3,7 +3,7 @@ import bigDecimal from 'js-big-decimal'
 import { logger } from '~/common/utils/logger'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { numericProperty } from './cost-utils'
+import { numericProperty, stringProperty } from './cost-utils'
 import { ResolvedModelCost } from './providers/types'
 
 const REASONING_COST_MODELS = [/^gemini-2\.5-/, /^gemini-3(\.\d+)?-/]
@@ -91,8 +91,9 @@ export const calculateOutputCost = (event: PluginEvent, cost: ResolvedModelCost)
         textOutputTokens = audioOutputTokens > 0 || imageOutputTokens > 0 ? Math.max(0, derived) : derived
     }
 
-    const reasoningTokens = event.properties['$ai_reasoning_tokens']
-    if (reasoningTokens && event.properties['$ai_model'] && mustAddReasoningCost(event.properties['$ai_model'])) {
+    const reasoningTokens = numericProperty(event, '$ai_reasoning_tokens')
+    const model = stringProperty(event, '$ai_model')
+    if (reasoningTokens && model && mustAddReasoningCost(model)) {
         textOutputTokens = bigDecimal.add(textOutputTokens, reasoningTokens)
     }
 

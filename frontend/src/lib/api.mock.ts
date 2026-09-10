@@ -185,6 +185,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     managed_viewsets: { revenue_analytics: true },
     receive_org_level_activity_logs: false,
     require_evaluation_contexts: false,
+    feature_flag_policy_config: {
+        require_tags: false,
+    },
     logs_settings: {
         capture_console_logs: false,
     },
@@ -208,6 +211,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     membership_level: OrganizationMembershipLevel.Admin,
     plugins_access_level: PluginsAccessLevel.Root,
     enforce_2fa: false,
+    enforce_verified_domains: false,
     teams: [MOCK_DEFAULT_TEAM],
     projects: [MOCK_DEFAULT_PROJECT],
     is_member_join_email_enabled: true,

@@ -4,7 +4,7 @@ from typing import Literal, Optional, overload
 import structlog
 import pydantic_core
 from pydantic import BaseModel
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 
 from posthog.schema import (
     DashboardFilter,
@@ -24,18 +24,27 @@ from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.direct_connection import resolve_database_for_connection
+from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import AnalyticsProps
+from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner_or_none
+from posthog.hogql_queries.query_runner import (
+    CacheMissResponse,
+    ExecutionMode,
+    QueryResponse,
+    QueryRunner,
+    get_query_runner_or_none,
+)
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.schema_migrations.upgrade import upgrade
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.data_tools.backend.models.join import DataWarehouseJoin
 
 from common.hogvm.python.debugger import color_bytecode
@@ -177,6 +186,59 @@ def process_query_dict(
     )
 
 
+def process_database_schema_query(
+    team: Team, query: DatabaseSchemaQuery, *, user: Optional[User] = None
+) -> DatabaseSchemaQueryResponse:
+    try:
+        _, database = resolve_database_for_connection(
+            team,
+            query.connectionId,
+            user=user,
+            error_factory=ValidationError,
+            modifiers=create_default_modifiers_for_team(team),
+        )
+        context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
+        serialized_tables = database.serialize(
+            context,
+            include_only=set(query.tables) if query.tables else None,
+            include_hidden_posthog_tables=True,
+            include_fields=query.includeFields is not False,
+        )
+    except (APIException, ExposedHogQLError, ResolutionError, UserAccessControlError):
+        # These already carry an actionable message, and the query view maps them to a 4xx.
+        raise
+    except Exception as e:
+        # This request backs the SQL editor's table list. Untyped, it surfaces as a bare 500 with
+        # "A server error occurred.", which the sidebar can't tell apart from an empty project.
+        logger.exception(
+            "database_schema_query_failed", team_id=team.pk, connection_id=query.connectionId, error=str(e)
+        )
+        capture_exception(e, {"team_id": team.pk, "query_kind": "DatabaseSchemaQuery"})
+        raise DatabaseSchemaUnavailable() from e
+
+    table_names = set(serialized_tables.keys())
+    joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
+    joins = joins.filter(source_table_name__in=table_names, joining_table_name__in=table_names)
+
+    join_models: list[DataWarehouseViewLink] = []
+    for join in joins.iterator():
+        join_models.append(
+            DataWarehouseViewLink.model_validate(
+                {
+                    "id": str(join.id),
+                    "source_table_name": join.source_table_name,
+                    "source_table_key": join.source_table_key,
+                    "joining_table_name": join.joining_table_name,
+                    "joining_table_key": join.joining_table_key,
+                    "field_name": join.field_name,
+                    "created_at": join.created_at.isoformat(),
+                }
+            )
+        )
+
+    return DatabaseSchemaQueryResponse(tables=serialized_tables, joins=join_models)
+
+
 @overload
 def process_query_model(
     team: Team,
@@ -240,121 +302,127 @@ def process_query_model(
     analytics_props: Optional[AnalyticsProps] = None,
     allow_raw_results: bool = False,
 ) -> dict | BaseModel | RawCachedQueryResponse:
-    result: dict | BaseModel | RawCachedQueryResponse
-
     if isinstance(query, HogQLAutocomplete):
-        _, database = resolve_database_for_connection(
-            team,
-            query.connectionId,
-            user=user,
-            error_factory=ValidationError,
-            modifiers=create_default_modifiers_for_team(team),
-        )
-        return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
+        with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="autocomplete").time():
+            _, database = resolve_database_for_connection(
+                team,
+                query.connectionId,
+                user=user,
+                error_factory=ValidationError,
+                modifiers=create_default_modifiers_for_team(team),
+                # Editor-assist only: query execution never reads cached sources.
+                use_cached_sources=True,
+            )
+            return get_hogql_autocomplete(query=query, team=team, database_arg=database, user=user)
 
     if isinstance(query, HogQLMetadata):
-        metadata_query = HogQLMetadata.model_validate(query)
-        return get_hogql_metadata(query=metadata_query, team=team, user=user)
+        with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="metadata").time():
+            metadata_query = HogQLMetadata.model_validate(query)
+            return get_hogql_metadata(query=metadata_query, team=team, user=user)
 
     if isinstance(query, DatabaseSchemaQuery):
-        _, database = resolve_database_for_connection(
-            team,
-            query.connectionId,
-            user=user,
-            error_factory=ValidationError,
-            modifiers=create_default_modifiers_for_team(team),
-        )
-        context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
-        serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
-        table_names = set(serialized_tables.keys())
-        joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
-        joins = joins.filter(source_table_name__in=table_names, joining_table_name__in=table_names)
-
-        join_models: list[DataWarehouseViewLink] = []
-        for join in joins.iterator():
-            join_models.append(
-                DataWarehouseViewLink.model_validate(
-                    {
-                        "id": str(join.id),
-                        "source_table_name": join.source_table_name,
-                        "source_table_key": join.source_table_key,
-                        "joining_table_name": join.joining_table_name,
-                        "joining_table_key": join.joining_table_key,
-                        "field_name": join.field_name,
-                        "created_at": join.created_at.isoformat(),
-                    }
-                )
-            )
-
-        return DatabaseSchemaQueryResponse(
-            tables=serialized_tables,
-            joins=join_models,
-        )
+        return process_database_schema_query(team, query, user=user)
 
     query_runner = get_query_runner_or_none(
         query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
     )
-    if query_runner is None:  # This query doesn't run via query runner
-        if hasattr(query, "source") and isinstance(query.source, BaseModel):
-            result = process_query_model(
-                team,
-                query.source,
-                dashboard_filters=dashboard_filters,
-                variables_override=variables_override,
-                limit_context=limit_context,
-                execution_mode=execution_mode,
-                user=user,
-                user_access_control=user_access_control,
-                query_id=query_id,
-                insight_id=insight_id,
-                dashboard_id=dashboard_id,
-                is_query_service=is_query_service,
-                cache_age_seconds=cache_age_seconds,
-                analytics_props=analytics_props,
-                allow_raw_results=allow_raw_results,
-            )
-        elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-            # Caching is handled by query runners, so in this case we can only return a cache miss
-            result = CacheMissResponse(cache_key=None)
-        elif isinstance(query, HogQuery):
-            if is_cloud() and (user is None or not user.is_staff):
-                return {"results": "Hog queries currently require staff user privileges."}
-
-            try:
-                hog_result = execute_hog(query.code or "", team=team)
-                bytecode = hog_result.bytecodes.get("root", None)
-                result = HogQueryResponse(
-                    results=hog_result.result,
-                    bytecode=bytecode,
-                    coloredBytecode=color_bytecode(bytecode) if bytecode else None,
-                    stdout="\n".join(hog_result.stdout),
-                )
-            except Exception as e:
-                result = HogQueryResponse(results=f"ERROR: {str(e)}")
-        else:
-            raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
-    else:  # Query runner available - it will handle execution as well as caching
-        if dashboard_filters:
-            query_runner.apply_dashboard_filters(dashboard_filters)
-        if variables_override:
-            query_runner.apply_variable_overrides(variables_override)
-        if pagination_cursor:
-            query_runner.apply_pagination_cursor(pagination_cursor)
-        query_runner.is_query_service = is_query_service
-        if allow_raw_results:
-            query_runner.serve_raw_cached_results = True
-
-        result = query_runner.run(
+    if query_runner is not None:  # Query runner available - it will handle execution as well as caching
+        return _run_query_runner(
+            query_runner,
+            dashboard_filters=dashboard_filters,
+            variables_override=variables_override,
             execution_mode=execution_mode,
             user=user,
             query_id=query_id,
             insight_id=insight_id,
             dashboard_id=dashboard_id,
+            is_query_service=is_query_service,
+            cache_age_seconds=cache_age_seconds,
+            pagination_cursor=pagination_cursor,
+            analytics_props=analytics_props,
+            allow_raw_results=allow_raw_results,
+        )
+
+    # This query doesn't run via query runner
+    if hasattr(query, "source") and isinstance(query.source, BaseModel):
+        return process_query_model(
+            team,
+            query.source,
+            dashboard_filters=dashboard_filters,
+            variables_override=variables_override,
+            limit_context=limit_context,
+            execution_mode=execution_mode,
+            user=user,
+            user_access_control=user_access_control,
+            query_id=query_id,
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+            is_query_service=is_query_service,
             cache_age_seconds=cache_age_seconds,
             analytics_props=analytics_props,
+            allow_raw_results=allow_raw_results,
         )
-        raw_results = query_runner.raw_cached_results_bytes
-        if raw_results is not None and isinstance(result, BaseModel):
-            return RawCachedQueryResponse(response=result, raw_results=raw_results)
+    if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+        # Caching is handled by query runners, so in this case we can only return a cache miss
+        return CacheMissResponse(cache_key=None)
+    if isinstance(query, HogQuery):
+        return _run_hog_query(query, team, user)
+    raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
 
+
+def _run_hog_query(query: HogQuery, team: Team, user: Optional[User]) -> dict | HogQueryResponse:
+    if is_cloud() and (user is None or not user.is_staff):
+        return {"results": "Hog queries currently require staff user privileges."}
+
+    try:
+        hog_result = execute_hog(query.code or "", team=team)
+        bytecode = hog_result.bytecodes.get("root", None)
+        return HogQueryResponse(
+            results=hog_result.result,
+            bytecode=bytecode,
+            coloredBytecode=color_bytecode(bytecode) if bytecode else None,
+            stdout="\n".join(hog_result.stdout),
+        )
+    except Exception as e:
+        return HogQueryResponse(results=f"ERROR: {str(e)}")
+
+
+def _run_query_runner(
+    query_runner: QueryRunner,
+    *,
+    dashboard_filters: Optional[DashboardFilter],
+    variables_override: Optional[list[HogQLVariable]],
+    execution_mode: ExecutionMode,
+    user: Optional[User],
+    query_id: Optional[str],
+    insight_id: Optional[int],
+    dashboard_id: Optional[int],
+    is_query_service: bool,
+    cache_age_seconds: Optional[int],
+    pagination_cursor: Optional[str],
+    analytics_props: Optional[AnalyticsProps],
+    allow_raw_results: bool,
+) -> dict | BaseModel | RawCachedQueryResponse:
+    if dashboard_filters:
+        query_runner.apply_dashboard_filters(dashboard_filters)
+    if variables_override:
+        query_runner.apply_variable_overrides(variables_override)
+    if pagination_cursor:
+        query_runner.apply_pagination_cursor(pagination_cursor)
+    query_runner.is_query_service = is_query_service
+    if allow_raw_results:
+        query_runner.serve_raw_cached_results = True
+
+    result = query_runner.run(
+        execution_mode=execution_mode,
+        user=user,
+        query_id=query_id,
+        insight_id=insight_id,
+        dashboard_id=dashboard_id,
+        cache_age_seconds=cache_age_seconds,
+        analytics_props=analytics_props,
+    )
+    raw_results = query_runner.raw_cached_results_bytes
+    if raw_results is not None and isinstance(result, BaseModel):
+        return RawCachedQueryResponse(response=result, raw_results=raw_results)
     return result

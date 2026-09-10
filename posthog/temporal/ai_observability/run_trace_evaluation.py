@@ -29,20 +29,18 @@ from posthog.schema import DateRange, LLMTrace, QueryLogTags, TraceQuery
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
-from posthog.api.capture import CaptureInternalError, capture_internal
+from posthog.api.capture import CaptureInternalError
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai_observability.evaluation_errors import (
-    is_terminal_user_error_result,
-    require_user_error_spec,
-    status_reason_detail_for_terminal_user_error,
-)
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
+from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime, extract_event_io
 from posthog.temporal.ai_observability.evaluation_hog import (
     build_hog_event_global,
     execute_hog_eval_bytecode,
+    finalize_hog_eval_result,
     hog_bytecode_references_global,
 )
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
@@ -50,10 +48,16 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import (
     call_llm_judge,
     get_output_type_config,
 )
+from posthog.temporal.ai_observability.evaluation_payload import (
+    PAYLOAD_BYTES_EXPR,
+    payload_budget_bytes,
+    should_skip_for_payload,
+)
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
+    backfill_verdict_timestamp,
     build_evaluation_event_properties,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
@@ -65,6 +69,7 @@ from posthog.temporal.ai_observability.run_evaluation import (
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
+from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
@@ -135,12 +140,19 @@ class RunTraceEvaluationInputs:
         }
 
 
-@dataclass
+@frozen
 class ExecuteTraceEvaluationInputs:
     evaluation: dict[str, Any]
     team_id: int
     trace_id: str
     window_start: str
+    # Upper bound of the fetch, ISO. Unset on a live run, which reads up to now; a backfilled run
+    # sets it so an old unit is graded over the same span the live path would have covered.
+    window_end: str | None = None
+
+    @property
+    def window_end_datetime(self) -> datetime | None:
+        return datetime.fromisoformat(self.window_end) if self.window_end else None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -175,14 +187,56 @@ def _count_trace_events(team: Team, trace_id: str, date_from: datetime, date_to:
     return int(result.results[0][0])
 
 
-def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> TraceFetchOutcome:
+_TRACE_PAYLOAD_BYTES_SQL = f"""
+SELECT {PAYLOAD_BYTES_EXPR} AS payload_bytes
+FROM posthog.ai_events AS ai_events
+WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+  AND trace_id = {{trace_id}}
+  AND timestamp >= {{date_from}}
+  AND timestamp <= {{date_to}}
+"""
+
+
+def _sum_trace_payload_bytes(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> int:
+    result = query_ai_events(
+        query=parse_select(_TRACE_PAYLOAD_BYTES_SQL),
+        placeholders={
+            "trace_id": ast.Constant(value=trace_id),
+            "date_from": ast.Constant(value=date_from),
+            "date_to": ast.Constant(value=date_to),
+        },
+        team=team,
+        query_type="TraceEvaluationPayloadBytes",
+        fall_back_to_events=False,
+    )
+    if not result.results:
+        return 0
+    return int(result.results[0][0] or 0)
+
+
+def _fetch_trace(
+    team: Team, trace_id: str, date_from: datetime, date_to: datetime, *, bound_to_date_to: bool = False
+) -> TraceFetchOutcome:
     """Fetch a single full trace from ClickHouse over an explicit window, with a cheap count
-    preflight so degenerate traces are skipped before pulling their payload."""
+    preflight so degenerate traces are skipped before pulling their payload.
+
+    `bound_to_date_to` grades the trace as of `date_to`. A live run leaves it off and reads the
+    whole trace, which is what it graded before backfills existed."""
     event_count = _count_trace_events(team, trace_id, date_from, date_to)
     if event_count == 0:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=0)
     if event_count > MAX_TRACE_EVAL_EVENTS:
         return TraceFetchOutcome(trace=None, skip_reason="trace_too_large", event_count=event_count)
+
+    # Log-only for trace. `should_skip_for_payload` returns False for this target by design: trace
+    # evaluations already run in production, and enforcing a brand-new dimension on them would start
+    # skipping units that grade fine today. The metric supplies the distribution needed to set a
+    # trace budget with evidence, and flipping it to enforcing is a deliberate follow-up.
+    should_skip_for_payload(
+        target="trace",
+        payload_bytes=_sum_trace_payload_bytes(team, trace_id, date_from, date_to),
+        budget_bytes=payload_budget_bytes(JUDGE_TRACE_MAX_CHARS),
+    )
 
     runner = TraceQueryRunner(
         team=team,
@@ -191,19 +245,32 @@ def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: dateti
             dateRange=DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat()),
             tags=QueryLogTags(productKey="AIObservability"),
         ),
+        # Without this the runner returns the whole trace whatever `dateRange` says, so a backfilled
+        # run would grade events that the live run never saw, and its totals would report cost and
+        # latency from them. The runner applies the upper bound only. A lower bound would cut off the
+        # early events of the trace, which live runs do grade.
+        bound_events_to_date_range=bound_to_date_to,
     )
     response = runner.calculate()
     if not response.results:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
-    return TraceFetchOutcome(trace=response.results[0], skip_reason=None, event_count=event_count)
+    trace = response.results[0]
+    if bound_to_date_to and not trace.events:
+        # The count preflight includes the `$ai_trace` root row, which never reaches `events`, so a
+        # non-zero count does not promise a transcript. Once the bound applies, an empty one must
+        # skip rather than let the judge grade nothing. A live run keeps its own handling of this.
+        return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
+    return TraceFetchOutcome(trace=trace, skip_reason=None, event_count=event_count)
 
 
-def fetch_trace_for_evaluation(team_id: int, trace_id: str, window_start: datetime) -> TraceFetchOutcome:
+def fetch_trace_for_evaluation(
+    team_id: int, trace_id: str, window_start: datetime, window_end: datetime | None = None
+) -> TraceFetchOutcome:
     """Fetch the full trace for an online evaluation run, looking back from the workflow start."""
     team = Team.objects.get(id=team_id)
     date_from = window_start - TRACE_EVENTS_LOOKBACK
-    date_to = datetime.now(UTC)
-    return _fetch_trace(team, trace_id, date_from, date_to)
+    date_to = window_end or datetime.now(UTC)
+    return _fetch_trace(team, trace_id, date_from, date_to, bound_to_date_to=window_end is not None)
 
 
 @dataclass
@@ -303,10 +370,10 @@ def _trace_io_preview(trace: LLMTrace) -> tuple[str, str]:
     input_preview = ""
     output_preview = ""
     for event in trace.events or []:
-        input_raw, output_raw = extract_event_io(event.event, event.properties)
+        io = extract_event_io(event.event, event.properties)
         if not input_preview:
-            input_preview = extract_text_from_messages(input_raw)[:200]
-        output_text = extract_text_from_messages(output_raw)[:200]
+            input_preview = extract_text_from_messages(io.input_raw)[:200]
+        output_text = extract_text_from_messages(io.output_raw)[:200]
         if output_text:
             output_preview = output_text
     return input_preview, output_preview
@@ -503,7 +570,9 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
 
     allows_na = evaluation.get("output_config", {}).get("allows_na", False)
 
-    outcome = fetch_trace_for_evaluation(inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start))
+    outcome = fetch_trace_for_evaluation(
+        inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
+    )
     if outcome.skip_reason or outcome.trace is None:
         return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found")
 
@@ -534,7 +603,7 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
 
     def _execute() -> tuple[dict[str, Any] | None, str | None]:
         outcome = fetch_trace_for_evaluation(
-            inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start)
+            inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
         )
         if outcome.skip_reason or outcome.trace is None:
             return None, outcome.skip_reason or "trace_not_found"
@@ -546,47 +615,10 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
     if skip_reason or result is None:
         return _build_trace_skip_result(allows_na, skip_reason or "trace_not_found")
 
-    if result["error"]:
-        if result.get("unexpected"):
-            # A genuine bug in our evaluation code (not the user's Hog). Raise so the Temporal
-            # interceptor reports it to error tracking and we get paged to investigate.
-            raise ApplicationError(
-                f"Hog evaluation error: {result['error']}",
-                non_retryable=True,
-            )
-
-        # The user's Hog source itself errored — an expected outcome of running customer-authored
-        # code, recorded as a skipped evaluation rather than raised (which would flood error
-        # tracking with one event per trace). Marked terminal so the workflow disables the broken
-        # eval instead of re-running it against every matching trace (mirrors the generation path).
-        spec = require_user_error_spec("hog_error")
-        error_detail = status_reason_detail_for_terminal_user_error(spec, result["error"]) or spec.safe_message
-        errored_result: EvaluationActivityResult = {
-            "result_type": "boolean",
-            "verdict": None if allows_na else False,
-            "reasoning": error_detail,
-            "allows_na": allows_na,
-            "skipped": True,
-            "skip_reason": "hog_error",
-            "terminal_user_error": True,
-            "status_reason": spec.status_reason,
-        }
-        if allows_na:
-            errored_result["applicable"] = False
-        return errored_result
-
-    activity_result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": result["verdict"],
-        "reasoning": result["reasoning"],
-        "allows_na": allows_na,
-    }
-    if allows_na:
-        activity_result["applicable"] = result.get("applicable", True)
-    return activity_result
+    return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label="trace")
 
 
-@dataclass
+@frozen
 class EmitTraceEvaluationEventInputs:
     evaluation: dict[str, Any]
     team_id: int
@@ -595,6 +627,10 @@ class EmitTraceEvaluationEventInputs:
     session_id: str | None
     result: EvaluationActivityResult
     start_time: datetime
+    target: str = "trace"
+    ai_session_id: str | None = None
+    backfill_id: str | None = None
+    event_timestamp: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -602,6 +638,7 @@ class EmitTraceEvaluationEventInputs:
             "team_id": self.team_id,
             "evaluation_id": self.evaluation.get("id"),
             "trace_id": self.trace_id,
+            "target": self.target,
         }
 
 
@@ -610,35 +647,55 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
     """Emit the $ai_evaluation event for a trace-level run, targeting the trace id."""
 
     def _emit():
-        try:
-            team = Team.objects.get(id=inputs.team_id)
-        except Team.DoesNotExist:
-            logger.exception("Team not found", team_id=inputs.team_id)
-            raise ValueError(f"Team {inputs.team_id} not found")
-
         # No single source event to inherit from, so SOURCE_AI_PROPERTIES_TO_COPY (span/parent
         # linkage copied in the generation path) intentionally does not apply here.
-        properties = build_evaluation_event_properties(inputs.evaluation, inputs.result, inputs.start_time)
-        properties.update(
-            {
-                "$ai_target_id": inputs.trace_id,
-                "$ai_target_type": "trace_id",
-                # The eval event carries the trace id itself so it shows up inside the trace view.
-                "$ai_trace_id": inputs.trace_id,
-                "$session_id": inputs.session_id,
-            }
+        properties = build_evaluation_event_properties(
+            inputs.evaluation, inputs.result, inputs.start_time, inputs.backfill_id
         )
+        if inputs.target == "session" and inputs.ai_session_id:
+            properties.update(
+                {
+                    "$ai_target_id": inputs.ai_session_id,
+                    "$ai_target_type": "session_id",
+                    # Makes the verdict session-scoped so the session view can read it. No
+                    # $ai_trace_id: the verdict belongs to the session, not to any one trace, and
+                    # inventing a trace id would make it render as that trace's verdict.
+                    "$ai_session_id": inputs.ai_session_id,
+                    "$session_id": inputs.session_id,
+                }
+            )
+        else:
+            properties.update(
+                {
+                    "$ai_target_id": inputs.trace_id,
+                    "$ai_target_type": "trace_id",
+                    # The eval event carries the trace id itself so it shows up inside the trace view.
+                    "$ai_trace_id": inputs.trace_id,
+                    "$session_id": inputs.session_id,
+                }
+            )
 
-        capture_result = capture_internal(
-            token=team.api_token,
+        # A backfilled verdict sits at its unit's own time so time-bucketed views line it up with
+        # the trace it grades instead of with the day the backfill ran. The dispatcher always
+        # sends the anchor and the backfill id together, so there is no third case.
+        if inputs.event_timestamp and inputs.backfill_id:
+            timestamp = backfill_verdict_timestamp(
+                as_utc_datetime(inputs.event_timestamp),
+                str(inputs.evaluation["id"]),
+                inputs.backfill_id,
+                str(properties["$ai_target_id"]),
+            )
+        else:
+            timestamp = datetime.now(UTC)
+
+        capture_internal_for_team(
+            team_id=inputs.team_id,
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=inputs.distinct_id,
-            timestamp=datetime.now(UTC),
+            timestamp=timestamp,
             properties=properties,
-            process_person_profile=True,
         )
-        capture_result.raise_for_status()
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()

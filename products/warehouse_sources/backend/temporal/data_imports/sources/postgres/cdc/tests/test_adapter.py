@@ -185,6 +185,11 @@ class TestSlotSetupErrorMessage:
         error = _slot_setup_error_message(Exception("ERROR: must be superuser or replication role"))
         assert "Incremental sync" in error
 
+    def test_read_only_transaction_error_points_at_primary(self) -> None:
+        error = _slot_setup_error_message(Exception("cannot execute CREATE PUBLICATION in a read-only transaction"))
+        assert "primary database" in error
+        assert "Incremental sync" in error
+
     def test_non_permission_error_keeps_raw_message_only(self) -> None:
         error = _slot_setup_error_message(RuntimeError("connection reset"))
         assert error == "Failed to create replication slot: connection reset"

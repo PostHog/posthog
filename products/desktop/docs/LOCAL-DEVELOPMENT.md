@@ -1,0 +1,296 @@
+# Connect PostHog Desktop to a development environment
+
+Development builds can connect to a local PostHog instance or the hosted Dev Cloud deployment.
+
+| Choice | PostHog host | Use it for |
+| --- | --- | --- |
+| Local development | `http://localhost:8010` | Local backend changes and local test data |
+| Dev Cloud | `https://app.dev.posthog.dev` | Code deployed to the shared development environment |
+
+Production builds show only US Cloud and EU Cloud. The two development choices appear only in development builds. `VITE_POSTHOG_API_HOST` does not select the data backend. It controls the separate analytics and feature flag client.
+
+## Prerequisites
+
+- For Local development, a running PostHog instance at `http://localhost:8010` ([PostHog local development docs](https://posthog.com/handbook/engineering/developing-locally))
+- For Dev Cloud, access to `https://app.dev.posthog.dev`
+- Node.js 22+
+- pnpm 10+
+
+## Local development setup
+
+### 1. Set up the OAuth application in PostHog
+
+The desktop app authenticates with PostHog via OAuth. Your local PostHog instance needs an OAuth application registered for the app to connect to it.
+
+#### Option A: Generate demo data
+
+PostHog's demo data generator creates a pre-configured OAuth application with the correct client ID:
+
+```bash
+# In your PostHog repo
+python manage.py generate_demo_data
+```
+
+This creates an OAuth application with:
+- **Client ID**: `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`
+- **Redirect URIs**: includes `http://localhost:8237/callback` and `http://localhost:8239/callback`
+
+#### Option B: Create the OAuth application manually via Django admin
+
+1. Go to http://localhost:8010/admin/posthog/oauthapplication/
+2. Click **Add OAuth Application**
+3. Set these fields:
+   - **Name**: `PostHog Desktop` (or whatever you like)
+   - **Client ID**: `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`. This must match `POSTHOG_DEV_CLIENT_ID` in the app source.
+   - **Client type**: `Public` (the app is an Electron desktop app)
+   - **Authorization grant type**: `Authorization code`
+   - **Redirect URIs**: `http://localhost:8237/callback http://localhost:8239/callback`
+   - **Algorithm**: `RS256`
+4. Save
+
+> **Important**: The client ID must be exactly `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`. The value is defined in `packages/shared/src/oauth.ts`.
+
+### 2. Configure RSA keys in PostHog
+
+OAuth token signing requires an RSA private key. In your PostHog repo:
+
+```bash
+# Copy the RSA key from .env.example to your .env
+grep OIDC_RSA_PRIVATE_KEY .env.example >> .env
+```
+
+Or generate a new one:
+
+```bash
+openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
+  awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}'
+
+# Add to your PostHog .env as OIDC_RSA_PRIVATE_KEY="<generated_key>"
+```
+
+## Run the app
+
+Already working in the posthog/posthog monorepo? Skip the clone: the app lives at `products/desktop`. Note it needs Node 22 (see `.node-version`), not the Node version the monorepo's flox environment provides, so switch with your version manager first.
+
+```bash
+cd products/desktop
+pnpm install
+cp .env.example .env
+pnpm dev
+```
+
+Starting fresh? Clone the monorepo. The standalone PostHog/code repo is archived and no longer receives changes.
+
+```bash
+git clone https://github.com/PostHog/posthog.git
+cd posthog/products/desktop
+pnpm install
+cp .env.example .env
+pnpm dev
+```
+
+## Test local code and skill changes together
+
+- `hogli start` with the Desktop intent uses local checkout skills and rebuilds them when you edit them. Select the intent once with `hogli dev:setup`.
+- `hogli desktop:dev` (or `pnpm dev` from `products/desktop`) uses production skills by default.
+
+To change the source, run from the repository root:
+
+```bash
+POSTHOG_DESKTOP_SKILLS=production hogli start
+POSTHOG_DESKTOP_SKILLS=local hogli desktop:dev
+```
+
+Local skills require `uv sync` and a running local backend with at least one project.
+Start a new agent session after skills rebuild.
+
+Local cloud tasks use the stack's setting with `SANDBOX_PROVIDER=docker`; `production` keeps the image's built-in skills.
+Each new sandbox gets its own skill copy. Skill edits do not change running tasks; build failures stop new tasks.
+
+## Connect
+
+1. Select **Local development** for `localhost:8010`, or select **Dev Cloud** for `app.dev.posthog.dev`.
+2. Desktop opens the selected PostHog host for OAuth authorization.
+3. Authorize the application and select the project/organization access level
+4. PostHog redirects to Desktop on its existing localhost callback port.
+
+## How it works
+
+The development build has two separate region values:
+
+- `dev` remains Local development at `http://localhost:8010` and uses its existing OAuth client ID.
+- `dev-cloud` connects to `https://app.dev.posthog.dev` and uses its dedicated OAuth client ID.
+
+Keeping both values preserves stored Local development sessions. Dev Cloud agent requests use `https://gateway.dev.posthog.dev`.
+
+## Custom cloud
+
+The **Custom** region points at any PostHog instance, for example a self-hosted deployment. The fields appear when you select it, and each one has an information icon.
+The region list holds **Custom** as its last entry in a development build, and in a test build from the **Desktop Build Test** workflow (the `desktop-build-installer` label on a PR).
+A release build does not show it, and a release build ignores a stored target.
+A packaged test build keeps its own user data, under `posthog-code-test`, so its sessions and settings stay apart from a release build on the same machine.
+
+1. On the instance, make an OAuth application. Open `https://<your-instance>/admin/posthog/oauthapplication/` as a staff user, click **Add OAuth application**, and set:
+   - **Name**: anything, for example `PostHog Desktop`.
+   - **Client type**: `Public`. The app uses PKCE, so it has no client secret.
+   - **Authorization grant type**: `Authorization code`. The form fixes this, with `RS256`.
+   - **Redirect URIs**: `posthog-code://callback` for a packaged build. Add `http://localhost:8237/callback` for a local development build, `posthog-code-dev://callback` for a packaged development build, and `posthog-code-test://callback` for a test build from the **Desktop Build Test** workflow.
+   - Token signing needs `OIDC_RSA_PRIVATE_KEY` on the instance. A deployment usually has it.
+2. Copy the client ID from the list page, then seed the scope ceiling on the instance:
+
+   ```bash
+   python manage.py seed_oauth_app_scopes --client-id <id> --scopes @default,llm_gateway:read
+   ```
+
+   An empty ceiling resolves to the unprivileged scopes, which exclude `llm_gateway:read`. The gateway refuses a token without it, so agent runs fail.
+3. On the sign-in screen, select **Custom** in the region list. It is the last entry, after **Local development**.
+4. Enter the URL of the instance and the client ID of the OAuth application. The URL must be an `https` origin, for example `https://posthog.example.com`, with no path, query, or fragment. Plain `http` is only accepted for a loopback host, because OAuth tokens cross this origin.
+5. Sign in. The app keeps the values, and applies them to sign-in, API requests, and agent runs.
+
+Agent runs need an LLM gateway that accepts a token from your instance, so give the **LLM gateway URL** field the address of a gateway that reads your instance's database (see `services/llm-gateway`).
+A PostHog Cloud gateway cannot serve a custom instance: it resolves a token against the Cloud database, and its `posthog_code` product refuses a personal API key.
+With the field empty, the app derives a gateway from the host, and for an unknown host that is the US gateway, which returns 403.
+
+The PostHog MCP server is absent for a custom instance, because `mcp.posthog.com` cannot read a token from your instance either. `POSTHOG_MCP_URL` names one that can.
+
+The `us`, `eu`, `dev`, and `dev-cloud` regions never read these values, and the instance URL field refuses their hosts.
+
+For a standalone headless harness run, the environment variables `POSTHOG_CUSTOM_CLOUD_URL`, `POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID`, and `POSTHOG_CUSTOM_CLOUD_GATEWAY_URL` hold the target, and `POSTHOG_REGION=custom` selects it. The URL and the client ID are both required. Without the region the harness stays on US, and with the region but an incomplete target it fails with a message that names the missing variables.
+
+## Dev console commands
+
+Open devtools in the dev build and type:
+
+- `__codeInboxDemo()` — show help
+- `__codeInboxDemo('seed')` — fill the inbox with fake data
+- `__codeInboxDemo('seed', 'artefacts-unavailable')` — fake data, artefacts-unavailable mode
+- `__codeInboxDemo('seed', 'empty')` — fake data, empty state
+- `__codeInboxDemo('clear')` — remove fake data, go back to real API
+
+Source: `apps/code/src/renderer/features/inbox/devtools/inboxDemoConsole.ts`.
+
+## Feature flags in local dev
+
+Feature flags are read through posthog-js, configured by the `VITE_POSTHOG_*`
+vars in `.env`. By default these point at PostHog's internal analytics instance,
+so flags you create locally never resolve in the dev build.
+
+To point the flags/analytics client at your local PostHog so locally-synced
+flags take effect:
+
+```bash
+# In your PostHog repo: create + enable frontend and Desktop flags locally
+python manage.py sync_feature_flags
+
+# In this repo: rewrite VITE_POSTHOG_* to your local instance, then restart dev
+node scripts/use-local-posthog.mjs
+pnpm dev
+```
+
+`node scripts/use-local-posthog.mjs` auto-reads the project API key from the
+surrounding monorepo checkout (or pass it:
+`node scripts/use-local-posthog.mjs phc_xxx`, or set `POSTHOG_DIR`). This
+only affects the analytics/flags client. The data API still uses the **Local development**
+choice you pick at login.
+
+The sync command reads the same flag-key manifest as the Desktop app. It adds
+missing flags without replacing local conditions or payloads on existing flags.
+
+> One-off override without changing `.env`: the dev build exposes the client on
+> `window.posthog`, so you can run
+> `posthog.featureFlags.override({ "mcp-gateway": true })` in the renderer
+> console (clear with `posthog.featureFlags.override(false)`).
+
+### Test first-run onboarding
+
+Users with `posthog-desktop-onboarding-test-tools` enabled see onboarding test
+tools in **Settings > Advanced**. A short wizard asks who is arriving and what
+is happening in the project, then opens the session it builds. A separate
+action resolves or creates the teaching canvas.
+
+Both run in your own `#me` space rather than `#general`, so repeat runs stay
+out of everyone else's way. They also revive a teaching canvas you deleted and
+republish the current tour, so deleting the canvas is how you reset it.
+
+Local development can enable the panel with the renderer override:
+
+```js
+posthog.featureFlags.override({ "posthog-desktop-onboarding-test-tools": true })
+```
+
+## Troubleshooting
+
+### Feature flags never enabled (flag-gated UI missing)
+
+If flag-gated surfaces (e.g. the MCP gateway behind `mcp-gateway`) never show up
+even though the flag is enabled in your PostHog project, check
+`VITE_POSTHOG_API_HOST` in `.env`: it must include the scheme
+(`http://localhost:8010`, not `localhost:8010`). posthog-js concatenates the
+host into request URLs verbatim, so a scheme-less value produces URLs like
+`localhost:8010/flags/…` that the browser rejects as an invalid protocol —
+every flag fetch fails silently and `isFeatureEnabled` returns `undefined` for
+everything (flags never loaded). Prefer `node scripts/use-local-posthog.mjs`
+over hand-editing; it writes the correct form.
+
+To confirm what the running app sees, run in the renderer console (or via CDP):
+
+```js
+posthog.config.api_host;                  // must start with http:// or https://
+posthog.isFeatureEnabled("mcp-gateway"); // undefined ⇒ flags never loaded
+```
+
+`.env` changes need a dev-server restart (`pnpm dev`) to take effect.
+
+### "Invalid client_id" error during OAuth
+
+The OAuth application in your local PostHog must have the client ID `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`. Verify at http://localhost:8010/admin/posthog/oauthapplication/.
+
+### "OAuth error: invalid_scope" or "Couldn't check Desktop access"
+
+PostHog Desktop requests an explicit scope list (`OAUTH_SCOPES` in `packages/shared/src/oauth.ts`),
+which includes the privileged scope `llm_gateway:read`.
+`/authorize` never rejects a request over scopes: it clamps the request to the application's
+scope ceiling (`OAuthApplication.scopes`) and grants whatever falls inside
+(`validate_scopes` in `posthog/api/oauth/views.py`).
+An empty ceiling falls back to the default unprivileged scopes, which exclude `llm_gateway:read`.
+So an app created manually (option B above) or by an older demo data generator signs in fine
+but issues a token without that scope.
+`GET /api/projects/:id/desktop/access/` requires it (`required_scopes` on the desktop access endpoint),
+so the request returns 403 and the app shows "Couldn't check Desktop access".
+On older PostHog checkouts the same misconfiguration failed sign-in with `invalid_scope` instead.
+Once the token has this scope, authenticated users are allowed through the access policy while
+Django runs with `DEBUG=True`; local development does not depend on production billing or flag services.
+(A current `generate_demo_data` seeds a ceiling that already covers the scope.)
+
+Fix: seed the ceiling with the defaults plus that one privileged scope,
+which matches how the production Desktop app is configured. In your PostHog repo:
+
+```bash
+python manage.py seed_oauth_app_scopes \
+  --client-id DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ \
+  --scopes '@default,llm_gateway:read'
+```
+
+Add `--clear-optional-scopes` if the command reports optional scopes. Then log
+out of the app and sign in again: an existing token keeps the scopes it was
+issued with. (Do not add `*` to the ceiling. It is not a valid ceiling entry.)
+
+### "Redirect URI mismatch"
+
+Make sure the OAuth application's redirect URIs include `http://localhost:8237/callback` and `http://localhost:8239/callback`. Check for trailing slashes.
+
+### OAuth authorization page fails to load
+
+Ensure your local PostHog instance is running at `http://localhost:8010` and that the RSA key is configured (see step 2).
+
+### Existing projects not showing up
+
+After connecting, the app will show projects from your local PostHog instance. If you need test data, run `python manage.py generate_demo_data` in your PostHog repo.
+
+### 431 error
+
+Clean up `localhost` cookies in your browser, as you probably accumulated too many/large cookies for the server to accept as the request headers.
+
+## Further reading
+
+- [PostHog OAuth Development Guide](https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/oauth-development-guide.md) — full OAuth spec, scopes, token introspection, and more

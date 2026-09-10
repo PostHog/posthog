@@ -1,16 +1,37 @@
+import time
 import uuid
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models.comment import Comment
+from posthog.rate_limit import WidgetTeamPollThrottle
 
-from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import ChannelDetail, Status
-from products.conversations.backend.services.identity import compute_identity_hash
+from products.conversations.backend.api.serializers import WidgetMessageSerializer, WidgetTicketsQuerySerializer
+from products.conversations.backend.models import SigningSecret, Ticket
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
+from products.conversations.backend.services.identity import (
+    IDENTITY_CLAIM_MAX_AGE_SECONDS,
+    compute_identity_claim_hash,
+    compute_identity_hash,
+)
+
+
+def _verification_counter(outcome: str, source: str) -> float:
+    # Process-global, so callers compare deltas rather than absolute values.
+    from prometheus_client import REGISTRY
+
+    return (
+        REGISTRY.get_sample_value("conversations_identity_verification_total", {"outcome": outcome, "source": source})
+        or 0.0
+    )
 
 
 class TestWidgetAPI(BaseTest):
@@ -70,6 +91,28 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(ticket.distinct_id, self.distinct_id)
         self.assertEqual(ticket.status, "new")
         self.assertEqual(ticket.unread_team_count, 1)
+
+    def test_exhausted_poll_throttle_does_not_block_send(self):
+        cache.clear()
+        tickets_url = f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}"
+        try:
+            with patch.object(WidgetTeamPollThrottle, "rate", "1/minute"):
+                self.assertEqual(self.client.get(tickets_url, **self._get_headers()).status_code, status.HTTP_200_OK)
+                self.assertEqual(
+                    self.client.get(tickets_url, **self._get_headers()).status_code, status.HTTP_429_TOO_MANY_REQUESTS
+                )
+                send = self.client.post(
+                    "/api/conversations/v1/widget/message",
+                    {
+                        "message": "Hello, I need help!",
+                        "widget_session_id": self.widget_session_id,
+                        "distinct_id": self.distinct_id,
+                    },
+                    **self._get_headers(),
+                )
+            self.assertEqual(send.status_code, status.HTTP_200_OK)
+        finally:
+            cache.clear()
 
     def test_create_ticket_channel_detail_widget_enabled(self):
         self.team.conversations_settings = {**self.team.conversations_settings, "widget_enabled": True}
@@ -542,6 +585,22 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_long_current_url_is_truncated_not_rejected(self):
+        long_url = "https://app.example.com/insights?q=" + "x" * 3000
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Hello",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "session_context": {"current_url": long_url},
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(ticket.session_context["current_url"], long_url[:2000])
+
 
 class TestWidgetCacheInvalidation(BaseTest):
     """Test that widget message creation invalidates unread count cache."""
@@ -614,6 +673,7 @@ class TestWidgetIdentityVerification(BaseTest):
         self.identity_hash = compute_identity_hash(self.distinct_id, self.secret)
         self.widget_session_id = str(uuid.uuid4())
 
+        cache.clear()
         self.client = APIClient()
 
     def _get_headers(self):
@@ -642,6 +702,95 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
+    @parameterized.expand(
+        [
+            # Post-cutover state: with the legacy column gone, the signing secret alone has
+            # to verify. Not reachable in production yet, so this locks in the end state.
+            ("signing_secret_only", True, False),
+            # A stale row (rotation sync missed) must fall back to the legacy token rather
+            # than locking the team out.
+            ("stale_signing_secret_falls_back_to_legacy", False, True),
+        ]
+    )
+    def test_list_tickets_verifies_against_signing_secret(self, _name, row_matches_hash, has_legacy_token):
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team,
+            secret=self.secret if row_matches_hash else "a_stale_secret",
+        )
+        self.team.secret_api_token = self.secret if has_legacy_token else None
+        self.team.save()
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
+    def test_list_tickets_post_backfill_reports_the_signing_secret_as_the_source(self):
+        # After the backfill both stores hold the same value, so the response is 200 either
+        # way and only the counter shows which one matched. Without this, reordering the
+        # candidates to put legacy first keeps the suite green while the drift metric —
+        # what gates dropping the plaintext column — silently reports legacy forever.
+        SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
+        self._create_ticket()
+        before_signing = _verification_counter("verified", "signing_secret")
+        before_legacy = _verification_counter("verified", "legacy_token")
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(_verification_counter("verified", "signing_secret") - before_signing, 1.0)
+        self.assertEqual(_verification_counter("verified", "legacy_token") - before_legacy, 0.0)
+
+    def test_list_tickets_non_hex_identity_hash_is_rejected_not_a_server_error(self):
+        # hmac.compare_digest raises TypeError on non-ASCII str, so a 64-character non-hex
+        # hash used to reach it and surface as a 500 on a publicly reachable endpoint.
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": "é" * 64,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_tickets_stale_signing_secret_cannot_resurrect_revoked_key(self):
+        # Rotating and then deleting the backup revokes the old key. If a rotation sync
+        # didn't land, the signing secret row still holds that key — accepting it would
+        # keep a revoked key signing identities indefinitely.
+        SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
+        self.team.secret_api_token = "rotated_new_secret"
+        self.team.secret_api_token_backup = None
+        self.team.save()
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_list_tickets_invalid_hash_returns_forbidden(self):
         self._create_ticket()
         response = self.client.get(
@@ -654,6 +803,43 @@ class TestWidgetIdentityVerification(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_list_tickets_without_secret_api_token_is_indistinguishable_from_bad_hash(self):
+        # The widget API is AllowAny, so the "no key configured" response must not reveal
+        # config state to anonymous callers — it stays identical to a signature mismatch.
+        self.team.secret_api_token = None
+        self.team.save()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["error"], "Forbidden")
+
+    def test_list_tickets_with_rotated_backup_token(self):
+        # A hash signed with the old secret keeps verifying after rotation moves it to backup.
+        old_secret = self.secret
+        old_hash = compute_identity_hash(self.distinct_id, old_secret)
+        self.team.secret_api_token = "rotated_new_secret"
+        self.team.secret_api_token_backup = old_secret
+        self.team.save()
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": old_hash,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
     def test_list_tickets_missing_identity_fields_uses_session(self):
         self._create_ticket()
         response = self.client.get(
@@ -663,6 +849,354 @@ class TestWidgetIdentityVerification(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
+
+    # --- Email claim bridge ---
+
+    def _email_claim(self, email, *, expires_at=None):
+        if expires_at is None:
+            expires_at = int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS
+        return {
+            "identity_email": email,
+            "identity_hash_email": compute_identity_claim_hash(
+                self.distinct_id,
+                "email",
+                email,
+                self.secret,
+                expires_at=expires_at,
+            ),
+            "identity_exp_email": expires_at,
+        }
+
+    def _create_email_ticket(
+        self,
+        email,
+        identity_verified,
+        *,
+        channel_source=Channel.SLACK,
+        zendesk_ticket_id=None,
+        unread_customer_count=0,
+    ):
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id=email,
+            channel_source=channel_source,
+            identity_verified=identity_verified,
+            zendesk_ticket_id=zendesk_ticket_id,
+            unread_customer_count=unread_customer_count,
+        )
+
+    def test_list_tickets_email_bridge_includes_verified_ticket(self):
+        email = "person@example.com"
+        self._create_email_ticket("Person@Example.com", identity_verified=True)
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash, **self._email_claim(email)},
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
+    def test_list_tickets_email_bridge_includes_imported_ticket(self):
+        email = "person@example.com"
+        self._create_email_ticket(
+            email,
+            identity_verified=None,
+            channel_source=Channel.EMAIL,
+            zendesk_ticket_id=123,
+        )
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash, **self._email_claim(email)},
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
+    def test_list_tickets_email_bridge_ignores_unknown_legacy_widget_ticket(self):
+        email = "person@example.com"
+        self._create_email_ticket(email, identity_verified=None, channel_source=Channel.WIDGET)
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash, **self._email_claim(email)},
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_list_tickets_email_bridge_ignores_unverified_ticket(self):
+        # identity_verified=False is attacker-controllable, so email must never bridge to it.
+        email = "person@example.com"
+        self._create_email_ticket(email, identity_verified=False)
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash, **self._email_claim(email)},
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_list_tickets_email_bridge_off_without_claim(self):
+        email = "person@example.com"
+        self._create_email_ticket(email, identity_verified=True)
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash},
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_list_tickets_tampered_email_claim_is_ignored(self):
+        email = "person@example.com"
+        self._create_email_ticket(email, identity_verified=True)
+        email_claim = self._email_claim(email)
+        email_claim["identity_hash_email"] = "0" * 64
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                **email_claim,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_list_tickets_expired_email_claim_is_ignored(self):
+        email = "person@example.com"
+        self._create_email_ticket(email, identity_verified=True)
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                **self._email_claim(email, expires_at=int(time.time()) - 1),
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_list_tickets_legacy_email_claim_without_expiry_is_ignored(self):
+        email = "person@example.com"
+        self._create_email_ticket(email, identity_verified=True)
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                "identity_email": email,
+                "identity_hash_email": "0" * 64,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_list_tickets_modified_email_claim_expiry_is_ignored(self):
+        email = "person@example.com"
+        self._create_email_ticket(email, identity_verified=True)
+        email_claim = self._email_claim(email)
+        email_claim["identity_exp_email"] += 1
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                **email_claim,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_list_tickets_email_claim_bound_to_other_distinct_id_is_ignored(self):
+        # A claim signed for a different base identity must not bridge under this viewer.
+        email = "person@example.com"
+        self._create_email_ticket(email, identity_verified=True)
+        email_claim = self._email_claim(email)
+        email_claim["identity_hash_email"] = compute_identity_claim_hash(
+            "someone_else",
+            "email",
+            email,
+            self.secret,
+            expires_at=email_claim["identity_exp_email"],
+        )
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                **email_claim,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_list_tickets_cache_does_not_leak_bridged_tickets_without_claim(self):
+        email = "person@example.com"
+        self._create_ticket()
+        self._create_email_ticket(email, identity_verified=True)
+
+        claimed_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash, **self._email_claim(email)},
+            **self._get_headers(),
+        )
+        unclaimed_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash},
+            **self._get_headers(),
+        )
+
+        self.assertEqual(claimed_response.json()["count"], 2)
+        self.assertEqual(unclaimed_response.json()["count"], 1)
+
+    def test_list_tickets_cache_does_not_hide_bridge_after_unclaimed_request(self):
+        email = "person@example.com"
+        self._create_ticket()
+        self._create_email_ticket(email, identity_verified=True)
+
+        unclaimed_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash},
+            **self._get_headers(),
+        )
+        claimed_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash, **self._email_claim(email)},
+            **self._get_headers(),
+        )
+
+        self.assertEqual(unclaimed_response.json()["count"], 1)
+        self.assertEqual(claimed_response.json()["count"], 2)
+
+    @parameterized.expand([("direct_identity", False), ("email_claim", True)])
+    def test_new_message_invalidates_identity_ticket_cache(self, _name, use_email_claim):
+        email = "person@example.com"
+        ticket = self._create_email_ticket(email, identity_verified=True) if use_email_claim else self._create_ticket()
+        query = {
+            "identity_distinct_id": self.distinct_id,
+            "identity_hash": self.identity_hash,
+        }
+        if use_email_claim:
+            query.update(self._email_claim(email))
+
+        initial_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            query,
+            **self._get_headers(),
+        )
+        self.assertEqual(initial_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(initial_response.json()["results"][0]["unread_count"], 0)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content="Agent reply",
+                created_by=self.user,
+                item_context={"author_type": "team", "is_private": False},
+            )
+
+        updated_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            query,
+            **self._get_headers(),
+        )
+        self.assertEqual(updated_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(updated_response.json()["results"][0]["unread_count"], 1)
+        self.assertEqual(updated_response.json()["results"][0]["last_message"], "Agent reply")
+
+    def test_get_messages_email_bridge_allows_verified_ticket(self):
+        email = "person@example.com"
+        ticket = self._create_email_ticket("Person@Example.com", identity_verified=True)
+        response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash, **self._email_claim(email)},
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_get_messages_email_bridge_denies_unverified_ticket(self):
+        email = "person@example.com"
+        ticket = self._create_email_ticket(email, identity_verified=False)
+        response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash, **self._email_claim(email)},
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_email_bridge_list_and_detail_reject_whitespace_padded_ticket_identity(self):
+        email = "person@example.com"
+        ticket = self._create_email_ticket(f" {email} ", identity_verified=True)
+
+        list_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash, **self._email_claim(email)},
+            **self._get_headers(),
+        )
+        detail_response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash, **self._email_claim(email)},
+            **self._get_headers(),
+        )
+
+        self.assertEqual(list_response.json()["count"], 0)
+        self.assertEqual(detail_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            ("zendesk", None, Channel.EMAIL, 123),
+            ("slack", True, Channel.SLACK, None),
+        ]
+    )
+    def test_send_message_to_bridged_ticket_preserves_channel_identity(
+        self, _name, identity_verified, channel_source, zendesk_ticket_id
+    ):
+        email = "person@example.com"
+        ticket = self._create_email_ticket(
+            email,
+            identity_verified=identity_verified,
+            channel_source=channel_source,
+            zendesk_ticket_id=zendesk_ticket_id,
+        )
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                **self._email_claim(email),
+                "message": "Follow-up",
+                "ticket_id": str(ticket.id),
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.distinct_id, email)
+        self.assertEqual(ticket.identity_verified, identity_verified)
+
+    def test_mark_read_email_bridge_allows_verified_ticket(self):
+        email = "person@example.com"
+        ticket = self._create_email_ticket(email, identity_verified=True, unread_customer_count=1)
+
+        response = self.client.post(
+            f"/api/conversations/v1/widget/messages/{ticket.id}/read",
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash, **self._email_claim(email)},
+            format="json",
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.unread_customer_count, 0)
 
     def test_cross_browser_same_tickets(self):
         other_session = str(uuid.uuid4())
@@ -838,18 +1372,32 @@ class TestWidgetIdentityVerification(BaseTest):
         ticket = self._create_ticket()
         ticket.unread_customer_count = 3
         ticket.save()
+        identity = {
+            "identity_distinct_id": self.distinct_id,
+            "identity_hash": self.identity_hash,
+        }
+
+        cached_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            identity,
+            **self._get_headers(),
+        )
+        self.assertEqual(cached_response.json()["results"][0]["unread_count"], 3)
 
         response = self.client.post(
             f"/api/conversations/v1/widget/messages/{ticket.id}/read",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": self.identity_hash,
-            },
+            identity,
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket.refresh_from_db()
         self.assertEqual(ticket.unread_customer_count, 0)
+        updated_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            identity,
+            **self._get_headers(),
+        )
+        self.assertEqual(updated_response.json()["results"][0]["unread_count"], 0)
 
     def test_mark_read_invalid_hash_no_session_returns_forbidden(self):
         ticket = self._create_ticket()
@@ -877,3 +1425,132 @@ class TestWidgetIdentityVerification(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestWidgetAuthSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "email_without_hash",
+                {
+                    "identity_distinct_id": "user_123",
+                    "identity_hash": "a" * 64,
+                    "identity_email": "person@example.com",
+                    "identity_exp_email": int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS,
+                },
+            ),
+            (
+                "hash_without_email",
+                {
+                    "identity_distinct_id": "user_123",
+                    "identity_hash": "a" * 64,
+                    "identity_hash_email": "b" * 64,
+                    "identity_exp_email": int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS,
+                },
+            ),
+            (
+                "claim_without_base_identity",
+                {
+                    "widget_session_id": str(uuid.uuid4()),
+                    "identity_email": "person@example.com",
+                    "identity_hash_email": "b" * 64,
+                    "identity_exp_email": int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS,
+                },
+            ),
+        ]
+    )
+    def test_email_claim_requires_complete_base_and_claim_triplet(self, _name, payload):
+        serializer = WidgetTicketsQuerySerializer(data=payload)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("non_field_errors", serializer.errors)
+
+    def test_legacy_email_claim_pair_is_accepted(self):
+        serializer = WidgetTicketsQuerySerializer(
+            data={
+                "identity_distinct_id": "user_123",
+                "identity_hash": "a" * 64,
+                "identity_email": "person@example.com",
+                "identity_hash_email": "b" * 64,
+            }
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+
+class TestWidgetContextSanitization(SimpleTestCase):
+    def _serializer(self, **overrides):
+        return WidgetMessageSerializer(
+            data={
+                "widget_session_id": str(uuid.uuid4()),
+                "distinct_id": "user-123",
+                "message": "Hello",
+                **overrides,
+            }
+        )
+
+    def _validated(self, **overrides):
+        serializer = self._serializer(**overrides)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        return serializer.validated_data
+
+    @parameterized.expand(
+        [
+            ("session_context", "current_url", 2000),
+            ("traits", "name", 500),
+        ]
+    )
+    def test_oversized_value_is_truncated(self, field, key, max_length):
+        value = "x" * (max_length + 500)
+
+        validated = self._validated(**{field: {key: value}})
+
+        self.assertEqual(validated[field][key], value[:max_length])
+
+    @parameterized.expand(
+        [
+            ("session_context", 20, 100),
+            ("traits", 50, 200),
+        ]
+    )
+    def test_long_keys_and_excess_entries_are_dropped(self, field, max_entries, max_key_length):
+        long_key = "k" * (max_key_length + 1)
+        payload = {long_key: "value", **{f"key_{i}": "value" for i in range(max_entries + 5)}}
+
+        validated = self._validated(**{field: payload})
+
+        self.assertNotIn(long_key, validated[field])
+        self.assertEqual(len(validated[field]), max_entries)
+
+    @parameterized.expand(
+        [
+            (
+                "session_context",
+                {"tab_index": 3, "is_replay": True, "referrer": None},
+                {"tab_index": 3, "is_replay": True, "referrer": None},
+            ),
+            (
+                "traits",
+                {"plan_seats": 3, "is_admin": True, "email": None},
+                {"plan_seats": "3", "is_admin": "True", "email": None},
+            ),
+        ]
+    )
+    def test_non_string_values_are_coerced_per_field(self, field, payload, expected):
+        validated = self._validated(**{field: payload})
+
+        self.assertEqual(validated[field], expected)
+
+    @parameterized.expand(
+        [
+            ("session_context", "not-a-dict"),
+            ("session_context", None),
+            ("traits", "not-a-dict"),
+            ("traits", None),
+        ]
+    )
+    def test_structurally_malformed_context_is_still_rejected(self, field, value):
+        serializer = self._serializer(**{field: value})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)

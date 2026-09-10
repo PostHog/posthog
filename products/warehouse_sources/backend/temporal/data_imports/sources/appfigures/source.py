@@ -10,6 +10,7 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.appfigures import (
+    PRODUCTS_PATH,
     AppfiguresResumeConfig,
     appfigures_source,
     check_credentials,
@@ -56,8 +57,10 @@ class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeC
 
 Create an API client and Personal Access Token at [appfigures.com/developers/keys](https://appfigures.com/developers/keys). When creating the client, grant the data sets you want to sync:
 - `products:read` — Products
-- `public:read` — Reviews
-- `private:read` — Sales and Revenue reports
+- `public:read` — Reviews, Ranks, Ratings report
+- `private:read` — Sales, Revenue, and Subscriptions reports
+
+Stores, Categories, and Countries are reference tables that need no data set granted.
 """,
             iconPath="/static/services/appfigures.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appfigures",
@@ -89,6 +92,9 @@ Create an API client and Personal Access Token at [appfigures.com/developers/key
         return {
             "401 Client Error: Unauthorized for url: https://api.appfigures.com": "Your Appfigures personal access token is invalid or expired. Create a new token in your Appfigures developer settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.appfigures.com": "Your Appfigures personal access token is missing the scope needed to sync this data. Grant the required data sets to your API client, then reconnect.",
+            # Appfigures returns this 403 (with a custom reason phrase, not "Forbidden") when the
+            # account no longer owns one or more products the request covers — no retry fixes that.
+            "Some given products are not owned by your account": "Your Appfigures account doesn't own one or more products this sync needs credits for. Check product ownership and available credits in Appfigures, then reconnect.",
         }
 
     def get_schemas(
@@ -127,9 +133,10 @@ Create an API client and Personal Access Token at [appfigures.com/developers/key
     ) -> tuple[bool, str | None]:
         # Probe the endpoint the requested schema actually hits (so per-table scope checks are
         # accurate), or the cheap products catalog at source-create.
-        path = "/products/mine"
+        path = PRODUCTS_PATH
         if schema_name and schema_name in APPFIGURES_ENDPOINTS:
-            path = APPFIGURES_ENDPOINTS[schema_name].path
+            endpoint_config = APPFIGURES_ENDPOINTS[schema_name]
+            path = endpoint_config.probe_path or endpoint_config.path
 
         status = check_credentials(config.personal_access_token, path)
         if status is None:

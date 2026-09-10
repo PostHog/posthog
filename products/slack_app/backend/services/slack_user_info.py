@@ -20,16 +20,18 @@ keeps `api.py` focused on routes.
 from datetime import timedelta
 from typing import Any
 
+from django.core.cache import cache
 from django.db.utils import DatabaseError
 from django.utils import timezone
 
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
 
 from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.slack_auth import (
+    SLACK_AUTH_STATE_CACHE_TTL_SECONDS,
     classify_slack_api_error,
     get_cached_auth_state,
     write_auth_state_broken,
@@ -210,6 +212,71 @@ def _purge_stale_email_rows(integration: Integration, normalized_email: str, kee
         logger.warning("slack_app_slack_user_cache_db_unavailable", integration_id=integration.id)
 
 
+def clear_workspace_profile_cache(slack_team_id: str) -> int:
+    """Delete every cached Slack profile for the workspace, returning the row count.
+
+    Called when the app is uninstalled, so a reinstall resolves users from fresh
+    ``users.info`` data instead of emails cached under the previous install.
+
+    A transient database failure is logged and swallowed (returning 0): raising would
+    500 the webhook, and since Slack retries are acked without reprocessing, the event
+    would be lost — along with the cross-region fan-out that follows the clear. Rows
+    that survive a failed clear age out via the cache TTL.
+    """
+    try:
+        deleted, _ = SlackUserProfileCache.objects.filter(
+            integration__kind__in=SLACK_INTEGRATION_KINDS, integration__integration_id=slack_team_id
+        ).delete()
+    except DatabaseError:
+        logger.warning("slack_app_uninstall_profile_cache_clear_failed", slack_team_id=slack_team_id, exc_info=True)
+        return 0
+    return deleted
+
+
+def _workspace_bot_user_cache_key(slack_team_id: str) -> str:
+    return f"slack_app:workspace_bot_user_id:{slack_team_id}"
+
+
+def get_cached_workspace_bot_user_id(slack_team_id: str) -> str | None:
+    """The workspace's bot user id, if some install resolved it recently. Cheap.
+
+    One Slack install serves every integration row a workspace has, in both regions, so
+    the id is workspace-level data. Written as a side effect of ``get_cached_bot_user_id``,
+    which is what lets a surface that has not loaded an integration yet (the reaction
+    router) reject a reaction on a non-bot message before its first database query. A miss
+    proves nothing: callers fall through to the integration-scoped path, which is also why
+    a cache outage degrades to that path rather than raising into a webhook.
+    """
+    try:
+        value = cache.get(_workspace_bot_user_cache_key(slack_team_id))
+    except Exception:
+        logger.warning("slack_app_workspace_bot_user_cache_read_failed", slack_team_id=slack_team_id)
+        return None
+    return value if isinstance(value, str) and value else None
+
+
+def cache_workspace_bot_user_id(slack_team_id: str, bot_user_id: str) -> None:
+    """Best-effort: this cache only saves work, so a write failure must not fail the
+    caller, which sits on the mention pipeline's hot path."""
+    try:
+        cache.set(_workspace_bot_user_cache_key(slack_team_id), bot_user_id, SLACK_AUTH_STATE_CACHE_TTL_SECONDS)
+    except Exception:
+        logger.warning("slack_app_workspace_bot_user_cache_write_failed", slack_team_id=slack_team_id)
+
+
+def invalidate_workspace_bot_user_id(slack_team_id: str) -> None:
+    """Drop the workspace-level bot id so the next resolution re-derives it.
+
+    Called on OAuth reconnect: a reinstall can mint a new bot user, and the reaction
+    router's author gate must not keep rejecting the new bot's replies against the old id
+    for the cache TTL.
+    """
+    try:
+        cache.delete(_workspace_bot_user_cache_key(slack_team_id))
+    except Exception:
+        logger.warning("slack_app_workspace_bot_user_cache_delete_failed", slack_team_id=slack_team_id)
+
+
 def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) -> str | None:
     """Return the bot's Slack user id for ``integration``, populating the
     shared auth-state cache as a side effect.
@@ -228,6 +295,8 @@ def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) ->
     cached = get_cached_auth_state(integration.id)
     if cached is not None:
         if cached.ok and cached.bot_user_id is not None:
+            if integration.integration_id:
+                cache_workspace_bot_user_id(integration.integration_id, cached.bot_user_id)
             return cached.bot_user_id
         if not cached.ok:
             return None
@@ -260,4 +329,6 @@ def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) ->
     if not isinstance(bot_user_id, str) or not bot_user_id:
         return None
     write_auth_state_ok(integration.id, bot_user_id)
+    if integration.integration_id:
+        cache_workspace_bot_user_id(integration.integration_id, bot_user_id)
     return bot_user_id

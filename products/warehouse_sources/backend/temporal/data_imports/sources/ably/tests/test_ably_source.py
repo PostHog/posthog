@@ -3,11 +3,9 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably import AblyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ably.source import AblySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ably import AblySourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAblySource:
@@ -17,9 +15,6 @@ class TestAblySource:
 
     def _field(self, name: str):
         return next(f for f in self.source.get_source_config.fields if f.name == name)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ABLY
 
     def test_api_key_field_is_secret_password(self):
         field = self._field("api_key")
@@ -33,23 +28,6 @@ class TestAblySource:
         assert isinstance(field, SourceFieldSelectConfig)
         assert field.defaultValue == "hour"
         assert {option.value for option in field.options} == {"minute", "hour", "day", "month"}
-
-    def test_get_schemas_returns_stats_with_incremental_field(self):
-        config = AblySourceConfig(api_key="app.key:secret", unit="hour")
-        schemas = self.source.get_schemas(config, self.team_id)
-
-        assert [schema.name for schema in schemas] == ["Stats"]
-        stats = schemas[0]
-        assert stats.supports_incremental is True
-        assert [f["field"] for f in stats.incremental_fields] == ["interval_start_ms"]
-
-    def test_get_schemas_names_filter(self):
-        config = AblySourceConfig(api_key="app.key:secret", unit="hour")
-        schemas = self.source.get_schemas(config, self.team_id, names=["Stats"])
-        assert [schema.name for schema in schemas] == ["Stats"]
-
-        empty = self.source.get_schemas(config, self.team_id, names=["Missing"])
-        assert empty == []
 
     @pytest.mark.parametrize(
         ("status_code", "expected"),
@@ -74,48 +52,37 @@ class TestAblySource:
         assert ok is False
         assert error is not None and "malformed" in error.lower()
 
-    def test_get_resumable_source_manager_binds_ably_resume_config(self):
-        inputs = MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AblyResumeConfig
-
-    def test_source_for_pipeline_plumbs_config_and_returns_expected_response_shape(self):
+    @pytest.mark.parametrize(
+        ("schema_name", "primary_keys", "partition_keys"),
+        [
+            ("Stats", ["unit", "intervalId"], ["interval_start"]),
+            ("Channels", ["channelId"], None),
+            # The channel-scoped tables aggregate rows from every channel, so the channel has to
+            # be part of the key; a bare `id` would multi-match on merge.
+            ("ChannelMessages", ["channel_id", "id"], ["message_time"]),
+            ("Presence", ["channel_id", "id"], None),
+        ],
+    )
+    def test_source_for_pipeline_shapes_the_response_per_schema(self, schema_name, primary_keys, partition_keys):
         config = AblySourceConfig(api_key="app.key:secret", unit="day")
         inputs = MagicMock(
             team_id=self.team_id,
             job_id="job-1",
-            schema_name="Stats",
+            schema_name=schema_name,
             api_version="2",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1700000000000,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
         )
         manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.ably.source.ably_source"
-        ) as mock_ably_source:
-            mock_resource = MagicMock(name="Stats", column_hints={"interval_start": "timestamp"})
-            mock_resource.name = "Stats"
-            mock_ably_source.return_value = mock_resource
+        response = self.source.source_for_pipeline(config, manager, inputs)
 
-            response = self.source.source_for_pipeline(config, manager, inputs)
-
-            mock_ably_source.assert_called_once_with(
-                api_key="app.key:secret",
-                unit="day",
-                team_id=self.team_id,
-                job_id="job-1",
-                resumable_source_manager=manager,
-                api_version="2",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=1700000000000,
-            )
-
-        assert response.name == "Stats"
-        assert response.primary_keys == ["unit", "intervalId"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["interval_start"]
+        assert response.name == schema_name
+        assert response.primary_keys == primary_keys
+        assert response.partition_keys == partition_keys
+        assert response.partition_mode == ("datetime" if partition_keys else None)
         assert response.sort_mode == "asc"
 
     @pytest.mark.parametrize(

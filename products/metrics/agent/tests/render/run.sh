@@ -8,13 +8,16 @@ cd "$(dirname "$0")"
 AGENT_DIR=$(cd ../.. && pwd)
 PASS=0
 FAIL=0
+UPDATE=0
+[ "${1:-}" = "--update-golden" ] && UPDATE=1
 
 new_case_dir() {
     CASE_DIR=$(mktemp -d)
     cp "$AGENT_DIR/config/config.yaml.tmpl" "$CASE_DIR/"
 }
 
-# run_render <name> [VAR=value ...] — renders and diffs against golden/<name>.yaml
+# run_render <name> [VAR=value ...] — renders and diffs against golden/<name>.yaml.
+# Pass --update-golden as the first script arg to overwrite goldens instead.
 run_render() {
     name=$1
     shift
@@ -25,6 +28,11 @@ run_render() {
         echo "FAIL $name: entrypoint exited non-zero"
         cat "$err"
         FAIL=$((FAIL + 1))
+        return
+    fi
+    if [ "$UPDATE" = "1" ]; then
+        cp "$out" "golden/$name.yaml"
+        echo "updated golden/$name.yaml"
         return
     fi
     if diff -u "golden/$name.yaml" "$out"; then
@@ -61,6 +69,21 @@ expect_failure() {
 new_case_dir
 run_render minimal POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090
 
+# Every render exposes the collector's own metrics on :8888 for self-monitoring.
+if [ "$UPDATE" != "1" ]; then
+    new_case_dir
+    tele=$(env -i PATH="$PATH" CONFIG_DIR="$CASE_DIR" RENDER_ONLY=1 \
+        POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 \
+        sh "$AGENT_DIR/entrypoint.sh" 2>/dev/null | grep -c 'port: 8888')
+    if [ "$tele" -ge 1 ]; then
+        echo "PASS self-telemetry-port"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL self-telemetry-port: rendered config does not expose :8888"
+        FAIL=$((FAIL + 1))
+    fi
+fi
+
 # Comma-separated targets with stray whitespace and an empty entry get trimmed.
 new_case_dir
 run_render multi POSTHOG_API_KEY=phc_test SCRAPE_TARGETS='app:9090, worker:9091 ,,db-exporter:9187'
@@ -71,6 +94,27 @@ run_render debug POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 POSTHOG_DEBUG=
 # Single quotes in a target are doubled so the rendered YAML stays valid.
 new_case_dir
 run_render quoted-target POSTHOG_API_KEY=phc_test "SCRAPE_TARGETS=app's-host:9090"
+
+# PERSIST_QUEUE backs the export queue with disk so a restart during a
+# PostHog outage loses nothing.
+new_case_dir
+run_render persist-queue POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 PERSIST_QUEUE=1
+
+# Sharding: SHARD_COUNT/SHARD_INDEX partition targets via hashmod so N agents
+# split the target set with no coordination, no duplicates, and no gaps.
+new_case_dir
+run_render sharded POSTHOG_API_KEY=phc_test SCRAPE_TARGETS='app:9090, worker:9091' SHARD_COUNT=4 SHARD_INDEX=2
+
+# The shard index falls back to the trailing ordinal of the hostname
+# (StatefulSet pods are named <name>-<ordinal>).
+new_case_dir
+run_render sharded-hostname POSTHOG_API_KEY=phc_test SCRAPE_TARGETS='app:9090, worker:9091' SHARD_COUNT=4 HOSTNAME=posthog-metrics-agent-3
+
+new_case_dir
+expect_failure shard-index-out-of-range 'SHARD_INDEX must be less than SHARD_COUNT' POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 SHARD_COUNT=2 SHARD_INDEX=2
+
+new_case_dir
+expect_failure shard-index-underivable 'SHARD_INDEX' POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 SHARD_COUNT=2 HOSTNAME=nodigits
 
 # A mounted scrape_configs.yaml replaces the env-generated job verbatim
 # (re-indented under the receiver), and SCRAPE_TARGETS is not required.
@@ -88,6 +132,61 @@ run_render mounted-scrape-configs POSTHOG_API_KEY=phc_test
 new_case_dir
 cp golden/full-override.yaml "$CASE_DIR/config.yaml"
 run_render full-override
+
+# Google Cloud Monitoring: GCP_PROJECT_ID enables a googlecloudmonitoring
+# receiver alongside (or instead of) the prometheus scrape.
+new_case_dir
+run_render gcp-only POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project \
+    GCP_METRICS='compute.googleapis.com/instance/cpu/utilization, compute.googleapis.com/instance/cpu/usage_time'
+
+new_case_dir
+run_render gcp-plus-scrape POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 GCP_PROJECT_ID=my-project \
+    GCP_METRICS='compute.googleapis.com/instance/cpu/utilization, compute.googleapis.com/instance/cpu/usage_time'
+
+# Filters can contain commas, so GCP_METRIC_FILTERS splits on semicolons.
+new_case_dir
+run_render gcp-filter POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project \
+    GCP_METRIC_FILTERS='metric.type = starts_with("compute.googleapis.com/") ; resource.type = "gce_instance"'
+
+# A mounted gcp_metrics_list.yaml is spliced as the receiver's metrics_list.
+new_case_dir
+cat >"$CASE_DIR/gcp_metrics_list.yaml" <<'EOF'
+- metric_name: 'compute.googleapis.com/instance/cpu/utilization'
+- metric_descriptor_filter: 'metric.type = starts_with("run.googleapis.com/")'
+EOF
+run_render gcp-mounted-metrics-list POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project
+
+new_case_dir
+run_render gcp-service-name POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project \
+    GCP_METRICS='compute.googleapis.com/instance/cpu/utilization' GCP_SERVICE_NAME=gcp-prod
+
+# A mounted but empty gcp_metrics_list.yaml yields no metrics_list entries and
+# must be rejected like a missing GCP_METRICS, not rendered into a bad config.
+new_case_dir
+: >"$CASE_DIR/gcp_metrics_list.yaml"
+expect_failure gcp-mounted-metrics-list-empty GCP_METRICS POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project
+
+new_case_dir
+expect_failure gcp-missing-metrics GCP_METRICS POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project
+
+new_case_dir
+expect_failure gcp-empty-metrics GCP_METRICS POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project GCP_METRICS=' , '
+
+new_case_dir
+expect_failure gcp-metrics-without-project GCP_PROJECT_ID POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 \
+    GCP_METRICS=compute.googleapis.com/instance/cpu/utilization
+
+# Every shard would pull the same Cloud Monitoring series, so GCP sources
+# are rejected on a sharded agent; run a separate single-instance agent.
+new_case_dir
+expect_failure gcp-sharded-rejected SHARD_COUNT POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 \
+    GCP_PROJECT_ID=my-project GCP_METRICS=x SHARD_COUNT=2 SHARD_INDEX=0
+
+# A credentials file the collector user cannot read fails at startup with a
+# Google auth error; the entrypoint turns it into a one-line error instead.
+new_case_dir
+expect_failure gcp-credentials-file-missing GOOGLE_APPLICATION_CREDENTIALS POSTHOG_API_KEY=phc_test \
+    GCP_PROJECT_ID=my-project GCP_METRICS=x GOOGLE_APPLICATION_CREDENTIALS="$CASE_DIR/missing.json"
 
 new_case_dir
 expect_failure missing-api-key POSTHOG_API_KEY SCRAPE_TARGETS=app:9090

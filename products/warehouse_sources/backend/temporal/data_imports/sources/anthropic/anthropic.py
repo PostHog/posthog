@@ -1,13 +1,22 @@
 import hashlib
-import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import Any, Optional
 
 from requests import Request, Response
+from requests.exceptions import HTTPError
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
+    ANALYTICS_DATA_FLOOR,
+    ANALYTICS_PATH_PREFIX,
     ANTHROPIC_ENDPOINTS,
+    ENDPOINT_RETIRED_ERROR,
+    USAGE_GROUP_BY_FALLBACKS,
+    AnalyticsWindowKind,
+    AnthropicEndpointConfig,
     PaginationType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -30,6 +39,18 @@ ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 ANTHROPIC_VERSION = "2023-06-01"
 # Entity list endpoints allow up to 1000 per page.
 ENTITY_PAGE_SIZE = 1000
+# Attempts per request for the entity list endpoints (users, workspaces, api_keys, ...). They are
+# not organization-rate-limited, so a modest budget above the client default is enough to ride out
+# a transient blip without letting a genuinely broken endpoint retry for long.
+MAX_RETRY_ATTEMPTS = 8
+# The usage/cost/analytics report endpoints share one organization-level rate limit on Anthropic's
+# Admin API, which answers 429 with no `Retry-After`. The `anthropic-ratelimit-requests-reset`
+# instant is often already stale when we read it, so the client falls back to exponential backoff.
+# A per-minute limit needs a budget that outlasts the window, so give the report endpoints more
+# attempts and a higher backoff ceiling than the entity lists — each wait still stays capped, so a
+# sync never stalls indefinitely.
+REPORT_MAX_RETRY_ATTEMPTS = 12
+REPORT_RETRY_BACKOFF_MAX_SECONDS = 300.0
 # Floor for the required `starting_at` on a full refresh. Anthropic launched in 2023, so no usage or
 # cost data can predate this — starting here rather than the epoch avoids requesting decades of empty
 # buckets while still pulling all available history.
@@ -38,9 +59,16 @@ DEFAULT_STARTING_AT = datetime(2023, 1, 1, tzinfo=UTC)
 # day per request). Claude Code became available in 2025, so earlier days only return empty pages —
 # starting here avoids fanning out over hundreds of pre-launch days on a full refresh.
 DEFAULT_CLAUDE_CODE_START = date(2025, 1, 1)
+# Shown against the Claude Enterprise Analytics tables in the schema picker when the configured key
+# cannot reach them, so the customer deselects those tables instead of watching them fail to sync.
+ANALYTICS_ACCESS_MISSING = (
+    "This table comes from the Claude Enterprise Analytics API, which this key can't reach. It needs "
+    "a Claude Enterprise key with the read:analytics scope, created in claude.ai organization "
+    "settings by your primary owner."
+)
 
 
-@dataclasses.dataclass
+@frozen
 class AnthropicResumeConfig:
     # Opaque pagination cursor: an `after_id` for CURSOR endpoints or a `next_page` token for PAGE
     # endpoints. None means "start at the first page".
@@ -54,6 +82,11 @@ class AnthropicResumeConfig:
     fanout_state: dict | None = None
     # Claude Code day fan-out checkpoint: {"date": "YYYY-MM-DD", "cursor": next_page | None}.
     day_fanout_state: dict | None = None
+    # Claude Enterprise Analytics day fan-out checkpoint: {"start": "YYYY-MM-DD"}, the first day not
+    # yet fully yielded. The within-day page cursor is deliberately not saved: it is bound to the
+    # query that minted it and expires when the underlying export refreshes, so replaying a whole
+    # day costs one extra request set and can never hand the API a cursor it has since rejected.
+    analytics_window_state: dict | None = None
 
 
 class AnthropicCursorPaginator(BasePaginator):
@@ -90,7 +123,11 @@ class AnthropicCursorPaginator(BasePaginator):
             self._has_next_page = False
             return
         token = body.get(self.cursor_path)
-        if body.get("has_more") and token:
+        # `/organizations/analytics/users` omits `has_more` and marks its last page with a null
+        # `next_page`. Every other endpoint sends both, and there `has_more` stays authoritative
+        # because the entity lists echo `last_id` on the final page too.
+        has_more = body.get("has_more", token is not None)
+        if has_more and token:
             self._cursor_value = token
             self._has_next_page = True
         else:
@@ -210,6 +247,26 @@ def validate_credentials(api_key: str) -> bool:
     return ok
 
 
+def check_analytics_access(api_key: str) -> Optional[str]:
+    """Report whether the configured key can read the Claude Enterprise Analytics API.
+
+    Returns None when it can, or the reason to show against the tables that need it. Only a real
+    denial counts as missing access: a throttle, a server error, or a network failure leaves those
+    tables reported as reachable, so a blip during schema discovery never hides a table the customer
+    can sync. A 401 is left to `validate_credentials`, which reports a bad key for the whole source.
+    """
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{ANTHROPIC_BASE_URL}{ANALYTICS_PATH_PREFIX}users?limit=1",
+        headers={"x-api-key": api_key, **_version_headers()},
+    )
+    # 404 as well as 403: an organization that is not on a Claude Enterprise plan does not serve
+    # these routes at all.
+    if status in (403, 404):
+        return ANALYTICS_ACCESS_MISSING
+    return None
+
+
 def _flatten_created_by(item: dict[str, Any]) -> dict[str, Any]:
     """api_keys carry a nested `created_by: {id, type}`; surface it as flat columns."""
     created_by = item.get("created_by")
@@ -314,12 +371,9 @@ def _parse_iso_date(value: str) -> date:
     return date.fromisoformat(value.strip()[:10])
 
 
-def _claude_code_start_day(db_incremental_field_last_value: Any) -> date:
-    """Resolve the first day to request: the incremental watermark (already shifted back by the
-    pipeline's lookback) on an incremental run, else the Claude Code launch-era floor."""
-    value = db_incremental_field_last_value
-    if value is None:
-        return DEFAULT_CLAUDE_CODE_START
+def _as_date(value: Any) -> date:
+    """Resolve an incremental watermark to the UTC calendar day it falls in."""
+    # datetime subclasses date, so it has to be tested first.
     if isinstance(value, datetime):
         return (value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)).date()
     if isinstance(value, date):
@@ -327,25 +381,42 @@ def _claude_code_start_day(db_incremental_field_last_value: Any) -> date:
     return _parse_iso_date(str(value))
 
 
-def _claude_code_actor_dims(item: dict[str, Any]) -> tuple[Any, str | None, str | None, str | None, str | None]:
+def _claude_code_start_day(db_incremental_field_last_value: Any) -> date:
+    """Resolve the first day to request: the incremental watermark (already shifted back by the
+    pipeline's lookback) on an incremental run, else the Claude Code launch-era floor."""
+    if db_incremental_field_last_value is None:
+        return DEFAULT_CLAUDE_CODE_START
+    return _as_date(db_incremental_field_last_value)
+
+
+@frozen
+class ClaudeCodeActor:
+    date: Any
+    actor_type: str | None
+    email: str | None
+    api_key_name: str | None
+    terminal_type: str | None
+
+
+def _claude_code_actor_dims(item: dict[str, Any]) -> ClaudeCodeActor:
     """Pull the shared (date, actor, terminal) dimensions every Claude Code row carries.
 
     `actor` is either a user (`email_address`) or an API actor (`api_key_name`); surface both as flat
     columns so the grain is queryable without unpacking a nested object.
     """
     actor = item.get("actor") or {}
-    return (
-        item.get("date"),
-        actor.get("type"),
-        actor.get("email_address"),
-        actor.get("api_key_name"),
-        item.get("terminal_type"),
+    return ClaudeCodeActor(
+        date=item.get("date"),
+        actor_type=actor.get("type"),
+        email=actor.get("email_address"),
+        api_key_name=actor.get("api_key_name"),
+        terminal_type=item.get("terminal_type"),
     )
 
 
 def _flatten_claude_code_core(item: dict[str, Any]) -> dict[str, Any]:
     """One row per (day, actor): Claude Code core productivity metrics and tool-action counts."""
-    date_value, actor_type, actor_email, actor_api_key_name, terminal_type = _claude_code_actor_dims(item)
+    dims = _claude_code_actor_dims(item)
     core = item.get("core_metrics") or {}
     lines_of_code = core.get("lines_of_code") or {}
     tool_actions = item.get("tool_actions") or {}
@@ -360,14 +431,14 @@ def _flatten_claude_code_core(item: dict[str, Any]) -> dict[str, Any]:
     notebook_edit_accepted, notebook_edit_rejected = _tool("notebook_edit_tool")
 
     return {
-        "id": _row_id(date_value, actor_type, actor_email, actor_api_key_name, terminal_type),
-        "date": date_value,
+        "id": _row_id(dims.date, dims.actor_type, dims.email, dims.api_key_name, dims.terminal_type),
+        "date": dims.date,
         "organization_id": item.get("organization_id"),
-        "actor_type": actor_type,
-        "actor_email_address": actor_email,
-        "actor_api_key_name": actor_api_key_name,
+        "actor_type": dims.actor_type,
+        "actor_email_address": dims.email,
+        "actor_api_key_name": dims.api_key_name,
         "customer_type": item.get("customer_type"),
-        "terminal_type": terminal_type,
+        "terminal_type": dims.terminal_type,
         "num_sessions": core.get("num_sessions"),
         "lines_of_code_added": lines_of_code.get("added"),
         "lines_of_code_removed": lines_of_code.get("removed"),
@@ -391,7 +462,7 @@ def _flatten_claude_code_models(item: dict[str, Any]) -> list[dict[str, Any]]:
     and commits (per day) — keeping them in one table would either duplicate the core metrics across a
     day's models or bury the per-model cost in a nested column.
     """
-    date_value, actor_type, actor_email, actor_api_key_name, terminal_type = _claude_code_actor_dims(item)
+    dims = _claude_code_actor_dims(item)
     rows: list[dict[str, Any]] = []
     for entry in item.get("model_breakdown") or []:
         model = entry.get("model")
@@ -399,14 +470,14 @@ def _flatten_claude_code_models(item: dict[str, Any]) -> list[dict[str, Any]]:
         estimated_cost = entry.get("estimated_cost") or {}
         rows.append(
             {
-                "id": _row_id(date_value, actor_type, actor_email, actor_api_key_name, terminal_type, model),
-                "date": date_value,
+                "id": _row_id(dims.date, dims.actor_type, dims.email, dims.api_key_name, dims.terminal_type, model),
+                "date": dims.date,
                 "organization_id": item.get("organization_id"),
-                "actor_type": actor_type,
-                "actor_email_address": actor_email,
-                "actor_api_key_name": actor_api_key_name,
+                "actor_type": dims.actor_type,
+                "actor_email_address": dims.email,
+                "actor_api_key_name": dims.api_key_name,
                 "customer_type": item.get("customer_type"),
-                "terminal_type": terminal_type,
+                "terminal_type": dims.terminal_type,
                 "model": model,
                 "input_tokens": tokens.get("input"),
                 "output_tokens": tokens.get("output"),
@@ -417,6 +488,170 @@ def _flatten_claude_code_models(item: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+@frozen
+class AnalyticsWindow:
+    start: date
+    # Exclusive end of the requested range. None for an endpoint that takes a single `date` instead.
+    end: Optional[date] = None
+
+
+def _analytics_windows(
+    config: AnthropicEndpointConfig,
+    db_incremental_field_last_value: Optional[Any],
+    today: date,
+    resume_from: Optional[date] = None,
+) -> list[AnalyticsWindow]:
+    """Resolve the UTC days to request, oldest first.
+
+    A full refresh starts at the oldest day the endpoint serves; an incremental run starts at the
+    watermark (already shifted back by the pipeline's lookback), and a resumed run at its checkpoint.
+    A start past the newest available day is clamped onto that day, so a run always re-pulls the most
+    recent day rather than requesting a day the endpoint would reject.
+    """
+    floor = ANALYTICS_DATA_FLOOR
+    if config.analytics_max_history_days is not None:
+        floor = max(floor, today - timedelta(days=config.analytics_max_history_days))
+    start = floor
+    if db_incremental_field_last_value is not None:
+        start = max(start, _as_date(db_incremental_field_last_value))
+    if resume_from is not None:
+        start = max(start, resume_from)
+
+    last_day = today - timedelta(days=config.analytics_lag_days)
+    day = min(start, last_day)
+    windows: list[AnalyticsWindow] = []
+    while day <= last_day:
+        if config.analytics_window == AnalyticsWindowKind.DATE:
+            windows.append(AnalyticsWindow(start=day))
+        else:
+            windows.append(AnalyticsWindow(start=day, end=day + timedelta(days=1)))
+        day = day + timedelta(days=1)
+    return windows
+
+
+def _analytics_resume_day(resume: Optional[AnthropicResumeConfig]) -> Optional[date]:
+    saved = resume.analytics_window_state if resume is not None else None
+    start = saved.get("start") if isinstance(saved, dict) else None
+    return _parse_iso_date(str(start)) if start else None
+
+
+def _analytics_params(config: AnthropicEndpointConfig, window: AnalyticsWindow) -> dict[str, Any]:
+    params: dict[str, Any] = {"limit": config.limit}
+    if window.end is None:
+        params["date"] = window.start.isoformat()
+        return params
+    params["starting_at"] = _format_rfc3339(window.start)
+    params["ending_at"] = _format_rfc3339(window.end)
+    params["bucket_width"] = config.bucket_width
+    return params
+
+
+def _iter_analytics_windows(
+    build_resource: Callable[[AnalyticsWindow], Any],
+    windows: list[AnalyticsWindow],
+    save_checkpoint: Callable[[date], None],
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield every day's pages in ascending day order, checkpointing once a day is fully yielded.
+
+    The checkpoint names the first day not yet yielded, so a restart replays at most the day that was
+    in progress and merge dedupes it on the synthesized `id`.
+    """
+    for index, window in enumerate(windows):
+        yield from build_resource(window)
+        if index + 1 < len(windows):
+            save_checkpoint(windows[index + 1].start)
+
+
+def _flatten_metrics(prefix: str, value: dict[str, Any], row: dict[str, Any]) -> None:
+    """Flatten a nested metric object into `prefix_key` columns, one segment per nesting level.
+
+    Anthropic adds per-product metric blocks to the activity record as it ships products, so
+    flattening whatever the response carries picks up a new product's metrics with no change here.
+    """
+    for key, item in value.items():
+        name = f"{prefix}_{key}" if prefix else key
+        if isinstance(item, dict):
+            _flatten_metrics(name, item, row)
+        else:
+            row[name] = item
+
+
+def _flatten_analytics_user_activity(day: date, item: dict[str, Any]) -> dict[str, Any]:
+    """One row per (day, user): every per-product engagement metric the activity record carries."""
+    user = item.get("user") or {}
+    row: dict[str, Any] = {
+        # The record carries no day of its own, so stamp the day the request asked for.
+        "date": _format_rfc3339(day),
+        "user_id": user.get("id"),
+        "user_email_address": user.get("email_address"),
+    }
+    for key, value in item.items():
+        if key == "user":
+            continue
+        if isinstance(value, dict):
+            # `chat_metrics` becomes `chat_message_count`, `office_metrics.excel` becomes
+            # `office_excel_message_count`, and so on.
+            _flatten_metrics(key.removesuffix("_metrics"), value, row)
+        else:
+            row[key] = value
+    row["id"] = _row_id(row["date"], row["user_id"])
+    return row
+
+
+def _analytics_actor_columns(item: dict[str, Any]) -> dict[str, Any]:
+    """Surface the seat user a per-user report row is attributed to as flat columns."""
+    actor = item.get("actor") or {}
+    return {
+        "user_id": actor.get("user_id"),
+        "user_email": actor.get("email"),
+        "user_name": actor.get("name"),
+        "user_deleted": actor.get("deleted"),
+    }
+
+
+# The per-user report requests carry no `group_by`, so the dimension fields Anthropic populates only
+# for a grouped query (model, product, cost_type, token_type, context_window, inference_geo, speed,
+# rbac_group_id, and the Claude Tag and Slack fields) are null on every row and are left out below.
+def _flatten_analytics_user_cost(item: dict[str, Any]) -> dict[str, Any]:
+    """One row per (day, user): cost attributed to that seat user for that day."""
+    starting_at = item.get("starting_at")
+    actor = _analytics_actor_columns(item)
+    return {
+        "id": _row_id(starting_at, actor["user_id"]),
+        "starting_at": starting_at,
+        "ending_at": item.get("ending_at"),
+        **actor,
+        # Fractional cents as a decimal string, kept as the API sends it. The values can run past
+        # what binary floating point represents exactly, so converting them belongs in a query.
+        "amount": item.get("amount"),
+        "list_amount": item.get("list_amount"),
+        "currency": item.get("currency"),
+        "requests": item.get("requests"),
+    }
+
+
+def _flatten_analytics_user_usage(item: dict[str, Any]) -> dict[str, Any]:
+    """One row per (day, user): token usage attributed to that seat user for that day."""
+    starting_at = item.get("starting_at")
+    actor = _analytics_actor_columns(item)
+    cache_creation = item.get("cache_creation") or {}
+    server_tool_use = item.get("server_tool_use") or {}
+    return {
+        "id": _row_id(starting_at, actor["user_id"]),
+        "starting_at": starting_at,
+        "ending_at": item.get("ending_at"),
+        **actor,
+        "uncached_input_tokens": item.get("uncached_input_tokens"),
+        "cache_read_input_tokens": item.get("cache_read_input_tokens"),
+        "cache_creation_ephemeral_1h_input_tokens": cache_creation.get("ephemeral_1h_input_tokens"),
+        "cache_creation_ephemeral_5m_input_tokens": cache_creation.get("ephemeral_5m_input_tokens"),
+        "output_tokens": item.get("output_tokens"),
+        "total_tokens": item.get("total_tokens"),
+        "requests": item.get("requests"),
+        "web_search_requests": server_tool_use.get("web_search_requests"),
+    }
 
 
 def _stamp_workspace_id(row: dict[str, Any]) -> dict[str, Any]:
@@ -431,6 +666,39 @@ def _entity_paginator() -> AnthropicCursorPaginator:
     return AnthropicCursorPaginator(cursor_path="last_id", cursor_param="after_id")
 
 
+def _is_bad_request(exc: HTTPError) -> bool:
+    return exc.response is not None and exc.response.status_code == 400
+
+
+def _iter_narrowing_group_by(
+    build_resource: Callable[[list[str], Optional[dict[str, Any]]], Any],
+    group_by_fallbacks: list[list[str]],
+    initial_paginator_state: Optional[dict[str, Any]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield the endpoint's pages, retrying with a narrower `group_by` when the API rejects the query.
+
+    The usage report answers 400 for a query that groups more finely than it will serve, which fails
+    the whole sync rather than returning coarser rows. Each fallback is tried in turn until one is
+    accepted, so the sync lands on the finest breakdown that org's report serves.
+
+    Narrowing happens only while no page has been yielded yet: once rows are out, re-running at a
+    coarser grain would re-emit the same buckets under different synthesized ids. A narrowed query
+    also starts from its own first page, since a resume cursor minted by the wider query no longer
+    addresses anything.
+    """
+    for index, group_by in enumerate(group_by_fallbacks):
+        resume_state = initial_paginator_state if index == 0 else None
+        yielded = False
+        try:
+            for page in build_resource(group_by, resume_state):
+                yielded = True
+                yield page
+            return
+        except HTTPError as exc:
+            if yielded or index == len(group_by_fallbacks) - 1 or not _is_bad_request(exc):
+                raise
+
+
 def anthropic_source(
     api_key: str,
     endpoint: str,
@@ -439,17 +707,85 @@ def anthropic_source(
     resumable_source_manager: ResumableSourceManager[AnthropicResumeConfig],
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    config = ANTHROPIC_ENDPOINTS[endpoint]
+    config = ANTHROPIC_ENDPOINTS.get(endpoint)
+    if config is None:
+        # A schema row outlives the catalog entry it was discovered from when an endpoint is
+        # dropped. Raise the message `get_non_retryable_errors` keys on, so the run disables the
+        # schema and pauses its schedule instead of retrying a KeyError forever.
+        raise ValueError(f"{ENDPOINT_RETIRED_ERROR}: {endpoint}")
+    # Set only where the rows come from something other than iterating `resource` once.
+    items: Optional[Callable[[], Iterator[list[dict[str, Any]]]]] = None
 
+    # The report endpoints page the rate-limited Admin API; the entity lists do not. Give the reports
+    # a wider retry budget so it can outlast the organization rate-limit window.
+    is_report_endpoint = config.pagination == PaginationType.PAGE
     client_config: ClientConfig = {
         "base_url": ANTHROPIC_BASE_URL,
         "headers": _version_headers(),
         "auth": _auth_config(api_key),
+        "max_retries": REPORT_MAX_RETRY_ATTEMPTS if is_report_endpoint else MAX_RETRY_ATTEMPTS,
     }
+    if is_report_endpoint:
+        client_config["retry_backoff_max_seconds"] = REPORT_RETRY_BACKOFF_MAX_SECONDS
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if config.fan_out_over_days:
+    if config.analytics_window is not None:
+        # Claude Enterprise Analytics: one request per UTC day, each day its own resource so the
+        # requested day is available to the row mapper. One day per request is also what keeps the
+        # rows ascending by day: within a wider range the per-user reports rank rows by spend rather
+        # than by time, which the pipeline's `sort_mode="asc"` watermark could not follow.
+        analytics_windows = _analytics_windows(
+            config,
+            db_incremental_field_last_value,
+            datetime.now(UTC).date(),
+            resume_from=_analytics_resume_day(resume),
+        )
+        # One tracked session shared by every day's client, so a backfill reuses a single connection
+        # pool instead of opening one per day.
+        client_config["session"] = make_tracked_session(redact_values=(api_key,))
+
+        def analytics_row_map(
+            window: AnalyticsWindow,
+        ) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+            if config.analytics_window == AnalyticsWindowKind.DATE:
+                # The engagement record carries no day, so bind the day this request asks for.
+                return partial(_flatten_analytics_user_activity, window.start)
+            return _flatten_analytics_user_cost if endpoint == "analytics_user_cost" else _flatten_analytics_user_usage
+
+        def save_analytics_checkpoint(next_start: date) -> None:
+            resumable_source_manager.save_state(
+                AnthropicResumeConfig(analytics_window_state={"start": next_start.isoformat()})
+            )
+
+        def build_analytics_resource(window: AnalyticsWindow) -> Any:
+            analytics_resource: EndpointResource = {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": _analytics_params(config, window),
+                    "data_selector": "data",
+                    "paginator": AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page"),
+                },
+                "data_map": analytics_row_map(window),
+            }
+            analytics_rest_config: RESTAPIConfig = {
+                "client": client_config,
+                "resource_defaults": None,
+                "resources": [analytics_resource],
+            }
+            return rest_api_resource(
+                analytics_rest_config,
+                team_id,
+                job_id,
+                db_incremental_field_last_value,
+            )
+
+        # Built for the first day only to carry the resource's column hints; the fan-out below
+        # rebuilds a resource per day.
+        resource = build_analytics_resource(analytics_windows[0])
+        items = partial(_iter_analytics_windows, build_analytics_resource, analytics_windows, save_analytics_checkpoint)
+    elif config.fan_out_over_days:
         # Claude Code analytics: one windowed request per calendar day, driven entirely by the
         # paginator (there is no parent API resource to resolve days from).
         start_day = _claude_code_start_day(db_incremental_field_last_value)
@@ -519,6 +855,11 @@ def anthropic_source(
                         },
                         "data_selector": "data",
                         "paginator": _entity_paginator(),
+                        # A workspace that does not serve this sub-resource (or was archived between
+                        # enumeration and the child fetch) answers 404 — skip it rather than fail the
+                        # whole schema. 429/5xx are retried by the client before hooks run, and any
+                        # other 4xx still raises.
+                        "response_actions": [{"status_code": 404, "action": "ignore"}],
                     },
                     "include_from_parent": ["id"],
                     "data_map": _stamp_workspace_id,
@@ -544,46 +885,12 @@ def anthropic_source(
         )
         resource = next(r for r in resources if r.name == endpoint)
     else:
+        is_report = config.pagination == PaginationType.PAGE
         data_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]
-        if config.pagination == PaginationType.PAGE:
-            # Report endpoints: `starting_at` is required. On an incremental run start from the
-            # watermark (already shifted back by the pipeline's lookback); otherwise fall back to
-            # the Anthropic launch date to pull all history.
-            params: dict[str, Any] = {"bucket_width": config.bucket_width}
-            if config.limit is not None:
-                params["limit"] = config.limit
-            if config.group_by:
-                # requests encodes a list value as one repeated query param per element.
-                params["group_by[]"] = config.group_by
-            params["starting_at"] = {
-                "type": "incremental",
-                "cursor_path": "starting_at",
-                "initial_value": DEFAULT_STARTING_AT,
-                "convert": _format_rfc3339,
-            }
-            paginator = AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page")
+        if is_report:
             data_map = _explode_usage_bucket if endpoint == "usage_report" else _explode_cost_bucket
         else:
-            params = {"limit": ENTITY_PAGE_SIZE, **config.extra_params}
-            paginator = _entity_paginator()
             data_map = _flatten_created_by if endpoint == "api_keys" else None
-
-        endpoint_resource: EndpointResource = {
-            "name": endpoint,
-            "endpoint": {
-                "path": config.path,
-                "params": params,
-                "data_selector": "data",
-                "paginator": paginator,
-            },
-            "data_map": data_map,
-        }
-
-        rest_config = {
-            "client": client_config,
-            "resource_defaults": None,
-            "resources": [endpoint_resource],
-        }
 
         initial_paginator_state: Optional[dict[str, Any]] = None
         if resume is not None and resume.cursor:
@@ -596,18 +903,61 @@ def anthropic_source(
             if state and state.get("cursor"):
                 resumable_source_manager.save_state(AnthropicResumeConfig(cursor=state["cursor"]))
 
-        resource = rest_api_resource(
-            rest_config,
-            team_id,
-            job_id,
-            db_incremental_field_last_value,
-            resume_hook=save_checkpoint,
-            initial_paginator_state=initial_paginator_state,
-        )
+        def build_resource(group_by: list[str], resume_state: Optional[dict[str, Any]]) -> Any:
+            if is_report:
+                # Report endpoints: `starting_at` is required. On an incremental run start from the
+                # watermark (already shifted back by the pipeline's lookback); otherwise fall back to
+                # the Anthropic launch date to pull all history.
+                params: dict[str, Any] = {"bucket_width": config.bucket_width}
+                if config.limit is not None:
+                    params["limit"] = config.limit
+                if group_by:
+                    # requests encodes a list value as one repeated query param per element.
+                    params["group_by[]"] = group_by
+                params["starting_at"] = {
+                    "type": "incremental",
+                    "cursor_path": "starting_at",
+                    "initial_value": DEFAULT_STARTING_AT,
+                    "convert": _format_rfc3339,
+                }
+                paginator: BasePaginator = AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page")
+            else:
+                params = {"limit": ENTITY_PAGE_SIZE, **config.extra_params}
+                paginator = _entity_paginator()
+
+            endpoint_resource: EndpointResource = {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    "data_selector": "data",
+                    "paginator": paginator,
+                },
+                "data_map": data_map,
+            }
+            rest_config: RESTAPIConfig = {
+                "client": client_config,
+                "resource_defaults": None,
+                "resources": [endpoint_resource],
+            }
+            return rest_api_resource(
+                rest_config,
+                team_id,
+                job_id,
+                db_incremental_field_last_value,
+                resume_hook=save_checkpoint,
+                initial_paginator_state=resume_state,
+            )
+
+        if endpoint == "usage_report":
+            resource = build_resource(USAGE_GROUP_BY_FALLBACKS[0], initial_paginator_state)
+            items = partial(_iter_narrowing_group_by, build_resource, USAGE_GROUP_BY_FALLBACKS, initial_paginator_state)
+        else:
+            resource = build_resource(config.group_by, initial_paginator_state)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items if items is not None else (lambda: resource),
         primary_keys=config.primary_keys,
         # Report buckets return oldest-first from `starting_at`, and entity cursors page forward, so
         # rows arrive in ascending order — the pipeline checkpoints the watermark after each batch.

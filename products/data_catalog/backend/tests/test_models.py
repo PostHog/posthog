@@ -15,13 +15,16 @@ class TestMetricModel(BaseTest):
         with self.assertRaises(IntegrityError), transaction.atomic():
             self._create("mrr")
 
-    def test_name_reserved_even_when_soft_deleted(self) -> None:
-        # The unique constraint is unconditional, so a soft-deleted name still blocks reuse at the
-        # DB level. This is what stops a stored reference from ever pointing at a different metric.
-        metric = self._create("mrr")
-        Metric.objects.for_team(self.team.id).filter(pk=metric.pk).update(deleted=True)
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            self._create("mrr")
+    def test_soft_deleted_name_is_reusable(self) -> None:
+        # The unique constraint is partial on deleted=False: deleting frees the name, and any number
+        # of tombstones may share it.
+        first = self._create("mrr")
+        Metric.objects.for_team(self.team.id).filter(pk=first.pk).update(deleted=True)
+        second = self._create("mrr")
+        assert second.id != first.id
+        Metric.objects.for_team(self.team.id).filter(pk=second.pk).update(deleted=True)
+        self._create("mrr")
+        assert Metric.objects.for_team(self.team.id).filter(name="mrr").count() == 3
 
     def test_definition_kind_derived_from_definition(self) -> None:
         stub = self._create("stub")

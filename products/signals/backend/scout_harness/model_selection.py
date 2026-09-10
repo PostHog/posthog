@@ -34,10 +34,13 @@ distinct_id) is the single source of truth; a team with no entry runs entirely o
   that scout's runs (0..1) it serves. `signals-scout-team-self-driving` above runs 20% on glm-5.2,
   20% on gpt-5.5, and the remaining 60% on the agent-server default. `"*"` is the fallback
   distribution for scouts not listed explicitly. A model's value may instead be an object
-  `{"fraction": 0.2, "runtime_adapter": "codex", "reasoning_effort": "high"}` to pin its runtime
-  (and optionally the reasoning effort) explicitly; with the bare-number form the runtime is
-  inferred from the id (`claude-*` → `claude`, everything else → `codex`) and the effort is left
-  unset (agent-server default).
+  `{"fraction": 0.2, "runtime_adapter": "codex", "reasoning_effort": "high", "service_tier": "flex"}`
+  to pin its runtime (and optionally the reasoning effort and the OpenAI service tier) explicitly;
+  with the bare-number form the runtime is inferred from the id (`claude-*` → `claude`, everything
+  else → `codex`) and the effort and tier are left unset (agent-server default). A tier on a slice
+  is what makes a same-model A/B on queueing possible: one explicit `gpt-5.6-terra` slice pinned to
+  `flex` against the unallocated remainder falling through to the `signals-pipeline-models` pin for
+  the same model on the standard queue.
 - The reserved `"default"` key inside a scout's map names the model the *remaining* (unallocated)
   runs use instead of the agent-server default — its value is a model-id string, not a fraction.
 
@@ -47,6 +50,11 @@ all resolve to `None` — the agent-server default. Gating the model must never 
 
 This is separate from the `signals-scout` enrollment/limits flag — that decides *whether* a team
 runs scouts; this decides *on which model*.
+
+One layer sits above the payload: a per-scout `SignalScoutConfig.model` pin, honored only while the
+`scouts-model-config` dogfood flag is on for the team (`scout_model_config_enabled`). An explicit
+pin routes every run of that scout onto its model deterministically — no bucketing — and beats the
+payload's distribution; everything else falls through to the payload as described above.
 """
 
 from __future__ import annotations
@@ -57,10 +65,22 @@ from dataclasses import dataclass
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 
+from products.signals.backend.agent_runtime import KNOWN_SERVICE_TIERS
+from products.tasks.backend.facade.run_config import get_models_for_runtime_adapter
+
 SCOUTS_MODEL_FLAG = "scouts-model-selection"
+
+# Dogfood gate for the per-scout config layer: only while this flag is on for the team does a
+# `SignalScoutConfig.model` pin actually route runs. Distinct from `scouts-model-selection` (an
+# operator-keyed payload for fleet A/B trials, always-on with the payload as the config): this one
+# is a plain boolean flag over teams, because what it gates is whether the team's own stored
+# config is honored, not what the config says. Keeping the gate at resolve time (not at write
+# time only) makes turning the flag off an immediate kill switch for already-stored pins.
+SCOUTS_MODEL_CONFIG_FLAG = "scouts-model-config"
 
 # Fixed distinct_id for the payload read — config is team-keyed in the payload, not per-user. Matches
 # the `signals-scout` discovery pattern: the flag stays 100%-on so the payload is always served, and
@@ -85,10 +105,12 @@ WILDCARD = "*"
 DEFAULT_MODEL_KEY = "default"
 
 # Keys recognized in the object form of a model entry (the alternative to a bare fraction):
-# `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex", "reasoning_effort": "high"}`.
+# `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex", "reasoning_effort": "high",
+# "service_tier": "flex"}`.
 FRACTION_KEY = "fraction"
 RUNTIME_ADAPTER_KEY = "runtime_adapter"
 REASONING_EFFORT_KEY = "reasoning_effort"
+SERVICE_TIER_KEY = "service_tier"
 
 # The two agent runtimes the agent server exposes. A model id alone can't be routed — the server
 # derives its provider (Anthropic / OpenAI) from the runtime — so every routed model also carries a
@@ -107,6 +129,11 @@ _KNOWN_RUNTIME_ADAPTERS = frozenset({RUNTIME_ADAPTER_CLAUDE, RUNTIME_ADAPTER_COD
 # agent-server default) rather than threaded into the run state where it could fail the run.
 _KNOWN_REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 
+# The OpenAI service tiers a payload may pin, mirroring the agent server's `ServiceTier` enum. Same
+# defensive posture again: an unknown value is dropped (tier unset, standard queue) rather than
+# threaded into the run state where it could fail the run. Shared with the pipeline pin parser.
+_KNOWN_SERVICE_TIERS = KNOWN_SERVICE_TIERS
+
 
 @dataclass(frozen=True)
 class ScoutModel:
@@ -118,12 +145,16 @@ class ScoutModel:
     the LLM provider from the runtime, and a model id handed over with no runtime can't be routed
     (it silently falls back to the server default, which is the bug this resolution exists to
     avoid). `reasoning_effort` is the optional per-model effort pin from the payload's object form;
-    `None` keeps the agent-server default effort.
+    `None` keeps the agent-server default effort. `service_tier` is the optional OpenAI queue pin
+    from the same form (`flex` / `priority` / `default`); `None` means the slice asked for no queue,
+    and the tier never crosses from another model's pin, so a slice can A/B queueing against the
+    unallocated remainder running the same model on the `signals-pipeline-models` pin's tier.
     """
 
     model: str | None
     runtime_adapter: str | None
     reasoning_effort: str | None = None
+    service_tier: str | None = None
 
 
 def _infer_runtime_adapter(model_id: str) -> str:
@@ -134,6 +165,63 @@ def _infer_runtime_adapter(model_id: str) -> str:
     to the `codex` runtime. An explicit `runtime_adapter` in the payload overrides this.
     """
     return RUNTIME_ADAPTER_CLAUDE if "claude" in model_id.lower() else RUNTIME_ADAPTER_CODEX
+
+
+def scout_model_pin_catalog() -> tuple[str, ...]:
+    """The model ids a `SignalScoutConfig.model` pin may carry: the canonical Tasks catalog, both
+    runtimes. The config API validates pins against this, unlike the free-form payload path — a pin
+    has no runtime-pinning escape hatch, so an off-catalog id would be stored with nothing
+    authoritative to route it by."""
+    return (
+        *get_models_for_runtime_adapter(RUNTIME_ADAPTER_CLAUDE),
+        *get_models_for_runtime_adapter(RUNTIME_ADAPTER_CODEX),
+    )
+
+
+def _runtime_adapter_for_pin(model_id: str) -> str:
+    """The runtime for a config-pinned model: the canonical Tasks catalog first, name inference as
+    the fallback.
+
+    The catalog is what knows the ids whose runtime can't be read off the name — the
+    Cloudflare-served `@cf/...` and `moonshotai/...` models run on the `claude` runtime (the
+    gateway serves them over its Anthropic-Messages surface), where name inference would say
+    `codex`. The fallback only covers stored pins that have since left the catalog; the payload
+    path keeps pure name inference, because changing it would reroute live trial distributions and
+    the payload's object form can already pin a runtime explicitly.
+    """
+    if model_id in get_models_for_runtime_adapter(RUNTIME_ADAPTER_CLAUDE):
+        return RUNTIME_ADAPTER_CLAUDE
+    if model_id in get_models_for_runtime_adapter(RUNTIME_ADAPTER_CODEX):
+        return RUNTIME_ADAPTER_CODEX
+    return _infer_runtime_adapter(model_id)
+
+
+def scout_model_config_enabled(team: Team) -> bool:
+    """Whether this team's per-scout `SignalScoutConfig.model` pins are honored (dogfood gate).
+
+    Keyed on the `project` group the same way the web app registers it (group key = the team's
+    uuid, `id` = the numeric project id), so one flag definition — a project-group condition on
+    `id` — serves both this server-side check and the frontend's gated settings UI. `id` carries
+    the canonical parent id so a child environment follows its project's enrollment server-side;
+    the frontend registers a child environment's own id, so a condition that should also show the
+    UI inside child environments must list their ids too. Fails closed on a flag-read error: an
+    unhonored pin just means the default resolution chain, never a broken run.
+    """
+    try:
+        canonical_team_id = team.parent_team_id or team.id
+        return (
+            posthoganalytics.feature_enabled(
+                SCOUTS_MODEL_CONFIG_FLAG,
+                str(team.uuid),
+                groups={"project": str(team.uuid)},
+                group_properties={"project": {"id": canonical_team_id, "uuid": str(team.uuid)}},
+                send_feature_flag_events=False,
+            )
+            is True
+        )
+    except Exception as error:
+        capture_exception(error)
+        return False
 
 
 def _read_payload() -> dict | None:
@@ -183,72 +271,84 @@ def _team_scouts(payload: object, team_id: int, canonical_team_id: int) -> dict:
     return scouts if isinstance(scouts, dict) else {}
 
 
-def _parse_model_spec(spec: object) -> tuple[float | None, str | None, str | None]:
-    """A `(fraction, runtime_adapter, reasoning_effort)` from one model entry's value.
+@frozen
+class _ModelSpec:
+    """One parsed model entry: its fraction plus whichever pins the object form carried.
+
+    `fraction` is `None` for a malformed weight so the caller drops the entry. The pins are `None`
+    when absent or unrecognized, never a value the agent server can't honor.
+    """
+
+    fraction: float | None
+    runtime_adapter: str | None = None
+    reasoning_effort: str | None = None
+    service_tier: str | None = None
+
+
+def _known_str(value: object, known: frozenset[str]) -> str | None:
+    # `isinstance` first: an unhashable value (JSON array/object) would raise from the set
+    # membership test, and that escapes `_read_payload`'s guard and would fail the run.
+    return value if isinstance(value, str) and value in known else None
+
+
+def _parse_model_spec(spec: object) -> _ModelSpec:
+    """The fraction and pins from one model entry's value.
 
     A model entry's value is either a bare number (its fraction; runtime inferred from the id,
-    effort unset) or an object `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex",
-    "reasoning_effort": "high"}` that pins the runtime (and optionally the effort) explicitly.
-    Returns `(None, ...)` for a malformed fraction (not a positive number, or a bool) so the caller
-    drops the entry rather than failing the run. A `runtime_adapter` or `reasoning_effort` that
+    effort and tier unset) or an object `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex",
+    "reasoning_effort": "high", "service_tier": "flex"}` that pins the runtime (and optionally the
+    effort and the OpenAI queue) explicitly. A malformed fraction (not a positive number, or a bool)
+    yields `fraction=None` so the caller drops the entry rather than failing the run. A pin that
     isn't one of the known values (non-string, typo, unsupported) is ignored (treated as unset), so
-    a payload typo can't route the run onto a runtime or effort the agent server can't honor.
+    a payload typo can't route the run onto a runtime, effort, or queue the agent server can't honor.
     """
-    if isinstance(spec, dict):
-        weight = spec.get(FRACTION_KEY)
-        adapter_value = spec.get(RUNTIME_ADAPTER_KEY)
-        effort_value = spec.get(REASONING_EFFORT_KEY)
-        # `isinstance` first: an unhashable value (JSON array/object) would raise from the set
-        # membership test, and that escapes `_read_payload`'s guard and would fail the run.
-        adapter = adapter_value if isinstance(adapter_value, str) and adapter_value in _KNOWN_RUNTIME_ADAPTERS else None
-        effort = effort_value if isinstance(effort_value, str) and effort_value in _KNOWN_REASONING_EFFORTS else None
-    else:
-        weight = spec
-        adapter = None
-        effort = None
+    if not isinstance(spec, dict):
+        return _ModelSpec(fraction=_parse_fraction(spec))
+    return _ModelSpec(
+        fraction=_parse_fraction(spec.get(FRACTION_KEY)),
+        runtime_adapter=_known_str(spec.get(RUNTIME_ADAPTER_KEY), _KNOWN_RUNTIME_ADAPTERS),
+        reasoning_effort=_known_str(spec.get(REASONING_EFFORT_KEY), _KNOWN_REASONING_EFFORTS),
+        service_tier=_known_str(spec.get(SERVICE_TIER_KEY), _KNOWN_SERVICE_TIERS),
+    )
+
+
+def _parse_fraction(weight: object) -> float | None:
     if not isinstance(weight, int | float) or isinstance(weight, bool) or weight <= 0:
-        return None, adapter, effort
-    return min(1.0, float(weight)), adapter, effort
+        return None
+    return min(1.0, float(weight))
 
 
-def _scout_config(scouts: dict, skill_name: str) -> tuple[dict[str, float], dict[str, str], dict[str, str], str | None]:
-    """The `(distribution, adapters, efforts, default_model)` for one scout from a team's scout map.
+def _scout_config(scouts: dict, skill_name: str) -> tuple[dict[str, _ModelSpec], str | None]:
+    """The `(specs, default_model)` for one scout from a team's scout map.
 
     Looks up `scouts[skill_name]`, falling back to the `"*"` scout wildcard. The reserved `"default"`
     string key is pulled out as `default_model` (the model for the unallocated remainder; `None` =
     agent-server default); every other entry is a `model_id -> fraction | {fraction, runtime_adapter,
-    reasoning_effort}` weight. `adapters` and `efforts` carry only the model ids whose runtime /
-    effort was pinned explicitly in the payload; unpinned runtimes are inferred from the id at
-    resolve time and unpinned efforts stay unset. Defensive — a missing/non-object scout entry,
-    or a malformed weight (not a positive number, or a bool) is dropped rather than failing the run,
-    so a typo can't crash a scout or route it unintended.
+    reasoning_effort, service_tier}` weight, parsed into a `_ModelSpec`. Unpinned runtimes are
+    inferred from the id at resolve time; unpinned efforts and tiers stay unset. Defensive — a
+    missing/non-object scout entry, or a malformed weight (not a positive number, or a bool) is
+    dropped rather than failing the run, so a typo can't crash a scout or route it unintended.
     """
     raw = scouts.get(skill_name)
     if not isinstance(raw, dict):
         raw = scouts.get(WILDCARD)
     if not isinstance(raw, dict):
-        return {}, {}, {}, None
+        return {}, None
 
     default_value = raw.get(DEFAULT_MODEL_KEY)
     default_model = default_value if isinstance(default_value, str) and default_value else None
 
-    distribution: dict[str, float] = {}
-    adapters: dict[str, str] = {}
-    efforts: dict[str, str] = {}
+    specs: dict[str, _ModelSpec] = {}
     for model_id, spec in raw.items():
         if model_id == DEFAULT_MODEL_KEY:
             continue
         if not isinstance(model_id, str) or not model_id:
             continue
-        fraction, adapter, effort = _parse_model_spec(spec)
-        if fraction is None:
+        parsed = _parse_model_spec(spec)
+        if parsed.fraction is None:
             continue
-        distribution[model_id] = fraction
-        if adapter is not None:
-            adapters[model_id] = adapter
-        if effort is not None:
-            efforts[model_id] = effort
-    return distribution, adapters, efforts, default_model
+        specs[model_id] = parsed
+    return specs, default_model
 
 
 def _bucket(run_id: str) -> float:
@@ -262,40 +362,56 @@ def _bucket(run_id: str) -> float:
     return int.from_bytes(hashlib.sha256(run_id.encode()).digest()[:8], "big") / 2**64
 
 
-def _select_model(run_id: str, distribution: dict[str, float], default_model: str | None) -> str | None:
+def _select_model(
+    run_id: str, specs: dict[str, _ModelSpec], default_model: str | None
+) -> tuple[str | None, _ModelSpec | None]:
     """Pick a model for this run from the scout's distribution, deterministically on `run_id`.
 
     Walks the models in sorted-id order accumulating their fractions; the run's bucket falls into
     exactly one model's slice, or past them all into the remainder → `default_model`. Sorted order
     makes the assignment stable across runs/processes. If the fractions sum to ≥ 1 the remainder is
-    empty and `default_model` simply never runs.
+    empty and `default_model` simply never runs. Returns the selected slice's spec alongside the
+    model, and `None` for the remainder: which branch picked the model is decided here, not
+    recovered from the model id, so a remainder that names the same model as a weighted slice
+    (`{"gpt-5.6-terra": {"fraction": 0.05, "service_tier": "flex"}, "default": "gpt-5.6-terra"}`)
+    stays the pin-free control instead of inheriting the slice's tier.
     """
     cumulative = 0.0
-    for model_id in sorted(distribution):
-        cumulative += distribution[model_id]
+    for model_id in sorted(specs):
+        spec = specs[model_id]
+        cumulative += spec.fraction if spec.fraction is not None else 0.0
         if _bucket(run_id) < cumulative:
-            return model_id
-    return default_model
+            return model_id, spec
+    return default_model, None
 
 
-def resolve_scout_model(team: Team, skill_name: str, run_id: str) -> ScoutModel:
+def resolve_scout_model(team: Team, skill_name: str, run_id: str, configured_model: str | None = None) -> ScoutModel:
     """The agent-model override for one scout run, with the runtime that can serve it.
 
-    Resolves this team's scout map from the `scouts-model-selection` payload, then this scout's
-    per-run model from its distribution, then the runtime adapter for the chosen model (pinned in the
-    payload, else inferred from the id). Returns `ScoutModel(None, None)` (agent-server default) when
-    the team has no entry, the scout has no distribution, or the run falls in the unallocated
-    remainder with no named `default`. A payload read failure is swallowed and falls back to the
-    default model — gating the model must never be able to fail a scout run.
+    `configured_model` is the scout's own `SignalScoutConfig.model` pin. It is the top layer: while
+    the `scouts-model-config` dogfood flag is on for the team, an explicit per-scout pin beats the
+    `scouts-model-selection` experiment distribution — a user deliberately configured that scout,
+    and an operator trial must not silently reroute it. With the flag off (or no pin) resolution
+    falls through unchanged: this team's scout map from the `scouts-model-selection` payload, then
+    this scout's per-run model from its distribution, then the runtime adapter for the chosen model
+    (pinned in the payload, else inferred from the id). Returns `ScoutModel(None, None)`
+    (agent-server default) when nothing applies. A flag or payload read failure is swallowed and
+    falls back to the next layer — gating the model must never be able to fail a scout run.
     """
+    if configured_model and scout_model_config_enabled(team):
+        return ScoutModel(model=configured_model, runtime_adapter=_runtime_adapter_for_pin(configured_model))
     payload = _read_payload()
     scouts = _team_scouts(payload, team.id, team.parent_team_id or team.id)
-    distribution, adapters, efforts, default_model = _scout_config(scouts, skill_name)
-    model = _select_model(run_id, distribution, default_model)
+    specs, default_model = _scout_config(scouts, skill_name)
+    model, spec = _select_model(run_id, specs, default_model)
     if model is None:
         return ScoutModel(model=None, runtime_adapter=None)
+    if spec is None:
+        # The `default` remainder carries no pins, even when a weighted slice names the same model.
+        return ScoutModel(model=model, runtime_adapter=_infer_runtime_adapter(model))
     return ScoutModel(
         model=model,
-        runtime_adapter=adapters.get(model) or _infer_runtime_adapter(model),
-        reasoning_effort=efforts.get(model),
+        runtime_adapter=spec.runtime_adapter or _infer_runtime_adapter(model),
+        reasoning_effort=spec.reasoning_effort,
+        service_tier=spec.service_tier,
     )

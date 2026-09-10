@@ -18,8 +18,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventName, getProjectEventExistence } from 'lib/utils/getAppContext'
 import { isEmptyObject } from 'lib/utils/guards'
-import { funnelPathsExpansionLogic } from 'scenes/funnels/FunnelFlowGraph/funnelPathsExpansionLogic'
-import { PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -45,6 +43,9 @@ import {
     InsightLogicProps,
     StepOrderValue,
 } from '~/types'
+
+import { funnelPathsExpansionLogic } from 'products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/funnelPathsExpansionLogic'
+import { PathExpansion } from 'products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/pathFlowUtils'
 
 import type { Node } from '../../../../../frontend/src/queries/schema/schema-general'
 import { customerAnalyticsConfigLogic } from '../../customerAnalyticsConfigLogic'
@@ -259,7 +260,11 @@ export interface journeyBuilderLogicActions {
     collapsePath: () => {
         value: true
     } // funnelPathsExpansionLogic
-    setInsightQuery: (query: Node<Record<string, any>> | null) => {
+    setInsightQuery: (
+        query: Node<Record<string, any>> | null,
+        fromUrl?: boolean | undefined
+    ) => {
+        fromUrl: boolean
         query: Node<Record<string, any>> | null
     } // insightDataLogic
     addStep: (insertAtIndex: number) => {
