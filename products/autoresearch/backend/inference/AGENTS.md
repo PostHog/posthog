@@ -13,11 +13,13 @@ This package landed with `sandbox.py` only. `scoring.py`, `autoresearch_score`, 
 
 - `sandbox.py`
   The current path. Runs the agent-authored bundle in a Tasks sandbox, split by run type because train and predict have genuinely different data contracts:
-  - `fit_champion_model()` — **train run**, called once at training completion. Materializes the _labeled_ training population, runs the bundle's `train.py`, and persists the fitted `model.pkl` next to the bundle.
-  - `score_via_sandbox()` — **predict run**, called every cadence. Loads the persisted `model.pkl`, materializes _only_ the inference population (cutoff `now()`, no labels, no holdout, no fold), runs `predict.py`, and hands scores to the emitter.
+  - `fit_champion_model()` — **train run**, called once at training completion. Materializes the _labeled_ training population, runs the bundle's `train.py`, runs `predict.py` once against the holdout features as a smoke test, and only then persists the fitted `model.pkl` next to the bundle. A bundle whose two scripts disagree fails here, not on the first cadence.
+  - `score_via_sandbox()` — **predict run**, called every cadence. Loads the persisted `model.pkl`, materializes _only_ the inference population (cutoff `now()`, no labels, no holdout, no fold), runs `predict.py`, and hands scores to the emitter. A missing `model.pkl` fails the run.
 
-  `materialize_training_data()` writes feature and label parquet files into the sandbox; `MaterializedData` carries the paths and row counts back.
-  Timeouts are asymmetric on purpose — `_TRAIN_TIMEOUT_S` 300s versus `_PREDICT_TIMEOUT_S` 120s — and `_MATERIALIZE_ROW_LIMIT` caps what crosses into the sandbox.
+  Both entry points validate the bundle's `features.sql` with `validate_feature_sql()` (plus no trailing `LIMIT`/`OFFSET`) before any query runs, and run every HogQL query as the pipeline's creator (`_resolve_acting_user()`, or the explicit `user` a management command passes), with `CALCULATE_BLOCKING_ALWAYS` so a cadence never reuses a cached population.
+  `materialize_training_data()` writes feature and label parquet files into the sandbox; `MaterializedData` carries the paths and row counts back. Materialized rows must key exactly one person each (`validate_unique_distinct_ids()`), and a training row whose label failed to join fails the run.
+  Everything a script produces is untrusted: script output goes to `data/script.log` and only a bounded tail comes back on failure; every file readback is size-gated inside the sandbox (`_MAX_READBACK_BYTES`, the artifact cap) and fails on a missing or empty file; `output.json` values are typed and ranged; `scores.parquet` is checked against the input row count from its footer before it is decoded, and a person scored twice fails the run.
+  Timeouts are asymmetric on purpose — `_TRAIN_TIMEOUT_S` 300s versus `_PREDICT_TIMEOUT_S` 120s — with `_SANDBOX_TTL_S` as the backstop for a worker that dies mid-run, and `_MATERIALIZE_ROW_LIMIT` caps what crosses into the sandbox.
 
 - `scoring.py`
   The legacy in-process path plus the event emission that both paths share.
@@ -67,9 +69,11 @@ Before suspecting the model, check that features, labels, and population all key
 
 ## When editing this flow
 
-- **Never re-fit on the scoring path.** `score_via_sandbox()` loads `model.pkl` and runs `predict.py` only. A fallback that quietly re-fits would make every scoring run expensive and non-deterministic.
+- **Never re-fit on the scoring path.** `score_via_sandbox()` loads `model.pkl` and runs `predict.py` only. A fallback that quietly re-fits would make every scoring run expensive and non-deterministic, and concurrent cadences would race to overwrite the pickle. A missing model is a failed run.
 - **Keep both champion shapes working** — bundle-backed and recipe-only. Guard on `artifact_prefix` rather than assuming.
 - `validate_model_class()` must stay on the in-process path. It is not defense in depth there, it is the only defense.
 - Anything that changes the cutoff, the population, or the anchor SQL belongs in `../dataset/labeling.py`, not here — training and inference share it precisely so they cannot disagree.
+- Nothing a script writes reaches the worker unbounded. Keep the size gate in `_readback_command()` and the log redirect in `_script_command()` when you add a new file to the contract.
+- The sandbox providers differ: Modal honors `block_network`; the Docker provider (local dev) does not, and mounts `SANDBOX_REPO_MOUNT_MAP` checkouts read-write. The no-egress guarantee holds in production only. Hogland maps only `DEFAULT_BASE`, so this workload does not run there.
 - A large `--backfill-days` run emits N × population events into Kafka in a tight loop and can overwhelm a local ingestion consumer. Prefer smaller backfills; a contiguous gap in prediction dates is the symptom.
 - **If you change the run-type split or the event shape, update this file to match.**
