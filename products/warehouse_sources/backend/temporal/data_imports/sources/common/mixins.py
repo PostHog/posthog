@@ -48,6 +48,12 @@ _NON_ASCII_HOST_ERROR = (
 DATABASE_HOST_NOT_ALLOWED_ERROR = "Database host not allowed"
 SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR = "SSH tunnel host not allowed"
 TEMPORARY_HOST_RESOLUTION_PREFIX = "Temporary failure resolving the host"
+# Stored as the job's error once every retry of a connect was spent on the pin's own lookup failing.
+HOST_RESOLUTION_EXHAUSTED_MESSAGE = (
+    "PostHog could not resolve your database host: the DNS lookup timed out or the resolver asked "
+    "to try again on every attempt. Check that the host name is correct and that its DNS records "
+    "are answering. This sync is still enabled and will run again on its next schedule."
+)
 DATABASE_HOST_NOT_ALLOWED_GUIDANCE = (
     "PostHog rejected this source's database host because it either couldn't be resolved, or "
     "resolves to a private/internal address. Check the host is spelled correctly and reachable "
@@ -232,7 +238,7 @@ def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id:
     lookup to race and comes back unchanged. Dev and test connect to local or fake hosts, so the
     lookup is skipped there, as in `_get_sslmode`.
     """
-    if settings.TEST or settings.DEBUG or settings.E2E_TESTING:
+    if host_lookup_is_skipped():
         return {"host": host}
 
     if is_cloud() and (guard_error := _single_host_error(host)) is not None:
@@ -254,6 +260,11 @@ def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id:
         "host": ",".join([host] * len(resolution.addresses)),
         "hostaddr": ",".join(resolution.addresses),
     }
+
+
+def host_lookup_is_skipped() -> bool:
+    """Dev and test connect to local or fake hosts, so the pins skip the lookup there, as `_get_sslmode` does."""
+    return bool(settings.TEST or settings.DEBUG or settings.E2E_TESTING)
 
 
 def _normalize_host(host: str) -> str:
@@ -479,14 +490,17 @@ def _check_direct_host(config, team_id: int | None) -> None:
     Unlike `_pinned_ssh_host` this checks without pinning, because the `(host, port)` this
     layer yields has to stay the hostname: the clients need it for SNI and for multi-address
     failover. So on its own this closes the standing exposure, not the resolve-to-connect race.
-    The Postgres client closes that race itself: `_open_connection` in `postgres.py` resolves
-    the host once, validates that answer with `check_resolved_addresses`, and dials exactly
-    those addresses through libpq's `host`/`hostaddr` pair. The Redshift, MySQL and MSSQL
-    clients still hand the hostname to their driver, so for them this check is the only one.
+    The Postgres and Redshift clients close that race themselves: `pinned_host_kwargs` in
+    this module resolves the host once, validates that answer with `check_resolved_addresses`,
+    and dials exactly those addresses through libpq's `host`/`hostaddr` pair. The MySQL client
+    resolves the host itself, validates the answer with `check_resolved_addresses`, and dials
+    it on a socket it opens, so the hostname still reaches TLS. The MSSQL client hands the
+    hostname to its driver, whose single `server` argument is both the dial target and the
+    login server name, so for MSSQL this check is the only one.
 
     A `team_id` of None fails closed. It changes nothing for a customer team, whose result is the
     same either way; it only costs the internal-host exemption on entry points that don't carry a
-    team yet (`open_ssh_tunnel(config)` in the Redshift, MySQL and MSSQL clients).
+    team yet.
 
     The resolve inside `resolve_safe_host` is unbounded. A stalled resolver therefore hangs the
     activity until Temporal's `start_to_close_timeout` rather than failing fast and retryably.
