@@ -104,6 +104,53 @@ export interface ReportChartApi {
     size?: SizeEnumApi | null
 }
 
+/**
+ * One commit cited as evidence for why a reviewer is relevant.
+ */
+export interface SignalSuggestedReviewerCommitApi {
+    /** Commit SHA. */
+    sha: string
+    /** Link to the commit. */
+    url: string
+    /** Why this commit makes the reviewer relevant. */
+    reason: string
+}
+
+export interface _UserApi {
+    readonly id: number
+    readonly uuid: string
+    readonly first_name: string
+    readonly last_name: string
+    readonly email: string
+}
+
+/**
+ * Read side of a `suggested_reviewers` artefact entry. The stored identity resolves to a
+ * current org member at read time, so `user` stays right even when the reviewer linked their
+ * GitHub account after the report was generated.
+ */
+export interface SignalSuggestedReviewerApi {
+    /**
+     * GitHub login the reviewer was stored under, or null.
+     * @nullable
+     */
+    github_login?: string | null
+    /**
+     * PostHog user UUID the reviewer was stored under, when present.
+     * @nullable
+     */
+    user_uuid?: string | null
+    /**
+     * Human-readable display name captured with the entry, or null.
+     * @nullable
+     */
+    github_name?: string | null
+    /** Commits cited as evidence for the reviewer. */
+    relevant_commits?: SignalSuggestedReviewerCommitApi[]
+    /** Resolved current org member, or null when no member matches the stored identity. */
+    user: _UserApi | null
+}
+
 export type SignalReportAssignmentPrStateEnumApi =
     (typeof SignalReportAssignmentPrStateEnumApi)[keyof typeof SignalReportAssignmentPrStateEnumApi]
 
@@ -133,14 +180,6 @@ export const SignalActorKindEnumApi = {
     Agent: 'agent',
     System: 'system',
 } as const
-
-export interface _UserApi {
-    readonly id: number
-    readonly uuid: string
-    readonly first_name: string
-    readonly last_name: string
-    readonly email: string
-}
 
 export interface SignalReportAssigneeApi {
     kind: SignalActorKindEnumApi
@@ -287,6 +326,8 @@ export interface SignalReportApi {
      */
     readonly repo_slug: string | null
     readonly is_suggested_reviewer: boolean
+    /** Reviewers suggested for this report, from the latest suggested-reviewers artefact (empty when none). Each carries the resolved current org member. Lets list cards show reviewer avatars without a per-card artefact fetch. */
+    readonly suggested_reviewers: readonly SignalSuggestedReviewerApi[]
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
     /**
