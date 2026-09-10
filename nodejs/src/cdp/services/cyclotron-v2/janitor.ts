@@ -81,12 +81,16 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
-// Queue depth cannot separate a healthy burst from a stuck queue: a large backlog that
-// drains is fine, a small one that does not move is an outage. The age of the job at the
-// front of the line can: no healthy queue leaves a ready job waiting for minutes.
+// Head-of-line latency, per queue: how long the oldest due row has waited. It does not show
+// whether workers make progress. A throttled drain raises it while every send succeeds,
+// because the email worker gates sends behind a token bucket and leaves `scheduled`
+// unchanged while it waits. On the email queue it can also read a row that
+// `fairDequeueJobs` defers on purpose, because that path orders by priority and
+// `dequeue_seq` instead of `scheduled`. A stall alert must therefore pair a high age with a
+// zero `cdp_cyclotron_jobs_processed` rate for the same queue.
 const oldestDueJobAgeGauge = new Gauge({
     name: 'cdp_cyclotron_v2_oldest_due_job_age_seconds',
-    help: 'How long the oldest ready-to-run job has been waiting to be picked up, per queue.',
+    help: 'Head-of-line latency per queue: seconds the oldest due job has waited. Rises on a throttled drain too, so pair it with cdp_cyclotron_jobs_processed to detect a stall.',
     labelNames: ['queue'],
 })
 
