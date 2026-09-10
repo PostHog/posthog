@@ -38,6 +38,7 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportError
+from posthog.temporal.scheduler.admission import SchedulerClaimInvariantError
 from posthog.temporal.scheduler.payload import PayloadSelection
 from posthog.test.insight_queries import default_pageview_query
 
@@ -1310,10 +1311,11 @@ async def test_deleted_subscription_is_inactive_across_delivery_activities(team,
             total_insight_count=0,
         ),
     )
-    await ActivityEnvironment().run(advance_next_delivery_date, subscription.id)
+    schedule_advanced = await ActivityEnvironment().run(advance_next_delivery_date, subscription.id)
 
     assert abort_info == DeliveryAbort()
     assert result.recipient_results == []
+    assert schedule_advanced is False
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.next_delivery_date == original_next_delivery_date
 
@@ -3517,6 +3519,23 @@ async def test_fetch_due_subscriptions_rejects_a_different_deployment_region() -
         )
 
 
+@override_settings(CLOUD_DEPLOYMENT="EU")
+async def test_fetch_due_subscriptions_accepts_a_legacy_payload_without_region() -> None:
+    workflow_inputs = ScheduleAllSubscriptionsWorkflow.parse_inputs(['{"buffer_minutes": 15}'])
+
+    subscriptions = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(
+            buffer_minutes=workflow_inputs.buffer_minutes,
+            max_subscriptions_per_run=workflow_inputs.max_subscriptions_per_run,
+            region=workflow_inputs.region,
+        ),
+    )
+
+    assert workflow_inputs.region == ""
+    assert subscriptions == []
+
+
 async def test_capacity_deferral_does_not_pin_the_subscription_tenant_cursor(team, user):
     other_team = await sync_to_async(Team.objects.create)(organization=team.organization, name="Deferred team")
     due_at = datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
@@ -3680,6 +3699,56 @@ async def test_recover_subscription_scheduler_claims_defers_uncertain_claims_beh
     assert first_claim.lease_expires_at is not None and first_claim.lease_expires_at > timezone.now()
     assert "describe unavailable" in first_claim.last_error
     assert second_claim.status == TemporalSchedulerClaim.Status.AVAILABLE
+
+
+async def test_recover_subscription_scheduler_claims_continues_after_one_transition_fails(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="recover-error", name="Recovery error")
+    subscriptions = [
+        await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user) for _ in range(2)
+    ]
+    await sync_to_async(Subscription.objects.filter(id__in=[sub.id for sub in subscriptions]).update)(
+        next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    )
+    fetched = await ActivityEnvironment().run(
+        fetch_claimed_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(
+            max_subscriptions_per_run=2,
+            region="recover-transition-error",
+            use_durable_claims=True,
+            claim_token_seed="recovery-transition-error-run",
+        ),
+    )
+    claim_ids = [item.scheduler_claim_id for item in fetched.subscriptions]
+    assert all(claim_ids)
+    await sync_to_async(TemporalSchedulerClaim.objects.filter(id__in=claim_ids).update)(
+        lease_expires_at=timezone.now() - timedelta(minutes=1)
+    )
+    description = MagicMock(status=WorkflowExecutionStatus.COMPLETED)
+    temporal = MagicMock()
+    temporal.get_workflow_handle.return_value = MagicMock(describe=AsyncMock(return_value=description))
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.async_connect",
+            AsyncMock(return_value=temporal),
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.release_scheduler_claim",
+            side_effect=[SchedulerClaimInvariantError("broken permit counter"), True],
+        ) as release_claim,
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.defer_scheduler_claim_recovery",
+            return_value=True,
+        ) as defer_claim,
+    ):
+        result = await ActivityEnvironment().run(
+            recover_subscription_scheduler_claims_activity,
+            RecoverSubscriptionSchedulerClaimsInputs(region="recover-transition-error", limit=2),
+        )
+
+    assert result == {"released": 1, "renewed": 0, "retained": 1, "pruned": 0}
+    assert release_claim.call_count == 2
+    defer_claim.assert_called_once()
 
 
 async def test_fetch_due_subscriptions_rotates_tenant_page_across_runs(team, user):

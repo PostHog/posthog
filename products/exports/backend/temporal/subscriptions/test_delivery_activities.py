@@ -18,10 +18,14 @@ from posthog.temporal.exports.types import ExportAssetResult
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
+    complete_subscription_scheduler_claim_activity,
+    confirm_subscription_scheduler_claim_activity,
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
     deliver_subscription_v2,
+    notify_subscription_delivery_failure,
+    release_subscription_scheduler_claim_activity,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
@@ -32,6 +36,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
+    DeliveryAbort,
     GenerateAIReportResult,
     SnapshotInsightsResult,
     SubscriptionTriggerType,
@@ -281,3 +286,131 @@ async def test_schedule_update_failure_preserves_primary_failure(
     assert inputs.slo is not None
     assert inputs.slo.completion_properties["failure_stage"] == "delivery"
     assert inputs.slo.completion_properties["failure_component"] == "subscription_delivery"
+
+
+@pytest.mark.parametrize(
+    "workflow_type",
+    [ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
+    ids=["standard", "ai"],
+)
+async def test_record_update_failure_does_not_send_a_false_delivery_failure_notification(
+    workflow_type: type[ProcessSubscriptionWorkflow] | type[ProcessAISubscriptionWorkflow],
+) -> None:
+    record_update_error = RuntimeError("record update failed")
+    activities: list[object] = []
+
+    async def fake_execute_activity(activity: object, _inputs: object, **_kwargs: object) -> object:
+        activities.append(activity)
+        if activity is confirm_subscription_scheduler_claim_activity:
+            return True
+        if activity is create_delivery_record:
+            return uuid.uuid4()
+        if activity is validate_subscription_for_delivery:
+            return None
+        if activity is create_export_assets:
+            return CreateExportAssetsResult(exported_asset_ids=[1], total_insight_count=1)
+        if activity is export_asset_activity:
+            return ExportAssetResult(exported_asset_id=1, success=True)
+        if activity is snapshot_subscription_insights:
+            return SnapshotInsightsResult()
+        if activity is generate_ai_subscription_report:
+            return GenerateAIReportResult()
+        if activity in (deliver_subscription, deliver_subscription_v2):
+            return DeliverSubscriptionResult()
+        if activity is update_delivery_record:
+            raise record_update_error
+        if activity is advance_next_delivery_date:
+            return True
+        if activity is complete_subscription_scheduler_claim_activity:
+            return True
+        if activity is release_subscription_scheduler_claim_activity:
+            return True
+        if activity is notify_subscription_delivery_failure:
+            return None
+        raise AssertionError(f"unexpected activity {activity}")
+
+    with (
+        patch("temporalio.workflow.execute_activity", side_effect=fake_execute_activity),
+        patch("temporalio.workflow.patched", return_value=True),
+        patch("temporalio.workflow.info") as mock_info,
+        patch("temporalio.workflow.uuid4", return_value=uuid.uuid4()),
+        patch("temporalio.workflow.logger", MagicMock()),
+    ):
+        mock_info.return_value = MagicMock(workflow_id="wf-record-update-failure")
+        with pytest.raises(RuntimeError, match="record update failed") as exc_info:
+            await workflow_type().run(
+                TrackedSubscriptionInputs(
+                    subscription_id=1,
+                    team_id=1,
+                    distinct_id="u1",
+                    trigger_type=SubscriptionTriggerType.SCHEDULED,
+                    scheduler_claim_id=str(uuid.uuid4()),
+                    scheduler_claim_token=str(uuid.uuid4()),
+                )
+            )
+
+    assert exc_info.value is record_update_error
+    assert notify_subscription_delivery_failure not in activities
+    assert complete_subscription_scheduler_claim_activity in activities
+
+
+@pytest.mark.parametrize(
+    "workflow_type",
+    [ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
+    ids=["standard", "ai"],
+)
+@pytest.mark.parametrize(
+    "advance_result, expected_terminal_activity, unexpected_terminal_activity",
+    [
+        (False, release_subscription_scheduler_claim_activity, complete_subscription_scheduler_claim_activity),
+        (None, complete_subscription_scheduler_claim_activity, release_subscription_scheduler_claim_activity),
+    ],
+    ids=["inactive", "legacy-activity-result"],
+)
+async def test_schedule_advance_result_finishes_the_scheduler_claim(
+    workflow_type: type[ProcessSubscriptionWorkflow] | type[ProcessAISubscriptionWorkflow],
+    advance_result: bool | None,
+    expected_terminal_activity: object,
+    unexpected_terminal_activity: object,
+) -> None:
+    activities: list[object] = []
+
+    async def fake_execute_activity(activity: object, _inputs: object, **_kwargs: object) -> object:
+        activities.append(activity)
+        if activity is confirm_subscription_scheduler_claim_activity:
+            return True
+        if activity is create_delivery_record:
+            return uuid.uuid4()
+        if activity is validate_subscription_for_delivery:
+            return DeliveryAbort()
+        if activity is update_delivery_record:
+            return None
+        if activity is advance_next_delivery_date:
+            return advance_result
+        if activity is release_subscription_scheduler_claim_activity:
+            return True
+        if activity is complete_subscription_scheduler_claim_activity:
+            return True
+        raise AssertionError(f"unexpected activity {activity}")
+
+    with (
+        patch("temporalio.workflow.execute_activity", side_effect=fake_execute_activity),
+        patch("temporalio.workflow.patched", return_value=True),
+        patch("temporalio.workflow.info") as mock_info,
+        patch("temporalio.workflow.uuid4", return_value=uuid.uuid4()),
+        patch("temporalio.workflow.logger", MagicMock()),
+    ):
+        mock_info.return_value = MagicMock(workflow_id="wf-inactive-subscription")
+        await workflow_type().run(
+            TrackedSubscriptionInputs(
+                subscription_id=1,
+                team_id=1,
+                distinct_id="u1",
+                trigger_type=SubscriptionTriggerType.SCHEDULED,
+                scheduler_claim_id=str(uuid.uuid4()),
+                scheduler_claim_token=str(uuid.uuid4()),
+            )
+        )
+
+    assert expected_terminal_activity in activities
+    assert unexpected_terminal_activity not in activities

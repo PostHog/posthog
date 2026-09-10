@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import datetime
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import DatabaseError, connection, transaction
 from django.db.models import Case, Q, Value, When
 from django.utils import timezone as tz
 
@@ -25,6 +25,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.scheduler.admission import (
     SchedulerAdmissionLimits,
+    SchedulerClaimInvariantError,
     SchedulerClaimRequest,
     complete_scheduler_claim,
     confirm_scheduler_claim,
@@ -149,12 +150,88 @@ class _WorkflowClaimStatus:
     error: str = ""
 
 
-def _validate_scheduler_region(region: str) -> None:
-    if not region.strip() or len(region) > 32:
-        raise ValueError("region must contain between 1 and 32 characters")
+def _defer_subscription_claim_after_recovery_error(
+    claim_id: uuid.UUID,
+    claim_token: uuid.UUID,
+    lease_expires_at: dt.datetime,
+    error: BaseException,
+) -> None:
+    try:
+        defer_scheduler_claim_recovery(
+            claim_id,
+            claim_token,
+            lease_duration=_SUBSCRIPTION_UNCERTAIN_RECOVERY_BACKOFF,
+            error=f"{type(error).__name__}: {error}",
+            expected_lease_expires_at=lease_expires_at,
+        )
+    except DatabaseError:
+        if not connection.is_usable():
+            raise
+        LOGGER.exception("subscription_scheduler.claim_recovery_deferral_failed", claim_id=str(claim_id))
+
+
+def _reconcile_expired_subscription_claim(
+    claim_id: uuid.UUID,
+    claim_token: uuid.UUID,
+    lease_expires_at: dt.datetime,
+    status: _WorkflowClaimStatus,
+) -> tuple[int, int, int]:
+    try:
+        if status.is_open is True:
+            return (
+                0,
+                int(
+                    confirm_scheduler_claim(
+                        claim_id,
+                        claim_token,
+                        lease_duration=_SUBSCRIPTION_EXECUTION_LEASE,
+                    )
+                ),
+                0,
+            )
+        if status.is_open is False:
+            return (
+                int(
+                    release_scheduler_claim(
+                        claim_id,
+                        claim_token,
+                        error="expired claim has no open Temporal workflow",
+                        expected_lease_expires_at=lease_expires_at,
+                    )
+                ),
+                0,
+                0,
+            )
+        defer_scheduler_claim_recovery(
+            claim_id,
+            claim_token,
+            lease_duration=_SUBSCRIPTION_UNCERTAIN_RECOVERY_BACKOFF,
+            error=status.error or "Temporal workflow status could not be determined",
+            expected_lease_expires_at=lease_expires_at,
+        )
+    except (DatabaseError, SchedulerClaimInvariantError) as error:
+        if isinstance(error, DatabaseError) and not connection.is_usable():
+            raise
+        LOGGER.warning(
+            "subscription_scheduler.claim_recovery_transition_failed",
+            claim_id=str(claim_id),
+            error_type=type(error).__name__,
+            error=str(error),
+        )
+        _defer_subscription_claim_after_recovery_error(claim_id, claim_token, lease_expires_at, error)
+    return 0, 0, 1
+
+
+def _resolve_scheduler_region(region: str) -> str:
     configured_region = (settings.CLOUD_DEPLOYMENT or "").lower()
-    if configured_region and region != configured_region:
-        raise ValueError(f"region {region!r} does not match configured deployment region {configured_region!r}")
+    resolved_region = region or configured_region or "local"
+    if not resolved_region.strip() or len(resolved_region) > 32:
+        raise ValueError("region must contain between 1 and 32 characters")
+    if configured_region and resolved_region != configured_region:
+        raise ValueError(
+            f"region {resolved_region!r} does not match configured deployment region {configured_region!r}"
+        )
+    return resolved_region
 
 
 def _subscription_child_workflow_id(subscription: DueSubscription) -> str:
@@ -344,7 +421,7 @@ async def _fetch_due_subscriptions(
         raise ValueError(f"max_subscriptions_per_run must be between 1 and {MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN}")
     if not 0 <= inputs.buffer_minutes <= 60:
         raise ValueError("buffer_minutes must be between 0 and 60")
-    _validate_scheduler_region(inputs.region)
+    inputs = dataclasses.replace(inputs, region=_resolve_scheduler_region(inputs.region))
     if inputs.use_durable_claims and not inputs.claim_token_seed:
         raise ValueError("claim_token_seed is required when durable claims are enabled")
 
@@ -612,6 +689,7 @@ async def _fetch_due_subscriptions(
         subscriptions=list(selection.items),
         expected_discovery_cursor=page.discovery_cursor,
         next_discovery_cursor=cursor_team_id,
+        region=inputs.region,
     )
 
 
@@ -650,7 +728,7 @@ async def fetch_claimed_due_subscriptions_activity(
 async def advance_subscription_scheduler_cursor_activity(
     inputs: AdvanceSubscriptionSchedulerCursorInputs,
 ) -> bool:
-    _validate_scheduler_region(inputs.region)
+    inputs = dataclasses.replace(inputs, region=_resolve_scheduler_region(inputs.region))
     return await database_sync_to_async(_advance_subscription_scheduler_cursor, thread_sensitive=False)(inputs)
 
 
@@ -658,7 +736,7 @@ async def advance_subscription_scheduler_cursor_activity(
 async def recover_subscription_scheduler_claims_activity(
     inputs: RecoverSubscriptionSchedulerClaimsInputs,
 ) -> dict[str, int]:
-    _validate_scheduler_region(inputs.region)
+    inputs = dataclasses.replace(inputs, region=_resolve_scheduler_region(inputs.region))
     if not 1 <= inputs.limit <= MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN:
         raise ValueError(f"limit must be between 1 and {MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN}")
 
@@ -712,32 +790,15 @@ async def recover_subscription_scheduler_claims_activity(
         renewed = 0
         retained = 0
         for (claim_id, claim_token, _, lease_expires_at), status in zip(expired_claims, statuses, strict=True):
-            if status.is_open is True:
-                renewed += int(
-                    confirm_scheduler_claim(
-                        claim_id,
-                        claim_token,
-                        lease_duration=_SUBSCRIPTION_EXECUTION_LEASE,
-                    )
-                )
-            elif status.is_open is False:
-                released += int(
-                    release_scheduler_claim(
-                        claim_id,
-                        claim_token,
-                        error="expired claim has no open Temporal workflow",
-                        expected_lease_expires_at=lease_expires_at,
-                    )
-                )
-            else:
-                defer_scheduler_claim_recovery(
-                    claim_id,
-                    claim_token,
-                    lease_duration=_SUBSCRIPTION_UNCERTAIN_RECOVERY_BACKOFF,
-                    error=status.error or "Temporal workflow status could not be determined",
-                    expected_lease_expires_at=lease_expires_at,
-                )
-                retained += 1
+            released_delta, renewed_delta, retained_delta = _reconcile_expired_subscription_claim(
+                claim_id,
+                claim_token,
+                lease_expires_at,
+                status,
+            )
+            released += released_delta
+            renewed += renewed_delta
+            retained += retained_delta
         return {"released": released, "renewed": renewed, "retained": retained, "pruned": pruned}
 
     result = await reconcile_claims()
@@ -1211,13 +1272,13 @@ async def notify_subscription_delivery_failure(subscription_id: int, failure_id:
 
 
 @temporalio.activity.defn
-async def advance_next_delivery_date(subscription_id: int) -> None:
+async def advance_next_delivery_date(subscription_id: int) -> bool:
     subscription = await database_sync_to_async(Subscription.objects.get, thread_sensitive=False)(pk=subscription_id)
     # Disabled subs (e.g. auto-disabled this run / paused by user) don't get a
     # future delivery date — avoids showing a misleading "next delivery" in the UI.
     if not subscription.enabled or subscription.deleted:
         await LOGGER.ainfo("advance_next_delivery_date.skipped_inactive", subscription_id=subscription_id)
-        return
+        return False
     subscription.set_next_delivery_date(subscription.next_delivery_date)
     await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])
     await LOGGER.ainfo(
@@ -1225,3 +1286,4 @@ async def advance_next_delivery_date(subscription_id: int) -> None:
         subscription_id=subscription_id,
         next_delivery_date=subscription.next_delivery_date,
     )
+    return True

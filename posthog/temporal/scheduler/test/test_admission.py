@@ -16,6 +16,7 @@ from posthog.temporal.scheduler.admission import (
     SchedulerOccurrenceHashCollision,
     complete_scheduler_claim,
     confirm_scheduler_claim,
+    defer_scheduler_claim_recovery,
     list_expired_scheduler_claims,
     prune_inactive_scheduler_claims,
     quarantine_scheduler_claim,
@@ -550,6 +551,24 @@ class TestSchedulerClaimLifecycle(TestCase):
             )
         )
         self.assertEqual(self._global_in_flight(), 1)
+
+    def test_recovery_deferral_sets_a_transaction_local_lock_timeout(self) -> None:
+        expected_lease = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id).lease_expires_at
+        assert expected_lease is not None
+
+        with patch("posthog.temporal.scheduler.admission._set_scheduler_lock_timeout") as set_lock_timeout:
+            self.assertTrue(
+                defer_scheduler_claim_recovery(
+                    self.reservation.claim_id,
+                    self.reservation.claim_token,
+                    lease_duration=timedelta(minutes=5),
+                    error="Temporal status unavailable",
+                    expected_lease_expires_at=expected_lease,
+                    now=self.now,
+                )
+            )
+
+        set_lock_timeout.assert_called_once_with()
 
     def test_recovery_can_confirm_an_expired_reserved_claim(self) -> None:
         recovery_time = self.now + timedelta(minutes=6)

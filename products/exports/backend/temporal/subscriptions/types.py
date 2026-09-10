@@ -150,7 +150,7 @@ class DueSubscription:
 class FetchDueSubscriptionsActivityInputs:
     buffer_minutes: int = 15
     max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
-    region: str = "local"
+    region: str = ""
     use_durable_claims: bool = False
     claim_token_seed: str | None = None
 
@@ -169,6 +169,7 @@ class FetchDueSubscriptionsActivityOutput:
     subscriptions: list[DueSubscription]
     expected_discovery_cursor: str
     next_discovery_cursor: str | None
+    region: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -432,7 +433,7 @@ class SnapshotInsightsResult:
 class ScheduleAllSubscriptionsWorkflowInputs:
     buffer_minutes: int = 15
     max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
-    region: str = "local"
+    region: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:

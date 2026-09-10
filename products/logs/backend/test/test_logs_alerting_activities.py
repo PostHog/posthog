@@ -13,6 +13,8 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 from hypothesis import (
     given,
     settings,
@@ -2048,6 +2050,17 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     @freeze_time("2026-05-05T10:00:00Z")
+    def test_legacy_region_uses_the_configured_deployment_namespace(self):
+        from posthog.models.temporal_scheduler import TemporalSchedulerState
+
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        with override_settings(CLOUD_DEPLOYMENT="EU"):
+            asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
+
+        assert TemporalSchedulerState.objects.filter(scheduler="logs_alerts", region="eu").exists()
+
+    @freeze_time("2026-05-05T10:00:00Z")
     def test_bounds_discovery_and_selects_fairly_across_teams(self):
         from posthog.models import Team
 
@@ -2252,6 +2265,17 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
 
         with pytest.raises(ValueError, match="max_alerts_per_run must be between"):
             asyncio.run(discover_cohorts_activity(DiscoverCohortsInput(max_alerts_per_run=1_001, region="test")))
+
+    @override_settings(CLOUD_DEPLOYMENT="EU")
+    def test_rejects_a_region_that_differs_from_the_configured_deployment(self):
+        from posthog.models.temporal_scheduler import TemporalSchedulerState
+
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        with pytest.raises(ValueError, match="configured deployment region"):
+            asyncio.run(discover_cohorts_activity(DiscoverCohortsInput(region="us")))
+
+        assert not TemporalSchedulerState.objects.filter(scheduler="logs_alerts", region="us").exists()
 
     @freeze_time("2026-05-05T23:00:00Z")
     def test_skips_alert_with_invalid_quiet_hours_and_discovers_healthy_alerts(self):

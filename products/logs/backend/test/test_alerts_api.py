@@ -733,6 +733,15 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["snooze_until"] is not None
         assert datetime.fromisoformat(response.json()["next_check_at"]) == datetime.fromisoformat(snooze_time)
 
+    def test_create_with_snooze_starts_snoozed_and_defers_next_check(self):
+        snooze_time = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+
+        data = self._create_via_api(snooze_until=snooze_time)
+
+        assert data["state"] == "snoozed"
+        assert datetime.fromisoformat(data["snooze_until"]) == datetime.fromisoformat(snooze_time)
+        assert datetime.fromisoformat(data["next_check_at"]) == datetime.fromisoformat(snooze_time)
+
     def test_unsnooze_sets_not_firing_state(self):
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
