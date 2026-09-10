@@ -20,6 +20,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.selector_audit.audit import (
+    BUCKET_COMPILE_ERROR,
     BUCKET_DEPLOY_DAY_REWRITE,
     BUCKET_GAIN_ONLY,
     BUCKET_NO_DATA,
@@ -40,6 +41,7 @@ from products.actions.backend.selector_audit.audit import (
     measure_team_rows,
     prefill_counts_from_previous,
     save_report,
+    selector_compiles,
 )
 from products.actions.backend.selector_audit.compilers import (
     classify_selector,
@@ -112,6 +114,17 @@ class TestCompilerSemantics(SimpleTestCase):
     ) -> None:
         assert bool(re.search(compile_old(selector), chain)) is old_matches
         assert bool(re.search(compile_new(selector), chain)) is new_matches
+
+
+class TestSelectorCompiles(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("a selector both parsers read", ".btn", True),
+            ("a class name that contains positional pseudo-class text", "div.foo-nth-child(2)", False),
+        ]
+    )
+    def test_a_selector_that_raises_is_not_compilable(self, _name: str, selector: str, expected: bool) -> None:
+        assert selector_compiles(selector) is expected
 
 
 class TestRewriteDirectDescendants(SimpleTestCase):
@@ -500,3 +513,24 @@ class TestCommandSmoke(BaseTest):
                 ("survey", str(survey.id)),
                 ("webhook", str(action.pk)),
             }
+
+    def test_a_selector_the_old_parser_cannot_read_does_not_stop_the_run(self) -> None:
+        action = Action.objects.create(
+            team=self.team,
+            name="unparseable",
+            steps_json=[{"event": "$autocapture", "selector": "div.foo-nth-child(2)"}],
+        )
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "audit.json"
+            call_command(
+                "audit_action_selectors",
+                "--team-ids",
+                str(self.team.pk),
+                "--skip-references",
+                "--output",
+                str(path),
+                stdout=StringIO(),
+            )
+            rows = json.loads(path.read_text())["teams"][str(self.team.pk)]["rows"]
+            assert [(row["action_id"], row["bucket"]) for row in rows] == [(action.pk, BUCKET_COMPILE_ERROR)]

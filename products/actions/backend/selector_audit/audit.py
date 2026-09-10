@@ -102,6 +102,19 @@ def detect_live_compiler() -> str:
     return "unknown"
 
 
+def selector_compiles(selector: str) -> bool:
+    """Both vendored compilers turn this selector into a usable regex.
+
+    A malformed selector can raise inside either parser instead of returning a
+    regex. A raise means the same thing here as an invalid regex, so the row
+    becomes a compile_error and one bad selector cannot stop a fleet-wide run.
+    """
+    try:
+        return is_valid_regex(compile_old(selector)) and is_valid_regex(compile_new(selector))
+    except Exception:
+        return False
+
+
 def discover_rows(team_ids: Optional[list[int]]) -> list[Row]:
     """One row per selector-bearing action step, classification filled in."""
     actions = Action.objects.filter(deleted=False).exclude(steps_json=None)
@@ -116,11 +129,9 @@ def discover_rows(team_ids: Optional[list[int]]) -> list[Row]:
                 continue
             classification = classify_selector(selector)
             rewrite = rewrite_direct_descendants(selector)
-            compilable = is_valid_regex(compile_old(selector)) and is_valid_regex(compile_new(selector))
+            compilable = selector_compiles(selector)
             if rewrite != selector:
-                compilable = (
-                    compilable and is_valid_regex(compile_old(rewrite)) and is_valid_regex(compile_new(rewrite))
-                )
+                compilable = compilable and selector_compiles(rewrite)
             rows.append(
                 {
                     "team_id": action.team_id,
