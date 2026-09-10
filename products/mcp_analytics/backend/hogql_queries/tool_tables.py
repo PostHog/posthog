@@ -773,6 +773,12 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
             "PARTITION BY conv_id ORDER BY timestamp "
             "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)"
         )
+        # The shared filters are NOT part of cte_where: removing a call from the CTE would shift
+        # what lagInFrame/leadInFrame see as adjacent, so a conversation A(error) -> B(success) ->
+        # C(error) would report C as A's immediate successor once B is filtered out. Instead they're
+        # evaluated per row as `matches_filter` and applied in the outer WHERE, which only decides
+        # whether the *target* call's occurrence counts, leaving every row available to the window
+        # function so the real conversation order still drives who its neighbours are.
         cte_where = ast.And(
             exprs=[
                 parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
@@ -786,16 +792,18 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
                     "properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}
                 ),
                 parse_expr("notEmpty({conv_id})", placeholders={"conv_id": parse_expr(_CONVERSATION_ID)}),
-                *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
             ]
         )
+        filter_exprs = shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts)
+        matches_filter = ast.And(exprs=filter_exprs) if filter_exprs else ast.Constant(value=True)
         return parse_select(
             """
             WITH tool_calls AS (
                 SELECT
                     {_CONVERSATION_ID} AS conv_id,
                     timestamp,
-                    {effective_tool} AS tool
+                    {effective_tool} AS tool,
+                    {matches_filter} AS matches_filter
                 FROM events
                 WHERE {cte_where}
             )
@@ -803,10 +811,11 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
             FROM (
                 SELECT
                     tool,
+                    matches_filter,
                     {neighbor_expr} AS neighbor_tool
                 FROM tool_calls
             )
-            WHERE tool = {tool} AND neighbor_tool IS NOT NULL AND neighbor_tool != '' AND neighbor_tool != tool
+            WHERE tool = {tool} AND matches_filter AND neighbor_tool IS NOT NULL AND neighbor_tool != '' AND neighbor_tool != tool
             GROUP BY neighbor_tool
             ORDER BY co_occurrences DESC
             LIMIT 5
@@ -814,6 +823,7 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
             placeholders={
                 "_CONVERSATION_ID": parse_expr(_CONVERSATION_ID),
                 "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
+                "matches_filter": matches_filter,
                 "neighbor_expr": parse_expr(neighbor_expr),
                 "cte_where": cte_where,
                 "tool": ast.Constant(value=self.query.toolName),
