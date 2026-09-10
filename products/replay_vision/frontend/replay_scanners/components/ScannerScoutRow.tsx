@@ -13,14 +13,16 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 import { ScoutNextRunLabel } from 'products/signals/frontend/inbox/components/config/scouts/ScoutNextRunLabel'
-import { nextRunAt, scoutCadenceLabel } from 'products/signals/frontend/inbox/utils/scoutGroups'
+import {
+    nextRunAt,
+    scoutCadenceLabel,
+    scoutCadenceNamesClockTime,
+} from 'products/signals/frontend/inbox/utils/scoutGroups'
 import { scoutDisplayName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { scannerScoutLogic } from '../scannerScoutLogic'
-
-const CLOCK_TIME_RE = /\d{1,2}:\d{2}/
 
 /** One scout on the scanner's Scouts tab: name, cadence, the on/off switch, its
  * settings, and the link into the Inbox (the one place the underlying scout shows through). */
@@ -67,8 +69,7 @@ export function ScannerScoutRow({
         editDisabledReason ?? (rollups.get(config.skill_name)?.runningRun ? 'This scout is already running' : undefined)
 
     const cadenceText = capitalizeFirstLetter(scoutCadenceLabel(config))
-    // Only a clock time is evaluated in the project timezone; "every 30 minutes" has none to name.
-    const namesClockTime = CLOCK_TIME_RE.test(cadenceText)
+    const namesClockTime = scoutCadenceNamesClockTime(config)
     const hasNextRun = nextRunAt(config, currentTeam?.timezone ?? 'UTC', new Date()) !== null
 
     return (
