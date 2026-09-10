@@ -481,7 +481,7 @@ export class PiSessionController {
           followUp: action === "followUp" ? [message] : [],
         });
       }
-      this.markTurnPending(taskId);
+      this.setTurnStreaming(taskId, true);
       if (currentSession.resumeRequired) {
         this.updateSession(taskId, { connectionState: "connecting" });
       }
@@ -1005,7 +1005,7 @@ export class PiSessionController {
     }
 
     this.turnStates.set(taskId, { phase: "completed" });
-    if (!isLive || current?.phase === "completed") {
+    if (!isLive || !activeTurn) {
       return;
     }
 
@@ -1410,11 +1410,13 @@ export class PiSessionController {
         taskRunId,
       );
       this.resetTransport(taskId);
+      this.turnStates.delete(taskId);
       await this.ensureConnected(taskId, resumedRun.id);
       const resumedSession = await this.getPiSession(taskId);
       if (!resumedSession.sendUserMessage) {
         throw new Error("Resumed cloud Pi session cannot send messages");
       }
+      this.markTurnPending(taskId);
       await resumedSession.sendUserMessage(
         type,
         content,
