@@ -7,7 +7,7 @@ import { LemonLabel, LemonModal, LemonSelect, LemonSelectOptions } from '@postho
 
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { countryCodeToFlag } from 'lib/utils/country'
-import { PendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
+import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
@@ -83,12 +83,9 @@ const REGIONS: { value: Region; label: string }[] = [
     { value: Region.EU, label: 'European Union' },
 ]
 
-export function RegionField({
-    pendingConnection,
-}: {
-    pendingConnection?: PendingOAuthConnection | null
-}): JSX.Element | null {
+export function RegionField(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const [devRegion, setDevRegion] = useState<Region>(Region.US)
     const [modalOpen, setModalOpen] = useState(false)
 
@@ -111,9 +108,11 @@ export function RegionField({
     }
 
     // An OAuth client is registered in one region only, so an account created elsewhere could
-    // never finish the connection that brought the person here.
+    // never finish the connection that brought the person here. The cookie spans both cloud
+    // hosts, so its region can differ from the host this page is served from.
+    const pinnedRegion = pendingConnection?.region ?? activeRegion
     const pinnedReason = pendingConnection
-        ? `This connection started in the ${REGIONS.find((r) => r.value === activeRegion)?.label ?? activeRegion} region. To use another region, start again from ${pendingConnection.clientName}.`
+        ? `This connection started in the ${REGIONS.find((r) => r.value === pinnedRegion)?.label ?? pinnedRegion} region. To use another region, start again from ${pendingConnection.clientName}.`
         : undefined
 
     const options: LemonSelectOptions<Region> = REGIONS.map((region) => ({

@@ -1,3 +1,5 @@
+import { setPendingOAuthConnectionCookie } from 'scenes/authentication/shared/pendingOAuthConnection.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -347,21 +349,16 @@ describe('signupLogic — name handling', () => {
     })
 })
 
-describe('signupLogic — pending OAuth connection', () => {
-    const COOKIE = 'ph_pending_oauth_connection'
-
+describe('signupLogic - pending OAuth connection', () => {
     afterEach(() => {
-        document.cookie = `${COOKIE}=; max-age=0; path=/`
+        setPendingOAuthConnectionCookie(null)
     })
 
     it.each([
         ['prefills the referral source with the client name', 'Claude', 'Claude'],
         ['leaves the referral source empty without a connection', null, ''],
     ])('%s', async (_name, clientName, expected) => {
-        if (clientName) {
-            const value = encodeURIComponent(JSON.stringify({ client_name: clientName, client_id: 'client' }))
-            document.cookie = `${COOKIE}=${value}; path=/`
-        }
+        setPendingOAuthConnectionCookie(clientName ? { client_name: clientName, client_id: 'client' } : null)
         initKeaTests()
         router.actions.push('/signup')
         const logic = signupLogic()

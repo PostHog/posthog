@@ -1,24 +1,16 @@
+import { setPendingOAuthConnectionCookie as setCookie } from './pendingOAuthConnection.mock'
+
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
-import {
-    PENDING_OAUTH_CONNECTION_COOKIE,
-    pendingOAuthConnectionLogic,
-    readPendingOAuthConnection,
-} from './pendingOAuthConnectionLogic'
+import { pendingOAuthConnectionLogic, readPendingOAuthConnection } from './pendingOAuthConnectionLogic'
 
 jest.mock('posthog-js')
 
 const CLIENT_ID = 'https://claude.example.com/.well-known/oauth-client'
-
-function setCookie(raw: string | null): void {
-    document.cookie =
-        raw === null
-            ? `${PENDING_OAUTH_CONNECTION_COOKIE}=; max-age=0; path=/`
-            : `${PENDING_OAUTH_CONNECTION_COOKIE}=${raw}; path=/`
-}
 
 function encoded(payload: unknown): string {
     return encodeURIComponent(JSON.stringify(payload))
@@ -32,16 +24,15 @@ describe('pendingOAuthConnectionLogic', () => {
     })
 
     it('reads the cookie the authorize endpoint set and reports which screen showed it', async () => {
-        setCookie(
-            encoded({
-                client_name: 'Claude &amp; Co',
-                client_id: CLIENT_ID,
-                logo_uri: 'https://claude.example.com/logo.png',
-                redirect_host: 'claude.example.com',
-                region: 'US',
-            })
-        )
-        const logic = pendingOAuthConnectionLogic({ screen: 'login' })
+        setCookie({
+            client_name: 'Claude &amp; Co',
+            client_id: CLIENT_ID,
+            logo_uri: 'https://claude.example.com/logo.png',
+            redirect_host: 'claude.example.com',
+            region: 'US',
+        })
+        router.actions.push('/login')
+        const logic = pendingOAuthConnectionLogic()
         logic.mount()
 
         await expectLogic(logic).toMatchValues({
@@ -63,10 +54,23 @@ describe('pendingOAuthConnectionLogic', () => {
     })
 
     it('reports nothing when no connection is pending', async () => {
-        const logic = pendingOAuthConnectionLogic({ screen: 'signup' })
+        router.actions.push('/signup')
+        const logic = pendingOAuthConnectionLogic()
         logic.mount()
 
         await expectLogic(logic).toMatchValues({ pendingConnection: null })
+        expect(posthog.capture).not.toHaveBeenCalled()
+    })
+
+    it('reports nothing from a screen outside the auth flow', async () => {
+        setCookie({ client_name: 'Claude', client_id: CLIENT_ID })
+        router.actions.push('/organization/confirm-creation')
+        const logic = pendingOAuthConnectionLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            pendingConnection: expect.objectContaining({ clientName: 'Claude' }),
+        })
         expect(posthog.capture).not.toHaveBeenCalled()
     })
 

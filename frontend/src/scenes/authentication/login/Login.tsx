@@ -18,7 +18,7 @@ export function Login(): JSX.Element {
     // Mounted here so the login funnel is only reported from the auth scenes
     useMountedLogic(loginTelemetryLogic)
     // Mounted at the scene root so the cookie is read once, not on every form state change
-    useMountedLogic(pendingOAuthConnectionLogic({ screen: 'login' }))
+    useMountedLogic(pendingOAuthConnectionLogic)
     const { startConditionalPasskeyLogin } = useActions(passkeyLogic)
 
     // WebKit (Safari/iOS) can't open the passkey modal without a user gesture, so we show

@@ -1,11 +1,12 @@
 import './AuthScene.scss'
 
+import { useValues } from 'kea'
 import { type ReactNode } from 'react'
 
 import { Logo } from 'lib/brand'
 import { cn } from 'lib/utils/css-classes'
 
-import { PendingOAuthConnection } from '../pendingOAuthConnectionLogic'
+import { pendingOAuthConnectionLogic } from '../pendingOAuthConnectionLogic'
 import { DevLoginPanel } from './DevLoginPanel'
 import { PendingOAuthConnectionLogos } from './PendingOAuthConnectionLogos'
 import { Typewriter } from './Typewriter'
@@ -27,15 +28,15 @@ export function AuthScene({ notes, children }: { notes: string[]; children: Reac
 /** Logo (or custom header) + white card + optional footer note — the column contents. */
 export function AuthSceneCard({
     top,
-    pendingConnection,
     footer,
     children,
 }: {
     top?: ReactNode
-    pendingConnection?: PendingOAuthConnection | null
     footer?: ReactNode
     children: ReactNode
 }): JSX.Element {
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
+
     return (
         <>
             {top !== undefined ? (

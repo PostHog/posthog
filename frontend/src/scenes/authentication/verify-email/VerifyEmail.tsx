@@ -13,6 +13,6 @@ export const scene: SceneExport = {
 
 export function VerifyEmail(): JSX.Element {
     // Mounted at the scene root so the cookie is read once, not on every view change
-    useMountedLogic(pendingOAuthConnectionLogic({ screen: 'verify_email' }))
+    useMountedLogic(pendingOAuthConnectionLogic)
     return <VerifyEmailForm />
 }

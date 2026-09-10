@@ -16,7 +16,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
-import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
+import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -44,7 +44,7 @@ function SignupEmailPanel(): JSX.Element {
     const { isSignupPanelEmailSubmitting, signupPanelEmailManualErrors, pendingInvite, loginUrl, emailCaseNotice } =
         useValues(signupLogic)
     const { preflight } = useValues(preflightLogic)
-    const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'signup' }))
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const [showJoinOrg, setShowJoinOrg] = useState(false)
     const lastLoginMethod = getCookie('ph_last_login_method') as LoginMethod | null
     const accountExists = !!signupPanelEmailManualErrors?.email
@@ -67,21 +67,19 @@ function SignupEmailPanel(): JSX.Element {
     )
 
     return (
-        <AuthSceneCard pendingConnection={pendingConnection} footer={footer}>
+        <AuthSceneCard footer={footer}>
             <AuthCardTitle
                 title={
                     pendingConnection ? `Create your account to connect ${pendingConnection.clientName}` : 'Get started'
                 }
                 sub={
                     pendingConnection
-                        ? pendingConnection.redirectHost
-                            ? `Once your account is ready, you'll review what ${pendingConnection.clientName} can access, then go back to ${pendingConnection.redirectHost}.`
-                            : `Once your account is ready, you'll review what ${pendingConnection.clientName} can access.`
+                        ? reviewAccessCopy(pendingConnection, 'Once your account is ready')
                         : 'Make your product self-driving.'
                 }
             />
             <Form logic={signupLogic} formKey="signupPanelEmail" enableFormOnSubmit className="flex flex-col gap-4">
-                <RegionField pendingConnection={pendingConnection} />
+                <RegionField />
                 <LemonField
                     name="email"
                     label="Email"
@@ -217,7 +215,6 @@ function SignupAuthPanel(): JSX.Element {
         isPasskeyRegistering,
         passkeyError,
     } = useValues(signupLogic)
-    const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'signup' }))
     const { registerPasskey, setPanel } = useActions(signupLogic)
 
     const footer = (
@@ -245,7 +242,7 @@ function SignupAuthPanel(): JSX.Element {
     )
 
     return (
-        <AuthSceneCard pendingConnection={pendingConnection} footer={footer}>
+        <AuthSceneCard footer={footer}>
             <AuthCardTitle
                 title="Secure your account"
                 sub={
@@ -341,9 +338,7 @@ function SignupProfilePanel(): JSX.Element {
         turnstileSiteKey,
         turnstileToken,
         signupPanelEmail,
-        signupPanelOnboarding,
     } = useValues(signupLogic)
-    const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'signup' }))
     const { preflight } = useValues(preflightLogic)
     const { setTurnstileToken, setPanel } = useActions(signupLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -383,7 +378,7 @@ function SignupProfilePanel(): JSX.Element {
     )
 
     return (
-        <AuthSceneCard pendingConnection={pendingConnection} footer={footer}>
+        <AuthSceneCard footer={footer}>
             <AuthCardTitle
                 title="Tell us about yourself"
                 sub={
@@ -456,10 +451,7 @@ function SignupProfilePanel(): JSX.Element {
                     )}
                 </LemonField>
                 <SignupRoleSelect />
-                <SignupReferralSource
-                    disabled={isSignupPanelOnboardingSubmitting}
-                    referralSource={signupPanelOnboarding.referral_source}
-                />
+                <SignupReferralSource disabled={isSignupPanelOnboardingSubmitting} />
                 {challengeRequired && turnstileSiteKey ? (
                     <TurnstileChallenge
                         siteKey={turnstileSiteKey}
@@ -489,7 +481,7 @@ export function Signup(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { panel } = useValues(signupLogic)
     // Mounted at the scene root so the cookie is read once, not on every panel change
-    useMountedLogic(pendingOAuthConnectionLogic({ screen: 'signup' }))
+    useMountedLogic(pendingOAuthConnectionLogic)
 
     if (user) {
         return null

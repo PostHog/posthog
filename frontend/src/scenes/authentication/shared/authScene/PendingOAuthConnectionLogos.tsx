@@ -4,11 +4,11 @@ import { IconPlug } from '@posthog/icons'
 
 import { Logomark } from 'lib/brand'
 
-import { PendingOAuthConnection } from '../pendingOAuthConnectionLogic'
+import type { PendingOAuthConnection } from '../pendingOAuthConnectionLogic'
 
 export function PendingOAuthConnectionLogos({ connection }: { connection: PendingOAuthConnection }): JSX.Element {
     const [logoFailed, setLogoFailed] = useState(false)
-    const showLogo = !!connection.logoUri && !logoFailed
+    const logoUri = logoFailed ? null : connection.logoUri
 
     return (
         <div className="flex items-center justify-center gap-3 mb-4" data-attr="pending-oauth-connection-logos">
@@ -17,9 +17,9 @@ export function PendingOAuthConnectionLogos({ connection }: { connection: Pendin
             </span>
             <IconPlug className="text-secondary text-lg shrink-0" aria-hidden />
             <span className="flex items-center justify-center w-12 h-12 rounded-full border border-border bg-bg-light overflow-hidden">
-                {showLogo ? (
+                {logoUri ? (
                     <img
-                        src={connection.logoUri ?? undefined}
+                        src={logoUri}
                         alt={`${connection.clientName} logo`}
                         className="w-8 h-8 object-contain"
                         referrerPolicy="no-referrer"

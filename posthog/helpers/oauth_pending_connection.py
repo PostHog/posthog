@@ -37,6 +37,9 @@ _MAX_CLIENT_ID_LENGTH = 2048
 _MAX_LOGO_URI_LENGTH = 1024
 _MAX_HOST_LENGTH = 253
 
+# The only regions an authorization request can land on.
+CLOUD_REGIONS = ("US", "EU")
+
 
 def _optional_str(value: object, max_length: int) -> str | None:
     if not isinstance(value, str) or not value or len(value) > max_length:
@@ -61,7 +64,7 @@ class PendingOAuthConnection:
         payload = {
             "client_name": self.client_name,
             "client_id": self.client_id,
-            "logo_uri": self.logo_uri if self.logo_uri and len(self.logo_uri) <= _MAX_LOGO_URI_LENGTH else None,
+            "logo_uri": _optional_str(self.logo_uri, _MAX_LOGO_URI_LENGTH),
             "redirect_host": self.redirect_host,
             "region": self.region,
         }
@@ -89,7 +92,7 @@ class PendingOAuthConnection:
             client_id=client_id,
             logo_uri=_optional_str(payload.get("logo_uri"), _MAX_LOGO_URI_LENGTH),
             redirect_host=_optional_str(payload.get("redirect_host"), _MAX_HOST_LENGTH),
-            region=_optional_str(payload.get("region"), 8),
+            region=payload.get("region") if payload.get("region") in CLOUD_REGIONS else None,
         )
 
 
@@ -117,6 +120,10 @@ def set_pending_oauth_connection_cookie(
 
 
 def clear_pending_oauth_connection_cookie(request: HttpRequest, response: HttpResponse) -> None:
+    """End the pending connection. A no-op without the cookie, so the deletion header is not
+    attached to the many authorizations that started from an already signed-in session."""
+    if PENDING_OAUTH_CONNECTION_COOKIE not in request.COOKIES:
+        return
     response.delete_cookie(PENDING_OAUTH_CONNECTION_COOKIE, path="/", domain=_cookie_domain(request), samesite="Lax")
 
 

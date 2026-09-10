@@ -1,9 +1,13 @@
+import {
+    PENDING_OAUTH_CONNECTION_FIXTURE,
+    setPendingOAuthConnectionCookie,
+} from 'scenes/authentication/shared/pendingOAuthConnection.mock'
+
 import type { Meta, StoryFn } from '@storybook/react'
 import { HttpResponse, delay } from 'msw'
 import { useEffect } from 'react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { PENDING_OAUTH_CONNECTION_COOKIE } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -73,22 +77,6 @@ const meta: Meta<StoryArgs> = {
 }
 export default meta
 
-const PENDING_CONNECTION_COOKIE_VALUE = encodeURIComponent(
-    JSON.stringify({
-        client_name: 'Claude',
-        client_id: 'https://claude.ai/.well-known/oauth-client',
-        redirect_host: 'claude.ai',
-        region: 'US',
-    })
-)
-
-// Set synchronously: the scene reads the cookie while it mounts during this same render.
-function setPendingOAuthConnectionCookie(pending: boolean): void {
-    document.cookie = pending
-        ? `${PENDING_OAUTH_CONNECTION_COOKIE}=${PENDING_CONNECTION_COOKIE_VALUE}; path=/`
-        : `${PENDING_OAUTH_CONNECTION_COOKIE}=; max-age=0; path=/`
-}
-
 const Template: StoryFn<StoryArgs> = ({
     cloud,
     region,
@@ -99,7 +87,8 @@ const Template: StoryFn<StoryArgs> = ({
     pendingOAuthConnection,
 }) => {
     const panel = PANEL_INDEX[panelOption]
-    setPendingOAuthConnectionCookie(pendingOAuthConnection)
+    // Set synchronously: the scene reads the cookie while it mounts during this same render.
+    setPendingOAuthConnectionCookie(pendingOAuthConnection ? PENDING_OAUTH_CONNECTION_FIXTURE : null)
     useStorybookMocks({
         get: {
             '/_preflight': {

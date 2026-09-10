@@ -93,7 +93,7 @@ from posthog.scopes import (
 )
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
-from posthog.utils import absolute_uri, render_template
+from posthog.utils import absolute_uri, get_instance_region, render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
@@ -128,13 +128,18 @@ _IMPERSONATOR_CACHE_UNSET: object = object()
 STANDARD_TOKEN_ENDPOINT_PATHS = ("/oauth/token/", "/oauth/token")
 
 
+def cloud_region() -> str | None:
+    """`US` or `EU` when running on PostHog Cloud, else None."""
+    cloud = get_instance_region()
+    return cloud if cloud in ("US", "EU") else None
+
+
 def get_region_info() -> dict | None:
     """Return region metadata if running on PostHog Cloud US/EU, else None."""
-    cloud = getattr(settings, "CLOUD_DEPLOYMENT", None)
-    if cloud in ("US", "EU"):
-        region = cloud.lower()
-        return {"posthog_region": region, "posthog_base_url": settings.SITE_URL}
-    return None
+    region = cloud_region()
+    if region is None:
+        return None
+    return {"posthog_region": region.lower(), "posthog_base_url": settings.SITE_URL}
 
 
 # The host the other PostHog Cloud region answers on, so an unknown client_id can name it.
@@ -157,13 +162,13 @@ def unknown_client_id_description(client_id: str | None) -> str:
             "Check that the URL is reachable over HTTPS and returns valid client metadata."
         )
 
-    cloud = getattr(settings, "CLOUD_DEPLOYMENT", None)
-    other_host = _OTHER_CLOUD_REGION_HOST.get(cloud or "")
+    region = cloud_region()
+    other_host = _OTHER_CLOUD_REGION_HOST.get(region or "")
     if other_host is None:
         return "No OAuth application is registered with this client_id. Check the client_id, or register the application again."
 
     return (
-        f"No OAuth application is registered with this client_id in the {cloud} region. "
+        f"No OAuth application is registered with this client_id in the {region} region. "
         f"An application belongs to the region it was created in. If you created it on {other_host}, "
         f"send the authorization request to {other_host} instead. Otherwise check the client_id."
     )
@@ -1264,10 +1269,13 @@ def _pending_connection_for_request(request) -> PendingOAuthConnection | None:
     if not client_id:
         return None
 
-    cloud = getattr(settings, "CLOUD_DEPLOYMENT", None)
-    region = cloud if cloud in ("US", "EU") else None
+    region = cloud_region()
 
-    application = OAuthApplication.objects.filter(client_id=client_id).first()
+    application = (
+        OAuthApplication.objects.only("name", "client_id", "logo_uri", "redirect_uris")
+        .filter(client_id=client_id)
+        .first()
+    )
     if application is None:
         if not is_cimd_client_id(client_id):
             return None
@@ -1719,8 +1727,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             response = self.error_response(
                 error, application, no_redirect=True, state=serializer.validated_data.get("state")
             )
-            if not serializer.validated_data["allow"]:
-                clear_pending_oauth_connection_cookie(request, response)
+            clear_pending_oauth_connection_cookie(request, response)
             return response
 
         logger.debug("Success url for the request: %s", uri)
