@@ -35,6 +35,7 @@ _LAZY = {
     "Config": "sources.common.config",
     "IntegrationAccountListingError": "sources.common.integration_accounts",
     "filter_integration_accounts": "sources.common.integration_accounts",
+    "HostNotAllowedError": "sources.common.mixins",
     "OAuthMixin": "sources.common.mixins",
     "SourceSchema": "sources.common.schema",
     "build_default_schemas": "sources.common.schema",

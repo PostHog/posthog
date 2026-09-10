@@ -464,15 +464,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     "template_id": f"Template '{template.template_id}' is internal and cannot be used to create a function."
                 }
             )
-        # Deprecated templates are only hidden from the template listing, so a direct API call with the
-        # template id could still create one. Block that too; existing functions keep running, and the
-        # legacy plugin migration (posthog/cdp/migrations.py) is the one internal caller allowed through.
-        if template.status == "deprecated" and not self.context.get("allow_deprecated_template"):
-            raise serializers.ValidationError(
-                {
-                    "template_id": f"Template '{template.template_id}' is deprecated and cannot be used to create a new function."
-                }
-            )
 
     def _validate_hidden_template_not_enabled(self, attrs: dict, is_create: bool) -> None:
         # Creating from a hidden template is already blocked outright. For an existing function built from
@@ -724,12 +715,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                 try:
                     # Validate transpilation using the model instance
+                    instance = self.instance if isinstance(self.instance, HogFunction) else None
                     attrs["transpiled"] = get_transpiled_function(
                         HogFunction(
                             team=team,
                             hog=attrs["hog"],
                             filters=attrs["filters"],
                             inputs=attrs["inputs"],
+                            inputs_schema=attrs.get("inputs_schema", instance.inputs_schema if instance else None),
                         )
                     )
                 except TranspilerError:

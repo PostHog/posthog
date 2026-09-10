@@ -18,7 +18,7 @@ def _json_size(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
-def _cap_value(value: Any, budget: int) -> Any:
+def cap_value(value: Any, budget: int) -> Any:
     if isinstance(value, str):
         lower, upper = 0, min(len(value), RESULT_STRING_CAP)
         while lower < upper:
@@ -32,7 +32,9 @@ def _cap_value(value: Any, budget: int) -> Any:
         result: dict[str, Any] = {}
         for key, item in value.items():
             available = budget - _json_size({**result, key: None}) + 4
-            capped = _cap_value(item, available)
+            if available <= 0:
+                break
+            capped = cap_value(item, available)
             if capped is not None and _json_size(capped) <= available:
                 result[key] = capped
         return result
@@ -40,7 +42,7 @@ def _cap_value(value: Any, budget: int) -> Any:
         items: list[Any] = []
         for item in value:
             available = budget - _json_size(items) - bool(items)
-            capped = _cap_value(item, available)
+            capped = cap_value(item, available)
             if capped is None or _json_size(capped) > available or (isinstance(item, str) and capped != item):
                 break
             items.append(capped)
@@ -71,7 +73,7 @@ def emit_workflow_step_resume(
                 properties={
                     "origin_key": origin_key,
                     "status": status,
-                    "result": _cap_value(result or {}, RESULT_BYTE_CAP),
+                    "result": cap_value(result or {}, RESULT_BYTE_CAP),
                 },
             ),
         )

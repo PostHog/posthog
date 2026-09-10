@@ -1,9 +1,13 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import ANTHROPIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
+
+_CHECK_ANALYTICS_ACCESS = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source.check_analytics_access"
+)
 
 
 class TestAnthropicSchemas:
@@ -19,6 +23,9 @@ class TestAnthropicSchemas:
             "cost_report",
             "claude_code_analytics",
             "claude_code_model_breakdown",
+            "analytics_user_activity",
+            "analytics_user_cost",
+            "analytics_user_usage",
         }
 
     @parameterized.expand([("usage_report",), ("cost_report",)])
@@ -80,6 +87,9 @@ class TestAnthropicSourceForPipeline:
             ("workspace_members", ["workspace_id", "user_id"], None),
             ("claude_code_analytics", ["id"], "datetime"),
             ("claude_code_model_breakdown", ["id"], "datetime"),
+            ("analytics_user_activity", ["id"], "datetime"),
+            ("analytics_user_cost", ["id"], "datetime"),
+            ("analytics_user_usage", ["id"], "datetime"),
         ]
     )
     def test_primary_keys_and_partitioning(
@@ -103,3 +113,21 @@ class TestDocumentedTables:
         usage = next(t for t in tables if t["name"] == "usage_report")
         assert "Incremental" in usage["sync_methods"]
         assert usage["description"]  # canonical description is surfaced
+
+
+class TestAnalyticsEndpointPermissions:
+    @patch(_CHECK_ANALYTICS_ACCESS, return_value="needs read:analytics")
+    def test_only_the_analytics_tables_carry_the_probe_result(self, _probe) -> None:
+        permissions = AnthropicSource().get_endpoint_permissions(
+            MagicMock(api_key="sk-ant-admin-test"), team_id=1, endpoints=["users", "analytics_user_cost"]
+        )
+        assert permissions == {"users": None, "analytics_user_cost": "needs read:analytics"}
+
+    @patch(_CHECK_ANALYTICS_ACCESS)
+    def test_no_probe_when_no_analytics_table_is_requested(self, probe) -> None:
+        # The probe is a live request, so schema discovery must not pay for it unless a table needs it.
+        permissions = AnthropicSource().get_endpoint_permissions(
+            MagicMock(api_key="sk-ant-admin-test"), team_id=1, endpoints=["users", "cost_report"]
+        )
+        assert permissions == {"users": None, "cost_report": None}
+        probe.assert_not_called()
