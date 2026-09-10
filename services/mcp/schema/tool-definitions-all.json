@@ -11529,7 +11529,7 @@
         }
     },
     "survey-create": {
-        "description": "Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow. Survey content is public: anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or other private detail in a survey.",
+        "description": "Creates a new survey in the project. For the draft, targeting, preview, and launch workflow, load the creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow. Survey content is public: anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or other private detail in a survey.",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "Creates a new survey in the project.",
@@ -11571,7 +11571,7 @@
         }
     },
     "survey-launch": {
-        "description": "Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a manual `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey is already launched.",
+        "description": "Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a manual `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey is already launched. Archived surveys must be unarchived first. Surveys with an end_date in the past must have that date cleared or extended before launch; do this only when the user asks to reopen the survey.",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "Launch a survey now.",

@@ -482,7 +482,19 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 disable_exclude_workflow_id=activity.info().workflow_id,
             )
         elif not platform_failure:
-            transient_message = _transient_error_message(internal_error_normalized)
+            # A retryable failure that outlasted the whole retry budget lands here with
+            # `latest_error` still set to the raw driver text. The generic transient copy is
+            # consulted first; the source's own exhaustion messages cover the classes it does not
+            # name. Retryability is untouched: the schema is not disabled and the next scheduled
+            # run still tries.
+            transient_message = _transient_error_message(internal_error_normalized) or next(
+                (
+                    message
+                    for error, message in source_cls.get_retry_exhausted_errors().items()
+                    if error_message_matches(internal_error_normalized, [error])
+                ),
+                None,
+            )
             if transient_message is not None:
                 inputs.latest_error = transient_message
 
