@@ -105,6 +105,34 @@ function isSupportLogicRef(logic: unknown): boolean {
     return logic === supportLogic
 }
 
+// productSetupStatusLogic is keyed, so the gate calls it as a factory; the mock returns a
+// stable sentinel and we identity-compare against what the factory hands the component.
+function isProductSetupStatusLogicRef(logic: unknown): boolean {
+    return (logic as { __mock?: string } | null | undefined)?.__mock === 'productSetupStatusLogic'
+}
+
+jest.mock('lib/components/ProductEmptyState/productSetupStatusLogic', () => {
+    const sentinel = { __mock: 'productSetupStatusLogic' }
+    return { productSetupStatusLogic: () => sentinel }
+})
+
+// The gate's settling state lives in a kea logic (repo rule: no business logic in hooks).
+// Mock the module so tests steer it through this sentinel: the factory returns an object whose
+// identity marks it, and `mockSettling`/`mockStartSettling` stand in for its value and action.
+jest.mock('./featurePreviewGateSettlingLogic', () => ({
+    featurePreviewGateSettlingLogic: () => ({ __mock: 'featurePreviewGateSettlingLogic' }),
+}))
+
+let mockSettling = false
+const mockStartSettling = jest.fn(() => {
+    mockSettling = true
+})
+const mockMarkServerCaughtUp = jest.fn()
+
+function isSettlingLogicRef(logic: unknown): boolean {
+    return (logic as { __mock?: string } | null | undefined)?.__mock === 'featurePreviewGateSettlingLogic'
+}
+
 function setupMocks({
     earlyAccessFeatures = [],
     waitlistSurveysEnabled = false,
@@ -113,6 +141,7 @@ function setupMocks({
     featureFlags = {},
     cloud = true,
     isDebug = false,
+    setupStatus = 'unknown',
 }: {
     earlyAccessFeatures?: Array<{
         flagKey: string
@@ -126,6 +155,7 @@ function setupMocks({
     featureFlags?: Record<string, boolean | string>
     cloud?: boolean
     isDebug?: boolean
+    setupStatus?: string
 } = {}): void {
     mockedUseMountedLogic.mockReturnValue({})
 
@@ -148,6 +178,12 @@ function setupMocks({
         if (isPreflightLogicRef(logic)) {
             return { preflight: { cloud, is_debug: isDebug } }
         }
+        if (isProductSetupStatusLogicRef(logic)) {
+            return { status: setupStatus }
+        }
+        if (isSettlingLogicRef(logic)) {
+            return { settling: mockSettling }
+        }
         return {}
     })
 
@@ -163,6 +199,9 @@ function setupMocks({
         if (isSupportLogicRef(logic)) {
             return { openSupportForm: mockOpenSupportForm }
         }
+        if (isSettlingLogicRef(logic)) {
+            return { startSettling: mockStartSettling, markServerCaughtUp: mockMarkServerCaughtUp }
+        }
         return {}
     })
 }
@@ -171,6 +210,7 @@ describe('FeaturePreviewSceneGate', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         enrolledFlags = []
+        mockSettling = false
         setupMocks()
     })
 
@@ -188,19 +228,72 @@ describe('FeaturePreviewSceneGate', () => {
             expect(screen.queryByTestId('product-introduction')).not.toBeInTheDocument()
         })
 
-        test('after opting in, holds on an enabling state instead of mounting a scene whose API still 403s', () => {
-            // The browser evaluates the flag on the moment enrollment is stored locally, while the
-            // API keeps denying until the enrollment person property is ingested. Mounting the
-            // scene in that window is what showed "Detect status failed" until a reload.
+        test('opting in starts the settling window', () => {
             setupMocks({ earlyAccessFeatures: [{ flagKey: BASE_CONFIG.flag, enabled: false, stage: 'alpha' }] })
 
             render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
             fireEvent.click(screen.getByRole('switch'))
 
+            expect(mockStartSettling).toHaveBeenCalledTimes(1)
+        })
+
+        test('while settling with the flag on, holds on an enabling state instead of mounting a scene whose API still 403s', () => {
+            // The browser evaluates the flag on the moment enrollment is stored locally, while the
+            // API keeps denying until the enrollment person property is ingested. Mounting the
+            // scene in that window is what showed "Detect status failed" until a reload.
+            mockSettling = true
+            setupMocks({ featureFlags: { [BASE_CONFIG.flag]: true } })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
             expect(screen.getByTestId('feature-preview-enabling')).toBeInTheDocument()
             expect(screen.getByText(/turning the feature preview on/i)).toBeInTheDocument()
             expect(screen.queryByTestId('scene-content-rendered')).not.toBeInTheDocument()
             expect(screen.queryByTestId('product-introduction')).not.toBeInTheDocument()
+        })
+
+        test('a rejected enrollment (impersonated session) never starts settling', () => {
+            // featurePreviewsLogic refuses enrollment for impersonated sessions, so the flag never
+            // flips and there is nothing to wait on - the gate must stay exactly as it was.
+            ;(window as unknown as { IMPERSONATED_SESSION?: boolean }).IMPERSONATED_SESSION = true
+            setupMocks({ earlyAccessFeatures: [{ flagKey: BASE_CONFIG.flag, enabled: false, stage: 'alpha' }] })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+            fireEvent.click(screen.getByRole('switch'))
+
+            expect(mockStartSettling).not.toHaveBeenCalled()
+            expect(screen.queryByTestId('feature-preview-enabling')).not.toBeInTheDocument()
+            expect(screen.getByTestId('product-introduction')).toBeInTheDocument()
+            delete (window as unknown as { IMPERSONATED_SESSION?: boolean }).IMPERSONATED_SESSION
+        })
+
+        test('a successful server detection ends the enabling state early', () => {
+            // The window exists because the API lags the browser. Once the product's own setup
+            // detection gets a real answer from the server, the wait has done its job.
+            mockSettling = true
+            setupMocks({ featureFlags: { [BASE_CONFIG.flag]: true }, setupStatus: 'has-data' })
+
+            render(
+                <FeaturePreviewSceneGate config={{ ...BASE_CONFIG, productIntent: ProductKey.METRICS }}>
+                    {CHILDREN}
+                </FeaturePreviewSceneGate>
+            )
+
+            expect(mockMarkServerCaughtUp).toHaveBeenCalled()
+        })
+
+        test('no detection answer yet keeps the wait running', () => {
+            mockSettling = true
+            setupMocks({ featureFlags: { [BASE_CONFIG.flag]: true }, setupStatus: 'loading' })
+
+            render(
+                <FeaturePreviewSceneGate config={{ ...BASE_CONFIG, productIntent: ProductKey.METRICS }}>
+                    {CHILDREN}
+                </FeaturePreviewSceneGate>
+            )
+
+            expect(mockMarkServerCaughtUp).not.toHaveBeenCalled()
+            expect(screen.getByTestId('feature-preview-enabling')).toBeInTheDocument()
         })
 
         test('renders the gate when flag is off', () => {

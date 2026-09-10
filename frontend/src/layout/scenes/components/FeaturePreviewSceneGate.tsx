@@ -5,6 +5,7 @@ import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
+import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -21,6 +22,7 @@ import { urls } from 'scenes/urls'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { FeaturePreviewGateConfig } from '~/types'
 
+import { featurePreviewGateSettlingLogic } from './featurePreviewGateSettlingLogic'
 import { SceneContent } from './SceneContent'
 import { SceneTitleSection } from './SceneTitleSection'
 
@@ -32,44 +34,40 @@ export function FeaturePreviewSceneGate({
     children: React.ReactNode
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    // Set once the user opts in from the gate. The browser evaluates the flag as on the moment
-    // enrollment is stored locally, while the API keeps denying until the enrollment person
-    // property is ingested - mounting the scene in that window is what showed "Detect status
-    // failed" until a reload. Hold the gate on an enabling state; the setup-detection poll
-    // inside the scene answers once the server has caught up.
-    const [justEnrolled, setJustEnrolled] = useState(false)
+    const settlingLogic = featurePreviewGateSettlingLogic({ flag: config.flag })
+    const { settling } = useValues(settlingLogic)
+    const { markServerCaughtUp } = useActions(settlingLogic)
+    // The product's own setup detection is the probe: once it has any real answer from the
+    // server, the enrollment window has closed and the wait has done its job. Gates without a
+    // product intent have no detection to listen to and just wait out the timer.
+    const { status: setupStatus } = useValues(
+        productSetupStatusLogic({ productKey: config.productIntent ?? ('' as ProductKey) })
+    )
     useEffect(() => {
-        if (!justEnrolled) {
-            return
+        if (settling && setupStatus !== 'loading' && setupStatus !== 'unknown') {
+            markServerCaughtUp()
         }
-        // Ingestion normally catches up within seconds, and a reload settles it either way.
-        // Cap the wait so a slow pipeline can never lock the user on the enabling state.
-        const timeout = setTimeout(() => setJustEnrolled(false), ENROLLMENT_SETTLE_TIMEOUT_MS)
-        return () => clearTimeout(timeout)
-    }, [justEnrolled])
+    }, [settling, setupStatus, markServerCaughtUp])
+
     const isEnabled = featureFlags[config.flag as keyof typeof featureFlags]
-    if (isEnabled && !justEnrolled) {
+    if (isEnabled && !settling) {
         return <>{children}</>
     }
-    return (
-        <FeaturePreviewGateContent config={config} justEnrolled={justEnrolled} onEnroll={() => setJustEnrolled(true)} />
-    )
+    // Only hold the enabling state once the flag is actually on locally; before that the gate
+    // has nothing to wait for and should keep showing the toggle.
+    return <FeaturePreviewGateContent config={config} justEnrolled={settling && !!isEnabled} />
 }
-
-/** Upper bound on the "turning it on" state after opt-in; see FeaturePreviewSceneGate. */
-const ENROLLMENT_SETTLE_TIMEOUT_MS = 15000
 
 function FeaturePreviewGateContent({
     config,
     justEnrolled,
-    onEnroll,
 }: {
     config: FeaturePreviewGateConfig
     justEnrolled: boolean
-    onEnroll: () => void
 }): JSX.Element {
     const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
+    const { startSettling } = useActions(featurePreviewGateSettlingLogic({ flag: config.flag }))
     const { activeSceneId } = useValues(sceneLogic)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -158,8 +156,10 @@ function FeaturePreviewGateContent({
                                 disabledReason={!flagsHonored && FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON}
                                 onChange={(checked) => {
                                     updateEarlyAccessFeatureEnrollment(feature.flagKey, checked, feature.stage)
-                                    if (checked) {
-                                        onEnroll()
+                                    // featurePreviewsLogic refuses enrollment for impersonated
+                                    // sessions, so there is nothing to wait on in that case.
+                                    if (checked && !window.IMPERSONATED_SESSION) {
+                                        startSettling()
                                     }
                                 }}
                                 id="feature-preview-gate-switch"
