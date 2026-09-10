@@ -147,7 +147,7 @@ class TestOnboardingSessionIdempotency(TestCase):
         assert found is not None
         self.assertEqual(found.summary, "They move freight.")
         self.assertEqual(research.call_args.args[0], expected_url)
-        self.assertEqual(research.call_args.kwargs["formats"], ("markdown", "summary"))
+        self.assertEqual(research.call_args.kwargs["formats"], ("summary",))
 
     def test_a_repeated_request_returns_the_session_it_already_started(self):
         existing = self._existing_session()

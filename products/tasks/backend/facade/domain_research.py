@@ -23,8 +23,9 @@ SCRAPE_TIMEOUT: tuple[float, float] = (5.0, 45.0)
 MARKDOWN_ONLY: tuple[ScrapeFormat, ...] = ("markdown",)
 
 # Firecrawl runs an LLM pass for the summary, which roughly triples the scrape. Ask for it only
-# where a person reads the summary back; the agent writes its own from the markdown.
-WITH_SUMMARY: tuple[ScrapeFormat, ...] = ("markdown", "summary")
+# where a person reads the summary back, and ask for nothing else there: the page itself is what
+# the agent summarizes from, and a person who is handed the summary never needs it.
+SUMMARY_ONLY: tuple[ScrapeFormat, ...] = ("summary",)
 
 ResearchOutcome = Literal["scraped", "not_configured", "unreachable", "busy"]
 

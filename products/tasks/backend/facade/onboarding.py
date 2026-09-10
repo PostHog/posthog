@@ -23,7 +23,7 @@ from products.tasks.backend.facade.api import (
     organization_has_context,
 )
 from products.tasks.backend.facade.domain_research import (
-    WITH_SUMMARY,
+    SUMMARY_ONLY,
     DomainResearch,
     normalize_target,
     research_domain,
@@ -183,7 +183,7 @@ def research_onboarding_domain(team: Team, user: User, *, url: str = "") -> Doma
     target = normalize_target(url) if url.strip() else company_domain_from(user.email)
     if target is None:
         return None
-    research = research_domain(target, formats=WITH_SUMMARY)
+    research = research_domain(target, formats=SUMMARY_ONLY)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="Onboarding company research completed",
