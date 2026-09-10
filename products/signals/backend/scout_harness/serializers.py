@@ -41,6 +41,7 @@ from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
+from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS
 from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.slack_delivery import MAX_SCOUT_SLACK_DM_TARGETS
 from products.signals.backend.scout_harness.tags import slugify_tag
@@ -52,6 +53,7 @@ from products.signals.backend.scout_harness.tools.emit import (
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
+    MAX_IDEMPOTENCY_KEY_LENGTH,
     MAX_REPORT_SIGNALS,
     MAX_REPORT_SUMMARY_LENGTH,
     MAX_REPORT_TITLE_LENGTH,
@@ -413,6 +415,67 @@ class ScoutRunTokenCostsSerializer(serializers.Serializer):
         help_text=(
             "False when this deployment has no internal AI observability project to read the "
             "generations from, so `costs` is empty and every cost is unknown rather than zero."
+        ),
+    )
+
+
+class ScoutCostsQuerySerializer(serializers.Serializer):
+    """Query parameters for the `runs/costs` action."""
+
+    window_days = serializers.IntegerField(
+        required=False,
+        # Bounded to the one supported window rather than left open, so a client that asks for 30
+        # gets a 400 instead of a number silently computed over 7 days.
+        min_value=SCOUT_COST_WINDOW_DAYS,
+        max_value=SCOUT_COST_WINDOW_DAYS,
+        help_text=(
+            f"Window in days over runs' `created_at` (default {SCOUT_COST_WINDOW_DAYS}). Only "
+            f"{SCOUT_COST_WINDOW_DAYS} is accepted today — it matches the window the roster's fleet "
+            "headline spans, so every number on the page describes one span."
+        ),
+    )
+
+
+class ScoutCostSerializer(serializers.Serializer):
+    """What one scout spent in the window, and what it produced for that spend."""
+
+    skill_name = serializers.CharField(help_text="Full skill name of the scout, e.g. `signals-scout-error-tracking`.")
+    spend_usd = serializers.FloatField(
+        help_text=(
+            "Model spend attributed to the scout's runs in the window, in US dollars. Zero when none "
+            "of its runs had spend attributed, which `priced_run_count` tells apart from a scout that "
+            "really spent nothing."
+        ),
+    )
+    run_count = serializers.IntegerField(help_text="Runs the scout started in the window.")
+    priced_run_count = serializers.IntegerField(
+        help_text=(
+            "Runs of the scout that had spend attributed. Lower than `run_count` where a run failed "
+            "before its first model call, or its generations haven't landed yet. Divide `spend_usd` by "
+            "this, not by `run_count`, for cost per run."
+        ),
+    )
+    reports_touched = serializers.IntegerField(
+        help_text=(
+            "Distinct inbox reports the scout filed or added to in the window. A report it authored in "
+            "one run and edited in three counts once. Zero means the scout produced no reports, so "
+            "cost per report has no value rather than a value of zero."
+        ),
+    )
+
+
+class ScoutCostsSerializer(serializers.Serializer):
+    """Model spend and output per scout over a window."""
+
+    window_days = serializers.IntegerField(help_text="Window the rows describe, in days.")
+    scouts = ScoutCostSerializer(
+        many=True,
+        help_text="One row per scout that started at least one run on this project in the window.",
+    )
+    available = serializers.BooleanField(
+        help_text=(
+            "False when this deployment has no internal AI observability project to read the "
+            "generations from, so `scouts` is empty and every spend is unknown rather than zero."
         ),
     )
 
@@ -1142,10 +1205,9 @@ class ReportEvidenceSerializer(serializers.Serializer):
 class SuggestedReviewerSerializer(serializers.Serializer):
     """One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
 
-    The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
-    org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
-    `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
-    reviewer is never silently dropped."""
+    A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
+    member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
+    isn't an org member of this team is rejected — so a reviewer is never silently dropped."""
 
     github_login = serializers.CharField(
         required=False,
@@ -1160,9 +1222,9 @@ class SuggestedReviewerSerializer(serializers.Serializer):
     user_uuid = serializers.UUIDField(
         required=False,
         help_text=(
-            "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). "
-            "Resolved server-side to the member's linked GitHub login — use this when you know the PostHog "
-            "user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+            "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use "
+            "this when you know the PostHog user, whether or not they have a GitHub handle — every "
+            "member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here."
         ),
     )
 
@@ -1285,6 +1347,18 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "research left open, phrased as the reader would send them."
         ),
     )
+    idempotency_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_IDEMPOTENCY_KEY_LENGTH,
+        help_text=(
+            "Optional name for this emission, unique within the run. Reuse it verbatim to retry a call "
+            "whose outcome you don't know (a timeout, a dropped connection): the retry returns the "
+            "report the first call authored, with `idempotent_replay` true, instead of a second report. "
+            "Omit it and the report's own content is the key, which covers a retry of the identical "
+            "call — pass one when a retry might reword the report."
+        ),
+    )
 
 
 class EmitReportResponseSerializer(serializers.Serializer):
@@ -1313,6 +1387,13 @@ class EmitReportResponseSerializer(serializers.Serializer):
             "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
             "(e.g. an org admin must approve AI data processing). Null when the report was authored "
             "or the skip isn't something the scout can act on."
+        ),
+    )
+    idempotent_replay = serializers.BooleanField(
+        help_text=(
+            "True when this call authored nothing because the emission had already landed — the fields "
+            "above describe that first report. Expected on a retry; treat the report as filed and don't "
+            "send it again."
         ),
     )
 
@@ -2712,6 +2793,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "id",
             "skill_name",
             "description",
+            "display_name",
             "scout_origin",
             "owners",
             "enabled",
@@ -2784,7 +2866,7 @@ def _capture_auto_pause_reverted(
 
 
 class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
-    """Editable schedule, enablement, and emit posture for one scout config."""
+    """Editable display name, schedule, enablement, and emit posture for one scout config."""
 
     enabled = serializers.BooleanField(
         required=False,
@@ -2941,6 +3023,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalScoutConfig
         fields = [
+            "display_name",
             "enabled",
             "emit",
             "run_interval_minutes",
@@ -3255,10 +3338,9 @@ class ScoutMemberSerializer(serializers.Serializer):
     github_login = serializers.CharField(
         allow_null=True,
         help_text=(
-            "The member's resolved GitHub login (lowercased), already resolved server-side — put this value "
-            "in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null "
-            "when the member has no linked GitHub identity: a null-login member can't be routed to at all "
-            "(neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` "
-            "empty."
+            "The member's resolved GitHub login (lowercased), already resolved server-side. Null when "
+            "the member has no linked GitHub account, which does not stop you routing to them: pass "
+            "their `user_uuid` in `suggested_reviewers` and the report reaches them. A null login only "
+            "means no draft PR can be opened as that person."
         ),
     )

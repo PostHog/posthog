@@ -1,6 +1,5 @@
 import asyncio
 from dataclasses import asdict
-from datetime import timedelta
 from uuid import UUID
 
 from django.conf import settings
@@ -47,12 +46,7 @@ def start_node_materialization(node: Node, *, resume: bool = True) -> None:
             task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            retry_policy=RetryPolicy(
-                initial_interval=timedelta(seconds=10),
-                maximum_interval=timedelta(seconds=60),
-                maximum_attempts=3,
-                non_retryable_error_types=["NondeterminismError", "CancelledError"],
-            ),
+            retry_policy=RetryPolicy(maximum_attempts=1),  # retries handled within the workflow
         )
     )
 

@@ -7,7 +7,13 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
-import { CyclotronV2BatchLimit, CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
+import {
+    CYCLOTRON_COUNTER_MAX,
+    CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
+    CyclotronV2BatchLimit,
+    CyclotronV2DequeuedJob,
+    CyclotronV2JobInit,
+} from './types'
 import { CyclotronV2Worker } from './worker'
 import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
@@ -163,6 +169,13 @@ async function gaugeValueForQueue(queue: string): Promise<number | null> {
     const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_queue_depth')
     const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
     return line ? Number(line.trim().split(' ').pop()) : null
+}
+
+// Absent until the queue's first churning dequeue, so a missing line reads as 0.
+async function churnCountForQueue(queue: string): Promise<number> {
+    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_high_transition_dequeues')
+    const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
+    return line ? Number(line.trim().split(' ').pop()) : 0
 }
 
 describe('Cyclotron V2', () => {
@@ -682,6 +695,24 @@ describe('Cyclotron V2', () => {
                 expect(row.transition_count).toBeGreaterThan(0)
             })
 
+            it('createJob with overwriteExisting=true reruns a row whose transition_count is at the smallint ceiling', async () => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE })
+                const worker = createWorker()
+                const jobs = await dequeueOneBatch(worker)
+                await jobs[0].ack()
+                await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [
+                    CYCLOTRON_COUNTER_MAX,
+                    id,
+                ])
+
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE, overwriteExisting: true })
+
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(row.transition_count).toBe(CYCLOTRON_COUNTER_MAX)
+            })
+
             it('createJob with overwriteExisting=true on a never-seen id behaves like a normal insert', async () => {
                 const id = uuidv7()
                 await manager.createJob({
@@ -990,6 +1021,49 @@ describe('Cyclotron V2', () => {
             const jobs = await dequeueOneBatch(worker)
             expect(jobs).toHaveLength(2)
             expect(await countByStatus('running')).toBe(2)
+        })
+
+        // Both dequeue paths bump transition_count for the whole batch in one UPDATE, so an
+        // unclamped increment on a saturated row aborts the statement and stops every job on
+        // the queue, not just the saturated one. 'email' selects the fair path, a separate
+        // statement and the one the outage actually aborted.
+        it.each([
+            ['the plain dequeue', QUEUE],
+            ['the fair dequeue', 'email'],
+        ])('dequeues via %s alongside a job at the smallint ceiling', async (_label, queue) => {
+            // Backdate both so neither can miss the poll's `scheduled <= NOW()` window.
+            const scheduled = new Date(Date.now() - 60_000)
+            const saturated = await manager.createJob({ teamId: 1, queueName: queue, scheduled })
+            const healthy = await manager.createJob({ teamId: 1, queueName: queue, scheduled })
+            await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [
+                CYCLOTRON_COUNTER_MAX,
+                saturated,
+            ])
+
+            const jobs = await dequeueOneBatch(createWorker(queue))
+
+            expect(jobs.map((j) => j.id).sort()).toEqual([saturated, healthy].sort())
+            const { rows } = await assertPool.query('SELECT transition_count FROM cyclotron_jobs WHERE id = $1', [
+                saturated,
+            ])
+            expect(rows[0].transition_count).toBe(CYCLOTRON_COUNTER_MAX)
+        })
+
+        // The loop that saturates a counter is claim, refuse, reschedule, so the release bumps
+        // it a second time per cycle and has to be clamped too.
+        it('reschedules a job at the smallint ceiling', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [
+                CYCLOTRON_COUNTER_MAX,
+                id,
+            ])
+
+            const [job] = await dequeueOneBatch(createWorker())
+            await job.reschedule()
+
+            const row = await queryJob(id)
+            expect(row.status).toBe('available')
+            expect(row.transition_count).toBe(CYCLOTRON_COUNTER_MAX)
         })
 
         it('respects priority ordering (lower number = higher priority)', async () => {
@@ -1609,6 +1683,19 @@ describe('Cyclotron V2', () => {
             expect(job.transitionCount).toBe(1)
             const row = await queryJob(id)
             expect(row.transition_count).toBe(1)
+        })
+
+        it.each([
+            ['below the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 2, 0],
+            ['at the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 1],
+        ])('counts a dequeue %s', async (_label, seeded, expected) => {
+            const before = await churnCountForQueue(QUEUE)
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [seeded, id])
+
+            await dequeueOneBatch(createWorker())
+
+            expect((await churnCountForQueue(QUEUE)) - before).toBe(expected)
         })
     })
 
