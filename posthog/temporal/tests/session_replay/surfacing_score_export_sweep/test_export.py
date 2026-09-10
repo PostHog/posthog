@@ -191,7 +191,7 @@ def test_legacy_key_uses_the_configured_wrapped_key_and_region(prefix: str) -> N
         patch.dict(
             os.environ,
             {
-                f"{prefix}PSEUDONYM_WRAPPED_KEY": "dGVzdA==",
+                "SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY": "dGVzdA==",
                 f"{prefix}PSEUDONYM_KMS_REGION": "us-west-2",
                 f"{prefix}PSEUDONYM_KEY_FINGERPRINT": "db7dc188104c2bae",
             },

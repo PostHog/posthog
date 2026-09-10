@@ -13,7 +13,7 @@ export type MlMirrorConfig = {
     /** Plaintext root key for legacy identifiers and image hashes; local development only. Production uses the KMS-wrapped key below. */
     AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: string
     /** Base64 KMS-encrypted pseudonym key (envelope); decrypted once at startup, never persisted. Preferred over the plaintext secret. */
-    AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY: string
+    SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: string
     /** AWS region for the KMS Decrypt call; empty → the SDK default credential/region chain. */
     AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION: string
     /** Expected key fingerprint; if set, startup fails when the resolved key's fingerprint differs (enforces never-rotate). */
@@ -215,7 +215,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_METADATA_PREFIX: 'block-metadata',
         SESSION_RECORDING_ML_ALLOW_LIST_S3_KEY: '',
         AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: '',
-        AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY: '',
+        SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: '',
         AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION: '',
         AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT: '',
         SESSION_RECORDING_ML_PARQUET_SINK_GROUP_ID: 'session-replay-ml-parquet-sink',
@@ -279,8 +279,6 @@ export function getMlMirrorConfig(env: Record<string, string | undefined> = proc
         AI_RESEARCH_REPLAY_S3_PREFIX: env.AI_RESEARCH_REPLAY_S3_PREFIX ?? env.SESSION_RECORDING_ML_S3_PREFIX,
         AI_RESEARCH_REPLAY_PSEUDONYM_SECRET:
             env.AI_RESEARCH_REPLAY_PSEUDONYM_SECRET ?? env.SESSION_RECORDING_ML_PSEUDONYM_SECRET,
-        AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY:
-            env.AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY ?? env.SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY,
         AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION:
             env.AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION ?? env.SESSION_RECORDING_ML_PSEUDONYM_KMS_REGION,
         AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT:

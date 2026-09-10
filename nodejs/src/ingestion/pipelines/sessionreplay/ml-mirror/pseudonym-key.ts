@@ -6,7 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 export interface PseudonymKeyConfig {
     AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: string
-    AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY: string
+    SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: string
     AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION: string
     AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT: string
 }
@@ -42,9 +42,9 @@ export async function resolvePseudonymKey(
 ): Promise<string | Buffer> {
     let secret: string | Buffer
     let source: 'kms' | 'env'
-    if (config.AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY) {
+    if (config.SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY) {
         secret = await decrypt(
-            config.AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY,
+            config.SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY,
             config.AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION
         )
         source = 'kms'
@@ -53,7 +53,7 @@ export async function resolvePseudonymKey(
         source = 'env'
     } else {
         throw new Error(
-            'AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY or AI_RESEARCH_REPLAY_PSEUDONYM_SECRET must be set for the ML mirror'
+            'SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY or AI_RESEARCH_REPLAY_PSEUDONYM_SECRET must be set for the ML mirror'
         )
     }
 

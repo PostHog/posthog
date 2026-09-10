@@ -1,8 +1,9 @@
+import { getMlMirrorConfig } from './config'
 import { PseudonymKeyConfig, pseudonymKeyFingerprint, resolvePseudonymKey } from './pseudonym-key'
 
 const baseConfig = (over: Partial<PseudonymKeyConfig> = {}): PseudonymKeyConfig => ({
     AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: '',
-    AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY: '',
+    SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: '',
     AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION: '',
     AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT: '',
     ...over,
@@ -33,9 +34,9 @@ describe('ml-mirror pseudonym key', () => {
         it('prefers the KMS-decrypted key over the plaintext secret', async () => {
             const decrypt = jest.fn().mockResolvedValue(Buffer.from('kms-key-bytes'))
             const key = await resolvePseudonymKey(
-                baseConfig({
+                getMlMirrorConfig({
                     AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: 'dev',
-                    AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY: 'Y2lwaGVy',
+                    SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: 'Y2lwaGVy',
                 }),
                 decrypt
             )
@@ -45,7 +46,7 @@ describe('ml-mirror pseudonym key', () => {
 
         it('fails closed when neither a ciphertext nor a plaintext secret is set', async () => {
             await expect(resolvePseudonymKey(baseConfig(), failDecrypt)).rejects.toThrow(
-                'AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY or AI_RESEARCH_REPLAY_PSEUDONYM_SECRET'
+                'SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY or AI_RESEARCH_REPLAY_PSEUDONYM_SECRET'
             )
         })
 

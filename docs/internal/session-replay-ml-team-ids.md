@@ -81,7 +81,7 @@ Each score export writes both formats, including empty files, so retries and re-
 
 ## Configuration names
 
-Use `AI_RESEARCH_REPLAY_*` names for the replay prefix, HMAC key settings, and score-export destination.
+Use `AI_RESEARCH_REPLAY_*` names for the replay prefix, plaintext HMAC secret, KMS region, key fingerprint, and score-export destination.
 The matching `SESSION_RECORDING_ML_*` names remain accepted as aliases.
 When both names are set, `AI_RESEARCH_REPLAY_*` takes precedence, including an explicit empty value.
 Other established mirror and fetch settings retain their current names.
@@ -89,11 +89,12 @@ Other established mirror and fetch settings retain their current names.
 | Settings                    | Canonical names                                                                                                                         |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Raw replay prefix           | `AI_RESEARCH_REPLAY_S3_PREFIX`                                                                                                          |
-| HMAC key                    | `AI_RESEARCH_REPLAY_PSEUDONYM_SECRET`, `AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY`                                                       |
+| HMAC key                    | `AI_RESEARCH_REPLAY_PSEUDONYM_SECRET`, `SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY`                                                     |
 | HMAC key region and pin     | `AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION`, `AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT`                                               |
 | Score-export prefix         | `AI_RESEARCH_REPLAY_SCORE_EXPORT_PREFIX`                                                                                                |
 | Score-export S3 destination | `AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_BUCKET`, `AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_REGION`, `AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_ENDPOINT` |
 | Score-export S3 credentials | `AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_ACCESS_KEY_ID`, `AI_RESEARCH_REPLAY_SCORE_EXPORT_S3_SECRET_ACCESS_KEY`                              |
 
-Both HMAC key names must resolve to the same existing key material.
+The wrapped key keeps `SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY` as both its environment variable name and stored secret field.
+It has no `AI_RESEARCH_REPLAY_*` alias.
 Changing an environment variable name must not generate or rotate a key.

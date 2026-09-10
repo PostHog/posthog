@@ -4,6 +4,7 @@ scores stop joining onto the mirrored dataset."""
 
 from __future__ import annotations
 
+import os
 import hmac
 import hashlib
 import threading
@@ -19,7 +20,7 @@ logger = structlog.get_logger(__name__)
 PSEUDONYM_TEAM = "team"
 PSEUDONYM_SESSION = "session"
 
-WRAPPED_KEY_ENV_VAR = "AI_RESEARCH_REPLAY_PSEUDONYM_WRAPPED_KEY"
+WRAPPED_KEY_ENV_VAR = "SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY"
 PLAINTEXT_SECRET_ENV_VAR = "AI_RESEARCH_REPLAY_PSEUDONYM_SECRET"
 KMS_REGION_ENV_VAR = "AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION"
 KEY_FINGERPRINT_ENV_VAR = "AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT"
@@ -43,7 +44,7 @@ def pseudonym_key_fingerprint(secret: bytes) -> str:
 
 
 def is_pseudonym_key_configured() -> bool:
-    return bool(get_ai_research_replay_env(WRAPPED_KEY_ENV_VAR) or get_ai_research_replay_env(PLAINTEXT_SECRET_ENV_VAR))
+    return bool(os.environ.get(WRAPPED_KEY_ENV_VAR) or get_ai_research_replay_env(PLAINTEXT_SECRET_ENV_VAR))
 
 
 _SECRET: bytes | None = None
@@ -67,7 +68,7 @@ def resolve_pseudonym_key() -> bytes:
         if _SECRET is not None:
             return _SECRET
 
-        wrapped = get_ai_research_replay_env(WRAPPED_KEY_ENV_VAR)
+        wrapped = os.environ.get(WRAPPED_KEY_ENV_VAR)
         plaintext_secret = get_ai_research_replay_env(PLAINTEXT_SECRET_ENV_VAR)
         if wrapped:
             secret = _kms_decrypt(wrapped, get_ai_research_replay_env(KMS_REGION_ENV_VAR, ""))
