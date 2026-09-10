@@ -17,6 +17,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
     IntegerDatabaseField,
+    SavedQuery,
     StringDatabaseField,
     StringJSONDatabaseField,
     TableNode,
@@ -133,6 +134,33 @@ def test_prints_resolved_query_with_explicit_trino_locator_and_bound_value() -> 
         'FROM "ducklake"."analytics"."users" AS "users" WHERE ("users"."user_id" = %(hogql_val_0)s)'
     )
     assert context.values == {"hogql_val_0": "person-1"}
+
+
+def test_prints_expanded_saved_query_after_detaching_from_database() -> None:
+    context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="accounts",
+            table=SavedQuery(
+                id="accounts",
+                name="accounts",
+                query="SELECT user_id AS account_id FROM users",
+                fields={"account_id": StringDatabaseField(name="account_id")},
+            ),
+        )
+    )
+
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT account_id FROM accounts"),
+        context,
+        "trino",
+    )
+
+    assert sql == (
+        'SELECT "accounts"."account_id" FROM '
+        '(SELECT "users"."user_id" AS "account_id" FROM "ducklake"."analytics"."users" AS "users") AS "accounts"'
+    )
 
 
 @pytest.mark.parametrize(
