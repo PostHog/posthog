@@ -18,7 +18,10 @@ from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
-from products.customer_analytics.backend.facade.workflow_customer_tasks import create_workflow_customer_task
+from products.customer_analytics.backend.facade.workflow_customer_tasks import (
+    create_workflow_customer_task,
+    get_workflow_customer_task_id,
+)
 from products.workflows.backend.models import HogFlow
 
 
@@ -86,12 +89,6 @@ class WorkflowCustomerTaskViewSet(viewsets.GenericViewSet):
 def _create_task(
     team_id: int, workflow_id: UUID, idempotency_key: str, input: contracts.CreateCustomerTaskInput
 ) -> UUID:
-    workflow = HogFlow.objects.filter(team_id=team_id, id=workflow_id).select_related("created_by").first()
-    if workflow is None:
-        raise NotFound("Workflow not found.")
-    owner = workflow.created_by
-    if owner is None or not owner.is_active:
-        raise PermissionDenied("Choose an active workflow owner before creating customer tasks.")
     # `select_related` builds its columns from the related model rather than through `TeamManager`,
     # so re-apply its defer to the joined parent. Without it every task creation in a child
     # environment re-reads the deprecated taxonomy columns, which TOAST out to megabytes per team.
@@ -100,6 +97,19 @@ def _create_task(
         .defer(*(f"parent_team__{attr}" for attr in DEPRECATED_ATTRS))
         .get(id=team_id)
     )
+    canonical_team = team.parent_team or team
+    # A verified retry acknowledges a committed task without granting access to its contents.
+    existing_task_id = get_workflow_customer_task_id(
+        team_id=canonical_team.id, workflow_id=workflow_id, idempotency_key=idempotency_key
+    )
+    if existing_task_id is not None:
+        return existing_task_id
+    workflow = HogFlow.objects.filter(team_id=team_id, id=workflow_id).select_related("created_by").first()
+    if workflow is None:
+        raise NotFound("Workflow not found.")
+    owner = workflow.created_by
+    if owner is None or not owner.is_active:
+        raise PermissionDenied("Choose an active workflow owner before creating customer tasks.")
     access = UserAccessControl(user=owner, team=team, organization_id=team.organization_id)
     if not access.has_project_access:
         raise PermissionDenied("The workflow owner no longer has access to this project.")
@@ -110,7 +120,6 @@ def _create_task(
         team_id=team.id,
     ):
         raise PermissionDenied("Enable customer tasks before using this workflow action.")
-    canonical_team = team.parent_team or team
     canonical_access = UserAccessControl(user=owner, team=canonical_team, organization_id=team.organization_id)
     try:
         return create_workflow_customer_task(

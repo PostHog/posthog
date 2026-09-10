@@ -96,9 +96,10 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         ]
     )
     def test_rejects_invalid_claims(self, _name: str, claims: dict[str, Any], expected_status: int) -> None:
+        assert self._post().status_code == 201
         response = self._post(token=self._token(**claims))
         assert response.status_code == expected_status, response.data
-        assert not CustomerTask.objects.for_team(self.team.id).exists()
+        assert CustomerTask.objects.for_team(self.team.id).count() == 1
 
     @parameterized.expand(
         [
@@ -117,7 +118,7 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         )
         assert self._post(token=other_purpose).status_code == 401
 
-    def test_rechecks_owner_access_and_flag_on_every_call(self) -> None:
+    def test_rechecks_owner_access_and_flag_for_new_tasks(self) -> None:
         owner = User.objects.create_and_join(self.organization, "workflow-owner@example.com", "testpassword")
         self.workflow.created_by = owner
         self.workflow.save(update_fields=["created_by"])
@@ -138,6 +139,49 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         owner.save(update_fields=["is_active"])
         assert self._post().status_code == 403
         assert not CustomerTask.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
+            ("inactive_owner", 403),
+            ("deleted_workflow", 404),
+            ("project_access", 403),
+            ("task_access", 403),
+            ("disabled_flag", 403),
+        ]
+    )
+    def test_replays_completed_creation_after_gate_changes(self, gate: str, expected_new_status: int) -> None:
+        owner = User.objects.create_and_join(self.organization, "retry-owner@example.com", "testpassword")
+        self.workflow.created_by = owner
+        self.workflow.save(update_fields=["created_by"])
+        response = self._post()
+        assert response.status_code == 201, response.data
+
+        if gate == "inactive_owner":
+            owner.is_active = False
+            owner.save(update_fields=["is_active"])
+        elif gate == "deleted_workflow":
+            HogFlow.objects.filter(team_id=self.team.id, id=self.workflow.id).delete()
+        elif gate in {"project_access", "task_access"}:
+            membership = OrganizationMembership.objects.get(user=owner, organization=self.organization)
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project" if gate == "project_access" else "customer_analytics",
+                resource_id=str(self.team.id) if gate == "project_access" else None,
+                organization_member=membership,
+                access_level="none",
+            )
+        else:
+            self.flag_mock.return_value = False
+
+        replayed = self._post({"name": "A retry must not change the task"})
+        assert replayed.status_code == 201, replayed.data
+        assert replayed.data == response.data
+        task = CustomerTask.objects.for_team(self.team.id).get(id=response.data["id"])
+        assert task.name == "Follow up"
+        assert CustomerTaskActivity.objects.for_team(self.team.id).filter(task=task).count() == 1
+        new_task = self._post({"idempotency_key": "run:new"}, self._token(idempotency_key="run:new"))
+        assert new_task.status_code == expected_new_status, new_task.data
+        assert CustomerTask.objects.for_team(self.team.id).count() == 1
 
     def test_child_project_requires_canonical_access_and_stores_in_parent(self) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child project")
@@ -168,6 +212,20 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         assert response.status_code == 201, response.data
         assert CustomerTask.objects.for_team(self.team.id).filter(id=response.data["id"]).exists()
         assert CustomerTask.objects.for_team(self.team.id).get(id=response.data["id"]).team_id == self.team.id
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=membership,
+            access_level="none",
+        )
+        replayed = self._post(token=token)
+        assert replayed.status_code == 201, replayed.data
+        assert replayed.data == response.data
+        new_task = self._post({"idempotency_key": "run:new"}, self._token(team_id=child.id, idempotency_key="run:new"))
+        assert new_task.status_code == 403, new_task.data
+        assert CustomerTask.objects.for_team(self.team.id).count() == 1
 
     def test_child_project_creation_defers_deprecated_parent_team_columns(self) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child project")

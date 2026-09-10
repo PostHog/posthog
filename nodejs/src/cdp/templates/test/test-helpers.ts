@@ -283,7 +283,12 @@ export class TemplateTester {
     async invoke(
         _inputs: Record<string, any>,
         _globals?: DeepPartialHogFunctionInvocationGlobals,
-        _options?: { hogFlow?: Partial<HogFlow> & { id: string }; actionId?: string }
+        _options?: {
+            hogFlow?: Partial<HogFlow> & { id: string }
+            actionId?: string
+            actionStepCount?: number
+            customerTaskIdempotencyVersion?: 1
+        }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (this.template.mapping_templates) {
             throw new Error('Mapping templates found. Use invokeMapping instead.')
@@ -317,7 +322,8 @@ export class TemplateTester {
         }
         if (_options?.actionId) {
             invocation.state.actionId = _options.actionId
-            invocation.state.actionStepCount = 0
+            invocation.state.actionStepCount = _options.actionStepCount ?? 0
+            invocation.state.customerTaskIdempotencyVersion = _options.customerTaskIdempotencyVersion
         }
         const transformationFunctions = getTransformationFunctions(this.geoIp!)
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}

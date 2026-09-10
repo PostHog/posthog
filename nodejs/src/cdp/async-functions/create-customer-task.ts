@@ -24,7 +24,7 @@ const parseTaskPayload = (args: any[]): { payload: Record<string, unknown>; assi
         throw new Error('Enter a task name')
     }
 
-    const assigneeId = payload.assigned_to_id === undefined ? undefined : Number(payload.assigned_to_id)
+    const assigneeId = payload.assigned_to_id == null ? undefined : Number(payload.assigned_to_id)
     if (
         assigneeId !== undefined &&
         (!['number', 'string'].includes(typeof payload.assigned_to_id) ||
@@ -42,9 +42,18 @@ registerAsyncFunction('postHogCreateCustomerTask', {
         const { payload, assigneeId } = parseTaskPayload(args)
 
         const hogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
-        const actionId = context.invocation.state.actionId
+        const { actionId, actionStepCount, customerTaskIdempotencyVersion } = context.invocation.state
         if (!hogFlow?.id || !actionId) {
             throw new Error('Customer analytics tasks can only be created inside a workflow')
+        }
+
+        // Bind both the request and token to the trusted run and step, never to user input.
+        let idempotencyKey = `${context.invocation.id}:${actionId}`
+        if (customerTaskIdempotencyVersion === 1) {
+            if (typeof actionStepCount !== 'number' || !Number.isSafeInteger(actionStepCount) || actionStepCount < 0) {
+                throw new Error('Customer task creation requires a valid workflow visit count. Contact support.')
+            }
+            idempotencyKey = `${idempotencyKey}:${actionStepCount}`
         }
 
         const jwt = getCustomerTasksJwt()
@@ -53,8 +62,6 @@ registerAsyncFunction('postHogCreateCustomerTask', {
                 'Customer task creation is not configured. Set CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET on the worker and Django to matching keys.'
             )
         }
-        // Bind both the request and token to the trusted run and step, never to user input.
-        const idempotencyKey = `${context.invocation.id}:${actionId}`
         await callInternalApi(context, result, {
             jwt,
             path: `/api/projects/${context.invocation.teamId}/workflow_customer_tasks/`,

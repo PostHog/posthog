@@ -7,10 +7,14 @@ import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
+import { template as customerTaskTemplate } from '~/cdp/templates/_destinations/posthog_customer_analytics/posthog-create-customer-task.template'
+import { template as setVariableTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-set-variable.template'
 import { compileHog } from '~/cdp/templates/compiler'
+import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
-import { fetch } from '~/common/utils/request'
+import { FetchResponse, fetch, internalFetch } from '~/common/utils/request'
 import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
@@ -37,6 +41,7 @@ jest.mock('~/common/utils/request', () => {
     const original = jest.requireActual('~/common/utils/request')
     return {
         ...original,
+        internalFetch: jest.fn(),
         fetch: jest.fn().mockImplementation((url, options) => {
             return original.fetch(url, options)
         }),
@@ -50,6 +55,7 @@ const cleanLogs = (logs: string[]): string[] => {
 
 describe('Hogflow Executor', () => {
     let executor: HogFlowExecutorService
+    let hogFlowFunctionsService: HogFlowFunctionsService
     let hub: Hub
     let team: Team
     let integrationId: number
@@ -122,11 +128,7 @@ describe('Hogflow Executor', () => {
             }
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
-        const hogFlowFunctionsService = new HogFlowFunctionsService(
-            hub.SITE_URL,
-            hogFunctionTemplateManager,
-            hogExecutor
-        )
+        hogFlowFunctionsService = new HogFlowFunctionsService(hub.SITE_URL, hogFunctionTemplateManager, hogExecutor)
         const recipientsManager = new RecipientsManagerService(hub.postgres)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
         // Stubbed to always allow: this suite covers executor routing and flow control,
@@ -424,11 +426,137 @@ describe('Hogflow Executor', () => {
             })
         })
 
+        it.each([false, true])('keeps legacy task keys with saved function state: %s', async (hasSavedState) => {
+            await insertHogFunctionTemplate(hub.postgres, customerTaskTemplate)
+            const config = {
+                template_id: customerTaskTemplate.id,
+                inputs: { name: { value: 'Follow up' } },
+            }
+            hogFlow.actions = hogFlow.actions.map((action) =>
+                action.id === 'function_id_1' ? { ...action, type: 'function', config } : action
+            )
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                actionStepCount: 7,
+                rerunAttempts: 2,
+                currentAction: { id: 'function_id_1', startedAtTimestamp: Date.now() },
+            })
+            if (hasSavedState) {
+                const hogFunction = await hogFlowFunctionsService.buildHogFunction(hogFlow, config)
+                const functionInvocation = await hogFlowFunctionsService.buildHogFunctionInvocation(
+                    invocation,
+                    hogFunction,
+                    { event: invocation.state.event, person: invocation.person }
+                )
+                invocation.state.currentAction!.hogFunctionState = parseJSON(JSON.stringify(functionInvocation.state))
+            }
+            const internalFetchSpy = jest.mocked(internalFetch).mockResolvedValue({
+                status: 201,
+                text: () => Promise.resolve(JSON.stringify({ id: '00000000-0000-4000-8000-000000000000' })),
+            } as FetchResponse)
+            try {
+                const result = await executor.execute(invocation)
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(true)
+                expect(result.invocation.state.customerTaskIdempotencyVersion).toBeUndefined()
+                expect(internalFetchSpy).toHaveBeenCalledTimes(1)
+                expect(parseJSON(internalFetchSpy.mock.calls[0][1]!.body!.toString()).idempotency_key).toBe(
+                    `${invocation.id}:function_id_1`
+                )
+            } finally {
+                internalFetchSpy.mockReset()
+            }
+        })
+
+        it('creates distinct customer task keys when a conditional loop revisits the same action', async () => {
+            await insertHogFunctionTemplate(hub.postgres, customerTaskTemplate)
+            await insertHogFunctionTemplate(hub.postgres, setVariableTemplate)
+            const cyclicFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withWorkflow({
+                    actions: {
+                        trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
+                        customer_task: {
+                            type: 'function',
+                            on_error: 'abort',
+                            config: {
+                                template_id: customerTaskTemplate.id,
+                                inputs: { name: { value: 'Follow up' } },
+                            },
+                        },
+                        increment_visits: {
+                            type: 'function',
+                            on_error: 'abort',
+                            config: {
+                                template_id: setVariableTemplate.id,
+                                inputs: {
+                                    variable_value: {
+                                        value: '{variables.task_visits + 1}',
+                                        bytecode: await compileHog('return variables.task_visits + 1'),
+                                    },
+                                },
+                            },
+                            output_variable: { key: 'task_visits', result_path: null },
+                        },
+                        repeat: {
+                            type: 'conditional_branch',
+                            config: {
+                                conditions: [
+                                    {
+                                        filters: {
+                                            properties: [{ type: 'hogql', key: 'variables.task_visits < 2' }],
+                                            bytecode: await compileHog('return variables.task_visits < 2'),
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'customer_task', type: 'continue' },
+                        { from: 'customer_task', to: 'increment_visits', type: 'continue' },
+                        { from: 'increment_visits', to: 'repeat', type: 'continue' },
+                        { from: 'repeat', to: 'customer_task', type: 'branch', index: 0 },
+                        { from: 'repeat', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+            const globals = createHogExecutionGlobals({ variables: { task_visits: 0 } })
+            const invocation = createHogFlowInvocation(globals, cyclicFlow, convertToHogFunctionFilterGlobal(globals))
+            const taskResponse = {
+                status: 201,
+                text: () => Promise.resolve(JSON.stringify({ id: '00000000-0000-4000-8000-000000000000' })),
+            } as FetchResponse
+            const internalFetchSpy = jest
+                .mocked(internalFetch)
+                .mockResolvedValueOnce(taskResponse)
+                .mockResolvedValueOnce(taskResponse)
+                .mockRejectedValue(new Error('Unexpected task visit'))
+            try {
+                const result = await executor.execute(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(true)
+                expect(result.invocation.state).toMatchObject({
+                    customerTaskIdempotencyVersion: 1,
+                    actionStepCount: 6,
+                    currentAction: { id: 'exit' },
+                    variables: { task_visits: 2 },
+                })
+                expect(
+                    internalFetchSpy.mock.calls.map(([, params]) => parseJSON(params!.body!.toString()).idempotency_key)
+                ).toEqual([`${invocation.id}:customer_task:0`, `${invocation.id}:customer_task:3`])
+            } finally {
+                internalFetchSpy.mockReset()
+            }
+        })
+
         it('can execute a hogflow with async function delays', async () => {
             const action = hogFlow.actions.find((action) => action.id === 'function_id_1')!
             ;(action.config as any).template_id = 'template-test-hogflow-executor-async'
 
             const invocation = createExampleHogFlowInvocation(hogFlow, {
+                customerTaskIdempotencyVersion: 1,
                 event: {
                     ...createHogExecutionGlobals().event,
                     properties: {
@@ -441,7 +569,13 @@ describe('Hogflow Executor', () => {
             const result = await executor.execute(invocation)
 
             expect(result.finished).toEqual(false)
-            expect(result.invocation.state.currentAction!.hogFunctionState).toEqual(expect.any(Object))
+            expect(result.invocation.state).toMatchObject({
+                customerTaskIdempotencyVersion: 1,
+                actionStepCount: 0,
+                currentAction: {
+                    hogFunctionState: { customerTaskIdempotencyVersion: 1, actionStepCount: 0 },
+                },
+            })
             expect(result.invocation.queueScheduledAt).toEqual(expect.any(DateTime))
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
@@ -456,7 +590,13 @@ describe('Hogflow Executor', () => {
             const result2 = await executor.execute(result.invocation)
 
             expect(result2.finished).toEqual(false)
-            expect(result2.invocation.state.currentAction!.hogFunctionState).toEqual(expect.any(Object))
+            expect(result2.invocation.state).toMatchObject({
+                customerTaskIdempotencyVersion: 1,
+                actionStepCount: 0,
+                currentAction: {
+                    hogFunctionState: { customerTaskIdempotencyVersion: 1, actionStepCount: 0 },
+                },
+            })
             expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
                   "Resuming workflow execution at [Action:function_id_1] on [Event:uuid|test|2026-01-30T20:20:20.200Z]",
@@ -469,6 +609,7 @@ describe('Hogflow Executor', () => {
             const result3 = await executor.execute(result2.invocation)
 
             expect(result3.finished).toEqual(true)
+            expect(result3.invocation.state.customerTaskIdempotencyVersion).toBe(1)
             expect(cleanLogs(result3.logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
                   "Resuming workflow execution at [Action:function_id_1] on [Event:uuid|test|2026-01-30T20:20:20.200Z]",
@@ -2267,6 +2408,7 @@ describe('Hogflow Executor', () => {
                 },
             }
             const invocation = createHogFlowInvocation(globals, hogFlow, {} as any)
+            expect(invocation.state.customerTaskIdempotencyVersion).toBe(1)
             expect(invocation.state.variables).toEqual({
                 foo: 'bar',
                 baz: 123,

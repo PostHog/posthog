@@ -9,7 +9,12 @@ import { template } from './posthog-create-customer-task.template'
 
 describe('posthog create customer task template', () => {
     const tester = new TemplateTester(template)
-    const workflowOptions = { hogFlow: { id: '0198c9f1-0000-0000-0000-000000000001' }, actionId: 'action_1' }
+    const workflowOptions = {
+        hogFlow: { id: '0198c9f1-0000-0000-0000-000000000001' },
+        actionId: 'action_1',
+        actionStepCount: 3,
+        customerTaskIdempotencyVersion: 1 as const,
+    }
 
     const task = { id: '0198c9f1-0000-0000-0000-000000000003' }
     let fetchSpy: jest.SpyInstance
@@ -47,7 +52,7 @@ describe('posthog create customer task template', () => {
         const [url, params] = fetchSpy.mock.calls[0] as [string, requestModule.FetchOptions]
         expect(params.method).toBe('POST')
         expect(url).toBe(`${defaultConfig.INTERNAL_API_BASE_URL}/api/projects/1/workflow_customer_tasks/`)
-        const idempotencyKey = `${response.invocation.id}:action_1`
+        const idempotencyKey = `${response.invocation.id}:action_1:3`
         expect(parseJSON(params.body!.toString())).toEqual({
             ...Object.fromEntries(Object.entries(inputs).filter(([, value]) => value !== '')),
             ...('assigned_to_id' in inputs ? { assigned_to_id: Number(inputs.assigned_to_id) } : {}),
@@ -67,6 +72,37 @@ describe('posthog create customer task template', () => {
             idempotency_key: idempotencyKey,
         })
         expect(claims.exp! - claims.iat!).toBe(5 * 60)
+    })
+
+    it('keeps a visit key across resume and retry but changes it on a repeated visit', async () => {
+        const first = await tester.invoke({ name: 'Follow up' }, undefined, workflowOptions)
+        expect(first.error).toBeUndefined()
+        const persistedState = parseJSON(JSON.stringify(first.invocation.state))
+        const resumed = await tester.resumeInvocation({ ...first.invocation, state: persistedState })
+        expect(resumed.error).toBeUndefined()
+        expect(resumed.execResult).toEqual(task)
+        expect(resumed.invocation.state).toMatchObject({
+            actionStepCount: 3,
+            customerTaskIdempotencyVersion: 1,
+        })
+        expect(fetchSpy).toHaveBeenCalledTimes(1)
+
+        const retry = await tester.resumeInvocation({
+            ...first.invocation,
+            state: { ...persistedState, vmState: undefined, attempts: 1, rerunAttempts: 2 },
+        })
+        expect(retry.error).toBeUndefined()
+        const revisit = await tester.resumeInvocation({
+            ...first.invocation,
+            state: { ...persistedState, vmState: undefined, actionStepCount: 4 },
+        })
+        expect(revisit.error).toBeUndefined()
+
+        expect(fetchSpy.mock.calls.map(([, params]) => parseJSON(params.body).idempotency_key)).toEqual([
+            `${first.invocation.id}:action_1:3`,
+            `${first.invocation.id}:action_1:3`,
+            `${first.invocation.id}:action_1:4`,
+        ])
     })
 
     it.each(['', '   '])('rejects a blank task name %j without creating a task', async (name) => {
