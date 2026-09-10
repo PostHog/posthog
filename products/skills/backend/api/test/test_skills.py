@@ -43,6 +43,7 @@ from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ...models.skills import LLMSkill, LLMSkillFile
 
 COMMUNITY_FLAG = "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled"
+SKILL_ANALYTICS_REPORT = "products.skills.backend.api.skill_analytics.report_user_action"
 
 
 class TestLLMSkillAPI(APIBaseTest):
@@ -555,7 +556,7 @@ class TestLLMSkillAPI(APIBaseTest):
         with (
             patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
             patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False),
-            patch(f"products.skills.backend.api.skills.SkillSearch{window}Throttle.rate", new=f"1/{period}"),
+            patch(f"products.skills.backend.api.skill_throttles.SkillSearch{window}Throttle.rate", new=f"1/{period}"),
             patch("rest_framework.throttling.SimpleRateThrottle.timer", return_value=1000) as timer,
         ):
             url = self._url("search?query=throttle")
@@ -1623,7 +1624,7 @@ class TestLLMSkillAPI(APIBaseTest):
     # --- Publish to community ---
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_succeeds(self, mock_publish, _mock_flag):
         mock_publish.return_value = {
             "pr_url": "https://github.com/PostHog/community-skills/pull/7",
@@ -1676,7 +1677,7 @@ class TestLLMSkillAPI(APIBaseTest):
         ]
     )
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_tags(
         self, _label: str, payload: dict, metadata_tags: list, expected: list, mock_publish, _mock_flag
     ):
@@ -1689,7 +1690,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert mock_publish.call_args.kwargs["tags"] == expected
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_unknown_skill_returns_404(self, mock_publish, _mock_flag):
         response = self.client.post(self._url("name/does-not-exist/publish-community"), data={}, format="json")
 
@@ -1705,7 +1706,7 @@ class TestLLMSkillAPI(APIBaseTest):
         ]
     )
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_rejects_display_name(self, _label: str, display_name: str, mock_publish, _mock_flag):
         self.create_skill(name="make-pr")
 
@@ -1719,7 +1720,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=False)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_is_gated_on_the_community_flag(self, mock_publish, _mock_flag):
         self.create_skill(name="make-pr")
 
@@ -1729,7 +1730,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_not_configured_returns_503(self, mock_publish, _mock_flag):
         mock_publish.side_effect = CommunitySkillPublishNotConfiguredError("nope")
         self.create_skill(name="make-pr")
@@ -1739,7 +1740,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_invalid_skill_returns_400(self, mock_publish, _mock_flag):
         # Nothing reached GitHub and republishing the same skill fails the same way, so a 502 would
         # tell the publisher to retry an upstream request that was never the problem.
@@ -1752,7 +1753,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["detail"] == "that slug is reserved"
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_github_error_returns_502(self, mock_publish, _mock_flag):
         mock_publish.side_effect = CommunitySkillPublishError("github exploded")
         self.create_skill(name="make-pr")
@@ -1765,6 +1766,99 @@ class TestLLMSkillAPI(APIBaseTest):
 # llm_skill is its own access-control resource (see ACCESS_CONTROL_RESOURCES in
 # products/access_control/backend/facade/user_access_control.py) - same as TestSkillMarketplaceRBAC in
 # test_marketplace_endpoints.py covers for the git clone endpoint, this covers the JSON skill API.
+class TestSkillWriteAnalytics(APIBaseTest):
+    # Every skill write reports one product event, and the properties on it power the internal
+    # skills adoption dashboards — a renamed event or a dropped property breaks them silently.
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/{path}"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.skill = LLMSkill.objects.create(
+            team=self.team,
+            name="tracked-skill",
+            description="A tracked skill.",
+            body="# V1",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        LLMSkillFile.objects.create(skill=self.skill, path="old.md", content="hi")
+        set_skill_owners(self.team, "tracked-skill", [self.user])
+
+    @parameterized.expand(
+        [
+            (
+                "create",
+                "post",
+                "",
+                {"name": "new-skill", "description": "A new skill.", "body": "# New"},
+                "llma skill created",
+            ),
+            (
+                "publish",
+                "patch",
+                "name/tracked-skill",
+                {"body": "# V2", "base_version": 1},
+                "llma skill version published",
+            ),
+            ("archive", "post", "name/tracked-skill/archive", None, "llma skill archived"),
+            (
+                "duplicate",
+                "post",
+                "name/tracked-skill/duplicate",
+                {"new_name": "copied-skill"},
+                "llma skill duplicated",
+            ),
+            ("rename", "post", "name/tracked-skill/rename", {"new_name": "renamed-skill"}, "llma skill renamed"),
+            (
+                "create file",
+                "post",
+                "name/tracked-skill/files",
+                {"path": "notes.md", "content": "hi"},
+                "llma skill file created",
+            ),
+            (
+                "rename file",
+                "post",
+                "name/tracked-skill/files-rename",
+                {"old_path": "old.md", "new_path": "new.md"},
+                "llma skill file renamed",
+            ),
+        ]
+    )
+    @patch(SKILL_ANALYTICS_REPORT)
+    def test_each_write_reports_its_own_event(self, _label, method, path, data, expected_event, mock_report) -> None:
+        response = getattr(self.client, method)(self._url(path), data=data or {}, format="json")
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED, status.HTTP_204_NO_CONTENT), (
+            response.content
+        )
+        assert mock_report.call_count == 1
+        reported_user, reported_event, reported_props = mock_report.call_args.args
+        assert reported_user == self.user
+        assert reported_event == expected_event
+        assert reported_props["skill_name"]
+
+    @patch(SKILL_ANALYTICS_REPORT)
+    def test_publish_reports_which_parts_of_the_skill_the_caller_changed(self, mock_report) -> None:
+        response = self.client.patch(
+            self._url("name/tracked-skill"),
+            data={"body": "# V2", "description": "Now described.", "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        props = mock_report.call_args.args[2]
+        assert props["base_version"] == 1
+        assert props["skill_version"] == 2
+        assert props["body_changed"] is True
+        assert props["description_changed"] is True
+        assert props["files_replaced"] is False
+        assert props["owners_changed"] is False
+        assert props["edits_used"] is False
+
+
 class TestSkillAccessControlRBAC(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1979,7 +2073,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         assert response.status_code == expected_status
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_an_owner_with_editor_access_can_publish(self, mock_publish, _mock_flag):
         mock_publish.return_value = {"pr_url": "https://example.com/pull/1", "pr_number": 1, "branch": "b"}
         self._grant_llm_skill_access("editor")

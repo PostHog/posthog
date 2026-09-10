@@ -494,7 +494,7 @@ class TestSkillBundle(APIBaseTest):
         assert self._skill_dirs(response) == set()
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    @patch("products.skills.backend.api.skills.SkillBundleBurstThrottle.rate", new="1/minute")
+    @patch("products.skills.backend.api.skill_throttles.SkillBundleBurstThrottle.rate", new="1/minute")
     def test_oauth_and_session_callers_are_throttled(self, *_args):
         # The general Burst/Sustained throttles only count personal-API-key traffic, so an OAuth
         # (or session) caller would otherwise hit this expensive zip endpoint unthrottled. The
