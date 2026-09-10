@@ -384,6 +384,41 @@ def org_quota_limited_until(
 
     # 1a. not over limit
     if not is_over_limit:
+        # Grace-period-exempt resources are credits products whose usage only rises within a
+        # billing period. An already-limited org that now reads under-cap is almost always the
+        # UTC-midnight `todays_usage` reset. The reset lands before the next usage report folds
+        # yesterday's credits into `usage`, so the snapshot is stale, not a real drop. Clearing
+        # the limit here unpauses an out-of-credit org for the hours until that report lands and
+        # re-limits it. Hold the limit until the period rolls over (billing_period_end moves, so
+        # `usage` legitimately resets) or a credited refund frees the slot. A real refund lowers
+        # `is_over_limit` through `refund_offset` above, so it skips this guard and clears below.
+        if (
+            resource in GRACE_PERIOD_EXEMPT_RESOURCES
+            and quota_limited_until == billing_period_end
+            and refund_offset == 0
+        ):
+            report_organization_action(
+                organization,
+                "org_quota_limited_until",
+                properties={
+                    "event": "already limited",
+                    "current_usage": usage + todays_usage,
+                    **refund_offset_properties,
+                    "resource": resource.value,
+                    "quota_limited_until": billing_period_end,
+                    "quota_limiting_suspended_until": None,
+                },
+            )
+            update_organization_usage_fields(
+                organization,
+                resource,
+                {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None},
+            )
+            return {
+                "quota_limited_until": billing_period_end,
+                "quota_limiting_suspended_until": None,
+            }
+
         if quota_limiting_suspended_until or quota_limited_until:
             # If they are not over limit, we want to remove the suspension if it exists
             report_organization_action(
