@@ -95,7 +95,8 @@ export const calibrationActivationLogic = kea<calibrationActivationLogicType>([
         // succeeded observation can be rated, which makes it the ratable total.
         neverRated: [
             (s) => [s.stats],
-            (stats): boolean => stats !== null && stats.succeededTotal > 0 && stats.ratedTotal === 0,
+            (stats: CalibrationStats | null): boolean =>
+                stats !== null && stats.succeededTotal > 0 && stats.ratedTotal === 0,
         ],
     }),
 

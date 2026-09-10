@@ -71,6 +71,7 @@ import {
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { ObservationLabelControl } from './ObservationLabelControl'
+import { observationLabelLogic } from './observationLabelLogic'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { ObservationShareButton } from './ObservationShareButton'
 import {
@@ -145,9 +146,14 @@ function PromptRow({ prompt }: { prompt: string }): JSX.Element {
 /** Rating happens here, not in the Calibration tab, so a rater never sees the recommendation it feeds. */
 function CalibrationEntryPoint({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
+    // Read the rating from the control's logic rather than the loaded observation, which keeps the
+    // label it was fetched with. The control alongside builds this same keyed logic.
+    const { label } = useValues(
+        observationLabelLogic({ observationId: observation.id, initialLabel: observation.label })
+    )
     // Multivariate flags resolve to the variant key, and "control" is truthy, so compare rather than coerce.
     if (
-        !observation.label ||
+        !label ||
         !hasScannerPage(observation) ||
         featureFlags[FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ENTRY_POINT] !== 'test'
     ) {
