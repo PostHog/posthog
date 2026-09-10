@@ -8,9 +8,10 @@ from posthog.dataclasses import frozen
 DEFAULT_MAX_SCHEDULED_EVAL_REPORTS_PER_RUN = 300
 MAX_SCHEDULED_EVAL_REPORTS_PER_RUN = 1_000
 
-# The count-triggered coordinator currently checks roughly 1,070 US reports every five
-# minutes. Two thousand keeps almost 2x production headroom while the 5,000 hard ceiling
-# and the wire-size guard prevent an operator override from creating an oversized activation.
+# Count-triggered discovery checks the full eligible inventory on every poll, so the default
+# page holds the current production inventory with headroom. The 5,000 hard ceiling and the
+# wire-size guard prevent an operator override from creating an oversized activation. The
+# sizing evidence is in docs/superpowers/specs/2026-09-10-temporal-scheduler-resilience-design.md.
 DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN = 2_000
 MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN = 5_000
 
