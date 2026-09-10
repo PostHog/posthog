@@ -11,7 +11,7 @@ from django.db import connection, models, transaction
 from prometheus_client import Counter, Histogram
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import MAX_VIEW_DEPTH, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery
@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 LabelPath = list[str]
 
 
-DEFAULT_RESOLUTION_MAX_VIEW_DEPTH = 100
+# A higher default than the base resolver's cap is unreachable: resolution would fail with the
+# generic depth error before this one.
+DEFAULT_RESOLUTION_MAX_VIEW_DEPTH = MAX_VIEW_DEPTH
 DEFAULT_RESOLUTION_DEADLINE_SECONDS = 60.0
 
 

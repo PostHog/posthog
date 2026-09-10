@@ -9,7 +9,7 @@ import re2
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
+from posthog.hogql.constants import MAX_VIEW_DEPTH, SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
@@ -25,7 +25,13 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
-from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import (
+    ImpossibleASTError,
+    NotImplementedError,
+    QueryError,
+    ResolutionError,
+    ViewDepthExceededError,
+)
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -1386,6 +1392,11 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
+                if self.current_view_depth > MAX_VIEW_DEPTH:
+                    raise ViewDepthExceededError(
+                        f'View "{database_table.name}" is nested more than {MAX_VIEW_DEPTH} views deep. '
+                        "Check that no view in the chain reads itself, directly or through another view."
+                    )
 
                 node.table = parse_select(str(database_table.query))
 

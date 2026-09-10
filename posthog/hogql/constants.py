@@ -45,6 +45,12 @@ DEFAULT_POSTHOG_AI_RETURNED_ROWS = 100
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
+# How deep the resolver inlines data warehouse views into each other. A view that reads itself,
+# directly or through other views, has no end, so without this cap resolution recurses until
+# Python raises RecursionError and the caller returns a 500. The value sits well below the depth
+# where that happens, and far above any real chain of models.
+MAX_VIEW_DEPTH = 20
+
 CSV_EXPORT_LIMIT = 300000
 CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
 CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to

@@ -30,7 +30,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, ViewDepthExceededError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
@@ -38,6 +38,8 @@ from posthog.hogql.resolver import ResolutionError, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_by_name
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
+
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 
 class TestResolver(BaseTest):
@@ -2172,3 +2174,11 @@ class TestResolver(BaseTest):
         # so the canonical-form guard must not reject their queries
         expr = self._select("SELECT event FROM events WHERE person_id = 'not-a-uuid'")
         resolve_types(expr, self.context, dialect="postgres")
+
+    def test_view_that_selects_from_itself_raises_instead_of_recursing(self):
+        # Without a depth bound the resolver inlines the view until Python raises RecursionError,
+        # which reaches API callers as a 500 rather than a query error they can act on.
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="loop", query={"query": "select event from loop"})
+
+        with pytest.raises(ViewDepthExceededError):
+            self._print_hogql("select * from loop")
