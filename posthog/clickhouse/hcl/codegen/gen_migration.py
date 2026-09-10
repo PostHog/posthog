@@ -70,6 +70,7 @@ NODE_ROLE_MEMBERS = {
 NON_TARGET_ROLES = {
     "batch_exports": "dump-baselined; no NodeRole member",
     "all": "the local-single dev node; mirrors what migrations produce",
+    "apm": "modeled for drift detection; no NodeRole member, so migrations cannot address it",
 }
 
 # Envs that mirror what the migrations produce rather than declaring intent, so they
@@ -141,7 +142,16 @@ def golden_at_ref(ref: str, env: str, role: str) -> str:
             return run(["git", "show", f"{ref}:{path}"])
         except subprocess.CalledProcessError:
             continue
-    raise SystemExit(f"no golden for {env}/{role} at {ref} (tried current, pre-rename, and legacy layouts)")
+    # A role this PR introduces has no golden at the base ref. That is not an error:
+    # the baseline for a new (env, role) is an empty schema, so the plan is all
+    # CREATEs. Failing here would make a role-adding PR unable to generate its own
+    # migration. Loud on stderr, because a typo in --env or a renamed role reaches
+    # this same path and would otherwise look like a legitimately new role.
+    sys.stderr.write(
+        f"warning: no golden for {env}/{role} at {ref}; treating the role as new "
+        f"(empty baseline, so every object plans as a CREATE)\n"
+    )
+    return ""
 
 
 def write_dump(env: str, roles: list[str], ref: str, dump_dir: str) -> None:
