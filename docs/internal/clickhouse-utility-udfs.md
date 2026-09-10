@@ -171,6 +171,10 @@ The buffer-reuse test alternates dotted-object widths and verifies exact output,
 
 These local measurements should be repeated on deployment hardware before estimating fleet capacity.
 
+HogQL `JSONExtract*` calls with `$feature_flags` as their first property key use the same
+restricted-property-aware map as dotted `$feature_flags` access on both event schemas.
+The original extractor still determines the return type and missing-value default.
+
 ### `decompress(data, codec)`
 
 Returns the exact decompressed bytes as a ClickHouse `String`, including NUL, newlines, and non-UTF-8 bytes.
