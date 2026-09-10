@@ -152,6 +152,7 @@ class FetchDueSubscriptionsActivityInputs:
     max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
     region: str = "local"
     use_durable_claims: bool = False
+    claim_token_seed: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
