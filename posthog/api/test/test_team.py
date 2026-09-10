@@ -3685,6 +3685,16 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         serializer = TeamSerializer(data={"conversations_settings": {"widget_domains": [entry]}}, partial=True)
         assert not serializer.is_valid()
 
+    def test_conversations_pattern_window_is_capped_at_a_day(self) -> None:
+        serializer = TeamSerializer(data={"conversations_settings": {"pattern_window_minutes": 1441}}, partial=True)
+        assert not serializer.is_valid()
+
+        # The ceiling itself must still be accepted. `is_valid()` cannot show that here, because a
+        # valid payload falls through to the object-level validate() that needs request context.
+        assert TeamSerializer().validate_conversations_settings({"pattern_window_minutes": 1440}) == {
+            "pattern_window_minutes": 1440
+        }
+
     def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
         # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation
         # lives in the object-level `validate()` (via `validate_team_attrs`), which needs

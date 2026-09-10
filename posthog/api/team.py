@@ -1741,10 +1741,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         ):
             if toggle_key in value:
                 value[toggle_key] = bool(value[toggle_key])
-        for count_key, floor in (
-            ("pattern_min_requesters", 3),
-            ("pattern_min_tickets", 3),
-            ("pattern_window_minutes", 15),
+        for count_key, floor, ceiling in (
+            ("pattern_min_requesters", 3, None),
+            ("pattern_min_tickets", 3, None),
+            # A burst is a short-window phenomenon and a quiet pattern auto-resolves after two
+            # windows, so a day is already past the point where the window says anything useful.
+            ("pattern_window_minutes", 15, 24 * 60),
         ):
             if count_key in value:
                 try:
@@ -1753,6 +1755,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     raise serializers.ValidationError({count_key: "Must be a whole number."})
                 if count < floor:
                     raise serializers.ValidationError({count_key: f"Must be at least {floor}."})
+                if ceiling is not None and count > ceiling:
+                    raise serializers.ValidationError({count_key: f"Must be at most {ceiling}."})
                 value[count_key] = count
         if "slack_alert_channel_id" in value:
             alert_channel = value.get("slack_alert_channel_id")
