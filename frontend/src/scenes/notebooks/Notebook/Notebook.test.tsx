@@ -4,6 +4,7 @@ import { useLayoutEffect } from 'react'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -108,6 +109,16 @@ describe('Notebook load states', () => {
 
         await waitFor(() => expect(screen.queryByText(/We couldn't load this notebook/)).toBeNull())
         await expectLogic(logic).toMatchValues({ notebookLoadFailed: false })
+    })
+
+    it('shows only the retry banner when the server fails the load, not a second error toast', async () => {
+        jest.spyOn(api.notebooks, 'get').mockRejectedValue({ status: 500, detail: 'Something went wrong' })
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+
+        render(<Notebook shortId={SHORT_ID} mode="notebook" />)
+
+        expect(await screen.findByText(/We couldn't load this notebook/)).toBeTruthy()
+        expect(toast).not.toHaveBeenCalled()
     })
 
     it('shows "not found" when the notebook does not exist', async () => {
