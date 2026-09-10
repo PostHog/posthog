@@ -262,7 +262,7 @@ converted`)
             content: buildMarkdownNotebookContent('# Markdown v2'),
             text_content: '# Markdown v2',
         }
-        jest.spyOn(api.notebooks, 'get').mockResolvedValueOnce(markdownNotebook as NotebookType)
+        jest.spyOn(api.notebooks, 'get').mockResolvedValue(markdownNotebook as NotebookType)
 
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
         logic.mount()

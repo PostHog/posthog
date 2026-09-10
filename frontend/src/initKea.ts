@@ -66,6 +66,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadRunDetails', // The Wizard run drawer shows a stale-state banner with a retry
     'cancelRunRequest', // wizardRunDetailsLogic shows its own cancel-failure toast
     'loadReplayComments', // The replay Comments tab renders its own retry state
+    'loadNotebook', // The notebook renders its own retry banner, and the background refresh poll must not toast on every interval
 ]
 
 /*

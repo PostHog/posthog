@@ -336,6 +336,8 @@ export interface notebookLogicValues {
     nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>
     nodeLogicsWithChildren: BuiltLogic<notebookNodeLogicType>[]
     notebook: NotebookType | null
+    notebookLoadErrored: boolean
+    notebookLoadFailed: boolean
     notebookLoading: boolean
     notebookMissing: boolean
     notebookPresenceParticipants: NotebookPresenceParticipant[]
@@ -638,7 +640,18 @@ export interface notebookLogicMeta {
             isLocalOnly: boolean,
             notebook: NotebookType | null
         ) => boolean
-        notebookMissing: (notebook: NotebookType | null, notebookLoading: boolean, mode: NotebookLogicMode) => boolean
+        notebookMissing: (
+            notebook: NotebookType | null,
+            notebookLoading: boolean,
+            notebookLoadErrored: boolean,
+            mode: NotebookLogicMode,
+            shortId: string
+        ) => boolean
+        notebookLoadFailed: (
+            notebook: NotebookType | null,
+            notebookLoading: boolean,
+            notebookLoadErrored: boolean
+        ) => boolean
         markdownRemoteCarets: (
             markdownRemotePresence: Record<string, NotebookRemotePresenceState>
         ) => RemoteNotebookCaret[]
@@ -840,6 +853,14 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         accessDeniedToNotebook: [false, { setAccessDeniedToNotebook: () => true }],
+        notebookLoadErrored: [
+            false,
+            {
+                loadNotebook: () => false,
+                loadNotebookSuccess: () => false,
+                loadNotebookFailure: () => true,
+            },
+        ],
         localContent: [
             null as JSONContent | null,
             { persist: props.mode !== 'canvas', prefix: NOTEBOOKS_VERSION },
@@ -1257,10 +1278,26 @@ export const notebookLogic = kea<notebookLogicType>([
             ): boolean => mode === 'notebook' && !props.cachedNotebook && !isLocalOnly && !!notebook,
         ],
         notebookMissing: [
-            (s) => [s.notebook, s.notebookLoading, s.mode],
-            (notebook: NotebookType | null, notebookLoading: boolean, mode: NotebookLogicMode): boolean => {
-                return (['notebook', 'template'].includes(mode) && !notebook && !notebookLoading) ?? false
-            },
+            (s) => [s.notebook, s.notebookLoading, s.notebookLoadErrored, s.mode, s.shortId],
+            (
+                notebook: NotebookType | null,
+                notebookLoading: boolean,
+                notebookLoadErrored: boolean,
+                mode: NotebookLogicMode,
+                shortId: string
+            ): boolean =>
+                ['notebook', 'template'].includes(mode) &&
+                // Nothing is ever requested for the `new` placeholder, so an absent notebook
+                // here means the scene has not created it yet, not that it does not exist.
+                shortId !== 'new' &&
+                !notebook &&
+                !notebookLoading &&
+                !notebookLoadErrored,
+        ],
+        notebookLoadFailed: [
+            (s) => [s.notebook, s.notebookLoading, s.notebookLoadErrored],
+            (notebook: NotebookType | null, notebookLoading: boolean, notebookLoadErrored: boolean): boolean =>
+                !notebook && !notebookLoading && notebookLoadErrored,
         ],
         markdownRemoteCarets: [
             (s) => [s.markdownRemotePresence],
@@ -2108,8 +2145,25 @@ export const notebookLogic = kea<notebookLogicType>([
                     posthog.capture('notebook opened', openedEvent)
                 }
             }
+
+            // A load that carries no notebook is what renders the "not found" screen. Same
+            // per-mount gate as above, because the refresh keeps polling an absent notebook.
+            if (!notebook && values.mode === 'notebook' && !cache.hasCapturedMissing) {
+                cache.hasCapturedMissing = true
+                posthog.capture('notebook not found', { short_id: props.shortId })
+            }
         },
-        loadNotebookFailure: () => {
+        loadNotebookFailure: ({ errorObject }) => {
+            // Only a failure with nothing to fall back on reaches a person, and the same per-mount
+            // gate as above keeps a retry or a failed background refresh out of the count.
+            if (!values.notebook && !cache.hasCapturedLoadFailure) {
+                cache.hasCapturedLoadFailure = true
+                posthog.capture('notebook load failed', {
+                    short_id: props.shortId,
+                    mode: values.mode,
+                    status: (errorObject as { status?: number } | null)?.status,
+                })
+            }
             actions.processPendingMarkdownStreamEvents()
         },
 
@@ -2233,8 +2287,14 @@ export const notebookLogic = kea<notebookLogicType>([
         message: 'Leave notebook?\nChanges you made may not be saved.',
     })),
 
-    afterMount(({ props }) => {
+    afterMount(({ props, actions }) => {
         drainPendingNotebookOperations(props.shortId)
+        // Load here, not from a component mount effect: an effect only runs after the first
+        // paint, so `notebookMissing` was true for that frame and painted "not found".
+        // `new` is a placeholder the scene replaces once the notebook exists.
+        if (props.shortId !== 'new') {
+            actions.loadNotebook()
+        }
     }),
 
     beforeUnmount(() => {
