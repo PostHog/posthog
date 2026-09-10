@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import copy
+import time
 import pickle
 import threading
 import dataclasses
@@ -391,6 +392,75 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 # the in-process blob can't go stale across deploys. Every catalog node must stay picklable.
 _DATABASE_ROOT_NODE_BLOBS: dict[bool, bytes] = {}
 _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
+
+# Every database build evaluates the same per-team feature-flag decisions, and flag evaluation
+# costs property matching per call and can fall back to a network call. A short per-process TTL
+# bounds that cost; a flag flip lags at most the TTL. Only flags in the allowlist below are ever
+# cached: a flag that gates authorization or enforcement (who can see which data) must stay out,
+# because a cached stale False holds enforcement open team-wide for the TTL. Availability flags
+# (which schema surfaces exist) tolerate that lag. Entries store their evaluation time, and reads
+# check freshness against the live TTL, so lowering the setting immediately shortens every existing
+# entry's life and disabling it stops all reads. Expired entries are only replaced on re-request,
+# so on a long-lived worker the dict grows with distinct-team count; at the cap, sweep the expired
+# entries first and drop everything only if live entries alone still exceed it - simpler than an
+# LRU, and fresh entries survive the sweep. Reads are lock-free (dict.get is atomic under the
+# GIL); mutations and the sweep hold the lock, because the sweep iterates the dict and concurrent
+# inserts would raise RuntimeError mid-iteration.
+_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets", "data-quality-checks"})
+_TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}  # key -> (evaluated_at, value)
+_TEAM_FLAG_CACHE_LOCK = threading.Lock()
+_TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
+
+
+def _evaluate_warehouse_access_control_flag(team: Team) -> bool:
+    """Never cached, in the flag cache or via cached sources: this flag gates enforcement. A stale
+    False (a flag flip, or a transient SDK failure that feature_enabled_or_false reports as False)
+    would keep warehouse access control off for every query on the team until a TTL expires."""
+    return feature_enabled_or_false(
+        "hogql-warehouse-access-control",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        send_feature_flag_events=False,
+    )
+
+
+def _cached_team_flag(flag_key: str, team: Team, evaluate: Callable[[], bool]) -> bool:
+    # Not cache_for/CachedFunction: its TTL is fixed at decoration time, and this TTL is a live
+    # instance setting so ops can retune or disable the cache without a redeploy.
+    # Function-local: keeps the Django model import off the django.setup() path. The instance
+    # setting has its own 60s in-process cache, so this read costs one query per worker per
+    # minute, not one per build.
+    from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
+
+    if flag_key not in _CACHEABLE_TEAM_FLAGS:
+        return evaluate()
+    try:
+        # int(): the setting round-trips through InstanceSetting's raw JSON storage, so a value
+        # edited in the Django admin can come back as a str, float, or blank string.
+        ttl = int(get_instance_setting("HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS"))
+    except (TypeError, ValueError):
+        ttl = 0
+    if ttl <= 0:
+        return evaluate()
+    cache_key = (str(team.uuid), flag_key)
+    now = time.monotonic()
+    hit = _TEAM_FLAG_CACHE.get(cache_key)
+    if hit is not None and now - hit[0] < ttl:
+        return hit[1]
+    value = evaluate()
+    with _TEAM_FLAG_CACHE_LOCK:
+        if len(_TEAM_FLAG_CACHE) >= _TEAM_FLAG_CACHE_MAX_ENTRIES:
+            for stale_key in [key for key, (evaluated_at, _) in _TEAM_FLAG_CACHE.items() if now - evaluated_at >= ttl]:
+                _TEAM_FLAG_CACHE.pop(stale_key, None)
+            if len(_TEAM_FLAG_CACHE) >= _TEAM_FLAG_CACHE_MAX_ENTRIES:
+                _TEAM_FLAG_CACHE.clear()
+        _TEAM_FLAG_CACHE[cache_key] = (now, value)
+    return value
+
 
 # We only ever load our own freshly-built blob, but restrict the unpickler anyway as defense in depth:
 # it can reconstruct only the classes the catalog is built from, so even a future change that fed it
@@ -1484,6 +1554,12 @@ class Database(BaseModel):
                 user_access_control=fresh_access_control,
                 denied_system_table_names=fresh_denied,
             )
+            # Enforcement flags must not ride the cached bundle either (see
+            # _evaluate_warehouse_access_control_flag); recompute per request.
+            sources = dataclasses.replace(
+                sources,
+                is_hogql_warehouse_access_control_enabled=_evaluate_warehouse_access_control_flag(cast("Team", team)),
+            )
 
         with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="build_from_sources").time():
             return Database._build_from_sources(
@@ -1618,28 +1694,34 @@ class Database(BaseModel):
         is_direct_query = connection_id is not None
 
         with timings.measure("feature_flags", emit_span=True):
-            is_managed_viewset_enabled = feature_enabled_or_false(
+            is_managed_viewset_enabled = _cached_team_flag(
                 "managed-viewsets",
-                str(team.uuid),
-                groups={
-                    "organization": str(team.organization_id),
-                    "project": str(team.id),
-                },
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization_id),
+                team,
+                lambda: feature_enabled_or_false(
+                    "managed-viewsets",
+                    str(team.uuid),
+                    groups={
+                        "organization": str(team.organization_id),
+                        "project": str(team.id),
                     },
-                    "project": {
-                        "id": str(team.id),
+                    group_properties={
+                        "organization": {
+                            "id": str(team.organization_id),
+                        },
+                        "project": {
+                            "id": str(team.id),
+                        },
                     },
-                },
-                send_feature_flag_events=False,
+                    send_feature_flag_events=False,
+                ),
             )
 
             # Function-local + facade-only: keeps the products off the django.setup() path.
             from products.data_quality.backend.facade.flags import is_data_quality_checks_enabled  # noqa: PLC0415
 
-            data_quality_enabled = is_data_quality_checks_enabled(team)
+            data_quality_enabled = _cached_team_flag(
+                "data-quality-checks", team, lambda: is_data_quality_checks_enabled(team)
+            )
 
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
@@ -1701,16 +1783,7 @@ class Database(BaseModel):
                 team, user, user_access_control, allowed_system_tables
             )
 
-        is_hogql_warehouse_access_control_enabled = feature_enabled_or_false(
-            "hogql-warehouse-access-control",
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            send_feature_flag_events=False,
-        )
+        is_hogql_warehouse_access_control_enabled = _evaluate_warehouse_access_control_flag(team)
 
         with timings.measure("modifiers", emit_span=True):
             modifiers = create_default_modifiers_for_team(team, modifiers)
@@ -1854,22 +1927,17 @@ class Database(BaseModel):
             _attach_decrypted_credentials(credentialed_tables, team_id=team.pk)
 
         # Prefetch the saved query each modifier may resolve against; the table models come from the
-        # warehouse_tables fetch.
+        # warehouse_tables fetch. One query for all names: (team, name) is unique, so each name maps
+        # to at most one row.
         event_modifier_saved_queries: dict[str, Optional[DataWarehouseSavedQuery]] = {}
         if modifiers.dataWarehouseEventsModifiers:
             with timings.measure("data_warehouse_event_modifiers_fetch", emit_span=True):
-                for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
-                    name = warehouse_modifier.table_name
-                    if name in event_modifier_saved_queries:
-                        continue
-                    try:
-                        event_modifier_saved_queries[name] = (
-                            DataWarehouseSavedQuery.objects.exclude(deleted=True)
-                            .filter(team_id=team.pk, name=name)
-                            .latest("created_at")
-                        )
-                    except DataWarehouseSavedQuery.DoesNotExist:
-                        event_modifier_saved_queries[name] = None
+                names = {warehouse_modifier.table_name for warehouse_modifier in modifiers.dataWarehouseEventsModifiers}
+                event_modifier_saved_queries = dict.fromkeys(names)
+                for saved_query in DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(
+                    team_id=team.pk, name__in=names
+                ):
+                    event_modifier_saved_queries[saved_query.name] = saved_query
 
         return HogQLDatabaseSources(
             team=team,

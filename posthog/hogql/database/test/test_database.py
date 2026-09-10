@@ -12,7 +12,7 @@ from typing import Any, cast
 import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.db import connection
@@ -36,8 +36,10 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     _CATALOG_PICKLE_MODULE_PREFIXES,
     _CATALOG_PICKLE_MODULES,
+    _TEAM_FLAG_CACHE,
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
+    _cached_team_flag,
     _CatalogUnpickler,
     _compute_system_table_access_decision,
     _construct_database_root_node,
@@ -1128,6 +1130,41 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
 
+    def test_event_modifier_fetch_is_one_query_for_all_names(self):
+        found = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="found", query={"query": "SELECT 1 AS id"}, columns={"id": "String"}
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="soft_deleted",
+            query={"query": "SELECT 2 AS id"},
+            columns={"id": "String"},
+            deleted=True,
+        )
+
+        def modifier(name: str) -> DataWarehouseEventsModifier:
+            return DataWarehouseEventsModifier(
+                table_name=name, id_field="id", timestamp_field="created_at", distinct_id_field="id"
+            )
+
+        def fetch(names: list[str]) -> tuple[int, dict]:
+            modifiers = create_default_modifiers_for_team(
+                self.team, modifiers=HogQLQueryModifiers(dataWarehouseEventsModifiers=[modifier(n) for n in names])
+            )
+            with CaptureQueriesContext(connection) as context:
+                sources = Database._fetch_sources(team=self.team, modifiers=modifiers)
+            return len(context.captured_queries), sources.event_modifier_saved_queries
+
+        fetch(["found"])  # warm per-process caches so the measured fetches differ only in name count
+        single_count, _ = fetch(["found"])
+        triple_count, saved_queries = fetch(["found", "soft_deleted", "missing"])
+
+        # One bulk query serves any number of modifier names.
+        assert triple_count == single_count
+        assert saved_queries["found"].id == found.id
+        assert saved_queries["soft_deleted"] is None
+        assert saved_queries["missing"] is None
+
     @staticmethod
     def _ran_source_fetch_queries(ctx: CaptureQueriesContext) -> bool:
         return any("datawarehouse" in query["sql"].lower() for query in ctx.captured_queries)
@@ -1185,6 +1222,31 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             Database.create_for(team=self.team, user=SyntheticUser(self.team, "synthetic-2"), use_cached_sources=True)
 
         assert self._ran_source_fetch_queries(ctx)
+
+    def test_cached_sources_recompute_warehouse_access_control_flag(self):
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="acl_table", team=self.team, columns={"id": "String"}, credential=credential, url_pattern=""
+        )
+
+        # Evaluated on the fetch, then re-evaluated once per request (cold and warm alike).
+        acl_flag_values = iter([False, False, True])
+        with (
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: (
+                    next(acl_flag_values) if key == "hogql-warehouse-access-control" else False
+                ),
+            ),
+            patch.object(Database, "_is_warehouse_table_denied", return_value=True),
+        ):
+            unenforced = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+            # Warm cache hit: the enforcement flag must be re-evaluated per request, never
+            # served from the cached bundle, so this build sees the flag's new True.
+            enforced = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        assert unenforced.has_table("acl_table")
+        assert not enforced.has_table("acl_table")
 
     def test_cached_revenue_views_do_not_leak_expression_fields_between_users(self):
         other_user = self._create_user("no-expression-access@posthog.com")
@@ -4381,6 +4443,105 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database = Database.create_for(team=self.team, user=self.user)
 
         assert ("system.activity_logs" in database.get_system_table_names()) is expected_visible
+
+
+class TestCachedTeamFlag(TestCase):
+    def setUp(self):
+        _TEAM_FLAG_CACHE.clear()
+
+    def tearDown(self):
+        _TEAM_FLAG_CACHE.clear()
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_evaluates_once_within_ttl_and_isolates_teams(self, _get_setting):
+        team_a = cast(Team, SimpleNamespace(uuid="team-a-uuid"))
+        team_b = cast(Team, SimpleNamespace(uuid="team-b-uuid"))
+        evaluate = Mock(side_effect=[True, False])
+
+        assert _cached_team_flag("managed-viewsets", team_a, evaluate) is True
+        assert _cached_team_flag("managed-viewsets", team_a, evaluate) is True
+        assert evaluate.call_count == 1
+
+        # A different team must not see team A's cached decision.
+        assert _cached_team_flag("managed-viewsets", team_b, evaluate) is False
+        assert evaluate.call_count == 2
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=0)
+    def test_zero_ttl_disables_caching(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        evaluate = Mock(return_value=True)
+
+        _cached_team_flag("managed-viewsets", team, evaluate)
+        _cached_team_flag("managed-viewsets", team, evaluate)
+        assert evaluate.call_count == 2
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_flags_outside_the_allowlist_are_never_cached(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        evaluate = Mock(return_value=True)
+
+        _cached_team_flag("hogql-warehouse-access-control", team, evaluate)
+        _cached_team_flag("hogql-warehouse-access-control", team, evaluate)
+        assert evaluate.call_count == 2
+        assert _TEAM_FLAG_CACHE == {}
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value="")
+    def test_unparseable_ttl_disables_caching_instead_of_raising(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+
+        assert _cached_team_flag("managed-viewsets", team, Mock(return_value=True)) is True
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_cap_sweeps_expired_entries_and_keeps_fresh_ones(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        now = time.monotonic()
+        _TEAM_FLAG_CACHE[("expired-team-uuid", "managed-viewsets")] = (now - 100, True)
+        _TEAM_FLAG_CACHE[("fresh-team-uuid", "managed-viewsets")] = (now, True)
+
+        with patch("posthog.hogql.database.database._TEAM_FLAG_CACHE_MAX_ENTRIES", 2):
+            _cached_team_flag("managed-viewsets", team, Mock(return_value=True))
+
+        assert ("expired-team-uuid", "managed-viewsets") not in _TEAM_FLAG_CACHE
+        assert ("fresh-team-uuid", "managed-viewsets") in _TEAM_FLAG_CACHE
+        assert (str(team.uuid), "managed-viewsets") in _TEAM_FLAG_CACHE
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_lowering_the_ttl_applies_to_existing_entries(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        # Evaluated 61s ago: fresh under the mocked 30s TTL? No - so it must re-evaluate, even
+        # though a 3600s TTL was in force when the entry was written.
+        _TEAM_FLAG_CACHE[(str(team.uuid), "managed-viewsets")] = (time.monotonic() - 61, True)
+        evaluate = Mock(return_value=False)
+
+        assert _cached_team_flag("managed-viewsets", team, evaluate) is False
+        assert evaluate.call_count == 1
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_concurrent_inserts_during_cap_sweep_do_not_raise(self, _get_setting):
+        now = time.monotonic()
+        for index in range(64):
+            _TEAM_FLAG_CACHE[(f"expired-{index}", "managed-viewsets")] = (now - 100, True)
+
+        barrier = threading.Barrier(4)
+        errors: list[Exception] = []
+
+        def hammer(worker: int) -> None:
+            try:
+                barrier.wait()
+                for iteration in range(200):
+                    team = cast(Team, SimpleNamespace(uuid=f"team-{worker}-{iteration}"))
+                    assert _cached_team_flag("managed-viewsets", team, Mock(return_value=True)) is True
+            except Exception as e:
+                errors.append(e)
+
+        with patch("posthog.hogql.database.database._TEAM_FLAG_CACHE_MAX_ENTRIES", 32):
+            threads = [threading.Thread(target=hammer, args=(worker,)) for worker in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        assert errors == []
 
 
 class TestSourcesCacheConcurrency(TestCase):
