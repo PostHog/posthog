@@ -78,7 +78,9 @@ function createHarness({ spyConnect = true } = {}) {
           subscribe: () => ({ unsubscribe: vi.fn() }),
         },
       },
-      workspace: { verify: { query: vi.fn().mockResolvedValue({ exists: true }) } },
+      workspace: {
+        verify: { query: vi.fn().mockResolvedValue({ exists: true }) },
+      },
     },
     settings: {},
     track: vi.fn(),
@@ -225,7 +227,6 @@ describe("SessionService run-less local task recovery", () => {
         type: "notification",
         timestamp: new Date(1).toISOString(),
         notification: {
-          jsonrpc: "2.0",
           id: 1,
           method: "session/prompt",
           params: { prompt: [{ type: "text", text: "Ship the fix" }] },
@@ -235,7 +236,6 @@ describe("SessionService run-less local task recovery", () => {
         type: "notification",
         timestamp: new Date(2).toISOString(),
         notification: {
-          jsonrpc: "2.0",
           id: 1,
           result: { stopReason: "end_turn" },
         },
@@ -254,10 +254,18 @@ describe("SessionService run-less local task recovery", () => {
           prefetchedLogs: { rawEntries: StoredLogEntry[] },
         ) => Promise<boolean>;
       }
-    ).reconnectToLocalSession(task.id, "run-task-1", task.title, undefined, "/repo", {
-      apiHost: "https://example.com",
-      projectId: 1,
-    }, { rawEntries });
+    ).reconnectToLocalSession(
+      task.id,
+      "run-task-1",
+      task.title,
+      undefined,
+      "/repo",
+      {
+        apiHost: "https://example.com",
+        projectId: 1,
+      },
+      { rawEntries },
+    );
 
     expect(sessions["run-task-1"]).toMatchObject({
       isPromptPending: false,
