@@ -14,7 +14,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
-import { NonIntegratedConversionsTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsTable'
 import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -31,6 +30,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { LegacyOAuthReconnectBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/LegacyOAuthReconnectBanner'
 import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
+import { IntegrationSettingsModal } from '../web-analytics/tabs/marketing-analytics/frontend/components/settings/IntegrationSettingsModal'
 import {
     MarketingAnalyticsTab,
     SETUP_ABSORBED_TABS,
@@ -204,7 +204,6 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
                 {marketingTiles?.map((tile, i) => (
                     <QueryTileItem key={i} tile={tile} />
                 ))}
-                <NonIntegratedConversionsTable />
             </div>
         </>
     )
@@ -214,15 +213,33 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab } = useValues(marketingAnalyticsLogic)
     const { setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
+    const { integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
+    const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
 
     // The redesigned dashboard replaces the current one under the same "Dashboard" tab when its flag is
     // on, so the eventual cutover is just flipping the flag — no tab rename, no extra tab key to strand.
-    const dashboard = featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ? (
-        <NewMarketingAnalyticsDashboard />
-    ) : (
+    const dashboard = (
         <>
-            <MarketingAnalyticsFilters tabs={<></>} />
-            <MarketingAnalyticsDashboard />
+            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ? (
+                <NewMarketingAnalyticsDashboard />
+            ) : (
+                <>
+                    <MarketingAnalyticsFilters tabs={<></>} />
+                    <MarketingAnalyticsDashboard />
+                </>
+            )}
+            {/* Both dashboards carry the campaign breakdown, whose mapping menus open this modal, so it
+                is mounted beside them rather than inside one. It sits in the tab content, because Setup
+                and Integration health mount their own copy off the same shared state. */}
+            {integrationSettingsModal.integration && (
+                <IntegrationSettingsModal
+                    integrationName={integrationSettingsModal.integration}
+                    isOpen={integrationSettingsModal.isOpen}
+                    onClose={closeIntegrationSettingsModal}
+                    initialTab={integrationSettingsModal.initialTab}
+                    initialUtmValue={integrationSettingsModal.initialUtmValue}
+                />
+            )}
         </>
     )
 

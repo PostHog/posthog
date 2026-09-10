@@ -466,7 +466,7 @@ export interface accountsLogicActions {
     ) => {
         accountId: string
         definition: CustomPropertyDefinitionApi
-        value: boolean | number | string
+        value: boolean | number | string | null
     }
     updateAccountFilters: (filters: AccountFilter[]) => {
         filters: AccountFilter[]

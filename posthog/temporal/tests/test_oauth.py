@@ -12,9 +12,10 @@ from parameterized import parameterized
 from temporalio.converter import JSONPlainPayloadConverter
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
-from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
+from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE, SLACK_RUN_SCOPE
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
+    CONTEXT_LAYER_INTERNAL_SCOPE,
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
@@ -52,7 +53,12 @@ class TestResolveScopes(SimpleTestCase):
 
     def test_full_preset(self) -> None:
         result = resolve_scopes("full")
-        assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES)
+        assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES + [CONTEXT_LAYER_INTERNAL_SCOPE])
+
+    def test_context_layer_write_scope_requires_organization_write(self) -> None:
+        assert CONTEXT_LAYER_INTERNAL_SCOPE not in resolve_scopes("read_only")
+        assert CONTEXT_LAYER_INTERNAL_SCOPE not in resolve_scopes(["task:write"])
+        assert CONTEXT_LAYER_INTERNAL_SCOPE in resolve_scopes(["organization:write"])
 
     def test_signals_scout_preset_adds_scout_internal_write(self) -> None:
         # `signals_scout` = `read_only` content PLUS the scout's own internal write scope
@@ -96,7 +102,13 @@ class TestResolveScopes(SimpleTestCase):
 
     def test_signals_implementation_preset_is_full_plus_the_scratchpad(self) -> None:
         result = resolve_scopes("signals_implementation")
-        assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES + SCRATCHPAD_INTERNAL_SCOPES)
+        assert set(result) == set(
+            MCP_READ_SCOPES
+            + MCP_WRITE_SCOPES
+            + INTERNAL_SCOPES
+            + SCRATCHPAD_INTERNAL_SCOPES
+            + [CONTEXT_LAYER_INTERNAL_SCOPE]
+        )
 
     def test_scratchpad_write_reaches_scouts_and_the_pipeline_only(self) -> None:
         # Splitting the scope out of `signal_scout_internal` must not cost scouts their
@@ -415,6 +427,17 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         # The marker is provenance only: built-in agents keep the task tools.
         assert "task:read" in scopes
         assert "task:write" in scopes
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_slack_run_scope_is_added_without_narrowing_scopes(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(user, team.id, include_slack_run_scope=True)
+
+        scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        assert SLACK_RUN_SCOPE in scopes
+        assert "task:read" in scopes
 
 
 class TestCreateWizardOAuthAccessTokenForUser(TestCase):

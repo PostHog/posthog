@@ -7,6 +7,63 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Typed account properties: external-system ids. Role assignments live under `relationships`.
+ */
+export type ExternalAccountApiProperties = { [key: string]: unknown }
+
+export interface ExternalAccountAssignmentApi {
+    /** PostHog user id of the assigned user. */
+    user_id: number
+    /** Email address of the assigned user. */
+    email: string
+}
+
+/**
+ * Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted.
+ */
+export type ExternalAccountApiRelationships = { [key: string]: ExternalAccountAssignmentApi[] }
+
+/**
+ * Every team custom property definition keyed by name, with the account's active value or null.
+ */
+export type ExternalAccountApiCustomProperties = { [key: string]: unknown }
+
+export interface ExternalAccountApi {
+    /** Account UUID. */
+    id: string
+    /**
+     * External account key — the group key the account is linked to.
+     * @nullable
+     */
+    external_id: string | null
+    /** Human-readable account name. */
+    name: string
+    /**
+     * When the account churned, or null if it has not churned.
+     * @nullable
+     */
+    churned_at: string | null
+    /**
+     * When Track Rules ignored the account, or null if it is tracked.
+     * @nullable
+     */
+    ignored_at: string | null
+    /** Typed account properties: external-system ids. Role assignments live under `relationships`. */
+    properties: ExternalAccountApiProperties
+    /** Tag names on the account, sorted alphabetically. */
+    tags: string[]
+    /** Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted. */
+    relationships: ExternalAccountApiRelationships
+    /** Every team custom property definition keyed by name, with the account's active value or null. */
+    custom_properties: ExternalAccountApiCustomProperties
+}
+
+export interface ExternalAccountErrorApi {
+    /** What went wrong with the request. */
+    error: string
+}
+
 export interface ExternalAccountListAssignmentApi {
     /** PostHog user id of the assigned user. */
     user_id: number
@@ -465,8 +522,8 @@ export interface CustomPropertyValueApi {
 export interface CustomPropertyValueWriteApi {
     /** UUID of the custom property definition whose value to set for this account. */
     definition: string
-    /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. */
-    value: string | number | boolean
+    /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. Null clears the current value while preserving its history. */
+    value: string | number | boolean | null
 }
 
 export interface AccountNotebookApi {
@@ -820,6 +877,13 @@ export interface PaginatedMeetingListApi {
     /** @nullable */
     previous?: string | null
     results: MeetingApi[]
+}
+
+export interface AccountPresenceViewerApi {
+    /** PostHog user ID of the teammate viewing this account. */
+    readonly user_id: number
+    /** Display name of the teammate viewing this account. */
+    readonly display_name: string
 }
 
 /**
@@ -1383,6 +1447,8 @@ export interface ClickhouseQueryProgressApi {
 }
 
 export interface QueryStatusApi {
+    budget_remaining_bytes?: number | null
+    bytes_read?: number | null
     /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
     complete?: boolean | null
     dashboard_id?: number | null
@@ -2192,12 +2258,13 @@ export interface CalendarSyncStatusApi {
     readonly is_syncing: boolean
 }
 
-/**
- * Request body of the calendar sync-now trigger.
- */
-export interface CalendarSyncTriggerApi {
-    /** Id of the google-calendar integration to sync. */
+export interface CalendarSyncBackfillApi {
+    /** Id of the Google account integration to backfill. */
     integration_id: number
+    /** First UTC date to include. Must be within the last 365 days. */
+    start_date: string
+    /** Final UTC date to include. Cannot be after today. */
+    end_date: string
 }
 
 /**
@@ -2221,6 +2288,14 @@ export interface CalendarSyncTriggerResponseApi {
      * * `started` - started
      * * `already_running` - already_running */
     status: CalendarSyncTriggerResponseStatusEnumApi
+}
+
+/**
+ * Request body of the calendar sync-now trigger.
+ */
+export interface CalendarSyncTriggerApi {
+    /** Id of the google-calendar integration to sync. */
+    integration_id: number
 }
 
 /**
@@ -3926,6 +4001,45 @@ export interface PatchedGroupUsageMetricApi {
      * @nullable
      */
     math_property?: string | null
+}
+
+/**
+ * * `custom_property` - Custom property
+ * * `relationship` - Relationship
+ */
+export type PinnedAccountPropertyKindEnumApi =
+    (typeof PinnedAccountPropertyKindEnumApi)[keyof typeof PinnedAccountPropertyKindEnumApi]
+
+export const PinnedAccountPropertyKindEnumApi = {
+    CustomProperty: 'custom_property',
+    Relationship: 'relationship',
+} as const
+
+export interface PinnedAccountPropertyApi {
+    /** Definition type for this pinned account property.
+     *
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship */
+    kind: PinnedAccountPropertyKindEnumApi
+    /** Team-scoped custom property or relationship definition UUID. */
+    id: string
+}
+
+export interface UserCustomerAnalyticsConfigApi {
+    /** Account properties pinned in sidebar display order. */
+    readonly pinned_properties: readonly PinnedAccountPropertyApi[]
+}
+
+export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
+    /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
+    pinned_properties?: PinnedAccountPropertyApi[]
+}
+
+export type CustomerAnalyticsExternalAccountRetrieveParams = {
+    /**
+     * External account key: the group key the account is linked to.
+     */
+    external_id: string
 }
 
 export type CustomerAnalyticsExternalAccountsRetrieveParams = {

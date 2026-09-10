@@ -25,6 +25,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import {
     markdownCrc,
     mergeNotebookMarkdownChanges,
@@ -41,7 +42,6 @@ import { downloadFile } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { slugify } from 'lib/utils/strings'
-import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -71,21 +71,11 @@ import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/genera
 import type { CommentType, UserType } from '../../../types'
 import {
     buildNotebookDependencyGraph,
-    collectDuckSqlNodes,
-    collectHogqlSqlNodes,
     collectNodeIndices,
-    collectPythonNodes,
     collectNotebookFrameNodes,
     collectSqlV2Nodes,
 } from '../Nodes/notebookNodeContent'
-import type {
-    DuckSqlNodeSummary,
-    HogqlSqlNodeSummary,
-    NotebookDependencyGraph,
-    PythonNodeSummary,
-    NotebookFrameNodeSummary,
-    SqlV2NodeSummary,
-} from '../Nodes/notebookNodeContent'
+import type { NotebookDependencyGraph, NotebookFrameNodeSummary, SqlV2NodeSummary } from '../Nodes/notebookNodeContent'
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
 import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '../types'
 import type { NotebookListItemType, NotebookVariableApi } from '../types'
@@ -312,8 +302,6 @@ export interface notebookLogicValues {
     content: JSONContent
     contentAtLastRun: JSONContent | null
     dependencyGraph: NotebookDependencyGraph
-    duckSqlNodeIndices: Map<string, number>
-    duckSqlNodeSummaries: DuckSqlNodeSummary[]
     editingNodeIds: Record<string, true>
     editingNodeLogics: BuiltLogic<notebookNodeLogicType>[]
     findNodeLogic: (type: NotebookNodeType, attributes: Record<string, any>) => notebookNodeLogicType | null
@@ -322,8 +310,6 @@ export interface notebookLogicValues {
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
     getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel | null
     hasUnsavedVariables: boolean
-    hogqlSqlNodeIndices: Map<string, number>
-    hogqlSqlNodeSummaries: HogqlSqlNodeSummary[]
     isEditable: boolean
     isLocalOnly: boolean
     isShareModalOpen: boolean
@@ -355,8 +341,6 @@ export interface notebookLogicValues {
     notebookPresenceParticipants: NotebookPresenceParticipant[]
     personUUIDFromCanvasOverride: string | null
     previewContent: JSONContent | null
-    pythonNodeIndices: Map<string, number>
-    pythonNodeSummaries: PythonNodeSummary[]
     runnableVariables: NotebookVariable[]
     shortId: string
     shouldBeEditable: boolean
@@ -561,6 +545,9 @@ export interface notebookLogicActions {
         error: string
         errorObject?: any
     }
+    saveNotebookNow: () => {
+        value: true
+    }
     saveNotebookSuccess: (
         notebook: NotebookType | null,
         payload?: {
@@ -696,16 +683,10 @@ export interface notebookLogicMeta {
             nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>,
             content: JSONContent
         ) => BuiltLogic<notebookNodeLogicType>[]
-        pythonNodeSummaries: (content: JSONContent) => PythonNodeSummary[]
-        duckSqlNodeSummaries: (content: JSONContent) => DuckSqlNodeSummary[]
-        hogqlSqlNodeSummaries: (content: JSONContent) => HogqlSqlNodeSummary[]
         sqlV2NodeSummaries: (content: JSONContent) => SqlV2NodeSummary[]
         frameNodeSummaries: (content: JSONContent) => NotebookFrameNodeSummary[]
         dependencyGraph: (contentAtLastRun: JSONContent | null) => NotebookDependencyGraph
-        pythonNodeIndices: (content: JSONContent) => Map<string, number>
         sqlNodeIndices: (content: JSONContent) => Map<string, number>
-        duckSqlNodeIndices: (content: JSONContent) => Map<string, number>
-        hogqlSqlNodeIndices: (content: JSONContent) => Map<string, number>
         isShowingLeftColumn: (showHistory: boolean) => boolean
         variables: (localVariables: NotebookVariable[] | null, notebook: NotebookType | null) => NotebookVariable[]
         variableErrors: (variables: NotebookVariable[], content: JSONContent) => (string | null)[]
@@ -826,6 +807,7 @@ export const notebookLogic = kea<notebookLogicType>([
         showMarkdownMergeConflictDetails: (conflicts: NotebookCollaborationConflict[]) => ({ conflicts }),
         dismissMarkdownMergeConflictDetails: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        saveNotebookNow: true,
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
         exportJSON: true,
@@ -1460,20 +1442,12 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
-        pythonNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectPythonNodes(content)],
-        duckSqlNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectDuckSqlNodes(content)],
-        hogqlSqlNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectHogqlSqlNodes(content)],
         sqlV2NodeSummaries: [(s) => [s.content], (content: JSONContent) => collectSqlV2Nodes(content)],
         frameNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectNotebookFrameNodes(content)],
         dependencyGraph: [
             // Keyed on the last-run snapshot, not live content, so typing does not rebuild it.
             (s) => [s.contentAtLastRun],
             (contentAtLastRun: JSONContent | null) => buildNotebookDependencyGraph(contentAtLastRun),
-        ],
-
-        pythonNodeIndices: [
-            (s) => [s.content],
-            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.Python),
         ],
 
         sqlNodeIndices: [
@@ -1486,14 +1460,6 @@ export const notebookLogic = kea<notebookLogicType>([
                         (isHogQLQuery(node.attrs?.query) ||
                             (node.attrs?.query?.source && isHogQLQuery(node.attrs.query.source)))
                 ),
-        ],
-        duckSqlNodeIndices: [
-            (s) => [s.content],
-            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.DuckSQL),
-        ],
-        hogqlSqlNodeIndices: [
-            (s) => [s.content],
-            (content: JSONContent) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.HogQLSQL),
         ],
 
         isShowingLeftColumn: [(s) => [s.showHistory], (showHistory: boolean) => showHistory],
@@ -2000,6 +1966,20 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setMarkdownEditorDraft(null)
             actions.setAutosavePaused(false)
             actions.setLocalContent(buildMarkdownNotebookContent(nextMarkdown, values.markdownEditorNodeId))
+        },
+
+        saveNotebookNow: () => {
+            // Autosave already saves every edit, so this only skips its debounce and repeats the
+            // gates that path applies. No local content means the notebook is already saved.
+            if (values.previewContent || values.autosavePaused || values.isLocalOnly) {
+                return
+            }
+
+            if (!values.localContent || !values.content || values.notebookLoading) {
+                return
+            }
+
+            actions.saveNotebook({ content: values.content, title: values.title })
         },
 
         setLocalContent: async ({ jsonContent, skipCapture }, breakpoint) => {

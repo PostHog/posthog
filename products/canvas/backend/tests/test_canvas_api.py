@@ -648,7 +648,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert body["name"] == "Renamed"
-        assert body["context"] == "notes"
+        assert "context" not in body
         assert body["pinned"] is True
 
         response = self.client.patch(
@@ -1091,6 +1091,7 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
                 "agentRequests": False,
             },
             "network": {"origins": []},
+            "connectors": [],
         }
         widened_capabilities = {
             "posthog": {
@@ -1102,6 +1103,7 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
                 "agentRequests": False,
             },
             "network": {"origins": []},
+            "connectors": [{"provider": "github", "tools": ["list_pull_requests"]}],
         }
         widened = self._project("export default function C() { return 2 }")
         widened["capabilities"] = widened_capabilities

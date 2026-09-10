@@ -24,6 +24,7 @@ import {
 } from 'posthog-js/rrweb-types'
 
 import api from 'lib/api'
+import { getCommentText } from 'lib/components/Comments/commentUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -34,7 +35,6 @@ import { createFuse } from 'lib/utils/fuseSearch'
 import { isString } from 'lib/utils/guards'
 import { humanizeBytes } from 'lib/utils/numbers'
 import { toParams } from 'lib/utils/url'
-import { getText } from 'scenes/comments/Comment'
 import {
     InspectorListItemPerformance,
     performanceEventDataLogic,
@@ -1321,7 +1321,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             windowId: windowIdForTimestamp(timestamp.valueOf()),
                             windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
                             data: comment,
-                            search: getText(comment),
+                            search: getCommentText(comment),
                             key: `comment-${comment.id}`,
                         }
                         items.push(item)

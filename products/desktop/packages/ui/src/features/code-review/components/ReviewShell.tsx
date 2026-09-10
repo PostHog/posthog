@@ -6,8 +6,9 @@ import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTask
 import { useCloudPrUrl } from "@posthog/ui/features/git-interaction/useCloudPrUrl";
 import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
 import { useIsWiderThan } from "@posthog/ui/primitives/hooks/useObservedWidth";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ResizeHandle } from "@posthog/ui/primitives/ResizeHandle";
-import { Flex, Spinner, Text } from "@radix-ui/themes";
+import { Flex, Text } from "@radix-ui/themes";
 import {
   type ReactNode,
   useCallback,
@@ -365,11 +366,7 @@ export function ReviewShell({
 
   let reviewContent: ReactNode;
   if (isLoading) {
-    reviewContent = (
-      <Flex align="center" justify="center" className="min-h-0 flex-1">
-        <Spinner size="2" />
-      </Flex>
-    );
+    reviewContent = <LoadingState className="min-h-0 flex-1" />;
   } else if (isEmpty || filteredItems.length === 0) {
     reviewContent = (
       <Flex align="center" justify="center" className="min-h-0 flex-1">
