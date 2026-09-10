@@ -44,8 +44,6 @@ from posthog.schema import (
     PropertyType,
     PropertyValuesQuery,
     QueryLogTags,
-    QueryScanRange,
-    QueryScanSummary,
     SessionsQuery,
     SessionsTimelineQuery,
     SessionsV2JoinMode,
@@ -211,7 +209,7 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner = self.setup_test_query_runner_class()
 
         def calculate_with_clickhouse_stats(_self):
-            record(rows_read=12, bytes_read=120, duration_ms=34.0)
+            record(rows_read=12, duration_ms=34.0)
             return TheTestBasicQueryResponse(results=[])
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
@@ -230,31 +228,6 @@ class TestQueryRunner(BaseTest):
             assert response.query_scan.mode == "show"
             assert response.query_scan.rows_read == 12
             assert response.query_scan.duration_ms == 34
-
-    def test_query_scan_summary_survives_the_cache_round_trip(self):
-        TestQueryRunner = self.setup_test_query_runner_class()
-        summary = QueryScanSummary(
-            mode="show",
-            rows_read=12,
-            duration_ms=34,
-            status="done",
-            events_in_range=5,
-            range=QueryScanRange(date_from="2024-01-01", date_to="2024-02-01"),
-        )
-
-        def calculate_with_full_summary(_self):
-            response = TheTestBasicQueryResponse(results=[])
-            response.query_scan = summary
-            return response
-
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-        with (
-            mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=None),
-            mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_with_full_summary),
-        ):
-            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-
-        assert response.query_scan == summary
 
     @parameterized.expand(
         [
@@ -282,7 +255,7 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner = self.setup_test_query_runner_class()
 
         def calculate_with_clickhouse_stats(_self):
-            record(rows_read=12, bytes_read=120, duration_ms=34.0)
+            record(rows_read=12, duration_ms=34.0)
             return TheTestBasicQueryResponse(results=[])
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)

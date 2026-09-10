@@ -23,15 +23,13 @@ class QueryStats:
     """Totals for one scope. Mutable because every execution inside the scope adds to it."""
 
     rows_read: int = 0
-    bytes_read: int = 0
     duration_ms: float = 0.0
     # Worker threads add into the one scope they were handed, and `+=` is not atomic.
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
-    def add(self, *, rows_read: int, bytes_read: int, duration_ms: float) -> None:
+    def add(self, *, rows_read: int, duration_ms: float) -> None:
         with self.lock:
             self.rows_read += rows_read
-            self.bytes_read += bytes_read
             self.duration_ms += duration_ms
 
 
@@ -76,9 +74,9 @@ def use(stats: QueryStats | None) -> Iterator[None]:
         _accumulator.reset(token)
 
 
-def record(*, rows_read: int, bytes_read: int, duration_ms: float) -> None:
+def record(*, rows_read: int, duration_ms: float) -> None:
     """Add one ClickHouse execution to the active accumulator. Does nothing without a scope."""
     stats = _accumulator.get()
     if stats is None:
         return
-    stats.add(rows_read=rows_read, bytes_read=bytes_read, duration_ms=duration_ms)
+    stats.add(rows_read=rows_read, duration_ms=duration_ms)

@@ -149,15 +149,15 @@ def _proxy_client() -> ProxyClient:
 @pytest.mark.parametrize(
     "make_client,raises,expected",
     [
-        (_native_client, False, (7, 70, 3.0)),
-        (lambda: _native_client(fails="kill"), True, (7, 70, 3.0)),
+        (_native_client, False, (7, 3.0)),
+        (lambda: _native_client(fails="kill"), True, (7, 3.0)),
         # Counting the previous query's progress would charge this query with another query's rows.
         (
             lambda: _native_client(fails="connect", previous_query_info=_fake_query_info(rows=99, elapsed_ns=1)),
             True,
-            (0, 0, 0.0),
+            (0, 0.0),
         ),
-        (_proxy_client, False, (7, 70, 3.0)),
+        (_proxy_client, False, (7, 3.0)),
     ],
     ids=["ok", "killed_by_the_server", "connect_failed", "http_client"],
 )
@@ -171,7 +171,7 @@ def test_sync_execute_records_what_clickhouse_read(make_client, raises, expected
             else:
                 sync_execute("SELECT 1", flush=False)
 
-    assert (stats.rows_read, stats.bytes_read, stats.duration_ms) == expected
+    assert (stats.rows_read, stats.duration_ms) == expected
 
 
 @pytest.mark.parametrize(

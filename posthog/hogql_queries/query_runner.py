@@ -2298,6 +2298,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                                 if current_scan_flag is None:
                                     # Not every response class declares the field.
                                     setattr(results, "query_scan", None)  # noqa: B010
+                                    # The flag is off now, so report no measurements, the same as a
+                                    # fresh run for this team does.
+                                    cached_query_scan = None
                                 else:
                                     cached_query_scan.mode = QueryScanMode(current_scan_flag.mode)
 

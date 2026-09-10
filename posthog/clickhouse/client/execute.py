@@ -270,8 +270,11 @@ def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QueryS
     )
 
 
-def _record_query_stats(client: Any, query_info_before: Any, start_time: float) -> None:
+def _record_query_stats(client: Any, query_info_before: Any, execute_start_time: float) -> None:
     """Add what this execution read to the active query stats scope.
+
+    `execute_start_time` must be taken after the concurrency slot and the pool checkout, because
+    the fallback below reports it as ClickHouse time.
 
     Runs after a failure too: a query the server killed reports its progress before it dies, and
     that read cost the same as a successful one. Never raises, because the numbers are advisory and
@@ -283,10 +286,10 @@ def _record_query_stats(client: Any, query_info_before: Any, start_time: float) 
             return
         # elapsed_ns is what the server measured. It is 0 on old protocol revisions, so fall back to
         # the client-side round trip.
-        duration_ms = summary.elapsed_ns / 1e6 if summary.elapsed_ns else (perf_counter() - start_time) * 1000
-        query_stats.record(rows_read=summary.rows, bytes_read=summary.bytes, duration_ms=duration_ms)
+        duration_ms = summary.elapsed_ns / 1e6 if summary.elapsed_ns else (perf_counter() - execute_start_time) * 1000
+        query_stats.record(rows_read=summary.rows, duration_ms=duration_ms)
     except Exception:
-        pass
+        logger.warning("query_stats_record_failed", exc_info=True)
 
 
 def kill_switch_overrides(team_id: Optional[int], ch_user: ClickHouseUser = ClickHouseUser.DEFAULT) -> dict[str, int]:
@@ -594,6 +597,9 @@ def sync_execute(
             sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
         ):
             query_info_before = getattr(client, "last_query", None)
+            # Separate from `start_time` because that one is taken before the concurrency slot and
+            # the pool checkout, and the query stats fallback must not count that queue wait.
+            execute_start_time = perf_counter()
             try:
                 result = client.execute(
                     prepared_sql,
@@ -609,7 +615,7 @@ def sync_execute(
                 # in the outer finally, once the connection is back in the pool.
                 if tags.chargeable and tags.team_id:
                     chargeable_query_info = _chargeable_query_info(client, query_info_before)
-                _record_query_stats(client, query_info_before, start_time)
+                _record_query_stats(client, query_info_before, execute_start_time)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")
