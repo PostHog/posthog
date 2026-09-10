@@ -573,6 +573,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # transition so the serializer's single save persists both.
             if snooze_data is not _SENTINEL:
                 instance.snooze_until = snooze_data
+                validated_data["next_check_at"] = snooze_data or timezone.now()
 
             if (
                 threshold_changed

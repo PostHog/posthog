@@ -167,6 +167,8 @@ For global coordinators, selection uses round-robin tenant ordering:
 
 This selects one item per tenant before selecting a second item for any tenant. A large tenant cannot indefinitely consume the whole page.
 
+The first query gives each selected tenant a bounded share of the remaining page. When sparse tenants do not use their share, bounded follow-up rounds transfer the unused capacity to tenants that filled theirs. Discovery stops when the page is full or every selected tenant is exhausted, so fairness does not reduce backlog drain rate and database work remains bounded by the page envelope.
+
 The rollout records `EXPLAIN ANALYZE` evidence against a ten-times backlog fixture. Query time and rows examined must remain within the scheduler's database budget.
 
 Cursors contain stable scalar fields only. If a manifest can exceed the payload budget even after pagination, discovery stores it outside Temporal and returns a reference.

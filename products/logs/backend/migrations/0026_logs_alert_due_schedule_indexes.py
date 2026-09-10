@@ -1,4 +1,5 @@
 from django.db import migrations, models
+from django.db.models.functions import Coalesce
 
 from posthog.migration_helpers import SafeAddIndexConcurrently
 
@@ -14,17 +15,20 @@ class Migration(migrations.Migration):
         SafeAddIndexConcurrently(
             model_name="logsalertconfiguration",
             index=models.Index(
-                fields=["team", "next_check_at", "id"],
+                models.F("team"),
+                models.F("next_check_at").asc(nulls_first=True),
+                models.F("id"),
                 name="logs_alert_team_due_sched",
-                condition=models.Q(enabled=True),
+                condition=models.Q(enabled=True) & ~models.Q(state="broken"),
             ),
         ),
         SafeAddIndexConcurrently(
             model_name="logsalertconfiguration",
             index=models.Index(
-                fields=["next_check_at", "id"],
+                Coalesce("next_check_at", "updated_at", "created_at"),
+                models.F("id"),
                 name="logs_alert_due_schedule",
-                condition=models.Q(enabled=True),
+                condition=models.Q(enabled=True) & ~models.Q(state="broken"),
             ),
         ),
     ]

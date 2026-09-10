@@ -8,6 +8,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Value
+from django.db.models.functions import Coalesce
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -263,14 +264,17 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
                 name="logs_alert_scheduler_idx",
             ),
             models.Index(
-                fields=["team", "next_check_at", "id"],
+                models.F("team"),
+                models.F("next_check_at").asc(nulls_first=True),
+                models.F("id"),
                 name="logs_alert_team_due_sched",
-                condition=models.Q(enabled=True),
+                condition=models.Q(enabled=True) & ~models.Q(state="broken"),
             ),
             models.Index(
-                fields=["next_check_at", "id"],
+                Coalesce("next_check_at", "updated_at", "created_at"),
+                models.F("id"),
                 name="logs_alert_due_schedule",
-                condition=models.Q(enabled=True),
+                condition=models.Q(enabled=True) & ~models.Q(state="broken"),
             ),
         ]
 
