@@ -1143,7 +1143,7 @@ class OauthIntegration:
 
         # TikTok can complete OAuth without the user granting any advertiser account, leaving
         # `advertiser_ids` empty. Surface an actionable reconnect message rather than the generic
-        # "failed to extract integration ID" 500 the guard below would otherwise raise.
+        # "could not get your account details" error the guard below would otherwise raise.
         if kind == "tiktok-ads" and isinstance(integration_id, list) and len(integration_id) == 0:
             raise ValidationError(
                 "No TikTok ad accounts were authorized. In TikTok, grant access to at least one "
@@ -1156,7 +1156,16 @@ class OauthIntegration:
             integration_id = ",".join(str(item) for item in integration_id)
 
         if not isinstance(integration_id, str):
-            raise Exception(f"Oauth error: failed to extract integration ID for {kind}")
+            # A non-200 token_info answer leaves the id unset, and the authorization code is already
+            # spent, so a bare Exception here gives the user an unrecoverable 500. ValidationError
+            # gives a 400 that tells them to reconnect. Still log it: a missing id can also mean our
+            # own provider config is wrong.
+            logger.error(
+                f"Oauth error: failed to extract integration ID for {kind}",
+                kind=kind,
+                id_path=oauth_config.id_path,
+            )
+            raise ValidationError(f"We could not get your account details from {kind}. Please try connecting again.")
 
         # Handle TikTok's nested response format
         if kind == "tiktok-ads":

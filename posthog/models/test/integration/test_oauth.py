@@ -385,6 +385,29 @@ class TestOauthIntegrationModel(BaseTest):
                 )
 
     @patch("posthog.models.integration.oauth.requests.post")
+    @patch("posthog.models.integration.oauth.requests.get")
+    def test_token_info_http_error_raises_validation_error(self, mock_get, mock_post):
+        # A gateway error from token_info leaves the integration id unset, and the authorization
+        # code is already spent, so this must give a 400 that tells the user to reconnect.
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKES_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "expires_in": 3600,
+            }
+            mock_get.return_value.status_code = 503
+            mock_get.return_value.text = "service unavailable"
+
+            with pytest.raises(ValidationError, match="try connecting again"):
+                OauthIntegration.integration_from_oauth_response(
+                    "hubspot",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
+                )
+
+    @patch("posthog.models.integration.oauth.requests.post")
     def test_linkedin_integration_extracts_user_info_from_id_token(self, mock_post):
         """
         LinkedIn's /v2/userinfo endpoint has intermittent REVOKED_ACCESS_TOKEN errors,
@@ -1462,7 +1485,7 @@ class TestResendIntegrationModel(BaseTest):
             "expires_in": 900,
         }
 
-        with pytest.raises(Exception, match="failed to extract integration ID"):
+        with pytest.raises(ValidationError, match="try connecting again"):
             OauthIntegration.integration_from_oauth_response(
                 "resend",
                 self.team.id,
