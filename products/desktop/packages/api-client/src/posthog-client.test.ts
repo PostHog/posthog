@@ -2141,6 +2141,22 @@ describe("PostHogAPIClient", () => {
       expect(fetch).toHaveBeenCalledTimes(50);
       expect(result.length).toBe(50);
     });
+
+    it("caps how many page fetches are in flight at once", async () => {
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const fetch = vi.fn().mockImplementation(async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await Promise.resolve();
+        inFlight--;
+        return page([{ id: "x" }], 2000);
+      });
+      await buildClient(fetch).getTaskSummaries(["a"]);
+      // 20 pages (count 2000 / 100), fetched in bounded batches, never all at once.
+      expect(fetch).toHaveBeenCalledTimes(20);
+      expect(maxInFlight).toBeLessThanOrEqual(6);
+    });
   });
 
   describe("task pins", () => {

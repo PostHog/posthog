@@ -2901,8 +2901,15 @@ export class PostHogAPIClient {
     for (let offset = PAGE_LIMIT; offset < capped; offset += PAGE_LIMIT) {
       offsets.push(offset);
     }
-    const rest = await Promise.all(offsets.map((offset) => fetchPage(offset)));
-    for (const page of rest) all.push(...page.results);
+    // Cap how many page POSTs are in flight at once. A large sidebar can span
+    // dozens of pages, and this runs on every poll; an unbounded fan-out would
+    // fire them all together (each re-sending the full id list).
+    const CONCURRENCY = 6;
+    for (let i = 0; i < offsets.length; i += CONCURRENCY) {
+      const batch = offsets.slice(i, i + CONCURRENCY);
+      const pages = await Promise.all(batch.map((offset) => fetchPage(offset)));
+      for (const page of pages) all.push(...page.results);
+    }
     return all;
   }
 
