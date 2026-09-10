@@ -462,12 +462,17 @@ class TestVerifyPositives:
         )
         pending = iter(answers)
         calls: list[Any] = []
+        unchecked_steps: list[str] = []
 
         async def fake_run_steps(*, steps: list[MissionStep], cache_name: str | None, **_: Any) -> dict[str, BaseModel]:
             calls.append({"steps": [step.name for step in steps], "cache_name": cache_name})
-            # A verify draw must keep the core step's semantic check, or an `inconclusive` the scanner forbids
-            # would count as a vote.
-            assert all(step.required and step.validate is not None for step in steps if step.name != "signals")
+            # Collect rather than assert: the verify draw runs inside an `except Exception` that turns any
+            # error into `draw_failed`, so an assertion raised here would pass the test instead of failing it.
+            unchecked_steps.extend(
+                step.name
+                for step in steps
+                if step.name != "signals" and not (step.required and step.validate is not None)
+            )
             answer = next(pending)
             if isinstance(answer, Exception):
                 raise answer
@@ -497,6 +502,9 @@ class TestVerifyPositives:
                 llm_inputs=MagicMock(),
                 trace_id="trace-1",
             )
+        # A verify draw must keep the core step's semantic check, or an `inconclusive` the scanner forbids
+        # would count as a vote.
+        assert unchecked_steps == []
         counted = {
             key: value - before.get(key, 0.0)
             for key, value in _verification_counts().items()
