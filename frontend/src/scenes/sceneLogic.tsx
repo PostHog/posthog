@@ -794,7 +794,9 @@ export const sceneLogic = kea<sceneLogicType>([
             if (user) {
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
                 if (sceneConfig.onlyUnauthenticated) {
-                    if (sceneId === Scene.Login) {
+                    // A signed-in person on /signup?next=... was sent by an OAuth partner to create an
+                    // account; `next` is where they need to end up, not the app root.
+                    if (sceneId === Scene.Login || (sceneId === Scene.Signup && params.searchParams.next)) {
                         handleLoginRedirect()
                     } else {
                         router.actions.replace(urls.default())

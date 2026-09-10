@@ -3,6 +3,7 @@ import { HttpResponse, delay } from 'msw'
 import { useEffect } from 'react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { PENDING_OAUTH_CONNECTION_COOKIE } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -26,6 +27,7 @@ type StoryArgs = {
     github: boolean
     gitlab: boolean
     panel: PanelOption
+    pendingOAuthConnection: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -57,6 +59,7 @@ const meta: Meta<StoryArgs> = {
             name: 'Step',
             options: ['1: Email', '2: Password', '3: Profile'] satisfies PanelOption[],
         },
+        pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
     },
     args: {
         cloud: true,
@@ -65,12 +68,38 @@ const meta: Meta<StoryArgs> = {
         github: true,
         gitlab: true,
         panel: '1: Email',
+        pendingOAuthConnection: false,
     },
 }
 export default meta
 
-const Template: StoryFn<StoryArgs> = ({ cloud, region, googleOAuth, github, gitlab, panel: panelOption }) => {
+const PENDING_CONNECTION_COOKIE_VALUE = encodeURIComponent(
+    JSON.stringify({
+        client_name: 'Claude',
+        client_id: 'https://claude.ai/.well-known/oauth-client',
+        redirect_host: 'claude.ai',
+        region: 'US',
+    })
+)
+
+// Set synchronously: the scene reads the cookie while it mounts during this same render.
+function setPendingOAuthConnectionCookie(pending: boolean): void {
+    document.cookie = pending
+        ? `${PENDING_OAUTH_CONNECTION_COOKIE}=${PENDING_CONNECTION_COOKIE_VALUE}; path=/`
+        : `${PENDING_OAUTH_CONNECTION_COOKIE}=; max-age=0; path=/`
+}
+
+const Template: StoryFn<StoryArgs> = ({
+    cloud,
+    region,
+    googleOAuth,
+    github,
+    gitlab,
+    panel: panelOption,
+    pendingOAuthConnection,
+}) => {
     const panel = PANEL_INDEX[panelOption]
+    setPendingOAuthConnectionCookie(pendingOAuthConnection)
     useStorybookMocks({
         get: {
             '/_preflight': {
@@ -112,3 +141,6 @@ PasswordStep.args = { panel: '2: Password' }
 
 export const ProfileStep: StoryFn<StoryArgs> = Template.bind({})
 ProfileStep.args = { panel: '3: Profile' }
+
+export const PendingOAuthConnection: StoryFn<StoryArgs> = Template.bind({})
+PendingOAuthConnection.args = { pendingOAuthConnection: true }

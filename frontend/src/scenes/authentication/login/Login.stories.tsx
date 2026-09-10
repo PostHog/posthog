@@ -1,6 +1,8 @@
 import type { Meta, StoryFn } from '@storybook/react'
 import { useEffect } from 'react'
 
+import { PENDING_OAUTH_CONNECTION_COOKIE } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
@@ -16,6 +18,7 @@ type StoryArgs = {
     samlAvailable: boolean
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
     generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
+    pendingOAuthConnection: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -42,6 +45,7 @@ const meta: Meta<StoryArgs> = {
             name: 'General error',
             options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
         },
+        pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
     },
     args: {
         cloud: true,
@@ -52,9 +56,26 @@ const meta: Meta<StoryArgs> = {
         samlAvailable: false,
         ssoEnforcement: 'none',
         generalError: 'none',
+        pendingOAuthConnection: false,
     },
 }
 export default meta
+
+const PENDING_CONNECTION_COOKIE_VALUE = encodeURIComponent(
+    JSON.stringify({
+        client_name: 'Claude',
+        client_id: 'https://claude.ai/.well-known/oauth-client',
+        redirect_host: 'claude.ai',
+        region: 'US',
+    })
+)
+
+// Set synchronously: the scene reads the cookie while it mounts during this same render.
+function setPendingOAuthConnectionCookie(pending: boolean): void {
+    document.cookie = pending
+        ? `${PENDING_OAUTH_CONNECTION_COOKIE}=${PENDING_CONNECTION_COOKIE_VALUE}; path=/`
+        : `${PENDING_OAUTH_CONNECTION_COOKIE}=; max-age=0; path=/`
+}
 
 const Template: StoryFn<StoryArgs> = ({
     cloud,
@@ -65,8 +86,10 @@ const Template: StoryFn<StoryArgs> = ({
     samlAvailable,
     ssoEnforcement,
     generalError,
+    pendingOAuthConnection,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
+    setPendingOAuthConnectionCookie(pendingOAuthConnection)
 
     useStorybookMocks({
         get: {
@@ -128,6 +151,9 @@ SAMLAvailable.args = { samlAvailable: true }
 
 export const LoginError: StoryFn<StoryArgs> = Template.bind({})
 LoginError.args = { generalError: 'invalid_credentials' }
+
+export const PendingOAuthConnection: StoryFn<StoryArgs> = Template.bind({})
+PendingOAuthConnection.args = { pendingOAuthConnection: true }
 
 export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
 EmailVerification.args = { generalError: 'code_based_verification_sent' }

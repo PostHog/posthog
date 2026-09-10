@@ -22,6 +22,7 @@ import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
+import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
 import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
@@ -120,6 +121,7 @@ export function LoginForm(): JSX.Element {
         availableLoginMethods,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'login' }))
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
@@ -151,13 +153,20 @@ export function LoginForm(): JSX.Element {
     return (
         <AuthScene notes={['// welcome back', '// 500,000+ teams ship here']}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
-            <AuthSceneCard footer={footer}>
+            <AuthSceneCard pendingConnection={pendingConnection} footer={footer}>
                 {isCodeSent && <HedgehogMagnifyingGlass className="block w-auto mx-auto mb-3 h-28" />}
                 <AuthCardTitle
                     className={isCodeSent ? 'mb-2' : undefined}
                     title={
                         isCodeSent ? (
                             'Check your inbox'
+                        ) : pendingConnection ? (
+                            <>
+                                <span>{'Log in to connect '}</span>
+                                <span className="px-1 rounded-md bg-[color-mix(in_srgb,var(--color-blue-500)_10%,transparent)] text-[var(--color-blue-500)]">
+                                    {pendingConnection.clientName}
+                                </span>
+                            </>
                         ) : (
                             <>
                                 {/* This whole fragment is deleted when the title flips to the code-sent
@@ -175,6 +184,12 @@ export function LoginForm(): JSX.Element {
                                 For your security, we've emailed a 6-digit verification code to{' '}
                                 <strong>{codeVerificationEmail}</strong>.
                             </>
+                        ) : pendingConnection ? (
+                            <span>
+                                {pendingConnection.redirectHost
+                                    ? `After you log in, you'll review what ${pendingConnection.clientName} can access, then go back to ${pendingConnection.redirectHost}.`
+                                    : `After you log in, you'll review what ${pendingConnection.clientName} can access.`}
+                            </span>
                         ) : (
                             "Welcome back. Let's go ship something."
                         )
@@ -309,7 +324,7 @@ export function LoginForm(): JSX.Element {
                     </Form>
                 ) : (
                     <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="flex flex-col gap-4">
-                        <RegionField />
+                        <RegionField pendingConnection={pendingConnection} />
                         <LemonField name="email" label="Email">
                             {({ value, onChange, error, id }) => (
                                 <LemonInput

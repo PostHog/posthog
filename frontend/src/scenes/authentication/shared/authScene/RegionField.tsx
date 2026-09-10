@@ -7,6 +7,7 @@ import { LemonLabel, LemonModal, LemonSelect, LemonSelectOptions } from '@postho
 
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { countryCodeToFlag } from 'lib/utils/country'
+import { PendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
@@ -82,7 +83,11 @@ const REGIONS: { value: Region; label: string }[] = [
     { value: Region.EU, label: 'European Union' },
 ]
 
-export function RegionField(): JSX.Element | null {
+export function RegionField({
+    pendingConnection,
+}: {
+    pendingConnection?: PendingOAuthConnection | null
+}): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const [devRegion, setDevRegion] = useState<Region>(Region.US)
     const [modalOpen, setModalOpen] = useState(false)
@@ -105,6 +110,12 @@ export function RegionField(): JSX.Element | null {
         setDevRegion(region)
     }
 
+    // An OAuth client is registered in one region only, so an account created elsewhere could
+    // never finish the connection that brought the person here.
+    const pinnedReason = pendingConnection
+        ? `This connection started in the ${REGIONS.find((r) => r.value === activeRegion)?.label ?? activeRegion} region. To use another region, start again from ${pendingConnection.clientName}.`
+        : undefined
+
     const options: LemonSelectOptions<Region> = REGIONS.map((region) => ({
         value: region.value,
         label: (
@@ -124,6 +135,7 @@ export function RegionField(): JSX.Element | null {
                     value={activeRegion}
                     options={options}
                     fullWidth
+                    disabledReason={pinnedReason}
                     onChange={(value) => value && selectRegion(value)}
                     renderButtonContent={(leaf) => {
                         const region = leaf?.value ?? activeRegion
@@ -135,6 +147,7 @@ export function RegionField(): JSX.Element | null {
                         )
                     }}
                 />
+                {pinnedReason && <p className="m-0 text-xs text-secondary">{pinnedReason}</p>}
             </div>
         </>
     )
