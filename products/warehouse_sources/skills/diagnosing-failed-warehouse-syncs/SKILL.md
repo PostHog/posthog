@@ -4,8 +4,8 @@ description: >
   Diagnose why a data warehouse sync is failing and recommend the right recovery action. Use when the user asks "why
   isn't my Stripe/Postgres/Hubspot sync working?", "this table has been stuck for hours", "the data in the warehouse
   looks wrong", or wants to troubleshoot a specific source or schema. Covers source-level vs schema-level failures,
-  stuck Running states, credential and schema-drift errors, incremental-field misconfig, CDC prerequisite failures,
-  and the cancel / reload / resync / delete-data recovery actions.
+  stuck Running states, credential errors, plan-gated 403s, schema drift, incremental-field misconfig, CDC
+  prerequisite failures, and the cancel / reload / resync / delete-data recovery actions.
 ---
 
 # Diagnosing failed data warehouse syncs
@@ -90,7 +90,9 @@ Map the `latest_error` string to a root cause. Common patterns:
 
 | Error substring                                              | Root cause                                                 | Fix                                                                                   |
 | ------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `authentication failed`, `401`, `403`, `invalid credentials` | Credentials expired or rotated                             | User rotates creds, then `external-data-sources-partial-update` with new `job_inputs` |
+| `authentication failed`, `401`, `invalid credentials`        | Credentials expired or rotated                             | User rotates creds, then `external-data-sources-partial-update` with new `job_inputs` |
+| `403`, `Forbidden` on some tables only                       | Source gates the endpoint on the account plan or key scope | User asks the source to enable the endpoint, then re-enable the sync                  |
+| `403`, `Forbidden` on every table                            | Credentials expired, rotated, or scoped too narrowly       | User rotates creds, then `external-data-sources-partial-update` with new `job_inputs` |
 | `Could not establish session to SSH gateway`                 | SSH tunnel misconfigured or remote host down               | User checks SSH host/key/bastion                                                      |
 | `Primary key required for incremental syncs`                 | Table has no PK and sync_type is `incremental`/`cdc`       | Either add PK in source, or switch schema to `full_refresh`                           |
 | `primary keys for this table are not unique`                 | Declared PK columns aren't actually unique                 | Pick different PK columns via `partial-update`                                        |
@@ -119,6 +121,15 @@ The recovery action depends on root cause, not just status. Match the user's sit
 - Every schema under the source is failing with an auth error.
 - Action: user rotates creds → `external-data-sources-partial-update` with the new `job_inputs` → the reload happens
   automatically when the source status flips back to running, or trigger manually with `external-data-sources-reload`.
+
+**B2. One table gets a 403 while its siblings sync**
+
+- Only some schemas under the source fail with a `403` / `Forbidden`. The rest keep completing, so the key is
+  valid and the source refuses this one endpoint — usually the account plan does not include it, or the key's
+  scope excludes it.
+- Action: the user asks the source to enable the endpoint (or grants the scope on the key), then re-enables the
+  sync. If they do not need the table, `partial-update` with `should_sync: false` stops the noise.
+- Do not send the user to rotate credentials here. A new key on the same plan fails the same way.
 
 **C. Schema drift — column renamed, dropped, or type changed**
 
@@ -232,6 +243,10 @@ Agent:
   `customer postgres: connection refused`. That is the customer's database refusing the write, not the source failing
   to extract — check their database and its credentials rather than the source's. Every destination shares one
   lifecycle, so one unreachable destination holds up the whole sync, PostHog included.
+- **A 403 is not proof of a bad key.** Many sources return 403 for an endpoint the account plan does not include,
+  with a key that is completely valid. Check whether sibling tables under the same source still sync: if they do,
+  the key works, so route the user to the source's support for endpoint access instead of a credential rotation.
+  Treat 403 as a credential problem only when every table fails, or when the error text names the credential.
 - **Billing limits aren't technical failures.** Don't try to retry or reconfigure your way out. Route to billing.
 - **Webhook failures can hide behind a green status.** A webhook-type schema whose bulk fallback sync succeeded looks
   `Completed` even when the push channel is broken. When users say "my data is hours behind" on a webhook schema,
