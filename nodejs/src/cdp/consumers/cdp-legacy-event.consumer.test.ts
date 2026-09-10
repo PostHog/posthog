@@ -1,6 +1,7 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
@@ -600,6 +601,24 @@ describe('CdpLegacyEventsConsumer', () => {
             const invocations = await consumer['getLegacyPluginHogFunctionInvocations'](invocation)
 
             expect(invocations).toHaveLength(1)
+        })
+
+        it('labels the execution with which representation ran it', async () => {
+            const metricName = 'cdp_legacy_event_consumer_execution_result_total'
+            register.getSingleMetric(metricName)?.reset()
+
+            await consumer.processEvent(invocation)
+
+            await migrate()
+            // A fresh consumer stands in for the reload that pubsub triggers in production, which
+            // invalidates the hog function manager's caches as well as this consumer's own
+            const migratedConsumer = new CdpLegacyEventsConsumer(hub, createCdpConsumerDeps(hub))
+            await migratedConsumer.processEvent(invocation)
+
+            const metric = (await register.getMetricsAsJSON()).find((m) => m.name === metricName) as any
+            const sources = metric.values.map((v: any) => v.labels.source)
+
+            expect(sources).toEqual(['plugin_config', 'hog_function'])
         })
 
         it('reports the migrated row against its own hog function id rather than the plugin config', async () => {

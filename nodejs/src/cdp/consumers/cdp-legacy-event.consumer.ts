@@ -50,16 +50,12 @@ type PluginConfigHogFunction = {
     hogFunction: HogFunctionType
 }
 
-const supersededPluginConfigCounter = new Counter({
-    name: 'cdp_legacy_event_consumer_superseded_plugin_config_total',
-    help: 'Plugin configs skipped because a migrated legacy_destination hog function covers the same template',
-    labelNames: ['template_id'],
-})
-
 const legacyPluginExecutionResultCounter = new Counter({
     name: 'cdp_legacy_event_consumer_execution_result_total',
     help: 'The number of times we have executed a legacy plugin',
-    labelNames: ['result', 'template_id'],
+    // `source` says which representation the consumer picked, so a migration can be watched as the
+    // share moving from plugin_config to hog_function while result stays where it was
+    labelNames: ['result', 'template_id', 'source'],
 })
 
 export type CdpLegacyEventsConsumerConfig = CdpConsumerBaseConfig &
@@ -260,11 +256,6 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             const migrated = [...byTemplate.values()]
             const migratedTemplateIds = new Set(migrated.map((fn) => fn.template_id))
 
-            const superseded = pluginConfigFns.filter((x) => migratedTemplateIds.has(x.hogFunction.template_id))
-            for (const { hogFunction } of superseded) {
-                supersededPluginConfigCounter.labels({ template_id: hogFunction.template_id ?? 'unknown' }).inc()
-            }
-
             results[teamId] = [
                 ...pluginConfigFns.filter((x) => !migratedTemplateIds.has(x.hogFunction.template_id)),
                 ...migrated.map((hogFunction) => ({ pluginConfigId: null, hogFunction })),
@@ -352,6 +343,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                 .labels({
                     result: error ? 'error' : 'success',
                     template_id: result.invocation.hogFunction.template_id,
+                    source: pluginConfigId !== null ? 'plugin_config' : 'hog_function',
                 })
                 .inc()
 
