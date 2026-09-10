@@ -6,7 +6,6 @@ import re
 import json
 import hashlib
 from collections.abc import Iterable
-from dataclasses import dataclass
 from datetime import datetime
 from typing import cast
 from urllib.parse import quote
@@ -16,6 +15,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
 
+from posthog.dataclasses import frozen
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
@@ -33,7 +33,7 @@ _BRANCH_NAME = re.compile(r"^[A-Za-z0-9._/-]+$")
 _COMMIT_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
-@dataclass(frozen=True)
+@frozen
 class _RepositoryAuthorization:
     repository: str
     github_integration_id: int
@@ -41,6 +41,12 @@ class _RepositoryAuthorization:
     github_installation_id: str
     team_cache_updated_at: datetime | None
     personal_cache_updated_at: datetime | None
+
+
+@frozen
+class _ResolvedRepositoryBase:
+    base_branch: str
+    base_sha: str
 
 
 def list_authorizable_repositories(*, team_id: int, actor_id: int) -> tuple[AuthorizableRepository, ...]:
@@ -94,19 +100,18 @@ def resolve_staged_repository_binding(
     )
     if base is None:
         return None
-    base_branch, base_sha = base
 
     authorized = _revalidate_authorization(team_id=team_id, actor_id=actor_id, candidate=candidate)
     if authorized is None or authorized.repository != candidate.repository:
         return None
     return ResolvedStagedRepositoryBinding(
         repository=authorized.repository,
-        base_sha=base_sha,
-        base_branch=base_branch,
+        base_sha=base.base_sha,
+        base_branch=base.base_branch,
         github_integration_id=authorized.github_integration_id,
         github_user_integration_id=authorized.github_user_integration_id,
         github_installation_id=authorized.github_installation_id,
-        grant_version=_grant_version(authorized, base_branch=base_branch, base_sha=base_sha),
+        grant_version=_grant_version(authorized, base_branch=base.base_branch, base_sha=base.base_sha),
     )
 
 
@@ -235,7 +240,7 @@ def _revalidate_authorization(
 
 def _resolve_current_base(
     *, team_id: int, github_integration_id: int, github_installation_id: str, repository: str
-) -> tuple[str, str] | None:
+) -> _ResolvedRepositoryBase | None:
     integration = _active_team_integrations(team_id).filter(id=github_integration_id).first()
     if integration is None or _installation_id(integration) != github_installation_id:
         return None
@@ -257,7 +262,7 @@ def _resolve_current_base(
     base_sha = commit.get("sha") if isinstance(commit, dict) else None
     if not isinstance(base_sha, str) or not _COMMIT_SHA.fullmatch(base_sha):
         return None
-    return base_branch, base_sha.lower()
+    return _ResolvedRepositoryBase(base_branch=base_branch, base_sha=base_sha.lower())
 
 
 def _live_repository_is_authorized(repository_data: dict[object, object], repository: str) -> bool:
