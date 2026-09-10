@@ -292,10 +292,9 @@ export const membersLogic = kea<membersLogicType>([
                         Made <b>{member.user.first_name}</b> organization {membershipLevelToName.get(level)}
                     </>
                 )
-                // reload organization to account for no longer being organization owner
-                if (level === OrganizationMembershipLevel.Owner) {
-                    organizationLogic.actions.loadCurrentOrganization()
-                }
+                // Any level change can move the current user too, for example handing over ownership
+                // demotes the previous owner, so read the organization back instead of guessing.
+                organizationLogic.actions.loadCurrentOrganization()
 
                 if (!values.members) {
                     return null
