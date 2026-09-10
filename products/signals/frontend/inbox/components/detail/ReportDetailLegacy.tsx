@@ -56,6 +56,7 @@ import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
+import { TrackerIssueNote } from './TrackerIssueNote'
 import { ValidateLocallySection } from './ValidateLocallySection'
 
 const SIGNALS_TOOLTIP =
@@ -598,7 +599,14 @@ export function ReportDetailLegacy({ report, tab }: { report: SignalReport; tab:
             }
             // The PR conversation sits under the Summary as primary content; CI checks stay in the
             // sidebar. Both drop themselves when there's nothing to show.
-            summaryFooter={hasPr ? <PrCommentsSection report={report} /> : undefined}
+            summaryFooter={
+                hasPr || report.tracker_issue_url || report.tracker_issue_error ? (
+                    <>
+                        <TrackerIssueNote report={report} />
+                        {hasPr && <PrCommentsSection report={report} />}
+                    </>
+                ) : undefined
+            }
         >
             {hasPr && <PrChecksSection report={report} />}
         </InboxDetailFrameLegacy>

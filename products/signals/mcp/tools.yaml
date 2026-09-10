@@ -219,6 +219,9 @@ tools:
                 - implementation_pr_url
                 - implementation_pr_state
                 - implementation_pr_merged
+                - tracker_issue_url
+                - tracker_issue_reference
+                - tracker_issue_error
                 - work_state
                 - assignee
                 - created_at

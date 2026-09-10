@@ -491,7 +491,7 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(exclude=True)
     def create(self, request: Request, *args, **kwargs) -> Response:
         config = self._get_config()
-        serializer = SignalTeamConfigSerializer(config, data=request.data, partial=True)
+        serializer = self.get_serializer(config, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
@@ -981,7 +981,7 @@ class SignalReportViewSet(
         # The serializer renders the reverse OneToOne rows inline.
         return (
             queryset.filter(team=self.team)
-            .select_related("refund", "assignment", "assignment__actor_user")
+            .select_related("refund", "assignment", "assignment__actor_user", "tracker_issue")
             .annotate(
                 artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
                 channel_id=channel_id_subquery,

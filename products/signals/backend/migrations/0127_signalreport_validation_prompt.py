@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0125_signalreport_scout_idem_key_index"),
+        ("signals", "0126_signalteamconfig_issue_tracking_config_and_more"),
     ]
 
     operations = [
