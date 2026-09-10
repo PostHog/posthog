@@ -21,7 +21,7 @@
  *   - the GroupNamesPrefix clickhouse fast path (still goes through generic
  *     endpoint fetcher; behaviour identical, just slower for large groups)
  */
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
@@ -35,6 +35,7 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { floatRecentAndPinnedToTop, groupItemKey } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -43,6 +44,7 @@ import { fetchTaxonomicListPage } from './fetchTaxonomicListPage'
 import {
     TAXONOMIC_LIST_KEY_FAMILY,
     TAXONOMIC_LIST_SEARCH_KEY_FAMILY,
+    peekTaxonomicResource,
     useTaxonomicResource,
 } from './useTaxonomicResource'
 
@@ -114,9 +116,16 @@ export interface UseGroupListResult {
     expand: () => void
 
     refetch: () => void
+
+    hasMore: boolean
+    isLoadingMore: boolean
+    loadMore: () => void
 }
 
 const DEFAULT_LIMIT = 100
+
+/** Mirrors the legacy `infiniteListLogic` wait before each remote search: one request per pause in typing, not per keystroke. */
+export const REMOTE_SEARCH_DEBOUNCE_MS = 500
 
 export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const {
@@ -205,13 +214,21 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
 
     const remoteEnabled = hasRemoteDataSource && !needsMoreSearchCharacters
 
+    // Remote requests follow the typed query after a pause. A request aborted by the next keystroke
+    // still runs its statement on the database, so a fetch per keystroke costs a search per character.
+    const debouncedSearchQuery = useDebouncedValue(searchQuery, REMOTE_SEARCH_DEBOUNCE_MS)
+    const debouncedTrimmedSearch = debouncedSearchQuery.trim()
+
     // `clientFilterFirstPage` groups (e.g. Cohorts) pin the remote query to
     // the empty-search first page and let local Fuse handle keystroke
     // filtering — gives the same snappy feel as a local-only group while
     // still picking up server-side hidden/excluded filtering. The cache
     // key drops `searchQuery` so every keystroke hits the same entry.
     const clientFilter = !!group.clientFilterFirstPage
-    const remoteSearchQuery = clientFilter ? '' : searchQuery
+    const remoteSearchQuery = clientFilter ? '' : debouncedSearchQuery
+    // Consumers hold the list on `isFetching` while a request is in flight. The wait for the debounce is
+    // the same state to them, so it is folded into the busy flags below.
+    const searchPending = remoteEnabled && !clientFilter && debouncedSearchQuery !== searchQuery
 
     // The cache is shared across pickers, and two pickers can build the same endpoint with
     // different group-level exclusions/allowlists (e.g. the MCP tab excludes its schema from
@@ -252,13 +269,24 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         ]
     )
 
+    // ---- Paging -------------------------------------------------------------
+    // Each page is its own cache entry under the first page's key, so a new query (a new key) starts
+    // from page one again while the pages of an earlier query stay cached for a return to it.
+    const remoteKeyHash = JSON.stringify(remoteKey)
+    const [pagesRequested, setPagesRequested] = useState<{ keyHash: string; count: number }>({
+        keyHash: remoteKeyHash,
+        count: 1,
+    })
+    const pageCount = pagesRequested.keyHash === remoteKeyHash ? pagesRequested.count : 1
+    const pageKey = useCallback((page: number): unknown[] => [...remoteKey, 'page', page], [remoteKey])
+
     const remote = useTaxonomicResource<ListStorage>(
-        remoteKey,
+        pageKey(pageCount),
         ({ signal }) =>
             fetchTaxonomicListPage({
                 group,
                 searchQuery: remoteSearchQuery,
-                offset: 0,
+                offset: (pageCount - 1) * limit,
                 limit,
                 isExpanded,
                 showNumericalPropsOnly,
@@ -281,7 +309,45 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // search length nothing fetches, and a failed request has no rows, so `keepPreviousData`
     // would show the earlier query's rows as matches for what is typed now. Aborts are not
     // errors, so a keystroke still shows the previous page until the next one lands.
-    const remoteItemsRaw: ListStorage = (remoteEnabled && !remote.error ? remote.data : undefined) ?? EMPTY_LIST_STORAGE
+    // Past the first page, `remote.data` would keep showing the previous page while the next one loads,
+    // so the loaded pages are read from the cache by their own keys instead.
+    const remoteItemsRaw: ListStorage = useMemo(() => {
+        if (!remoteEnabled || remote.error) {
+            return EMPTY_LIST_STORAGE
+        }
+        if (pageCount === 1) {
+            return remote.data ?? EMPTY_LIST_STORAGE
+        }
+        const pages: ListStorage[] = []
+        for (let page = 1; page <= pageCount; page++) {
+            const cached = peekTaxonomicResource<ListStorage>(pageKey(page))
+            if (!cached) {
+                break
+            }
+            pages.push(cached)
+        }
+        if (pages.length === 0) {
+            return EMPTY_LIST_STORAGE
+        }
+        return { ...pages[0], results: pages.flatMap((page) => page.results) }
+    }, [remoteEnabled, remote.error, remote.data, pageCount, pageKey])
+
+    // A page shorter than `limit` ends paging even when the count says otherwise, because a capped
+    // count is only a lower bound.
+    const hasMore =
+        remoteEnabled &&
+        !clientFilter &&
+        !remote.error &&
+        !!remote.data &&
+        remote.data.results.length >= limit &&
+        remoteItemsRaw.results.length < remoteItemsRaw.count
+    const isLoadingMore = pageCount > 1 && remote.isFetching
+    const loadMore = useCallback((): void => {
+        if (!hasMore || remote.isFetching) {
+            return
+        }
+        setPagesRequested({ keyHash: remoteKeyHash, count: pageCount + 1 })
+    }, [hasMore, remote.isFetching, remoteKeyHash, pageCount])
 
     // A `clientFilterFirstPage` group can only fuse what it cached — the
     // empty-search first page. When the server holds more rows than fit on
@@ -291,7 +357,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // for typed queries; the snappy local path still serves the common case
     // where the whole list fits in the first page.
     const firstPageIncomplete = clientFilter && remoteItemsRaw.count > remoteItemsRaw.results.length
-    const serverSearchEnabled = firstPageIncomplete && !!trimmedSearch && !needsMoreSearchCharacters
+    const serverSearchEnabled = firstPageIncomplete && !!debouncedTrimmedSearch && !needsMoreSearchCharacters
 
     const serverSearchKey = useMemo(
         () => [
@@ -300,7 +366,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             group.endpoint,
             group.scopedEndpoint ?? null,
             isExpanded,
-            trimmedSearch,
+            debouncedTrimmedSearch,
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
@@ -313,7 +379,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             group.endpoint,
             group.scopedEndpoint,
             isExpanded,
-            trimmedSearch,
+            debouncedTrimmedSearch,
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
@@ -328,7 +394,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         ({ signal }) =>
             fetchTaxonomicListPage({
                 group,
-                searchQuery: trimmedSearch,
+                searchQuery: debouncedTrimmedSearch,
                 offset: 0,
                 limit,
                 isExpanded,
@@ -346,7 +412,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         ({ signal }) =>
             fetchTaxonomicListPage({
                 group,
-                searchQuery: serverSearchEnabled ? trimmedSearch : remoteSearchQuery,
+                searchQuery: serverSearchEnabled ? debouncedTrimmedSearch : remoteSearchQuery,
                 offset: 0,
                 limit: 1,
                 isExpanded: true,
@@ -461,8 +527,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // ---- Loading / empty state ---------------------------------------------
     // Fold the server-search fallback into the busy flags so the skeleton
     // (not "no results") shows while it's in flight on a >1-page dataset.
-    const isLoading = remote.isLoading || (serverSearchEnabled && serverSearch.isLoading)
-    const isFetching = remote.isFetching || (serverSearchEnabled && serverSearch.isFetching)
+    const isLoading = remote.isLoading || (serverSearchEnabled && serverSearch.isLoading) || searchPending
+    const isFetching = remote.isFetching || (serverSearchEnabled && serverSearch.isFetching) || searchPending
 
     const showNonCapturedEventOption = useMemo(() => {
         if (!allowNonCapturedEvents) {
@@ -537,6 +603,9 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         isExpandable,
         isExpanded,
         expand,
+        hasMore,
+        isLoadingMore,
+        loadMore,
         refetch: () => {
             remote.refetch()
             if (remoteEnabled && group.scopedEndpoint && !isExpanded) {

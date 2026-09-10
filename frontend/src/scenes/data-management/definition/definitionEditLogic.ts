@@ -6,6 +6,7 @@ import { beforeUnload, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { invalidateDefinitionLists } from 'lib/components/TaxonomicFilter/utils/invalidateDefinitionLists'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
@@ -292,6 +293,7 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                         }
                     }
                     breakpoint()
+                    invalidateDefinitionLists()
 
                     lemonToast.success(`${capitalizeFirstLetter(values.singular)} saved`)
                     // Update table values

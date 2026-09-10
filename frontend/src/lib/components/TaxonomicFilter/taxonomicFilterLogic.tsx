@@ -62,6 +62,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { formatDefinitionCountDelta } from 'lib/utils/definitionCount'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { distinctPrimaryPropertiesForEvents } from 'lib/utils/events'
 import { isString } from 'lib/utils/guards'
@@ -1348,7 +1349,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                   }).url
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
-                            `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
+                            `Show ${formatDefinitionCountDelta(expandedCount, count)} ${pluralize(expandedCount - count, 'property', 'properties', false)} that ${pluralize(
                                 expandedCount - count,
                                 'has',
                                 'have',
@@ -1436,6 +1437,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${projectId}/property_definitions`, {
                             is_feature_flag: true,
                             ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
+                            exclude_hidden: true,
+                            exclude_restricted: true,
                         }).url,
                         scopedEndpoint:
                             eventNames.length > 0
@@ -1443,10 +1446,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       event_names: eventNames,
                                       is_feature_flag: true,
                                       filter_by_event_names: true,
+                                      exclude_hidden: true,
+                                      exclude_restricted: true,
                                   }).url
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
-                            `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
+                            `Show ${formatDefinitionCountDelta(expandedCount, count)} ${pluralize(expandedCount - count, 'property', 'properties', false)} that ${pluralize(
                                 expandedCount - count,
                                 'has',
                                 'have',
@@ -1732,6 +1737,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${projectId}/property_definitions`, {
                             is_numerical: true,
                             event_names: eventNames,
+                            exclude_hidden: true,
+                            exclude_restricted: true,
                         }).url,
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
