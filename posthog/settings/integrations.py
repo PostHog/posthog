@@ -187,6 +187,10 @@ UNLAYER_API_BASE_URL = get_from_env("UNLAYER_API_BASE_URL", "https://api.unlayer
 
 HEATMAP_BROWSERLESS_URL = get_from_env("HEATMAP_BROWSERLESS_URL", "")
 HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
+# Enable only after verifying that the renderer and its proxies do not log cookie values.
+HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED = get_from_env(
+    "HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED", False, type_cast=str_to_bool
+)
 # Browserless /screenshot session cap (ms); must stay under the plan's max-timeout.
 HEATMAP_BROWSERLESS_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_TIMEOUT_MS", 180000, type_cast=int)
 HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int)

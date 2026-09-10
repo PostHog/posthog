@@ -1,5 +1,7 @@
 from typing import cast
 
+from django.conf import settings
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -30,6 +32,9 @@ class HeatmapScreenshotSettingsRequestSerializer(serializers.Serializer):
 
 
 class HeatmapScreenshotSettingsSerializer(HeatmapScreenshotSettingsRequestSerializer):
+    cookie_delivery_enabled = serializers.BooleanField(
+        read_only=True, help_text="Whether this installation permits screenshot cookie delivery to its renderer."
+    )
     has_secret = serializers.BooleanField(
         read_only=True, help_text="Whether a screenshot bypass secret has been generated."
     )
@@ -39,6 +44,7 @@ def screenshot_settings_response(config: TeamHeatmapConfig | None) -> Response:
     return Response(
         HeatmapScreenshotSettingsSerializer(
             {
+                "cookie_delivery_enabled": settings.HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED,
                 "allowed_hostnames": config.allowed_hostnames if config else [],
                 "has_secret": bool(config and config.screenshot_secret),
             }
@@ -65,8 +71,10 @@ class HeatmapScreenshotSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
     )
     @configuration.mapping.patch
     def update_settings(self, request: Request, **kwargs: object) -> Response:
-        serializer = HeatmapScreenshotSettingsRequestSerializer(data=request.data)
+        serializer = HeatmapScreenshotSettingsRequestSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        if "allowed_hostnames" not in serializer.validated_data:
+            return screenshot_settings_response(TeamHeatmapConfig.objects.filter(team_id=self.team_id).first())
         config = save_screenshot_hostnames(
             self.team,
             serializer.validated_data["allowed_hostnames"],

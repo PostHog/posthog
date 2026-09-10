@@ -14,6 +14,8 @@ export interface HeatmapScreenshotSettingsApi {
      * @items.maxLength 253
      */
     allowed_hostnames: string[]
+    /** Whether this installation permits screenshot cookie delivery to its renderer. */
+    readonly cookie_delivery_enabled: boolean
     /** Whether a screenshot bypass secret has been generated. */
     readonly has_secret: boolean
 }

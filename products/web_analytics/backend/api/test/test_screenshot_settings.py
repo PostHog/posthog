@@ -98,12 +98,40 @@ class TestScreenshotSettings(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.allowed_hostnames == (["www.example.com"] if admin else [])
 
+    @parameterized.expand([False, True])
+    def test_empty_patch_does_not_create_or_change_config(self, configured: bool) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        if configured:
+            self.config.allowed_hostnames = ["www.example.com"]
+            self.config.save(update_fields=["allowed_hostnames"])
+        else:
+            self.config.delete()
+        logs_before = ActivityLog.objects.filter(team_id=self.team.id).count()
+
+        response = self.client.patch(self._url(), {})
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {
+            "allowed_hostnames": ["www.example.com"] if configured else [],
+            "has_secret": configured,
+            "cookie_delivery_enabled": False,
+        }
+        assert ActivityLog.objects.filter(team_id=self.team.id).count() == logs_before
+        if configured:
+            self.config.refresh_from_db()
+            assert self.config.allowed_hostnames == ["www.example.com"]
+            assert self.config.screenshot_secret == "phh_synthetic_test_secret"
+        else:
+            assert not TeamHeatmapConfig.objects.filter(team_id=self.team.id).exists()
+
     def test_updates_log_hostnames_without_disclosing_secret(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.patch(self._url(), {"allowed_hostnames": ["WWW.Example.com"]})
         assert response.status_code == 200, response.json()
         log = ActivityLog.objects.filter(team_id=self.team.id, scope="Team").latest("created_at")
+        assert log.detail is not None
         assert log.detail["changes"] == [
             {
                 "type": "Team",
