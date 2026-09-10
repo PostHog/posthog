@@ -128,6 +128,17 @@ class TestOauthIntegrationModel(BaseTest):
             assert "code_challenge" not in url
             assert cache.get("oauth_pkce_verifier/no_pkce_state_token") is None
 
+    def test_hubspot_authorize_url_requests_plan_gated_read_scopes_as_optional(self):
+        # A plan-gated scope in the mandatory `scope` fails the whole authorization for a portal
+        # that cannot grant it. Dropping it from `optional_scope` is just as bad: the connection
+        # authorizes without the scope and the tables it covers 403 on every sync.
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("hubspot", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+
+            assert "crm.objects.leads.read" in params["optional_scope"].split(" ")
+            assert "crm.objects.leads.read" not in params["scope"].split(" ")
+
     def test_authorize_url_with_additional_authorize_params(self):
         with self.settings(**self.mock_settings):
             url = OauthIntegration.authorize_url("google-ads", token="state_token", next="/projects/test")
