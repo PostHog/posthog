@@ -30,6 +30,12 @@ MAX_RETRY_ATTEMPTS = 5
 # worker's memory. A legitimate `ps=500` page is well under this.
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 
+# Cap on the error text this source takes from a response body. That text reaches the job log and
+# the `internal_error` field of the activity input that reports a failure, and a Temporal payload
+# has a size limit, so an oversized detail would replace the status it is meant to explain. The
+# sibling sources cap their error detail at the same length.
+MAX_ERROR_DETAIL_CHARS = 500
+
 # Wall-clock ceiling on reading a single response. The per-read timeout resets on every byte,
 # so a server can drip data indefinitely and hold a shared worker; bound the whole transfer so
 # a slow-drip host is cut off. Generous enough that a legitimate page never trips it.
@@ -149,7 +155,8 @@ def _error_detail(body: bytes) -> str:
     """Return SonarQube's own explanation of a failed request.
 
     Error responses carry ``{"errors": [{"msg": "..."}]}``. Fall back to the raw body so an
-    unexpected shape still tells the user something.
+    unexpected shape still tells the user something. The result is capped at
+    ``MAX_ERROR_DETAIL_CHARS`` because the server chooses its length.
     """
     try:
         payload = json.loads(body or b"null")
@@ -162,9 +169,12 @@ def _error_detail(body: bytes) -> str:
     if isinstance(errors, list):
         messages = [str(error["msg"]) for error in errors if isinstance(error, dict) and error.get("msg")]
         if messages:
-            return "; ".join(messages)
-    text = body.decode("utf-8", "replace").strip()
-    return text[:500] if text else "no error message"
+            return "; ".join(messages)[:MAX_ERROR_DETAIL_CHARS]
+    # Decode only the bytes the cap can use. The body is already in memory and can reach
+    # MAX_RESPONSE_BYTES, so decoding all of it would spend that much again for a string we then
+    # throw away. UTF-8 uses at most 4 bytes per character, so this slice always covers the cap.
+    text = body[: MAX_ERROR_DETAIL_CHARS * 4].decode("utf-8", "replace").strip()
+    return text[:MAX_ERROR_DETAIL_CHARS] if text else "no error message"
 
 
 def _read_bounded(response: requests.Response) -> bytes:

@@ -104,6 +104,10 @@ class TestErrorDetail:
             # A non-iterable `errors` must reach the raw-body fallback rather than raise.
             ("null_errors_falls_back_to_body", b'{"errors":null}', '{"errors":null}'),
             ("numeric_errors_falls_back_to_body", b'{"errors":1}', '{"errors":1}'),
+            # The server chooses the length, and the detail reaches a Temporal activity payload.
+            ("oversized_msg_capped", b'{"errors":[{"msg":"' + b"x" * 5000 + b'"}]}', "x" * 500),
+            # A multi-byte body still fills the cap, so the decode slice cannot be byte-tight.
+            ("oversized_multibyte_body_capped", "\U0001d11e".encode() * 600, "\U0001d11e" * 500),
         ]
     )
     def test_detail(self, _name: str, body: bytes, expected: str) -> None:
