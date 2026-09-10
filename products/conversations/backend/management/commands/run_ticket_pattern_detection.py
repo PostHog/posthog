@@ -17,6 +17,7 @@ from posthog.models import Team
 
 from products.conversations.backend.models import TicketTopicBaseline
 from products.conversations.backend.pattern_detection import (
+    AUTO_RESOLVE_QUIET_WINDOWS,
     PatternSettings,
     find_candidates,
     load_ticket_texts,
@@ -101,14 +102,22 @@ class Command(BaseCommand):
         window = timedelta(minutes=settings.window_minutes)
         step = timedelta(minutes=COORDINATOR_INTERVAL_MINUTES)
         cursor = floor_to_tick(now - timedelta(days=days))
-        # Candidates are deduped on fingerprint so a burst spanning several windows counts once, the
-        # way the upsert would treat it in production.
-        seen: dict[str, tuple[datetime, int, int]] = {}
+        quiet_gap = window * AUTO_RESOLVE_QUIET_WINDOWS
+        # A topic that keeps firing updates its open pattern rather than opening another, so only
+        # the first tick of a burst counts. It counts again once the pattern behind it has gone,
+        # which is what makes a topic that flares every week read as weekly rather than as one
+        # opening for the whole replay.
+        openings: list[tuple[datetime, int, int, str]] = []
+        active: dict[str, datetime] = {}
         while cursor < now:
             texts = load_ticket_texts(team, since=cursor - window, until=cursor)
             for candidate in find_candidates(texts, settings, baselines):
-                if candidate.fingerprint not in seen:
-                    seen[candidate.fingerprint] = (cursor, candidate.ticket_count, candidate.requester_count)
+                if candidate.fingerprint not in active:
+                    openings.append((cursor, candidate.ticket_count, candidate.requester_count, candidate.fingerprint))
+                active[candidate.fingerprint] = cursor
+            # Mirrors auto_resolve_quiet_patterns: an open pattern that nothing has fed for two
+            # windows resolves, and a still-firing one is left alone.
+            active = {f: last_seen for f, last_seen in active.items() if last_seen >= cursor - quiet_gap}
             cursor += step
 
         self.stdout.write(
@@ -117,9 +126,9 @@ class Command(BaseCommand):
             f"baselines={len(baselines)}"
         )
         self.stdout.write(
-            self.style.SUCCESS(f"{len(seen)} patterns would have opened ({len(seen) / days:.2f} per day)")
+            self.style.SUCCESS(f"{len(openings)} patterns would have opened ({len(openings) / days:.2f} per day)")
         )
-        for fingerprint, (when, tickets, requesters) in sorted(seen.items(), key=lambda kv: kv[1][0]):
+        for when, tickets, requesters, fingerprint in sorted(openings):
             self.stdout.write(
                 f"  {when:%Y-%m-%d %H:%M}  {tickets:>3} tickets / {requesters:>2} requesters  {fingerprint}"
             )

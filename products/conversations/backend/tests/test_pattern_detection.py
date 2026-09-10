@@ -229,6 +229,21 @@ class TestRunDetection(BaseTest):
 
         assert "1 patterns would have opened" in out.getvalue()
 
+    def test_backtest_counts_a_topic_that_flares_again_after_the_quiet_interval(self):
+        # Two bursts either side of the two quiet windows that auto-resolve the first pattern.
+        for minutes_ago in (300, 60):
+            for i in range(5):
+                self._ticket(
+                    "Cannot login to the dashboard",
+                    f"user{i}@company{i}.example",
+                    created_at=self.now - timedelta(minutes=minutes_ago),
+                )
+
+        out = StringIO()
+        call_command("run_ticket_pattern_detection", "--team-id", str(self.team.id), "--backtest", "1", stdout=out)
+
+        assert "2 patterns would have opened" in out.getvalue()
+
     @parameterized.expand([("zero", "0"), ("negative", "-5")])
     def test_command_rejects_a_backtest_that_is_not_a_positive_day_count(self, _name, days):
         self._burst("Cannot login to the dashboard", requesters=5, tickets=5)
