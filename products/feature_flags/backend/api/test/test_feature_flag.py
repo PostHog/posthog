@@ -33,6 +33,7 @@ from posthog.hogql.database.database import Database
 from posthog import redis
 from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
 from posthog.api.services.flags_service import FlagVersionConflictError, PropertyMatchingVersionConflictError
+from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
 from posthog.models.group.util import create_group, raw_create_group_ch
@@ -63,6 +64,7 @@ from products.feature_flags.backend.api.feature_flag import (
     FLAG_FILTERS_WRITE_COUNTER,
     FeatureFlagSerializer,
     FeatureFlagStatusResponseSerializer,
+    _flag_write_source,
     parse_created_by_ids,
 )
 from products.feature_flags.backend.encrypted_flag_payloads import (
@@ -14704,6 +14706,16 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(self._write_count("create", "bypassed"), bypassed_before + 1)
         self.assertEqual(self._write_count("create", "accepted"), accepted_before)
+
+    @parameterized.expand(
+        [
+            ("no request at all", None, "internal"),
+            ("facade system write", ServiceRequest(None, is_system=True), "internal"),
+            ("facade write for a user", ServiceRequest(object()), "other"),
+        ]
+    )
+    def test_write_source_of_non_http_callers(self, _name: str, request: object, expected: str) -> None:
+        self.assertEqual(_flag_write_source(request), expected)
 
     @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_violations_are_attributed_to_the_caller_that_made_them(self) -> None:

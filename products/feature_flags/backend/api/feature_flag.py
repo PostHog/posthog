@@ -179,6 +179,10 @@ def _flag_write_source(request: Any) -> str:
     """Coarse write-source attribution for metrics. Never returns unbounded values."""
     if request is None:
         return "internal"
+    # ServiceRequest declares a system write and carries no authenticator, so the checks
+    # below would read it as an unidentified caller.
+    if getattr(request, "is_system", False):
+        return "internal"
     headers = getattr(request, "headers", None) or {}
     if headers.get("x-posthog-mcp-user-agent") or "posthog-mcp" in (headers.get("User-Agent") or ""):
         return "mcp"
