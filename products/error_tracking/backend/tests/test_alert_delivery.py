@@ -23,7 +23,12 @@ from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 
 from products.error_tracking.backend.logic.alerts import MAX_THROTTLE_SECONDS, update_alert
-from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
+from products.error_tracking.backend.models import (
+    ErrorTrackingAlert,
+    ErrorTrackingAlertThread,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+)
 from products.error_tracking.backend.temporal.alerts.delivery import (
     ALERT_THROTTLE_KEY_PREFIX,
     DELIVERY_OUTCOME_EVENT,
@@ -735,6 +740,161 @@ class TestAlertFilterEvaluation(AlertTestMixin):
         assert (skipped, delivered) == (0, 1)
         client.chat_postMessage.assert_called_once()
         assert fetcher.call_count == 2
+
+    @parameterized.expand(
+        [
+            ("severity", "exact", ["critical"], {"severity": "low"}, {"severity": "critical"}),
+            (
+                "assignee",
+                "exact",
+                '{"type":"user","id":7}',
+                {"assignee": '{"type":"user","id":8}'},
+                {"assignee": '{"type":"user","id":7}'},
+            ),
+            (
+                "first_seen",
+                "is_date_before",
+                "2026-01-01",
+                {"first_seen": "2026-03-01T00:00:00+00:00"},
+                {"first_seen": "2025-12-01T00:00:00+00:00"},
+            ),
+        ]
+    )
+    def test_issue_property_leaves_evaluate_like_the_issues_page(self, key, operator, value, miss, hit):
+        # The editor's Issues group emits `error_tracking_issue` leaves; they must read the
+        # same lifecycle fields as a typed event leaf, including the assignee JSON shape
+        # and date operators on first_seen.
+        client = self._mock_slack()
+        self._create_filtered_alert(
+            {"properties": [{"key": key, "value": value, "operator": operator, "type": "error_tracking_issue"}]}
+        )
+        self._patch_exception_properties({})
+
+        skipped = deliver_alert_notifications(self._inputs("$error_tracking_issue_created", **miss))
+        delivered = deliver_alert_notifications(
+            self._inputs("$error_tracking_issue_created", notification_id="notif-2", **hit)
+        )
+
+        assert (skipped, delivered) == (0, 1)
+        client.chat_postMessage.assert_called_once()
+
+    def test_issue_only_filters_do_not_wait_for_the_exception(self):
+        # An alert filtered on issue fields alone must deliver even when the exception
+        # properties cannot be fetched, and must not fetch them at all.
+        client = self._mock_slack()
+        self._create_filtered_alert(
+            {"properties": [{"key": "severity", "value": ["critical"], "type": "error_tracking_issue"}]}
+        )
+        fetcher = self._patch_exception_properties({})
+        fetcher.side_effect = RuntimeError("clickhouse unavailable")
+
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created", severity="critical")) == 1
+
+        client.chat_postMessage.assert_called_once()
+        fetcher.assert_not_called()
+
+    def test_text_filters_see_the_full_issue_name(self):
+        # The workflow payload truncates the name for rendering; the filter reads the row.
+        client = self._mock_slack()
+        long_name = "x" * 600
+        with team_scope(self.team.id):
+            ErrorTrackingIssue.objects.filter(id=self.issue.id).update(name=long_name)
+        self._create_filtered_alert(
+            {"properties": [{"key": "name", "value": long_name, "operator": "exact", "type": "error_tracking_issue"}]}
+        )
+        self._patch_exception_properties({})
+
+        delivered = deliver_alert_notifications(
+            self._inputs("$error_tracking_issue_created", issue_name=long_name[:500])
+        )
+
+        assert delivered == 1
+        client.chat_postMessage.assert_called_once()
+
+    def test_first_seen_filters_use_the_earliest_fingerprint(self):
+        # The payload carries the issue row's created_at; the issues page shows the
+        # earliest fingerprint, so a backfilled exception must filter the same way here.
+        client = self._mock_slack()
+        with team_scope(self.team.id):
+            ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=self.issue, fingerprint="fp-old")
+            ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fp-old").update(
+                first_seen="2025-06-01T00:00:00+00:00"
+            )
+        self._create_filtered_alert(
+            {
+                "properties": [
+                    {
+                        "key": "first_seen",
+                        "value": "2026-01-01",
+                        "operator": "is_date_before",
+                        "type": "error_tracking_issue",
+                    }
+                ]
+            }
+        )
+        self._patch_exception_properties({})
+
+        delivered = deliver_alert_notifications(
+            self._inputs("$error_tracking_issue_created", first_seen="2026-03-01T00:00:00+00:00")
+        )
+
+        assert delivered == 1
+        client.chat_postMessage.assert_called_once()
+
+    def test_event_branches_with_issue_leaves_do_not_wait_for_the_exception(self):
+        client = self._mock_slack()
+        self._create_filtered_alert(
+            {
+                "events": [
+                    {
+                        "id": "$error_tracking_issue_created",
+                        "type": "events",
+                        "properties": [{"key": "severity", "value": ["critical"], "type": "error_tracking_issue"}],
+                    }
+                ]
+            }
+        )
+        fetcher = self._patch_exception_properties({})
+        fetcher.side_effect = RuntimeError("clickhouse unavailable")
+
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created", severity="critical")) == 1
+
+        fetcher.assert_not_called()
+        client.chat_postMessage.assert_called_once()
+
+    def test_event_typed_leaves_keep_the_cdp_semantics(self):
+        # Only issue-typed leaves read the issue: an event-typed `assignee` still sees
+        # the exception's own property, and an event-typed `description` still reads the
+        # payload even when a sibling alert pulls the row's text.
+        self._mock_slack()
+        self._create_filtered_alert({"properties": [{"key": "assignee", "operator": "is_set", "type": "event"}]})
+        self._create_filtered_alert(
+            {"properties": [{"key": "description", "value": "from payload", "operator": "exact", "type": "event"}]}
+        )
+        self._create_filtered_alert(
+            {"properties": [{"key": "name", "value": "row name", "operator": "exact", "type": "error_tracking_issue"}]}
+        )
+        with team_scope(self.team.id):
+            ErrorTrackingIssue.objects.filter(id=self.issue.id).update(name="row name", description="from row")
+        self._patch_exception_properties({"assignee": "someone"})
+
+        delivered = deliver_alert_notifications(
+            self._inputs("$error_tracking_issue_created", assignee=None, issue_description="from payload")
+        )
+
+        assert delivered == 3
+
+    def test_unassigned_shadows_an_exception_property_named_assignee(self):
+        client = self._mock_slack()
+        self._create_filtered_alert(
+            {"properties": [{"key": "assignee", "operator": "is_set", "type": "error_tracking_issue"}]}
+        )
+        self._patch_exception_properties({"assignee": "someone"})
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created", assignee=None))
+
+        assert delivered == 0
+        client.chat_postMessage.assert_not_called()
 
     def test_null_lifecycle_fields_shadow_exception_properties(self):
         # The CDP plane spreads lifecycle properties over the exception's with nulls

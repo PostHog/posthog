@@ -42,7 +42,9 @@ from products.error_tracking.backend.models import (
 from products.error_tracking.backend.temporal.alerts.filtering import (
     alert_filters_match,
     fetch_exception_properties,
-    has_configured_filters,
+    fetch_issue_fields,
+    needs_exception_properties,
+    references_issue_row,
 )
 from products.error_tracking.backend.temporal.alerts.messages import (
     DEFAULT_HEADLINE,
@@ -232,7 +234,10 @@ def _opener_filter_matches(
     if not opener_alerts:
         return {}
     exception_properties: dict[str, object] = {}
-    if any(has_configured_filters(alert) for alert in opener_alerts.values()):
+    issue_fields = (
+        fetch_issue_fields(inputs) if any(references_issue_row(alert) for alert in opener_alerts.values()) else None
+    )
+    if any(needs_exception_properties(alert) for alert in opener_alerts.values()):
         try:
             exception_properties = fetch_exception_properties(inputs)
         except Exception:
@@ -246,10 +251,16 @@ def _opener_filter_matches(
                 notification_id=inputs.notification_id,
             )
             return {
-                alert_id: (None if has_configured_filters(alert) else True) for alert_id, alert in opener_alerts.items()
+                alert_id: (
+                    None
+                    if needs_exception_properties(alert)
+                    else alert_filters_match(alert, inputs, exception_properties, issue_fields)
+                )
+                for alert_id, alert in opener_alerts.items()
             }
     return {
-        alert_id: alert_filters_match(alert, inputs, exception_properties) for alert_id, alert in opener_alerts.items()
+        alert_id: alert_filters_match(alert, inputs, exception_properties, issue_fields)
+        for alert_id, alert in opener_alerts.items()
     }
 
 
