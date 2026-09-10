@@ -365,6 +365,9 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 is_static: true,
                 name: cohortName,
             }
+            // The legacy `api/cohort` endpoint is not in the OpenAPI spec, so there is no
+            // generated client to call here.
+            // nosemgrep: prefer-codegen-api
             const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
             cohortsModel.actions.cohortCreated(cohort)
             lemonToast.success('Cohort saved', {

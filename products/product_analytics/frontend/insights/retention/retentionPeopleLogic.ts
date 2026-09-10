@@ -265,6 +265,9 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
                         breakdownValue
                     )
                 } else {
+                    // `next` is a pagination URL that the server returns, so no generated
+                    // function can construct it.
+                    // nosemgrep: prefer-codegen-api
                     peopleResult = await api.get<RetentionTablePeoplePayload>(values.people.next as string)
                 }
                 const newPayload: RetentionTablePeoplePayload = {
