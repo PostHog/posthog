@@ -8,7 +8,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
-import { ProjectSecretAPIKeyApi } from '~/types'
+import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 
 import { ProjectSecretAPIKeys } from './ProjectSecretAPIKeys'
 import { MAX_PROJECT_API_KEYS_PER_PROJECT, projectSecretAPIKeysLogic } from './projectSecretAPIKeysLogic'
@@ -20,7 +20,13 @@ const createKeys = (count: number): ProjectSecretAPIKeyApi[] =>
         value: '',
         mask_value: null,
         created_at: '2026-01-01T00:00:00Z',
-        created_by: { id: 1, uuid: 'test-user', first_name: 'Test', email: 'test@example.com' },
+        created_by: {
+            id: 1,
+            uuid: 'test-user',
+            first_name: 'Test',
+            email: 'test@example.com',
+            hedgehog_config: null,
+        },
         last_used_at: null,
         last_rolled_at: null,
         scopes: ['endpoint:read'],
@@ -44,22 +50,26 @@ describe('<ProjectSecretAPIKeys />', () => {
         logic.unmount()
     })
 
-    it('allows creation through the backend limit and blocks it at that limit', () => {
-        logic.actions.loadKeysSuccess(createKeys(MAX_PROJECT_API_KEYS_PER_PROJECT - 1))
-        const { unmount } = render(<ProjectSecretAPIKeys />)
-
-        expect(screen.getByText('Create project secret API key').closest('button')).not.toHaveAttribute(
-            'aria-disabled',
-            'true'
-        )
-
-        unmount()
-        logic.actions.loadKeysSuccess(createKeys(MAX_PROJECT_API_KEYS_PER_PROJECT))
+    it.each([
+        {
+            description: 'below the backend limit',
+            keyCount: MAX_PROJECT_API_KEYS_PER_PROJECT - 1,
+            expectedDisabled: false,
+        },
+        {
+            description: 'at the backend limit',
+            keyCount: MAX_PROJECT_API_KEYS_PER_PROJECT,
+            expectedDisabled: true,
+        },
+    ])('sets creation availability $description', ({ keyCount, expectedDisabled }) => {
+        logic.actions.loadKeysSuccess(createKeys(keyCount))
         render(<ProjectSecretAPIKeys />)
 
-        expect(screen.getByText('Create project secret API key').closest('button')).toHaveAttribute(
-            'aria-disabled',
-            'true'
-        )
+        const button = screen.getByText('Create project secret API key').closest('button')
+        if (expectedDisabled) {
+            expect(button).toHaveAttribute('aria-disabled', 'true')
+        } else {
+            expect(button).not.toHaveAttribute('aria-disabled', 'true')
+        }
     })
 })
