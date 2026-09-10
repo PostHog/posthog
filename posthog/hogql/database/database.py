@@ -398,15 +398,34 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # bounds that cost; a flag flip lags at most the TTL. Only flags in the allowlist below are ever
 # cached: a flag that gates authorization or enforcement (who can see which data) must stay out,
 # because a cached stale False holds enforcement open team-wide for the TTL. Availability flags
-# (which schema surfaces exist) tolerate that lag. Expired entries are only replaced on re-request,
+# (which schema surfaces exist) tolerate that lag. Entries store their evaluation time, and reads
+# check freshness against the live TTL, so lowering the setting immediately shortens every existing
+# entry's life and disabling it stops all reads. Expired entries are only replaced on re-request,
 # so on a long-lived worker the dict grows with distinct-team count; at the cap, sweep the expired
 # entries first and drop everything only if live entries alone still exceed it - simpler than an
-# LRU, and fresh entries survive the sweep. Unlocked by design: dict reads/writes are atomic under
-# the GIL, and the worst race between concurrent builds is a duplicate evaluation or a lost cache
-# entry, both benign.
+# LRU, and fresh entries survive the sweep. Reads are lock-free (dict.get is atomic under the
+# GIL); mutations and the sweep hold the lock, because the sweep iterates the dict and concurrent
+# inserts would raise RuntimeError mid-iteration.
 _CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets", "data-quality-checks"})
-_TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}
+_TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}  # key -> (evaluated_at, value)
+_TEAM_FLAG_CACHE_LOCK = threading.Lock()
 _TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
+
+
+def _evaluate_warehouse_access_control_flag(team: Team) -> bool:
+    """Never cached, in the flag cache or via cached sources: this flag gates enforcement. A stale
+    False (a flag flip, or a transient SDK failure that feature_enabled_or_false reports as False)
+    would keep warehouse access control off for every query on the team until a TTL expires."""
+    return feature_enabled_or_false(
+        "hogql-warehouse-access-control",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        send_feature_flag_events=False,
+    )
 
 
 def _cached_team_flag(flag_key: str, team: Team, evaluate: Callable[[], bool]) -> bool:
@@ -430,15 +449,16 @@ def _cached_team_flag(flag_key: str, team: Team, evaluate: Callable[[], bool]) -
     cache_key = (str(team.uuid), flag_key)
     now = time.monotonic()
     hit = _TEAM_FLAG_CACHE.get(cache_key)
-    if hit is not None and hit[0] > now:
+    if hit is not None and now - hit[0] < ttl:
         return hit[1]
     value = evaluate()
-    if len(_TEAM_FLAG_CACHE) >= _TEAM_FLAG_CACHE_MAX_ENTRIES:
-        for stale_key in [key for key, (expiry, _) in _TEAM_FLAG_CACHE.items() if expiry <= now]:
-            _TEAM_FLAG_CACHE.pop(stale_key, None)
+    with _TEAM_FLAG_CACHE_LOCK:
         if len(_TEAM_FLAG_CACHE) >= _TEAM_FLAG_CACHE_MAX_ENTRIES:
-            _TEAM_FLAG_CACHE.clear()
-    _TEAM_FLAG_CACHE[cache_key] = (now + ttl, value)
+            for stale_key in [key for key, (evaluated_at, _) in _TEAM_FLAG_CACHE.items() if now - evaluated_at >= ttl]:
+                _TEAM_FLAG_CACHE.pop(stale_key, None)
+            if len(_TEAM_FLAG_CACHE) >= _TEAM_FLAG_CACHE_MAX_ENTRIES:
+                _TEAM_FLAG_CACHE.clear()
+        _TEAM_FLAG_CACHE[cache_key] = (now, value)
     return value
 
 
@@ -1534,6 +1554,12 @@ class Database(BaseModel):
                 user_access_control=fresh_access_control,
                 denied_system_table_names=fresh_denied,
             )
+            # Enforcement flags must not ride the cached bundle either (see
+            # _evaluate_warehouse_access_control_flag); recompute per request.
+            sources = dataclasses.replace(
+                sources,
+                is_hogql_warehouse_access_control_enabled=_evaluate_warehouse_access_control_flag(cast("Team", team)),
+            )
 
         with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="build_from_sources").time():
             return Database._build_from_sources(
@@ -1757,19 +1783,7 @@ class Database(BaseModel):
                 team, user, user_access_control, allowed_system_tables
             )
 
-        # Never cached: this flag gates authorization. A cached False (a flag flip, or a transient
-        # SDK failure that feature_enabled_or_false reports as False) would keep warehouse access
-        # control off for every query on the team until the TTL expires.
-        is_hogql_warehouse_access_control_enabled = feature_enabled_or_false(
-            "hogql-warehouse-access-control",
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            send_feature_flag_events=False,
-        )
+        is_hogql_warehouse_access_control_enabled = _evaluate_warehouse_access_control_flag(team)
 
         with timings.measure("modifiers", emit_span=True):
             modifiers = create_default_modifiers_for_team(team, modifiers)

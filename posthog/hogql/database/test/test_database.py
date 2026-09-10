@@ -1223,6 +1223,31 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert self._ran_source_fetch_queries(ctx)
 
+    def test_cached_sources_recompute_warehouse_access_control_flag(self):
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="acl_table", team=self.team, columns={"id": "String"}, credential=credential, url_pattern=""
+        )
+
+        # Evaluated on the fetch, then re-evaluated once per request (cold and warm alike).
+        acl_flag_values = iter([False, False, True])
+        with (
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: (
+                    next(acl_flag_values) if key == "hogql-warehouse-access-control" else False
+                ),
+            ),
+            patch.object(Database, "_is_warehouse_table_denied", return_value=True),
+        ):
+            unenforced = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+            # Warm cache hit: the enforcement flag must be re-evaluated per request, never
+            # served from the cached bundle, so this build sees the flag's new True.
+            enforced = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        assert unenforced.has_table("acl_table")
+        assert not enforced.has_table("acl_table")
+
     def test_cached_revenue_views_do_not_leak_expression_fields_between_users(self):
         other_user = self._create_user("no-expression-access@posthog.com")
         with team_scope(self.team.id, canonical=True):
@@ -4470,8 +4495,8 @@ class TestCachedTeamFlag(TestCase):
     def test_cap_sweeps_expired_entries_and_keeps_fresh_ones(self, _get_setting):
         team = cast(Team, SimpleNamespace(uuid="team-uuid"))
         now = time.monotonic()
-        _TEAM_FLAG_CACHE[("expired-team-uuid", "managed-viewsets")] = (now - 1, True)
-        _TEAM_FLAG_CACHE[("fresh-team-uuid", "managed-viewsets")] = (now + 300, True)
+        _TEAM_FLAG_CACHE[("expired-team-uuid", "managed-viewsets")] = (now - 100, True)
+        _TEAM_FLAG_CACHE[("fresh-team-uuid", "managed-viewsets")] = (now, True)
 
         with patch("posthog.hogql.database.database._TEAM_FLAG_CACHE_MAX_ENTRIES", 2):
             _cached_team_flag("managed-viewsets", team, Mock(return_value=True))
@@ -4479,6 +4504,44 @@ class TestCachedTeamFlag(TestCase):
         assert ("expired-team-uuid", "managed-viewsets") not in _TEAM_FLAG_CACHE
         assert ("fresh-team-uuid", "managed-viewsets") in _TEAM_FLAG_CACHE
         assert (str(team.uuid), "managed-viewsets") in _TEAM_FLAG_CACHE
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_lowering_the_ttl_applies_to_existing_entries(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        # Evaluated 61s ago: fresh under the mocked 30s TTL? No - so it must re-evaluate, even
+        # though a 3600s TTL was in force when the entry was written.
+        _TEAM_FLAG_CACHE[(str(team.uuid), "managed-viewsets")] = (time.monotonic() - 61, True)
+        evaluate = Mock(return_value=False)
+
+        assert _cached_team_flag("managed-viewsets", team, evaluate) is False
+        assert evaluate.call_count == 1
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_concurrent_inserts_during_cap_sweep_do_not_raise(self, _get_setting):
+        now = time.monotonic()
+        for index in range(64):
+            _TEAM_FLAG_CACHE[(f"expired-{index}", "managed-viewsets")] = (now - 100, True)
+
+        barrier = threading.Barrier(4)
+        errors: list[Exception] = []
+
+        def hammer(worker: int) -> None:
+            try:
+                barrier.wait()
+                for iteration in range(200):
+                    team = cast(Team, SimpleNamespace(uuid=f"team-{worker}-{iteration}"))
+                    assert _cached_team_flag("managed-viewsets", team, Mock(return_value=True)) is True
+            except Exception as e:
+                errors.append(e)
+
+        with patch("posthog.hogql.database.database._TEAM_FLAG_CACHE_MAX_ENTRIES", 32):
+            threads = [threading.Thread(target=hammer, args=(worker,)) for worker in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        assert errors == []
 
 
 class TestSourcesCacheConcurrency(TestCase):
