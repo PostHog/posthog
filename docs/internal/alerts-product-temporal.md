@@ -45,3 +45,51 @@ Real notification delivery guarantees remain undecided.
 
 This registration does not create schedules or deploy workers.
 Schedule registration will set the evaluation workflow's 50-second execution timeout separately.
+
+## Activity logs
+
+Both Alerts queues use an activity-only interceptor that emits `alerts_product_activity_started` and `alerts_product_activity_finished` through the shared write-only logger.
+The shared logger's async methods keep log processing and writes off the activity event loop.
+Each retry emits its own start and finish events.
+The shared logger supplies `activity_id`, `activity_type`, `attempt`, `task_queue`, `workflow_id`, `workflow_namespace`, `workflow_run_id`, and `workflow_type`.
+Finish events add a monotonic `duration_ms` and an `outcome` of `success`, `failure`, or `cancellation`.
+Start, success, and cancellation events use INFO; a failed attempt uses WARNING and includes only the exception class in `exception_type`.
+A failed attempt does not mean the workflow has exhausted its retries.
+
+When a valid OpenTelemetry span is active, both events include hexadecimal `trace_id` and `span_id` fields.
+The interceptor does not log inputs, headers, exception messages, or locals, and does not capture exceptions separately.
+Telemetry errors cannot replace an activity's result, exception, or cancellation.
+Cancellation before the activity starts still propagates; cancellation while writing its finish log cannot replace the completed activity's outcome.
+Workflow logging and workflow bodies are unchanged.
+
+## Metrics
+
+The shared worker exposes these SDK histograms with `task_queue` labels:
+
+- `temporal_activity_schedule_to_start_latency`: time from the current attempt's scheduling to its start. Earlier attempts and retry backoff are excluded.
+- `temporal_activity_execution_latency`: worker-side execution time for an attempt, including interceptor overhead. This is not an end-to-end evaluation or delivery duration.
+
+Both histograms use milliseconds and the SDK's default buckets.
+Prometheus exposes their `_bucket`, `_sum`, and `_count` series.
+Native metrics retain the `temporal_` prefix. The `alerts_product_` convention applies only to custom metrics if those are added later.
+Do not add workflow or run IDs as metric labels.
+
+A worker killed before completion cannot emit a finish log or execution sample.
+Activities that never start produce no worker-side timing sample.
+Missing finish events are not evidence of success.
+
+## Tracing and deployment verification
+
+Both deployments must set `TEMPORAL_OTEL_PLUGIN_ENABLED=true`, a nonempty `OTEL_SERVICE_NAME`, and the appropriate OTLP gRPC exporter configuration.
+For example, configure `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` for the collector and any required credentials or TLS settings.
+The shared startup command initializes Temporal's replay-safe provider, and the client registers `OpenTelemetryPlugin(add_temporal_spans=True)`.
+Do not add the legacy tracing interceptor or another provider.
+
+The activity logs use the plugin's active attempt span.
+Evaluation, child delivery, and their activity spans retain their trace relationships even when delivery runs after evaluation finishes.
+Retries have separate activity attempt spans.
+
+Tests verify local logging, queue-labelled SDK metrics, and trace relationships without an application database or an external collector.
+Charts rollout must separately configure both deployments and verify Prometheus scraping and delivery to the tracing collector.
+This change does not configure deployments, dashboards, alert rules, or SLO emission.
+The `alerts-product` SLO area remains reserved without changes to shared SLO handling or workflow inputs.
