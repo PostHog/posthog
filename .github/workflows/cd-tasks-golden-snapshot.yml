@@ -234,6 +234,7 @@ jobs:
                   python-version-file: 'pyproject.toml'
                   token: ${{ github.token }}
 
+            # Direct install: The requested historical source revision may not contain the local action.
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
