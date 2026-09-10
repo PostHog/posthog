@@ -23,12 +23,14 @@ import { urls } from 'scenes/urls'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/SidePanelContentContainer'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SidePanelTab } from '~/types'
 
 import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
+import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
@@ -119,7 +121,8 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     const { closeSidePanel } = useActions(sidePanelLogic)
 
-    const isNewView = effectivePhaiView === 'new'
+    const { selectedTabOptions } = useValues(sidePanelStateLogic)
+    const isNewView = effectivePhaiView === 'new' || (!!sidePanel && selectedTabOptions === REPORT_AI_PANEL)
     const headerBackDisabled = isNewView ? !panelCanGoBack : backButtonDisabled
 
     const openAsMainFocusUrl = mainFocusUrl({
@@ -133,7 +136,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     ) : (
         <BindLogic logic={maxLogic} props={logicProps}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                {effectivePhaiView === 'new' ? (
+                {isNewView ? (
                     // Side panel only shows the new composer + thread viewer — the tasks list lives on /ai.
                     <PhaiSidePanelChat />
                 ) : conversationHistoryVisible ? (

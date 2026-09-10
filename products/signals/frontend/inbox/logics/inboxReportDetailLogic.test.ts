@@ -230,6 +230,9 @@ describe('inboxReportDetailLogic', () => {
             logic.actions.loadReportTasksSuccess(tasks)
 
             expect(logic.values.shouldPollReportTasks).toBe(polls)
+            const run = tasks[0]?.task.latest_run
+            const active = run?.status === TaskRunStatus.IN_PROGRESS
+            expect(logic.values.reportTaskToOpen).toEqual(active ? tasks[0] : null)
         })
 
         it('refreshes the artefact log once a PR task starts', async () => {

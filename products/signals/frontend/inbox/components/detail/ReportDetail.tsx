@@ -214,8 +214,15 @@ export function InboxDetailFrame({
             : 'Back'
         : 'Self-driving inbox'
     const logicProps = { reportId: report.id, report }
-    const { reportSignals, reportSignalsLoading, priorityExplanation, chartPlacements, trailingCharts, detailTab } =
-        useValues(inboxReportDetailLogic(logicProps))
+    const {
+        reportSignals,
+        reportSignalsLoading,
+        priorityExplanation,
+        chartPlacements,
+        trailingCharts,
+        detailTab,
+        reportTaskToOpen,
+    } = useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
@@ -247,7 +254,7 @@ export function InboxDetailFrame({
 
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const implementButton = showCreatePr ? <ImplementButton report={report} /> : null
+    const implementButton = showCreatePr || reportTaskToOpen ? <ImplementButton report={report} /> : null
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )

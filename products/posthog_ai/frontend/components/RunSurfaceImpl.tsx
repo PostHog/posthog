@@ -188,10 +188,16 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
 
 /** Thread slot: the streamed run thread, with the shared run-log skeleton during the first bootstrap. */
 function RunSurfaceThread({
+    restoreReadPosition = false,
     className,
     listClassName,
     rowClassName,
-}: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
+}: {
+    restoreReadPosition?: boolean
+    className?: string
+    listClassName?: string
+    rowClassName?: string
+} = {}): JSX.Element {
     const { interaction, isScout, taskId, streamKey, runId } = useRunSurfaceContext()
     const { bootstrapLoading, hasThreadItems } = useValues(runStreamLogic)
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
@@ -229,6 +235,7 @@ function RunSurfaceThread({
     // Turn feedback follows the same gate: only interactive, non-scout surfaces collect ratings.
     return (
         <ThreadView
+            scrollRestorationKey={restoreReadPosition ? taskId : undefined}
             className={className}
             listClassName={listClassName}
             rowClassName={rowClassName}

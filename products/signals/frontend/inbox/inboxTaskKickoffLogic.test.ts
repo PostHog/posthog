@@ -1,11 +1,21 @@
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { SidePanelTab } from '~/types'
+
+import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { makeReport } from './__mocks__/inboxMocks'
 import {
     FREE_TRIAL_PR_DISABLED_REASON,
+    REPORT_AI_PANEL,
+    REPORT_AI_PANEL_ID,
     buildCreatePrReportPrompt,
     buildDiscussReportPrompt,
     inboxTaskKickoffLogic,
@@ -13,6 +23,77 @@ import {
 import { SignalReportStatus } from './types'
 
 describe('inboxTaskKickoffLogic', () => {
+    describe('report sidebar', () => {
+        let logic: ReturnType<typeof inboxTaskKickoffLogic.build>
+        let createdTasks: Record<string, unknown>[]
+        let startedRuns: Record<string, unknown>[]
+        const report = makeReport({ id: 'report-sidebar', status: SignalReportStatus.READY })
+
+        beforeEach(() => {
+            localStorage.clear()
+            createdTasks = []
+            startedRuns = []
+            useMocks({
+                get: {
+                    '/api/projects/:team/signals/reports/:id/': report,
+                },
+                post: {
+                    '/api/projects/:team/tasks/': async ({ request }) => {
+                        createdTasks.push((await request.json()) as Record<string, unknown>)
+                        return [201, { id: 'report-task' }]
+                    },
+                    '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
+                        startedRuns.push((await request.json()) as Record<string, unknown>)
+                        return [200, { id: 'report-task', latest_run: { id: 'report-run' } }]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = inboxTaskKickoffLogic()
+            logic.mount()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it.each(['implementation', 'discussion'] as const)(
+            'opens one %s run without leaving the report',
+            async (relationship) => {
+                const originalPath = router.values.location.pathname
+                await expectLogic(logic, () => {
+                    if (relationship === 'implementation') {
+                        logic.actions.createPrFromReport(report)
+                    } else {
+                        logic.actions.discussReport(report, 'https://example.com/report', 'Explain the recommendation')
+                    }
+                }).toFinishAllListeners()
+
+                expect(createdTasks).toHaveLength(1)
+                expect(createdTasks[0]).toMatchObject({
+                    signal_report: report.id,
+                    signal_report_task_relationship: relationship,
+                })
+                expect(startedRuns).toHaveLength(1)
+                expect(startedRuns[0]).toMatchObject({
+                    signal_report_id: report.id,
+                    mode: 'interactive',
+                    pending_user_message: expect.any(String),
+                })
+                expect(router.values.location.pathname).toBe(originalPath)
+                expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+                expect(sidePanelStateLogic.values.selectedTabOptions).toBe(REPORT_AI_PANEL)
+                expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
+                    taskId: 'report-task',
+                    runId: 'report-run',
+                })
+                expect(logic.values.reportChatContext?.report.id).toBe(report.id)
+
+                logic.actions.openReportTask(report, 'report-task', 'report-run')
+                expect(createdTasks).toHaveLength(1)
+                expect(startedRuns).toHaveLength(1)
+            }
+        )
+    })
+
     describe('freeTrialDisabledReason', () => {
         let logic: ReturnType<typeof inboxTaskKickoffLogic.build>
 

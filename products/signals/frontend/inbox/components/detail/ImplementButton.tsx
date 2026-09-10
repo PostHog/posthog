@@ -21,18 +21,21 @@ const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
 }
 
 export function ImplementButton({ report }: { report: SignalReport }): JSX.Element {
-    const { isCreatingPr, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const { implementationSlotClaim } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
-    const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
+    const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { implementationSlotClaim, reportTaskToOpen } = useValues(
+        inboxReportDetailLogic({ reportId: report.id, report })
+    )
+    const { createPrFromReport, openReportTask } = useActions(inboxTaskKickoffLogic)
     const [instructions, setInstructions] = useState('')
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const disabledReason =
         createPrDisabledReason ??
+        (isDiscussing ? 'Wait for the discussion task to start.' : undefined) ??
         (implementationSlotClaim ? SLOT_CLAIM_DISABLED_REASON[implementationSlotClaim] : undefined)
 
     const submit = (note: string): void => {
-        if (isCreatingPr || implementationSlotClaim) {
+        if (isCreatingPr || isDiscussing || implementationSlotClaim) {
             return
         }
         if (createPrDisabledReason) {
@@ -61,6 +64,26 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                 surface: 'detail_pane',
             })
         }
+    }
+
+    if (reportTaskToOpen?.task.latest_run) {
+        const task = reportTaskToOpen.task
+        const run = task.latest_run!
+        return (
+            <LemonButton
+                type="primary"
+                size="small"
+                to={urls.taskDetail(task.id)}
+                onClick={(event) => {
+                    event.preventDefault()
+                    openReportTask(report, task.id, run.id)
+                }}
+                tooltip="Open this task in the PostHog AI sidebar"
+                data-attr="inbox-report-open-task"
+            >
+                View task
+            </LemonButton>
+        )
     }
 
     return (

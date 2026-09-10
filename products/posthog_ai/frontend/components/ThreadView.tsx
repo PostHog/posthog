@@ -53,6 +53,7 @@ function estimateThreadItemHeight(item: ThreadDisplayItem): number {
 }
 
 interface ThreadViewProps {
+    scrollRestorationKey?: string
     /**
      * Pass `false` when an ancestor already owns scroll (the live Max column + auto-scroller) — rows then
      * render in document flow, unchanged from the pre-virtualized layout. Defaults to virtualized.
@@ -85,6 +86,7 @@ interface ThreadViewProps {
  * header/footer rows.
  */
 export function ThreadView({
+    scrollRestorationKey,
     virtualized = true,
     showContextUsage = false,
     renderTurnTrailer,
@@ -249,6 +251,8 @@ export function ThreadView({
 
     return (
         <VirtualizedThread.Root
+            key={scrollRestorationKey}
+            scrollRestorationKey={scrollRestorationKey}
             items={displayItems}
             getItemKey={getThreadItemKey}
             estimateItemHeight={estimateThreadItemHeight}
