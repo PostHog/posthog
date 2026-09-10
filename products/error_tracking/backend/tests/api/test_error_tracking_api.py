@@ -1428,17 +1428,25 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_bulk_start_upload_rejects_unknown_release(self) -> None:
+    @parameterized.expand(
+        [
+            # (name, endpoint, release ID the client sends)
+            ("start_upload_unknown", "bulk_start_upload", "01920000-0000-7000-8000-000000000000"),
+            ("start_upload_malformed", "bulk_start_upload", "not-a-uuid"),
+            ("check_upload_unknown", "bulk_check_upload", "01920000-0000-7000-8000-000000000000"),
+            ("check_upload_malformed", "bulk_check_upload", "not-a-uuid"),
+        ]
+    )
+    def test_bulk_upload_rejects_bad_release(self, _name: str, endpoint: str, release_id: str) -> None:
         chunk_id = str(uuid7())
-        missing_release_id = str(uuid7())
 
         response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{endpoint}",
             data={
                 "symbol_sets": [
                     {
                         "chunk_id": chunk_id,
-                        "release_id": missing_release_id,
+                        "release_id": release_id,
                         "content_hash": "hash",
                     }
                 ]
@@ -1447,6 +1455,7 @@ class TestErrorTracking(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "invalid_release_id"
         assert not ErrorTrackingSymbolSet.objects.filter(ref=chunk_id).exists()
 
     def test_bulk_start_upload_allows_no_release(self) -> None:

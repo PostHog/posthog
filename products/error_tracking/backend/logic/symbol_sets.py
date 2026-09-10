@@ -25,6 +25,7 @@ from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
+from posthog.uuidt import UUIDT
 
 from products.error_tracking.backend.models import ErrorTrackingRelease, ErrorTrackingStackFrame, ErrorTrackingSymbolSet
 
@@ -179,6 +180,15 @@ def _validate_uploads(new_symbol_sets: list[SymbolSetUpload], team: Team) -> Non
         )
 
     release_ids = {ss.release_id for ss in new_symbol_sets if ss.release_id}
+    # A release ID that is not a UUID makes the `pk__in` lookup below raise before it reaches the
+    # database, and that error leaves as a 500 instead of telling the client what to correct.
+    malformed = sorted(release_id for release_id in release_ids if not UUIDT.is_valid_uuid(release_id))
+    if malformed:
+        raise ValidationError(
+            code="invalid_release_id",
+            detail=f"Invalid release ID provided: {', '.join(malformed)}",
+        )
+
     fetched_releases = {str(r.id) for r in ErrorTrackingRelease.objects.all().filter(team=team, pk__in=release_ids)}
     for release_id in release_ids:
         if release_id not in fetched_releases:
