@@ -356,6 +356,16 @@ export const SavedMetricsAttachSchema = z
         "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
     )
 
+// The endpoint also accepts `main_distinct_id`, and splits off every other distinct ID when both
+// fields are omitted. Neither shape is reachable from the tool, because the split cannot be undone
+// through the API and an agent that guesses wrong leaves an identity the caller cannot put back.
+export const PersonSplitDistinctIdsSchema = z
+    .array(z.string())
+    .min(1)
+    .describe(
+        'Distinct IDs to move off this person onto new single-ID persons. The person keeps every other distinct ID and all of its properties. List every ID you want to move. This tool cannot split a person by all of its distinct IDs at once.'
+    )
+
 export const ExperimentResultsGetSchema = z.object({
     id: z.number().describe('The ID of the experiment to get comprehensive results for'),
     refresh: z

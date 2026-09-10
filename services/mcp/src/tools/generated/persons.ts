@@ -3,8 +3,15 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/persons/api'
+import { PersonSplitDistinctIdsSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const PersonsBulkDeleteSchema = () => {
@@ -195,6 +202,38 @@ const personsRetrieve = (): ToolBase<
     },
 })
 
+const PersonsSplitSchema = () => {
+    const PersonsSplitCreateBody = orvalSchemas.PersonsSplitCreateBody()
+    const PersonsSplitCreateParams = orvalSchemas.PersonsSplitCreateParams()
+    return PersonsSplitCreateParams.omit({ project_id: true })
+        .extend(PersonsSplitCreateBody.shape)
+        .extend({ distinct_ids_to_split: PersonSplitDistinctIdsSchema })
+}
+
+const personsSplit = (): ToolBase<
+    ReturnType<typeof PersonsSplitSchema>,
+    WithAgentNote<Schemas.PersonSplitResponse>
+> => ({
+    name: 'persons-split',
+    schema: PersonsSplitSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsSplitSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.distinct_ids_to_split !== undefined) {
+            body['distinct_ids_to_split'] = params.distinct_ids_to_split
+        }
+        const result = await context.api.request<Schemas.PersonSplitResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/${encodeURIComponent(String(params.id))}/split/`,
+            body,
+        })
+        return withAgentNote(
+            result,
+            'The split runs asynchronously, so this response means the task was queued, not that the person has changed. Read the person again with persons-retrieve to confirm which distinct IDs are left, and remember a split-off distinct ID still resolves to the original person until the task completes.\n'
+        )
+    },
+})
+
 const PersonsValuesRetrieveSchema = () => {
     const PersonsValuesRetrieveQueryParams = orvalSchemas.PersonsValuesRetrieveQueryParams()
     return PersonsValuesRetrieveQueryParams.omit({ format: true })
@@ -224,5 +263,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'persons-property-delete': personsPropertyDelete,
     'persons-property-set': personsPropertySet,
     'persons-retrieve': personsRetrieve,
+    'persons-split': personsSplit,
     'persons-values-retrieve': personsValuesRetrieve,
 }

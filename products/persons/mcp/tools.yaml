@@ -163,9 +163,30 @@ tools:
                 - distinct_ids
                 - created_at
                 - last_seen_at
-    persons-split-create:
+    persons-split:
         operation: persons_split_create
-        enabled: false
+        enabled: true
+        scopes:
+            - person:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Split distinct IDs off a person
+        description: >
+            Move the listed distinct IDs off a merged person onto new single-ID persons. Use it to undo an incorrect
+            merge. The person keeps every other distinct ID and all of its properties. Read the person first with
+            persons-retrieve to see which distinct IDs it holds.
+        agent_note: >
+            The split runs asynchronously, so this response means the task was queued, not that the person has changed.
+            Read the person again with persons-retrieve to confirm which distinct IDs are left, and remember a split-off
+            distinct ID still resolves to the original person until the task completes.
+        exclude_params:
+            - format
+            - main_distinct_id
+        param_overrides:
+            distinct_ids_to_split:
+                input_schema: PersonSplitDistinctIdsSchema
     persons-update:
         operation: persons_update
         enabled: false

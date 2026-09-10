@@ -859,6 +859,14 @@
             },
             "required": ["operations"]
         },
+        "PersonSplitDistinctIdsSchema": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "Distinct IDs to move off this person onto new single-ID persons. The person keeps every other distinct ID and all of its properties. List every ID you want to move. This tool cannot split a person by all of its distinct IDs at once."
+        },
         "ProjectGetAllSchema": {
             "type": "object",
             "properties": {}

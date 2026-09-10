@@ -253,6 +253,7 @@ export class ToolDomainExtractor {
         'resume',
         'ship',
         'show',
+        'split',
         'start',
         'test',
         'unarchive',
