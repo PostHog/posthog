@@ -1644,13 +1644,11 @@ describe('Cyclotron V2', () => {
             await assertPool.query('DELETE FROM cyclotron_email_team_seq')
         })
 
-        // The full loop of the 2026-09 incident, on the real queue: one team's rate-limited
-        // backlog owned the whole head of the line, every denied send re-parked ~1s out and
-        // came right back, so other teams' emails never got dequeued and the denied rows'
-        // transition counters climbed until one hit 32,767 and stalled the queue. With
-        // denials parking on real future slots instead, the backlog steps aside after one
-        // dequeue each and everyone behind it drains.
-        it('a denied backlog parks out of the way and a later team drains (incident regression)', async () => {
+        // A backlog of denied sends must not stall the queue. Denied sends park on real
+        // future slots, so each one is dequeued once and steps aside, everyone queued
+        // behind them drains, and the row's transition counter stays far below its
+        // 32,767 ceiling (a row at the ceiling fails every dequeue batch it joins).
+        it('a denied backlog parks out of the way and a later team drains', async () => {
             const flowA = uuidv7()
             const flowB = uuidv7()
             // Team 1 queued first, so its 20 sends hold the 20 best queue positions.
@@ -1669,8 +1667,8 @@ describe('Cyclotron V2', () => {
 
             // Process batches the way the email worker does: team 1's sends are denied by
             // their limit and park on their reserved slots, team 2 has no limit and sends.
-            // Before the fix, cycle 3 was team 1 again (their ~1s re-parks were already due
-            // and they kept their queue position), so team 2 never got a batch.
+            // If denied sends re-parked only a second out they would keep their place at
+            // the head, own every batch, and team 2 would never get one.
             for (let cycle = 1; cycle <= 3; cycle++) {
                 const batch = await dequeueOneBatch(worker)
                 for (const job of batch) {
@@ -1687,11 +1685,9 @@ describe('Cyclotron V2', () => {
 
             // All of team 2's sends went out, with 20 denied sends queued in front of them.
             expect(ackedB.size).toBe(5)
-            // Each denied send was dequeued exactly once; in the incident the same sends
-            // cycled thousands of times.
+            // Each denied send was dequeued exactly once, not cycled over and over.
             expect(dequeuedA.size).toBe(20)
-            // The counter that overflowed at 32,767 in the incident stays at 2:
-            // one dequeue plus one reschedule per denied send.
+            // One dequeue plus one reschedule per denied send, so the counter stays at 2.
             const res = await assertPool.query<{ max_tc: number }>(
                 'SELECT MAX(transition_count) AS max_tc FROM cyclotron_jobs WHERE function_id = $1',
                 [flowA]

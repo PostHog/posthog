@@ -578,8 +578,8 @@ describe('EmailService', () => {
                     parkedAt.push(denied.invocation.queueScheduledAt!.toMillis())
                 }
 
-                // 20 wakes spread over an hour should easily span more than 10 minutes.
-                // Before this fix they all landed within a quarter of a second.
+                // The wakes must cover a real part of the hour, not one narrow window:
+                // 20 of them spread over an hour should easily span more than 10 minutes.
                 const spreadMs = Math.max(...parkedAt) - Math.min(...parkedAt)
                 expect(spreadMs).toBeGreaterThan(10 * 60 * 1000)
             })
@@ -630,10 +630,10 @@ describe('EmailService', () => {
             })
         })
 
-        // Reproduces the 2026-09 incident: every denied send used to retry after ~1s, so a
-        // big backlog hammered the queue nonstop and starved everyone else's emails. Now each
-        // denial gets its own future slot and the backlog stays out of the way.
-        describe('a denied backlog cannot crowd out other sends (incident regression)', () => {
+        // A workflow over its sending limit must not crowd out anyone else: every denied
+        // send parks on its own future slot instead of retrying every second, and a
+        // workflow without a limit keeps sending right past the parked backlog.
+        describe('a denied backlog cannot crowd out other sends', () => {
             it('spreads denied sends over distinct future slots and leaves unlimited workflows untouched', async () => {
                 const redis = createRedisV2PoolFromConfig({
                     connection: hub.CDP_REDIS_HOST
@@ -662,7 +662,7 @@ describe('EmailService', () => {
                     new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                     new RecipientsManagerService(hub.postgres),
                     undefined,
-                    new RateLimiterService(redis, { name: 'workflow-email-incident-test' })
+                    new RateLimiterService(redis, { name: 'workflow-email-backlog-test' })
                 )
                 const realSendSpy = jest.spyOn(realLimitedService.sesV2Client!, 'send') as any
                 realSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
@@ -681,9 +681,9 @@ describe('EmailService', () => {
                     parkedAt.push(denied.invocation.queueScheduledAt!.toMillis())
                 }
 
-                // Each denial must hold its own slot, one token interval (10s) apart. Under the
-                // incident behavior every park landed in the same jittered window, so gaps
-                // between consecutive parks were near zero or negative.
+                // Each denial must hold its own slot, one token interval (10s) apart. If the
+                // parks all landed in the same window, the gaps between them would be near
+                // zero or negative and the backlog would wake as one herd.
                 for (let i = 1; i < parkedAt.length; i++) {
                     const gapMs = parkedAt[i] - parkedAt[i - 1]
                     expect(gapMs).toBeGreaterThan(9_000)

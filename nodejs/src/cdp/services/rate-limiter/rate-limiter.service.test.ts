@@ -318,8 +318,8 @@ describe('RateLimiterService', () => {
 
             expect(denial.granted).toBe(0)
             expect(denial.reserved).toBe(true)
-            // A slow test runner only makes the slot shorter (more refill happened). The old
-            // code always reported the full 4s and fails this bound.
+            // A slow test runner only makes the slot shorter (more refill happened).
+            // Charging the full interval would report 4s and fail this bound.
             expect(denial.retryAfterMs).toBeGreaterThan(0)
             expect(denial.retryAfterMs).toBeLessThanOrEqual(3_000)
         })
