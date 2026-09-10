@@ -1524,6 +1524,11 @@ class LabelReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
         # One shared label per observation, like the API: a second rating replaces the first. Atomic
         # because the one-to-one turns two concurrent labels into an IntegrityError rather than a retry.
         with transaction.atomic():
+            # The same parent lock the API path takes. Without it the `previous` read can land before a
+            # concurrent rater commits, and this path then reports a change that never happened.
+            ReplayObservation.objects.select_for_update().only("pk").filter(
+                pk=observation.pk, team_id=observation.team_id
+            ).first()
             previous = (
                 ReplayObservationLabel.objects.filter(observation=observation, team_id=observation.team_id)
                 .values("is_correct", "feedback")

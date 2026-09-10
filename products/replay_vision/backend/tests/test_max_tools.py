@@ -6,9 +6,11 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
@@ -1175,6 +1177,34 @@ class TestReplayVisionLifecycleTools(BaseTest):
         assert rated[0].kwargs["properties"]["source"] == EventSource.POSTHOG_AI
         assert rated[0].kwargs["properties"]["is_new"] is True
         assert rated[0].kwargs["properties"]["scanner_id"] == str(scanner.id)
+
+    @pytest.mark.django_db(transaction=True)
+    def test_labelling_locks_the_observation_like_the_api_path(self):
+        # Unlocked, the `previous` read can land before a concurrent rater commits, and this path then
+        # reports a verdict change that never happened, which is the overcount the API path removed.
+        # Sync on purpose: `CaptureQueriesContext` touches the connection and cannot run under asyncio.
+        scanner = self._scanner()
+        observation = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id="s1",
+            scanner_snapshot={"scanner_type": "monitor"},
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+        label = self._tool(LabelReplayVisionObservationTool)._arun_impl
+
+        with CaptureQueriesContext(connection) as queries:
+            async_to_sync(label)(observation_id=str(observation.id), is_correct=True)
+
+        # `update_or_create` locks the label row itself, and that table name also contains
+        # "observation", so match the parent table exactly.
+        locked = [
+            q["sql"]
+            for q in queries.captured_queries
+            if "FOR UPDATE" in q["sql"] and 'FROM "replay_vision_replayobservation"' in q["sql"]
+        ]
+        assert len(locked) == 1, locked
 
     @staticmethod
     def _captured(capture, event: str) -> list:
