@@ -27,6 +27,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.logs.backend.models import (
     MAX_ENABLED_METRIC_RULES,
     MAX_METRIC_RULE_GROUP_BY_KEYS,
+    METRIC_RULE_GROUP_BY_SPAN_TOP_LEVEL_KEYS,
     METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS,
     LogsMetricRule,
 )
@@ -132,6 +133,16 @@ class LogsMetricRuleSerializer(serializers.ModelSerializer):
             "series are dropped at ingestion."
         ),
     )
+    # `source` collides with DRF's Field.source typing (the attribute lookup), hence the ignore.
+    source: serializers.ChoiceField = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=LogsMetricRule.RecordSource.choices,
+        default=LogsMetricRule.RecordSource.LOGS,
+        help_text=(
+            "Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the "
+            "traces consumer. Immutable after creation — it decides which keys are valid and which pipeline "
+            "runs the rule."
+        ),
+    )
     version = serializers.IntegerField(
         read_only=True, help_text="Incremented on each update for worker cache coherency."
     )
@@ -147,6 +158,7 @@ class LogsMetricRuleSerializer(serializers.ModelSerializer):
             "filter_group",
             "value_attribute",
             "group_by",
+            "source",
             "version",
             "created_by",
             "created_at",
@@ -165,18 +177,22 @@ class LogsMetricRuleSerializer(serializers.ModelSerializer):
         if len(value) > MAX_METRIC_RULE_GROUP_BY_KEYS:
             raise ValidationError(f"At most {MAX_METRIC_RULE_GROUP_BY_KEYS} group-by keys are allowed.")
         for key in value:
-            if key in METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS:
+            if key in METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS or key in METRIC_RULE_GROUP_BY_SPAN_TOP_LEVEL_KEYS:
                 continue
             if any(key.startswith(prefix) and len(key) > len(prefix) for prefix in ATTRIBUTE_KEY_PREFIXES):
                 continue
             raise ValidationError(
-                f"Invalid group-by key {key!r}. Use one of {', '.join(METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS)}, or a "
-                "key prefixed with `attributes.` / `resource_attributes.`."
+                f"Invalid group-by key {key!r}. Use a top-level record key, or a key prefixed with "
+                "`attributes.` / `resource_attributes.`."
             )
         return value
 
     def validate_value_attribute(self, value: str | None) -> str | None:
         if value is None:
+            return value
+        # `duration_ms` is a span pseudo-key (end_time - timestamp) resolved by the worker,
+        # valid only for `source=spans`; that source check runs in validate().
+        if value == "duration_ms":
             return value
         if not any(value.startswith(prefix) and len(value) > len(prefix) for prefix in ATTRIBUTE_KEY_PREFIXES):
             raise ValidationError("value_attribute must be prefixed with `attributes.` or `resource_attributes.`.")
@@ -212,13 +228,36 @@ class LogsMetricRuleSerializer(serializers.ModelSerializer):
         attrs = super().validate(attrs)
         if self.instance is not None:
             self._validate_immutable_fields(attrs)
+        self._validate_source_specific_keys(attrs)
         return attrs
+
+    def _validate_source_specific_keys(self, attrs: dict[str, Any]) -> None:
+        # Source is resolved from the instance on update, the submitted value on create.
+        source = (
+            self.instance.source
+            if self.instance is not None
+            else attrs.get("source", LogsMetricRule.RecordSource.LOGS)
+        )
+        is_spans = source == LogsMetricRule.RecordSource.SPANS
+        value_attribute = attrs.get("value_attribute")
+        if value_attribute == "duration_ms" and not is_spans:
+            raise ValidationError(
+                {"value_attribute": "duration_ms is a span pseudo-key and only valid for `source=spans` rules."}
+            )
+        if not is_spans:
+            return
+        group_by = attrs.get("group_by") or []
+        for key in group_by:
+            if key in METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS and key not in METRIC_RULE_GROUP_BY_SPAN_TOP_LEVEL_KEYS:
+                raise ValidationError(
+                    {"group_by": f"{key!r} is a log-only group-by key; spans carry no such column."}
+                )
 
     def _validate_immutable_fields(self, attrs: dict[str, Any]) -> None:
         assert self.instance is not None
         # `initial_data` (not validated attrs) distinguishes "field omitted from PATCH"
         # from "field explicitly sent" — defaults would otherwise read as a change.
-        for field in ("metric_name", "value_attribute"):
+        for field in ("metric_name", "value_attribute", "source"):
             if field in self.initial_data and attrs.get(field) != getattr(self.instance, field):
                 raise ValidationError({field: f"{field} is immutable after creation — create a new rule to change it."})
 
@@ -273,7 +312,8 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team_rules = team_rules.exclude(pk=exclude_pk)
 
         metric_name = serializer.validated_data.get("metric_name")
-        if metric_name and team_rules.filter(metric_name=metric_name).exists():
+        source = serializer.validated_data.get("source", LogsMetricRule.RecordSource.LOGS)
+        if metric_name and team_rules.filter(metric_name=metric_name, source=source).exists():
             raise ValidationError({"metric_name": "A rule already emits this metric name in this project."})
 
         wants_enabled = serializer.validated_data.get("enabled")

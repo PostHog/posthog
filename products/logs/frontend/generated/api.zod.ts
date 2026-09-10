@@ -1128,6 +1128,8 @@ export const logsMetricRulesCreateBodyValueAttributeMax = 512
 
 export const logsMetricRulesCreateBodyGroupByItemMax = 512
 
+export const logsMetricRulesCreateBodySourceDefault = `logs`
+
 export const LogsMetricRulesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsMetricRulesCreateBodyNameMax).describe('User-visible label for this rule.'),
     metric_name: zod
@@ -1161,6 +1163,13 @@ export const LogsMetricRulesCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
         ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .default(logsMetricRulesCreateBodySourceDefault)
+        .describe(
+            'Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.\n\n\* `logs` - Logs\n\* `spans` - Spans'
+        ),
 })
 
 export const logsMetricRulesUpdateBodyNameMax = 255
@@ -1171,6 +1180,8 @@ export const logsMetricRulesUpdateBodyEnabledDefault = false
 export const logsMetricRulesUpdateBodyValueAttributeMax = 512
 
 export const logsMetricRulesUpdateBodyGroupByItemMax = 512
+
+export const logsMetricRulesUpdateBodySourceDefault = `logs`
 
 export const LogsMetricRulesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsMetricRulesUpdateBodyNameMax).describe('User-visible label for this rule.'),
@@ -1205,6 +1216,13 @@ export const LogsMetricRulesUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
         ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .default(logsMetricRulesUpdateBodySourceDefault)
+        .describe(
+            'Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.\n\n\* `logs` - Logs\n\* `spans` - Spans'
+        ),
 })
 
 export const logsMetricRulesPartialUpdateBodyNameMax = 255
@@ -1215,6 +1233,8 @@ export const logsMetricRulesPartialUpdateBodyEnabledDefault = false
 export const logsMetricRulesPartialUpdateBodyValueAttributeMax = 512
 
 export const logsMetricRulesPartialUpdateBodyGroupByItemMax = 512
+
+export const logsMetricRulesPartialUpdateBodySourceDefault = `logs`
 
 export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -1253,6 +1273,13 @@ export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .default(logsMetricRulesPartialUpdateBodySourceDefault)
+        .describe(
+            'Record source the rule tallies: `logs` (default) evaluates in the logs consumer, `spans` in the traces consumer. Immutable after creation — it decides which keys are valid and which pipeline runs the rule.\n\n\* `logs` - Logs\n\* `spans` - Spans'
         ),
 })
 
