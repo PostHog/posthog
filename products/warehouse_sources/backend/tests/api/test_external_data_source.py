@@ -7372,7 +7372,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.prefix == "Updated name"
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
-    def test_update_direct_postgres_schema_filter_refreshes_existing_schemas(self, mock_get_source):
+    def test_update_direct_postgres_schema_filter_defers_schema_refresh(self, mock_get_source):
         _configure_source_mock_versioning(mock_get_source)
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -7406,16 +7406,12 @@ class TestExternalDataSource(APIBaseTest):
             sync_type_config={"schema_metadata": {"columns": [], "foreign_keys": []}},
         )
 
-        parsed_config = Mock()
-        parsed_config.to_dict.return_value = {
-            "host": "localhost",
-            "port": "5432",
-            "database": "database",
-            "user": "user",
-            "password": "password",
-            "schema": "analytics",
-        }
-        mock_get_source.return_value.parse_config.return_value = parsed_config
+        def parse_config(job_inputs: dict[str, Any]) -> Mock:
+            parsed_config = Mock()
+            parsed_config.to_dict.return_value = job_inputs
+            return parsed_config
+
+        mock_get_source.return_value.parse_config.side_effect = parse_config
         mock_get_source.return_value.validate_config.return_value = (True, [])
         mock_get_source.return_value.validate_credentials.return_value = (True, None)
         mock_get_source.return_value.get_connection_metadata.return_value = {"database": "ducklake", "engine": "duckdb"}
@@ -7447,10 +7443,10 @@ class TestExternalDataSource(APIBaseTest):
         filtered_out_schema.refresh_from_db()
 
         assert source.job_inputs["schema"] == "analytics"
-        assert [schema["name"] for schema in response.json()["schemas"]] == ["analytics.events"]
+        assert [schema["name"] for schema in response.json()["schemas"]] == ["analytics.events", "public.users"]
         assert matching_schema.deleted is False
-        assert matching_schema.sync_type_config["schema_metadata"]["source_schema"] == "analytics"
-        assert filtered_out_schema.deleted is True
+        assert filtered_out_schema.deleted is False
+        mock_get_source.return_value.get_schemas.assert_not_called()
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_update_direct_postgres_schema_filter_preserves_selected_table_for_same_physical_schema(
@@ -7518,16 +7514,12 @@ class TestExternalDataSource(APIBaseTest):
             field_name="posthog_events",
         )
 
-        parsed_config = Mock()
-        parsed_config.to_dict.return_value = {
-            "host": "localhost",
-            "port": "5432",
-            "database": "database",
-            "user": "user",
-            "password": "password",
-            "schema": "posthog",
-        }
-        mock_get_source.return_value.parse_config.return_value = parsed_config
+        def parse_config(job_inputs: dict[str, Any]) -> Mock:
+            parsed_config = Mock()
+            parsed_config.to_dict.return_value = job_inputs
+            return parsed_config
+
+        mock_get_source.return_value.parse_config.side_effect = parse_config
         mock_get_source.return_value.validate_config.return_value = (True, [])
         mock_get_source.return_value.validate_credentials.return_value = (True, None)
         mock_get_source.return_value.get_connection_metadata.return_value = {
@@ -7557,6 +7549,13 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         assert response.status_code == 200, response.json()
+        mock_get_source.return_value.get_schemas.assert_not_called()
+
+        refresh_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        assert refresh_response.status_code == 200, refresh_response.json()
         source.refresh_from_db()
         existing_schema.refresh_from_db()
         table.refresh_from_db()
@@ -7572,7 +7571,6 @@ class TestExternalDataSource(APIBaseTest):
         assert table.name == "events"
         assert table.options["direct_postgres_schema"] == "posthog"
         assert table.options["direct_postgres_table"] == "events"
-        assert [schema["name"] for schema in response.json()["schemas"]] == ["events"]
         assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count() == 1
         assert source_join.source_table_name == "events"
         assert joining_join.joining_table_name == "events"

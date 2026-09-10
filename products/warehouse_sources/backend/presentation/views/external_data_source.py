@@ -116,6 +116,7 @@ from products.warehouse_sources.backend.facade.models import (
     PendingSourceCredential,
     auto_enable_new_schemas,
     latest_completed_job_prefetch,
+    schema_reconciliation_lock,
     sync_old_schemas_with_new_schemas,
     update_sync_type_config_keys,
 )
@@ -1284,8 +1285,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         source = SourceRegistry.get_source(source_type_model)
         sensitive_fields = get_sensitive_field_names(source.get_source_config.fields)
         declared_field_names = get_declared_field_names(source.get_source_config.fields)
-        discovered_schemas: list[SourceSchema] | None = None
-
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
         # CDC resource ownership changes must go through the CDC-specific endpoints.
@@ -1458,7 +1457,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             existing_job_inputs=existing_job_inputs,
             incoming_job_inputs=incoming_job_inputs,
         )
-        if old_schema is not None:
+        if old_schema is not None and not instance.is_direct_query:
             apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
         source_config: Config = source.parse_config(new_job_inputs)
@@ -1468,8 +1467,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # unrelated setting (auto-syncing new tables, the prefix, the description) re-probed the
         # live connection too — and a momentarily unreachable database then failed the whole save,
         # leaving nothing to do but retry. Compare the parsed config against what's stored so the
-        # probe below only runs when the connection actually changed. Direct query sources still
-        # probe on every save: the same call refreshes their schemas and connection metadata.
+        # probe below only runs when the connection actually changed.
         try:
             stored_job_inputs = source.parse_config(existing_job_inputs).to_dict()
         except Exception:
@@ -1483,7 +1481,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 validated_job_inputs[key] = existing_job_inputs[key]
         validated_data["job_inputs"] = validated_job_inputs
 
-        if job_inputs_were_submitted and (connection_config_changed or instance.is_direct_query):
+        if job_inputs_were_submitted and connection_config_changed:
             effective_api_version = source.resolve_api_version(instance.api_version)
             try:
                 if isinstance(source, (PostgresSource, MySQLSource)):
@@ -1514,9 +1512,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if not credentials_valid:
                 raise ValidationError(credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE)
             if instance.is_direct_query:
-                discovered_schemas = source.get_schemas(
-                    source_config, instance.team_id, api_version=effective_api_version
-                )
                 validated_data["connection_metadata"] = get_direct_connection_metadata(
                     source_impl=source,
                     source_config=source_config,
@@ -1553,48 +1548,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 old_resources=old_namespaced_resources,
                 new_config=source_config,
             )
-
-        if updated_source.is_direct_query and discovered_schemas is not None:
-            schema_names = {schema.name: schema.label for schema in discovered_schemas}
-            descriptions = {schema.name: schema.description for schema in discovered_schemas}
-
-            with transaction.atomic():
-                ExternalDataSource._base_manager.filter(pk=updated_source.pk).select_for_update().get()
-                engine = get_direct_query_engine(updated_source.direct_engine)
-                name_substitutions = _refresh_name_substitutions(
-                    engine, source=updated_source, source_schemas=discovered_schemas, team_id=instance.team_id
-                )
-                if name_substitutions:
-                    schema_names = {name_substitutions.get(name, name): label for name, label in schema_names.items()}
-                    descriptions = {
-                        name_substitutions.get(name, name): description for name, description in descriptions.items()
-                    }
-                sync_old_schemas_with_new_schemas(
-                    schema_names,
-                    source_id=str(updated_source.id),
-                    team_id=instance.team_id,
-                    descriptions=descriptions,
-                )
-                # Direct call on the engine adapter (not the source hook) so tests mocking
-                # `SourceRegistry.get_source` still exercise the real DataWarehouseTable rebuild.
-                if engine is not None:
-                    engine.reconcile_schemas(
-                        source=updated_source, source_schemas=discovered_schemas, team_id=instance.team_id
-                    )
-
-            schemas = list(
-                ExternalDataSchema.objects.filter(team_id=instance.team_id, source_id=updated_source.id)
-                .exclude(deleted=True)
-                # This is the update() response path, which serializes the full column shape
-                # (include_columns=True) — building columns reads table.credential.access_key per schema,
-                # so keep the credential joined here to avoid an N+1.
-                .select_related("table__credential", "table__external_data_source")
-                .order_by("name")
-            )
-            # `get_status`/`get_latest_error` derive the active/errored subset from this prefetch, so no
-            # separate `active_schemas` query is needed.
-            updated_source_any = cast(Any, updated_source)
-            updated_source_any._prefetched_objects_cache = {"schemas": schemas}
 
         return updated_source
 
@@ -3355,8 +3308,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         descriptions = {s.name: s.description for s in schemas}
-        with transaction.atomic():
-            ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
+        with schema_reconciliation_lock(instance.id):
             if instance.is_direct_query and connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
@@ -3399,8 +3351,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 # capability and reconcile hook, so it reuses this path.
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
 
-        # Outside the atomic block: schedule creation talks to Temporal, which must not run under
-        # the source row lock or against rows that could still roll back. `sync_result.created` holds
+        # Outside the atomic block: schedule creation talks to Temporal and must not run against rows
+        # that could still roll back. `sync_result.created` holds
         # post-substitution stored names, so remap the discovered names to match.
         auto_enabled_names: list[str] = []
         if sync_result.created:

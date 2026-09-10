@@ -29,6 +29,9 @@ def _patch_common(source_mock, schemas_created=None, source_api_version=None):
         "source_type": mock.patch.object(module, "ExternalDataSourceType", return_value="GoogleAds"),
         "is_registered": mock.patch.object(module.SourceRegistry, "is_registered", return_value=True),
         "get_source": mock.patch.object(module.SourceRegistry, "get_source", return_value=source_mock),
+        "schema_reconciliation_lock": mock.patch.object(
+            module, "schema_reconciliation_lock", return_value=contextlib.nullcontext()
+        ),
         "sync_old_schemas_with_new_schemas": mock.patch.object(
             module,
             "sync_old_schemas_with_new_schemas",

@@ -13,6 +13,7 @@ from posthog.temporal.common.logger import get_logger
 from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule
 from products.warehouse_sources.backend.models.external_data_schema import (
     auto_enable_new_schemas,
+    schema_reconciliation_lock,
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -114,21 +115,20 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
     else:
         raise ValueError(f"Source type missing from SourceRegistry: {source.source_type}")
 
-    # TODO: this could cause a race condition where each schema worker creates the missing schema
-
     # GitHub keeps its legacy repo's rows bare alongside qualified rows for added repos, so
     # bare↔qualified tail matching would wrongly collapse them; match names exactly and seed
     # per-repo location metadata on newly created rows.
     is_github = source_type_enum == ExternalDataSourceType.GITHUB
-    sync_result = sync_old_schemas_with_new_schemas(
-        schemas_to_sync,
-        source_id=inputs.source_id,
-        team_id=inputs.team_id,
-        strict_name_match=is_github,
-        schema_metadata_by_name={s.name: s.schema_metadata for s in schemas if s.schema_metadata}
-        if is_github
-        else None,
-    )
+    with schema_reconciliation_lock(inputs.source_id):
+        sync_result = sync_old_schemas_with_new_schemas(
+            schemas_to_sync,
+            source_id=inputs.source_id,
+            team_id=inputs.team_id,
+            strict_name_match=is_github,
+            schema_metadata_by_name={s.name: s.schema_metadata for s in schemas if s.schema_metadata}
+            if is_github
+            else None,
+        )
 
     if len(sync_result.created) > 0:
         logger.info(f"Added new schemas: {', '.join(sync_result.created)}")
