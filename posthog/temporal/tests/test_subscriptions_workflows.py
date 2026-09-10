@@ -158,6 +158,15 @@ async def test_subscription_scheduler_dispatch_metric_has_bounded_dimensions() -
     meter.add.assert_called_once_with(3)
 
 
+# Temporal rejects @workflow.run on a class defined inside a function, so this stub child stays
+# at module level.
+@temporalio.workflow.defn(name="process-subscription")
+class LegacyProcessSubscriptionChild:
+    @temporalio.workflow.run
+    async def run(self, _inputs: TrackedSubscriptionInputs) -> None:
+        return None
+
+
 async def test_schedule_all_subscriptions_replays_pre_durable_dispatch_history(monkeypatch) -> None:
     @temporalio.activity.defn(name="fetch_due_subscriptions_activity")
     async def fetch_one(_inputs: FetchDueSubscriptionsActivityInputs) -> list[DueSubscription]:
@@ -171,19 +180,13 @@ async def test_schedule_all_subscriptions_replays_pre_durable_dispatch_history(m
             )
         ]
 
-    @temporalio.workflow.defn(name="process-subscription")
-    class LegacyChild:
-        @temporalio.workflow.run
-        async def run(self, _inputs: TrackedSubscriptionInputs) -> None:
-            return None
-
     task_queue = str(uuid.uuid4())
     pre_patch_history: WorkflowHistory
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue,
-            workflows=[ScheduleAllSubscriptionsWorkflow, LegacyChild],
+            workflows=[ScheduleAllSubscriptionsWorkflow, LegacyProcessSubscriptionChild],
             activities=[fetch_one],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -3364,7 +3367,7 @@ async def test_claimed_subscription_page_checkpoints_after_dispatch_with_unequal
     for index, (subscription_team, due_at) in enumerate(zip(teams, due_times, strict=True)):
         insight = await sync_to_async(Insight.objects.create)(
             team=subscription_team,
-            short_id=f"claim-cursor-{index}",
+            short_id=f"clm-cursor-{index}",
             name=f"Claim cursor insight {index}",
         )
         subscription = await sync_to_async(create_subscription)(
