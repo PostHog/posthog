@@ -109,6 +109,7 @@ export interface IDashboardsService {
     provider: string;
     tool: string;
     arguments: Record<string, unknown>;
+    approval_token?: string;
   }): Promise<CanvasConnectorCallResult>;
   // Read the canvas's source project (the head, or a historical version).
   getSource(input: { id: string; versionId?: string }): Promise<CanvasSource>;
