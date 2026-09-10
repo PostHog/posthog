@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from asgiref.sync import sync_to_async
@@ -21,12 +21,17 @@ from pydantic import BaseModel, Field
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.interval_specs import interval_spec
 from posthog.models import Team
 
 from products.alerts.backend.models.alert import AlertConfiguration
 
 MAX_HOGQL_ROWS = 50
 MAX_SERIES_POINTS = 120
+SEASONAL_LOOKBACK_DAYS = 14
+SEASONAL_LOOKBACK_WEEKS = 4
+_SUB_DAY_INTERVALS = ("minute", "hour")
+_SEASONAL_INTERVALS = (*_SUB_DAY_INTERVALS, "day")
 
 _DATE_HELP = (
     "Accepts PostHog relative shorthands ('-7d', '-24h', 'now') — resolved to an "
@@ -91,6 +96,82 @@ def _compact(seq: list[Any]) -> list[Any]:
     if len(seq) <= MAX_SERIES_POINTS:
         return list(seq)
     return list(seq[-MAX_SERIES_POINTS:])
+
+
+def _parse_label(value: Any) -> datetime | None:
+    """Read a series label as a timestamp. Trends labels arrive as datetimes, SQL insight
+    labels as ISO strings."""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+
+
+def _seasonal_baselines(dates: list[Any], values: list[Any], interval: str | None) -> dict[str, Any] | None:
+    """Same-time-of-day and same-weekday history for the newest bucket of the series.
+
+    The agent cannot count buckets back by eye. On an hourly series the bucket a day earlier is
+    24 positions back, and one missing bucket shifts every later count by one, so a hand-counted
+    baseline reads values off other times of day. This matches buckets by timestamp, and runs on
+    the whole series rather than the truncated window the agent is shown.
+    """
+    if interval not in _SEASONAL_INTERVALS or len(dates) != len(values) or not dates:
+        return None
+    newest = _parse_label(dates[-1])
+    if newest is None:
+        return None
+
+    align = interval_spec(interval).align
+    anchor = align(newest, None)
+    # A daily bucket already covers the whole day, so only sub-day intervals have a time of day.
+    groups = [("same_weekday_prior_weeks", 7, SEASONAL_LOOKBACK_WEEKS)]
+    if interval in _SUB_DAY_INTERVALS:
+        groups.append(("same_time_of_day_prior_days", 1, SEASONAL_LOOKBACK_DAYS))
+
+    wanted = {
+        anchor - timedelta(days=periods_back * day_step)
+        for _, day_step, periods in groups
+        for periods_back in range(1, periods + 1)
+    }
+    found: dict[datetime, dict[str, Any]] = {}
+    for label, value in zip(dates, values):
+        ts = _parse_label(label)
+        if ts is None:
+            continue
+        bucket = align(ts, None)
+        if bucket in wanted:
+            found[bucket] = {"label": label, "value": value}
+
+    baselines: dict[str, Any] = {"newest_bucket": {"label": dates[-1], "value": values[-1]}}
+    for name, day_step, periods in groups:
+        # Oldest first. Steps the series has no bucket for are left out.
+        baselines[name] = [
+            found[bucket]
+            for periods_back in range(periods, 0, -1)
+            if (bucket := anchor - timedelta(days=periods_back * day_step)) in found
+        ]
+    return baselines
+
+
+def _series_payload(sim: dict[str, Any]) -> dict[str, Any]:
+    """Fields both metric tools return: the newest window of points, whether older points were
+    dropped from it, and the seasonal comparison over the whole series."""
+    dates = sim.get("dates") or []
+    values = sim.get("data") or []
+    interval = sim.get("interval")
+    return {
+        "interval": interval,
+        "labels": _compact(dates),
+        "values": _compact(values),
+        "truncated": len(values) > MAX_SERIES_POINTS,
+        "seasonal_baselines": _seasonal_baselines(dates, values, interval),
+    }
 
 
 def _run_detector_simulation(
@@ -196,14 +277,7 @@ class InvestigationToolkit:
         if isinstance(sim, str):
             return f"Error fetching series: {sim}"
 
-        dates = sim.get("dates") or []
-        values = sim.get("data") or []
-        payload = {
-            "interval": sim.get("interval"),
-            "labels": _compact(dates),
-            "values": _compact(values),
-            "point_count": len(values),
-        }
+        payload = {**_series_payload(sim), "point_count": len(sim.get("data") or [])}
         return json.dumps(payload, default=str)
 
     async def simulate_detector(self, args: SimulateDetectorArgs) -> str:
@@ -221,14 +295,10 @@ class InvestigationToolkit:
         if isinstance(sim, str):
             return f"Error running simulation: {sim}"
 
-        scores = sim.get("scores") or []
         values = sim.get("data") or []
-        dates = sim.get("dates") or []
         payload = {
-            "interval": sim.get("interval"),
-            "labels": _compact(dates),
-            "values": _compact(values),
-            "scores": _compact(scores),
+            **_series_payload(sim),
+            "scores": _compact(sim.get("scores") or []),
             "triggered_dates": sim.get("triggered_dates") or [],
             "anomaly_count": sim.get("anomaly_count") or 0,
             "total_points": sim.get("total_points") or len(values),
