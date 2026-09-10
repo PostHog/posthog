@@ -623,6 +623,29 @@ def get_person_uuids_and_matched_distinct_ids(team_id: int, distinct_ids: list[s
     )
 
 
+def get_linked_distinct_ids(team_id: int, distinct_id: str) -> list[str]:
+    """Return every distinct ID of the person that owns ``distinct_id``, or [] when no person matches.
+
+    Lightweight variant of ``get_persons_by_distinct_ids`` for callers that want the linked
+    identifiers only — the field mask keeps person properties out of the RPC payload.
+    """
+
+    def personhog_fn() -> list[str]:
+        # The singular GetPersonByDistinctId RPC reads the properties columns whatever mask it is
+        # given, so resolve through the plural one, which honors the mask.
+        results = _batched_get_persons_by_distinct_ids(
+            team_id,
+            [distinct_id],
+            "get_linked_distinct_ids",
+            read_options=_UUID_ONLY_READ_OPTIONS,
+        )
+        if not results:
+            return []
+        return _distinct_ids_for_person(_get_client(), team_id, results[0].person.id, None)
+
+    return personhog_call("get_linked_distinct_ids", personhog_fn)
+
+
 def delete_persons_from_postgres(team_id: int, persons: list[Person]) -> None:
     """Delete Person rows (and associated PersonDistinctId rows) via the personhog RPC.
 
