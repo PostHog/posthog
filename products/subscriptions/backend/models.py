@@ -132,7 +132,7 @@ class ProactiveRecommendationOutcome(TeamScopedRootMixin, UUIDModel):
         ZERO_BASELINE = "zero_baseline", "Zero baseline"
         FLAT_MOVEMENT = "flat_movement", "Flat movement"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     artifact = models.OneToOneField(ProactivePreparedArtifact, on_delete=models.CASCADE, related_name="outcome")
