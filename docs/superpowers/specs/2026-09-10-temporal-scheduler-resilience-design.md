@@ -249,13 +249,13 @@ Before each page, discovery acquires durable admission permits scoped by schedul
 
 A non-replayed activity reads Temporal task-queue health or a control-plane snapshot before granting permits. Missing or stale health data permits only the baseline page when capacity remains available. Failure of the permit store stops dispatch and alerts rather than bypassing the global bound.
 
-The first implementation uses `SKIP` overlap and one page without admission permits. `ALLOW_ALL` and multi-page recovery remain disabled until durable claims and permits have passed the overlap tests.
+The subscription implementation uses `SKIP`, one page, and durable claims and permits. Other first-wave coordinators stay on one page without permits until they adopt the same ownership model. `ALLOW_ALL` and multi-page recovery remain disabled until the overlap tests have passed in production.
 
 ### Subscription sizing evidence
 
 The first subscription rollout uses a 300-item baseline page and a code-owned 1,000-item hard ceiling. Production sampling shows that the default covers a typical cadence window while keeping each activation bounded. Payload measurement can reduce even that page when unusual identifiers would exceed 512 KiB.
 
-The 300 default is an operating page, not a recovery envelope. The adaptive follow-up must admit multiple independent pages behind durable permits to cover the three-interval recovery target without raising the per-page payload or command limit. Production tenant breadth also requires a durable rotating tenant cursor rather than always beginning at the lowest tenant identifier.
+The 300 default is an operating page, not a recovery envelope. Durable claims and the rotating tenant cursor prevent running work from consuming the next page. The adaptive follow-up must admit multiple independent pages behind the same permits to cover the three-interval recovery target without raising the per-page payload or command limit.
 
 ### Worker capacity
 

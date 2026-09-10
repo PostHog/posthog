@@ -2,6 +2,7 @@ import json
 import math
 import uuid
 import typing
+import asyncio
 import datetime as dt
 import dataclasses
 from collections import defaultdict
@@ -13,10 +14,23 @@ from django.utils import timezone as tz
 
 import temporalio.activity
 from structlog import get_logger
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.exceptions import ApplicationError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models.temporal_scheduler import TemporalSchedulerState
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.scheduler.admission import (
+    SchedulerAdmissionLimits,
+    SchedulerClaimRequest,
+    complete_scheduler_claim,
+    confirm_scheduler_claim,
+    list_expired_scheduler_claims,
+    prune_inactive_scheduler_claims,
+    release_scheduler_claim,
+    reserve_scheduler_claims,
+)
 from posthog.temporal.scheduler.metrics import DEFAULT_SCHEDULER_METRICS, record_scheduler_metrics_safely
 from posthog.temporal.scheduler.payload import select_items_within_temporal_payload
 
@@ -35,6 +49,8 @@ from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_insight_delivery_snapshot,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_PROMPT_RESOURCE_TYPE,
+    DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
     MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -48,6 +64,8 @@ from products.exports.backend.temporal.subscriptions.types import (
     NoExportableInsightsContext,
     NoExportableInsightsReason,
     RecipientResult,
+    RecoverSubscriptionSchedulerClaimsInputs,
+    SubscriptionSchedulerClaimInputs,
     UpdateDeliveryRecordInputs,
 )
 from products.product_analytics.backend.facade.models import Insight
@@ -70,6 +88,12 @@ from ee.tasks.subscriptions.teams_subscriptions import build_teams_subscription_
 LOGGER = get_logger(__name__)
 
 _SUBSCRIPTION_SCHEDULER_NAME = "subscriptions"
+_SUBSCRIPTION_RESERVATION_LEASE = dt.timedelta(minutes=30)
+_SUBSCRIPTION_EXECUTION_LEASE = dt.timedelta(hours=2, minutes=15)
+_SUBSCRIPTION_MAX_IN_FLIGHT = MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
+_SUBSCRIPTION_MAX_IN_FLIGHT_PER_TENANT = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
+_SUBSCRIPTION_RECOVERY_CONCURRENCY = 20
+_SUBSCRIPTION_CANDIDATE_LIMIT = _SUBSCRIPTION_MAX_IN_FLIGHT + MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN + 1
 
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
 # (it indicates a transient resolve failure that retries can recover from).
@@ -99,6 +123,20 @@ class _DueSubscriptionsPage:
     due_items_lower_bound: int
     oldest_due_at: dt.datetime | None
     discovery_cursor: str
+    scanned_team_cursor: str
+
+
+def _subscription_child_workflow_id(subscription: DueSubscription) -> str:
+    prefix = (
+        "process-ai-subscription" if subscription.resource_type == AI_PROMPT_RESOURCE_TYPE else "process-subscription"
+    )
+    return f"{prefix}-{subscription.subscription_id}"
+
+
+def _subscription_occurrence_key(subscription: DueSubscription) -> str:
+    if subscription.next_delivery_date is None:
+        raise ValueError(f"Due subscription {subscription.subscription_id} is missing next_delivery_date")
+    return f"subscription:{subscription.subscription_id}:{subscription.next_delivery_date}"
 
 
 def _select_due_subscription_candidate_ids(
@@ -331,18 +369,18 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 deferred_teams = deferred_teams or due_subscriptions.filter(team_id__lte=team_cursor).exists()
 
             if not selected_team_ids:
-                return _DueSubscriptionsPage([], 0, oldest_due_at, discovery_cursor)
+                return _DueSubscriptionsPage([], 0, oldest_due_at, discovery_cursor, discovery_cursor)
 
-            candidate_limit = inputs.max_subscriptions_per_run + 1
+            candidate_limit = _SUBSCRIPTION_CANDIDATE_LIMIT
             bounded_candidate_ids = _select_due_subscription_candidate_ids(
                 selected_team_ids, now_with_buffer, candidate_limit
             )
 
-            deferred_candidates = len(bounded_candidate_ids) > inputs.max_subscriptions_per_run
-            candidate_ids = bounded_candidate_ids[: inputs.max_subscriptions_per_run]
+            deferred_candidates = len(bounded_candidate_ids) == candidate_limit
+            candidate_ids = bounded_candidate_ids
 
         if not candidate_ids:
-            return _DueSubscriptionsPage([], 0, oldest_due_at, discovery_cursor)
+            return _DueSubscriptionsPage([], 0, oldest_due_at, discovery_cursor, str(selected_team_ids[-1]))
 
         subscriptions_by_id = {
             sub["id"]: sub
@@ -384,15 +422,109 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
             for sub in subscriptions
         ]
         due_items_lower_bound = len(subscriptions) + int(deferred_teams or deferred_candidates)
-        return _DueSubscriptionsPage(results, due_items_lower_bound, oldest_due_at, discovery_cursor)
+        return _DueSubscriptionsPage(
+            results,
+            due_items_lower_bound,
+            oldest_due_at,
+            discovery_cursor,
+            str(selected_team_ids[-1]),
+        )
 
     page = await get_subscriptions()
+
+    @database_sync_to_async(thread_sensitive=False)
+    def reserve_candidates(candidates: list[DueSubscription]) -> dict[str, tuple[str, str]]:
+        result = reserve_scheduler_claims(
+            scheduler=_SUBSCRIPTION_SCHEDULER_NAME,
+            region=inputs.region,
+            requests=[
+                SchedulerClaimRequest(
+                    tenant_key=str(candidate.team_id),
+                    occurrence_key=_subscription_occurrence_key(candidate),
+                    workflow_id=_subscription_child_workflow_id(candidate),
+                )
+                for candidate in candidates
+            ],
+            limits=SchedulerAdmissionLimits(
+                max_in_flight=_SUBSCRIPTION_MAX_IN_FLIGHT,
+                max_in_flight_per_tenant=_SUBSCRIPTION_MAX_IN_FLIGHT_PER_TENANT,
+                lease_duration=_SUBSCRIPTION_RESERVATION_LEASE,
+            ),
+        )
+        return {
+            reservation.occurrence_key: (str(reservation.claim_id), str(reservation.claim_token))
+            for reservation in result.reservations
+        }
+
+    if inputs.use_durable_claims:
+        claimed_subscriptions: list[DueSubscription] = []
+        candidate_index = 0
+        while len(claimed_subscriptions) < inputs.max_subscriptions_per_run and candidate_index < len(
+            page.subscriptions
+        ):
+            remaining = inputs.max_subscriptions_per_run - len(claimed_subscriptions)
+            candidates = page.subscriptions[candidate_index : candidate_index + remaining]
+            probe_candidates = [
+                dataclasses.replace(
+                    candidate,
+                    scheduler_claim_id="00000000-0000-0000-0000-000000000000",
+                    scheduler_claim_token="00000000-0000-0000-0000-000000000000",
+                )
+                for candidate in candidates
+            ]
+            probe = await select_items_within_temporal_payload(
+                [*claimed_subscriptions, *probe_candidates],
+                build_payload=lambda items: list(items),
+                max_items=inputs.max_subscriptions_per_run,
+            )
+            safe_candidate_count = len(probe.items) - len(claimed_subscriptions)
+            if safe_candidate_count <= 0:
+                break
+            safe_candidates = candidates[:safe_candidate_count]
+            candidate_index += safe_candidate_count
+            reservations = await reserve_candidates(safe_candidates)
+            for candidate in safe_candidates:
+                claim = reservations.get(_subscription_occurrence_key(candidate))
+                if claim is not None:
+                    claimed_subscriptions.append(
+                        dataclasses.replace(
+                            candidate,
+                            scheduler_claim_id=claim[0],
+                            scheduler_claim_token=claim[1],
+                        )
+                    )
+            if safe_candidate_count < len(candidates):
+                break
+        subscriptions_for_payload = claimed_subscriptions
+    else:
+        subscriptions_for_payload = page.subscriptions
+
     selection = await select_items_within_temporal_payload(
-        page.subscriptions,
+        subscriptions_for_payload,
         build_payload=lambda items: list(items),
         max_items=inputs.max_subscriptions_per_run,
     )
-    if selection.items:
+    if inputs.use_durable_claims and len(selection.items) < len(subscriptions_for_payload):
+
+        @database_sync_to_async(thread_sensitive=False)
+        def release_payload_deferred_claims() -> None:
+            for subscription in subscriptions_for_payload[len(selection.items) :]:
+                if subscription.scheduler_claim_id and subscription.scheduler_claim_token:
+                    release_scheduler_claim(
+                        uuid.UUID(subscription.scheduler_claim_id),
+                        uuid.UUID(subscription.scheduler_claim_token),
+                        error="deferred by the scheduler payload guard",
+                    )
+
+        await release_payload_deferred_claims()
+    cursor_team_id = (
+        page.scanned_team_cursor
+        if inputs.use_durable_claims and page.subscriptions
+        else str(selection.items[-1].team_id)
+        if selection.items
+        else None
+    )
+    if cursor_team_id is not None:
 
         @database_sync_to_async(thread_sensitive=False)
         def advance_discovery_cursor() -> None:
@@ -401,7 +533,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 region=inputs.region,
                 discovery_cursor=page.discovery_cursor,
             ).update(
-                discovery_cursor=str(selection.items[-1].team_id),
+                discovery_cursor=cursor_team_id,
                 updated_at=tz.now(),
             )
 
@@ -440,6 +572,113 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     )
 
     return list(selection.items)
+
+
+@temporalio.activity.defn
+async def recover_subscription_scheduler_claims_activity(
+    inputs: RecoverSubscriptionSchedulerClaimsInputs,
+) -> dict[str, int]:
+    if not inputs.region.strip() or len(inputs.region) > 32:
+        raise ValueError("region must contain between 1 and 32 characters")
+    if not 1 <= inputs.limit <= MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN:
+        raise ValueError(f"limit must be between 1 and {MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN}")
+
+    @database_sync_to_async(thread_sensitive=False)
+    def load_expired_claims() -> tuple[list[tuple[uuid.UUID, uuid.UUID, str, dt.datetime]], int]:
+        now = tz.now()
+        expired = [
+            (claim.id, claim.claim_token, claim.workflow_id, claim.lease_expires_at)
+            for claim in list_expired_scheduler_claims(
+                scheduler=_SUBSCRIPTION_SCHEDULER_NAME,
+                region=inputs.region,
+                limit=inputs.limit,
+            )
+            if claim.lease_expires_at is not None
+        ]
+        pruned = prune_inactive_scheduler_claims(
+            scheduler=_SUBSCRIPTION_SCHEDULER_NAME,
+            region=inputs.region,
+            completed_before=now - dt.timedelta(days=7),
+            available_before=now - dt.timedelta(days=1),
+            limit=inputs.limit,
+        )
+        return expired, pruned
+
+    expired_claims, pruned = await load_expired_claims()
+    if not expired_claims:
+        return {"released": 0, "renewed": 0, "retained": 0, "pruned": pruned}
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_SUBSCRIPTION_RECOVERY_CONCURRENCY)
+
+    async def workflow_is_open(workflow_id: str) -> bool | None:
+        async with semaphore:
+            try:
+                description = await temporal.get_workflow_handle(workflow_id).describe()
+            except RPCError as error:
+                return False if error.status == RPCStatusCode.NOT_FOUND else None
+            except Exception:
+                return None
+            return description.status == WorkflowExecutionStatus.RUNNING
+
+    statuses = await asyncio.gather(*(workflow_is_open(workflow_id) for _, _, workflow_id, _ in expired_claims))
+
+    @database_sync_to_async(thread_sensitive=False)
+    def reconcile_claims() -> dict[str, int]:
+        released = 0
+        renewed = 0
+        retained = 0
+        for (claim_id, claim_token, _, lease_expires_at), is_open in zip(expired_claims, statuses, strict=True):
+            if is_open is True:
+                renewed += int(
+                    confirm_scheduler_claim(
+                        claim_id,
+                        claim_token,
+                        lease_duration=_SUBSCRIPTION_EXECUTION_LEASE,
+                    )
+                )
+            elif is_open is False:
+                released += int(
+                    release_scheduler_claim(
+                        claim_id,
+                        claim_token,
+                        error="expired claim has no open Temporal workflow",
+                        expected_lease_expires_at=lease_expires_at,
+                    )
+                )
+            else:
+                retained += 1
+        return {"released": released, "renewed": renewed, "retained": retained, "pruned": pruned}
+
+    result = await reconcile_claims()
+    await LOGGER.ainfo("Recovered subscription scheduler claims", **result)
+    return result
+
+
+@temporalio.activity.defn
+async def confirm_subscription_scheduler_claim_activity(inputs: SubscriptionSchedulerClaimInputs) -> bool:
+    return await database_sync_to_async(confirm_scheduler_claim, thread_sensitive=False)(
+        uuid.UUID(inputs.claim_id),
+        uuid.UUID(inputs.claim_token),
+        lease_duration=_SUBSCRIPTION_EXECUTION_LEASE,
+    )
+
+
+@temporalio.activity.defn
+async def complete_subscription_scheduler_claim_activity(inputs: SubscriptionSchedulerClaimInputs) -> bool:
+    return await database_sync_to_async(complete_scheduler_claim, thread_sensitive=False)(
+        uuid.UUID(inputs.claim_id),
+        uuid.UUID(inputs.claim_token),
+    )
+
+
+@temporalio.activity.defn
+async def release_subscription_scheduler_claim_activity(inputs: SubscriptionSchedulerClaimInputs) -> bool:
+    return await database_sync_to_async(release_scheduler_claim, thread_sensitive=False)(
+        uuid.UUID(inputs.claim_id),
+        uuid.UUID(inputs.claim_token),
+        error="scheduled delivery did not advance its next delivery date",
+    )
 
 
 @temporalio.activity.defn
