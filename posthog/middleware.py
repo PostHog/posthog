@@ -1267,7 +1267,10 @@ class CSPMiddleware:
                 # this cannot register a persistent worker either.
                 #
                 # The reasoning holds only while every blob worker body is a compile-time constant.
-                # `no-dynamic-worker-body` in .semgrep/rules/security enforces that.
+                # `no-dynamic-worker-body` in .semgrep/rules/security checks first-party code for
+                # that. It follows an object URL or a `data:` URL into a worker constructor through
+                # the assignments in one function, so it catches the shapes we write rather than
+                # every possible one.
                 #
                 # posthog-js builds its rrweb recorder worker from a blob, and PixiJS builds two
                 # ImageBitmap workers the same way. Do not add `data:`: the recorder falls back to a

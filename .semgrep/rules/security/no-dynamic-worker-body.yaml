@@ -1,5 +1,6 @@
 rules:
     - id: no-dynamic-worker-body
+      mode: taint
       message: |
           Worker body built from a value rather than a constant. The app policy allows
           `worker-src 'self' blob:`, and that allowance rests on every blob worker body
@@ -22,6 +23,11 @@ rules:
           A bundled library that ships its own blob worker is fine, because its body is a
           compile-time constant. This rule covers first-party code.
 
+          The rule follows an object URL or a `data:` URL through the assignments in one
+          function, so it catches the shapes we write. It does not follow a URL back out
+          of a helper function that returns one, and it cannot read the fixed part of a
+          template literal. Treat it as a check on first-party code, not as a proof.
+
           If a dynamic body is genuinely unavoidable, put `// nosemgrep: no-dynamic-worker-body`
           on the line before it with a reason, and state where the body comes from and why
           no input can reach it.
@@ -36,19 +42,32 @@ rules:
               - '**/*.test.ts'
               - '**/*.test.tsx'
               - '**/*.spec.ts'
-      patterns:
+      pattern-sources:
           - pattern-either:
-                # A Blob assembled inline, then handed straight to a worker.
-                - pattern: new $WORKER(URL.createObjectURL(new Blob(...)), ...)
-                - pattern: new $WORKER(window.URL.createObjectURL(new Blob(...)), ...)
-                # A `data:` or `blob:` worker URL concatenated or interpolated from a value.
-                - pattern: new $WORKER("..." + $X, ...)
+                # Every object URL is minted at run time, whatever the receiver is spelled
+                # as: `URL`, `window.URL`, `globalThis.URL`, or a destructured alias.
+                - pattern: createObjectURL(...)
+                - pattern: $RECEIVER.createObjectURL(...)
+                # A `data:` or `blob:` URL concatenated from a value. The scheme has to be
+                # in the leading literal, so `'/static/' + name` stays clean.
+                - patterns:
+                      - pattern: $SCHEME + $X
+                      - metavariable-regex:
+                            metavariable: $SCHEME
+                            regex: '^[''"`](data|blob):'
+                # Semgrep cannot constrain the fixed part of a template literal, so any
+                # interpolated worker URL is a source. Give a same-origin path a real
+                # string or a `new URL(...)` rather than an interpolation.
                 - pattern: |
-                      new $WORKER(`...${$X}...`, ...)
-          # Without this every `new Error(`...${x}...`)` in the tree matches.
-          - metavariable-regex:
-                metavariable: $WORKER
-                regex: ^(Worker|SharedWorker)$
+                      `...${$X}...`
+      # Only the URL argument is a sink. Without this, an interpolated worker name in the
+      # options object matches too.
+      pattern-sinks:
+          - patterns:
+                - pattern-either:
+                      - pattern: new Worker($URL, ...)
+                      - pattern: new SharedWorker($URL, ...)
+                - focus-metavariable: $URL
       metadata:
           category: security
           confidence: MEDIUM

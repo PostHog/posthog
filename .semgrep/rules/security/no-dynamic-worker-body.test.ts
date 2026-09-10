@@ -16,6 +16,26 @@ const d = new Worker('data:text/javascript;charset=utf-8,' + encodeURIComponent(
 // ruleid: no-dynamic-worker-body
 const e = new Worker(`data:text/javascript,${encodeURIComponent(body)}`)
 
+// Revoking an object URL needs it held in a variable, so this is the shape a developer
+// writes when the blob worker is written correctly.
+const objectUrl = URL.createObjectURL(new Blob([source]))
+// ruleid: no-dynamic-worker-body
+const k = new Worker(objectUrl)
+
+// ruleid: no-dynamic-worker-body
+const l = new Worker(URL.createObjectURL(blob))
+
+// ruleid: no-dynamic-worker-body
+const m = new Worker(globalThis.URL.createObjectURL(new Blob([source])))
+
+const dataUrl = 'data:text/javascript,' + encodeURIComponent(source)
+// ruleid: no-dynamic-worker-body
+const n = new Worker(dataUrl)
+
+const templatedDataUrl = `data:text/javascript,${encodeURIComponent(body)}`
+// ruleid: no-dynamic-worker-body
+const o = new Worker(templatedDataUrl)
+
 // A same-origin file. This is the shape every first-party worker in the app uses, and it
 // needs no blob: allowance.
 // ok: no-dynamic-worker-body
@@ -27,10 +47,20 @@ const g = new Worker('/static/decompressionWorker.js', { type: 'module' })
 // ok: no-dynamic-worker-body
 const h = new Worker(WORKER_URL, { type: 'module' })
 
-// A blob URL kept in a variable still reads as a file path here. The rule catches the
-// inline construction, which is the shape that lets input reach a worker body.
+// Nothing in scope puts a blob or a data URL in this variable, so there is no flow to
+// report. A worker URL that arrives from outside the file is not something this rule can
+// judge.
 // ok: no-dynamic-worker-body
 const i = new Worker(precomputedUrl)
+
+// A same-origin path assembled from a value. The scheme decides, not the concatenation,
+// so this stays clean.
+// ok: no-dynamic-worker-body
+const p = new Worker('/static/workers/' + workerName, { type: 'module' })
+
+// An interpolated worker name is not the worker body.
+// ok: no-dynamic-worker-body
+const q = new Worker(WORKER_URL, { name: `snapshot-${playerId}` })
 
 // Object URLs for downloads and previews are untouched: nothing runs them as code.
 // ok: no-dynamic-worker-body
