@@ -2,6 +2,7 @@ import json
 import shlex
 import asyncio
 import builtins
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_HEALTH_MAX_ATTEMPTS,
+    HOST_PRESSURE_PROBE_SCRIPT,
     STARTUP_LOG_MAX_BYTES,
 )
 from products.tasks.backend.logic.services.local_packages import LocalPackage
@@ -1432,6 +1434,37 @@ class TestStartupFailureDiagnostics:
 
         assert diagnostics["sandbox_terminated"] == "false"
         assert "never reported hasSession=true" in diagnostics["failure_reason"]
+        assert diagnostics["host_pressure"] == "ok"
+
+    def test_host_pressure_probe_failure_keeps_the_failure_reason(self):
+        sandbox = self._sandbox()
+
+        def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
+            if "printf" in command:
+                return ExecutionResult(
+                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                )
+            if "cpu_loop_ms" in command:
+                raise SandboxTimeoutError("Execution timed out after 45 seconds", {"sandbox_id": "sb-diag"}, cause=None)
+            return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "execute", side_effect=_exec),
+        ):
+            diagnostics = sandbox._diagnose_startup_failure(allowed_domains=None)
+
+        assert "never reported hasSession=true" in diagnostics["failure_reason"]
+        assert diagnostics["host_pressure"].startswith("unavailable:")
+
+    def test_host_pressure_probe_script_reports_every_measurement(self):
+        completed = subprocess.run(
+            ["bash", "-c", HOST_PRESSURE_PROBE_SCRIPT], capture_output=True, text=True, timeout=60, check=False
+        )
+
+        assert completed.returncode == 0
+        for key in ("loadavg=", "nproc=", "cpu_loop_ms=", "python_spawn_ms=", "cold_read_ms="):
+            assert key in completed.stdout
 
     @pytest.mark.parametrize(
         ("log_bytes", "expected_truncated"),

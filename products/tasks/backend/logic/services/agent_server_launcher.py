@@ -54,6 +54,25 @@ AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 STARTUP_LOG_MAX_BYTES = 64 * 1024
 AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
 
+# The read probe wants a large file the agent-server boot never opens, so its first read is
+# cold. The TypeScript compiler is installed globally in the image and nothing at boot loads it.
+HOST_PRESSURE_COLD_READ_FILE = "/usr/local/lib/node_modules/typescript/lib/typescript.js"
+HOST_PRESSURE_PROBE_SCRIPT = (
+    'echo "loadavg=$(cat /proc/loadavg 2>/dev/null)"; '
+    'echo "nproc=$(nproc 2>/dev/null)"; '
+    "for f in /proc/pressure/cpu /proc/pressure/io /proc/pressure/memory /sys/fs/cgroup/cpu.stat; do "
+    '  [ -r "$f" ] && echo "$f: $(tr \'\\n\' \' \' < "$f")"; '
+    "done; "
+    'cpu_start=$(date +%s%3N); i=0; while [ "$i" -lt 200000 ]; do i=$((i+1)); done; '
+    'echo "cpu_loop_ms=$(( $(date +%s%3N) - cpu_start ))"; '
+    "spawn_start=$(date +%s%3N); python3 -c pass; "
+    'echo "python_spawn_ms=$(( $(date +%s%3N) - spawn_start ))"; '
+    f"probe_file={HOST_PRESSURE_COLD_READ_FILE}; "
+    '[ -r "$probe_file" ] || probe_file="$(command -v node || command -v python3)"; '
+    'read_start=$(date +%s%3N); timeout 20 cat "$probe_file" > /dev/null; '
+    'echo "cold_read_ms=$(( $(date +%s%3N) - read_start )) file=$probe_file size=$(stat -c %s "$probe_file" 2>/dev/null)"'
+)
+
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
     "gateway.eu.posthog.com",
@@ -267,7 +286,22 @@ class AgentServerLaunchMixin(SandboxBase):
                 )
         except Exception as e:
             diagnostics.setdefault("failure_reason", f"health check failed; diagnostics unavailable: {e}")
+        # Last, and guarded on its own: a starved box can stall this probe too, and that must
+        # not replace the failure reason the checks above already produced.
+        try:
+            diagnostics["host_pressure"] = self._probe_host_pressure()
+        except Exception as e:
+            diagnostics["host_pressure"] = f"unavailable: {e}"
         return diagnostics
+
+    def _probe_host_pressure(self) -> str:
+        """Measure the box, not the agent, so a startup failure can be told apart by cause.
+
+        A slow CPU loop or spawn means CPU starvation. A slow read of a file that boot never
+        touches means the image filesystem is slow to load it, which is what a lazily loaded
+        image looks like on a cold host. Both fast means the agent itself stalled.
+        """
+        return self.execute(HOST_PRESSURE_PROBE_SCRIPT, timeout_seconds=45).stdout.strip()
 
     def _probe_session_init_egress(self) -> str:
         hosts = _session_init_probe_hosts()
