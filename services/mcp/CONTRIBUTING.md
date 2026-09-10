@@ -296,9 +296,18 @@ Convention defaults (derived from the app key and product directory):
 
 Override any field explicitly when the convention doesn't match
 (e.g. `click_prop: onEntityClick`, `detail_args: "{ entityId: item.id }"`).
-`detail_args` must match the target tool's actual parameter names —
-mismatching them (e.g. passing `flagId` to a tool that expects `id`) silently
-drops the argument instead of failing.
+`generate:ui-apps` checks `detail_tool` and the top-level keys of `detail_args`
+against the tool's input schema snapshot in `tests/unit/__snapshots__/tool-schemas/`.
+Generation fails for a tool without a snapshot, unknown argument names, and missing
+required arguments. For example, passing `flagId` to a tool that requires `id` reports
+both the unknown key and the missing argument, with the app and tool names.
+
+`detail_args` must be an object literal with explicit keys; spreads and computed keys
+are rejected because their names cannot be checked statically. The expression is
+parsed, not executed, so dynamic values and nested fields are still validated by the
+tool at call time. After adding a tool or changing its input schema, run
+`pnpm test tests/unit/tool-schema-snapshots.test.ts -u` to refresh the snapshot, then
+regenerate the UI apps.
 
 **Link tools to apps** with `ui_app`:
 
