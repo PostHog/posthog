@@ -777,8 +777,10 @@ class SignalReportRefundSummaryResponseSerializer(serializers.Serializer):
     )
     credited_credits = serializers.IntegerField(
         help_text=(
-            "Total signals credits those refunds returned (1 credit = $0.01). Divide by the flat "
-            "per-PR charge to get the number of PRs to subtract from billing usage."
+            "Total signals credits those refunds returned (1 credit = $0.01). These credits stay "
+            "inside billing usage, because the money comes back as an invoice credit. Report the "
+            "refunds alongside the usage count rather than subtracting them from it, and use "
+            "`credited_refund_count` for the number of refunded PRs."
         ),
     )
     period_billable_credits = serializers.IntegerField(
@@ -2942,9 +2944,9 @@ class SignalReportViewSet(
         description=(
             "Aggregate credited-path refunds across the whole organization for the current billing "
             "period — counts only, no per-team detail. The billing usage widget needs this because "
-            "billing usage is org-wide while reports (and their refunds) are team-scoped: subtract "
-            "the refunded credits from billing usage to show the net PR count. Excluded-path "
-            "refunds never reach billing usage, so no adjustment is needed for them. Also carries "
+            "billing usage is org-wide while reports (and their refunds) are team-scoped: it names "
+            "the refunded PRs next to the usage count, which keeps them like billing does. "
+            "Excluded-path refunds never reach billing usage, so they are absent here. Also carries "
             "the org's live billable credits for the period (billing's recorded usage lags by up "
             "to a day), so the widget can count just-created PRs and react to same-day refunds."
         ),
