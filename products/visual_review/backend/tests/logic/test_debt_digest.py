@@ -5,6 +5,8 @@ from datetime import timedelta
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+from django.test import override_settings
 from django.utils import timezone
 
 from posthog_owners.schema import TeamEntry
@@ -95,6 +97,41 @@ class TestRendering:
 
         assert line.startswith("4 accepted variants of the current baseline · scenes/Button--dark (storybook)")
         assert line.endswith("/project/7/visual_review/repos/abc/storybook/snapshots/scenes%2FButton--dark")
+
+    @pytest.mark.parametrize(
+        "identifier,reason,links_to_the_snapshot",
+        [
+            ("b" * 512, "non-deterministic", True),
+            # Each of these percent-encodes to nine characters, so the URL alone outgrows a block.
+            ("界" * 400, "non-deterministic", False),
+            ("Button--light", "because " * 100, True),
+        ],
+    )
+    def test_one_oversized_item_still_fits_a_slack_block(
+        self, identifier: str, reason: str, links_to_the_snapshot: bool
+    ) -> None:
+        repo = MagicMock(id="abc", team_id=7, repo_full_name="PostHog/posthog")
+        entry = MagicMock(
+            identifier=identifier,
+            run_type="storybook",
+            reason=reason,
+            expires_at=timezone.now() + timedelta(days=3),
+            created_by_id=None,
+        )
+
+        line = debt_digest._quarantine_line(repo, entry, {}, timezone.now())
+        texts = debt_digest.thread_texts(
+            debt_digest.TeamDigest(
+                team_slug="team-devex",
+                expiring_quarantines=[_item(_PLACED, identifier=identifier, line=line)] * 2,
+                variant_pileups=[],
+            )
+        )
+
+        assert len(line) <= debt_digest._MAX_LINE_CHARS
+        assert settings.SITE_URL in line
+        assert ("/snapshots/" in line) == links_to_the_snapshot
+        assert all(len(text) <= debt_digest._MAX_SECTION_CHARS for text in texts)
 
     def test_splits_the_thread_when_one_group_runs_long(self) -> None:
         long_item = _item(_PLACED, line="x" * 2000)
@@ -202,6 +239,18 @@ class TestRouting:
 
         assert delivery is not None
         assert delivery.lead_prefix == "Shadow, no channel resolved: "
+
+    @pytest.mark.parametrize("mode", ["preveiw", ""])
+    def test_an_unknown_mode_evaluates_nothing_and_posts_nothing(self, mode: str) -> None:
+        with (
+            override_settings(VISUAL_REVIEW_DEBT_DIGEST_MODE=mode),
+            patch("products.visual_review.backend.logic.debt_digest.collect_debt") as collect,
+            patch("products.visual_review.backend.logic.debt_digest.post_with_join") as post,
+        ):
+            assert debt_digest.send_debt_digest(MagicMock(), mode=mode) == []
+
+        assert collect.call_count == 0
+        assert post.call_count == 0
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

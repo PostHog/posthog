@@ -108,11 +108,13 @@ def count_active_variants_against_current_baseline(repo_id: UUID, *, now: dateti
         return {}
 
     live = Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+    # The exact pair is still matched below, because two identifiers can share a baseline hash.
     counts_by_pair = {
         (identifier, baseline_hash): count
         for identifier, baseline_hash, count in ToleratedHash.objects.filter(
             repo_id=repo_id,
             identifier__in=list({identifier for _, identifier in baseline_hash_by_key}),
+            baseline_hash__in=list(set(baseline_hash_by_key.values())),
             reason__in=INTENTIONAL_TOLERATE_REASONS,
         )
         .filter(live)

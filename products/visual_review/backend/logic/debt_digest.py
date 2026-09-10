@@ -80,6 +80,11 @@ _NO_BASELINE_RUN_DETAIL = "there is no default branch run to read"
 # Slack rejects a section block over 3000 characters. The margin covers the mrkdwn escaping, which
 # can turn one character into five.
 _MAX_SECTION_CHARS = 2900
+# One line's own cap, under half the section cap so two bounded lines always share a block.
+_MAX_LINE_CHARS = 1400
+# The full identifier still goes into the URL, so a cut display costs the reader nothing.
+_MAX_IDENTIFIER_CHARS = 160
+_MAX_REASON_CHARS = 200
 
 MODE_OFF = "off"
 MODE_PREVIEW = "preview"
@@ -202,6 +207,13 @@ def _escape_mrkdwn(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _ellipsize(text: str, limit: int) -> str:
+    """Cut display text down to `limit` characters, marking that something was cut."""
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 1, 0)] + "…"
+
+
 def _snapshot_url(repo: Repo, run_type: str, identifier: str) -> str:
     return (
         f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/repos/{repo.id}"
@@ -209,21 +221,43 @@ def _snapshot_url(repo: Repo, run_type: str, identifier: str) -> str:
     )
 
 
+def _repo_snapshots_url(repo: Repo) -> str:
+    """The repo's snapshot list. It names no snapshot, so its length does not follow the identifier."""
+    return f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/repos/{repo.id}/snapshots"
+
+
+def _linked_line(repo: Repo, body: str, run_type: str, identifier: str) -> str:
+    """One item's line with its link, kept under the per-line cap.
+
+    A non-ASCII identifier percent-encodes to nine characters each, so the snapshot URL alone can
+    outgrow a Slack block however short the displayed text is cut. Point at the repo's snapshot
+    list instead: the reader still gets a link, and one long item no longer costs the team the
+    rest of its thread.
+    """
+    line = f"{body} · {_snapshot_url(repo, run_type, identifier)}"
+    if len(line) <= _MAX_LINE_CHARS:
+        return line
+    listed = f" · listed under the repo's snapshots: {_repo_snapshots_url(repo)}"
+    return f"{_ellipsize(body, _MAX_LINE_CHARS - len(listed))}{listed}"
+
+
 def _quarantine_line(repo: Repo, entry: QuarantinedIdentifier, authors: dict[int, str], now: datetime) -> str:
     days = max((entry.expires_at - now).days, 0) if entry.expires_at is not None else 0
     who = authors.get(entry.created_by_id or 0, "someone")
-    return (
-        f"Quarantine expires in {days} days · {_escape_mrkdwn(entry.identifier)} ({entry.run_type})"
-        f' · opened by {_escape_mrkdwn(who)} for "{_escape_mrkdwn(entry.reason)}"'
-        f" · {_snapshot_url(repo, entry.run_type, entry.identifier)}"
+    body = (
+        f"Quarantine expires in {days} days"
+        f" · {_escape_mrkdwn(_ellipsize(entry.identifier, _MAX_IDENTIFIER_CHARS))} ({entry.run_type})"
+        f' · opened by {_escape_mrkdwn(who)} for "{_escape_mrkdwn(_ellipsize(entry.reason, _MAX_REASON_CHARS))}"'
     )
+    return _linked_line(repo, body, entry.run_type, entry.identifier)
 
 
 def _pileup_line(repo: Repo, run_type: str, identifier: str, count: int) -> str:
-    return (
-        f"{count} accepted variants of the current baseline · {_escape_mrkdwn(identifier)} ({run_type})"
-        f" · {_snapshot_url(repo, run_type, identifier)}"
+    body = (
+        f"{count} accepted variants of the current baseline"
+        f" · {_escape_mrkdwn(_ellipsize(identifier, _MAX_IDENTIFIER_CHARS))} ({run_type})"
     )
+    return _linked_line(repo, body, run_type, identifier)
 
 
 def _display_names(user_ids: set[int]) -> dict[int, str]:
@@ -455,6 +489,8 @@ def thread_texts(digest: TeamDigest) -> list[str]:
         lines.append(_TRIAGE_HEADERS[group.reason])
         lines.extend(_triage_line(item) for item in group.items)
     lines.append(_FOOTER)
+    # A cut line costs one reader one path; a line Slack refuses costs the team the rest of the thread.
+    lines = [_ellipsize(line, _MAX_SECTION_CHARS) for line in lines]
     messages: list[str] = []
     current: list[str] = []
     for line in lines:
@@ -529,6 +565,10 @@ def send_debt_digest(repo: Repo, mode: str | None = None) -> list[str]:
     run would send without reaching into the logs.
     """
     mode = mode or settings.VISUAL_REVIEW_DEBT_DIGEST_MODE
+    # `deliver` reads anything that is not shadow as the team's own channel, so an undefined mode posts live.
+    if mode not in MODES:
+        logger.warning("visual_review.debt_digest_mode_unknown", mode=mode)
+        return []
     if mode == MODE_OFF:
         return []
 
