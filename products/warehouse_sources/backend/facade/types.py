@@ -406,6 +406,7 @@ class ExternalDataSourceType(models.TextChoices):
     FRESHCHAT = "Freshchat", "Freshchat"
     FRESHSERVICE = "Freshservice", "Freshservice"
     FULCRUM = "Fulcrum", "Fulcrum"
+    GAINSIGHTCS = "GainsightCs", "GainsightCs"
     GAINSIGHTPX = "GainsightPx", "GainsightPx"
     GITBOOK = "GitBook", "GitBook"
     GLASSFROG = "Glassfrog", "Glassfrog"

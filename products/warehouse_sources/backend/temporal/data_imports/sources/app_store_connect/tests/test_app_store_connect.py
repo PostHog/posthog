@@ -38,8 +38,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     _require_api_url,
     _typed_report_value,
     app_store_connect_source,
+    check_app_ids,
     check_credentials,
     get_rows,
+    parse_app_ids,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
     APP_STORE_CONNECT_ENDPOINTS,
@@ -496,6 +498,111 @@ class TestAppFanoutEndpoints:
         assert [row["id"] for row in rows] == ["R1", "R2", "R3"]
 
 
+class TestCheckAppIds:
+    def _message(self, app_ids: str | None, apps: list[dict[str, Any]]) -> tuple[str | None, _FakeApi]:
+        api = _FakeApi({f"{BASE_URL}/v1/apps": _page(apps)})
+        session = MagicMock()
+        session.get.side_effect = api.get
+        with patch(f"{MODULE}._make_session", return_value=session):
+            return check_app_ids("issuer", "KEY123", PRIVATE_KEY_PEM, app_ids), api
+
+    def test_a_readable_filter_saves(self) -> None:
+        message, _ = self._message("A1", [_resource("apps", "A1", name="Acme")])
+
+        assert message is None
+
+    def test_an_unset_filter_never_lists_apps(self) -> None:
+        message, api = self._message(None, [_resource("apps", "A1", name="Acme")])
+
+        assert message is None
+        assert api.calls == []
+
+    @parameterized.expand(
+        [
+            ("readable_apps_are_named", 1, "It can read: App 0 (A0)."),
+            ("a_long_account_is_truncated", 12, "and 2 more"),
+        ]
+    )
+    def test_the_message_lists_the_apps_the_key_can_read(self, _name: str, app_count: int, expected: str) -> None:
+        apps = [_resource("apps", f"A{index}", name=f"App {index}") for index in range(app_count)]
+
+        message, _ = self._message("MISSING", apps)
+
+        assert message is not None
+        assert "cannot read these app IDs: MISSING" in message
+        assert expected in message
+
+    def test_an_app_without_a_name_falls_back_to_its_id(self) -> None:
+        message, _ = self._message("MISSING", [_resource("apps", "A1")])
+
+        assert message is not None and "It can read: A1." in message
+
+    def test_a_key_that_reaches_no_app_says_so(self) -> None:
+        message, _ = self._message("MISSING", [])
+
+        assert message is not None and "cannot read any app in this account" in message
+
+
+class TestAppIdFilter:
+    def _api(self) -> _FakeApi:
+        return _FakeApi(
+            {
+                f"{BASE_URL}/v1/apps": _page([_resource("apps", "A1"), _resource("apps", "A2")]),
+                f"{BASE_URL}/v1/apps/A1/customerReviews": _page([_resource("customerReviews", "R1", rating=5)]),
+                f"{BASE_URL}/v1/apps/A2/customerReviews": _page([_resource("customerReviews", "R3", rating=1)]),
+            }
+        )
+
+    @parameterized.expand(
+        [
+            ("unset", None, frozenset()),
+            ("blank", "   ", frozenset()),
+            ("single", "A1", frozenset({"A1"})),
+            ("comma_separated", "A1,A2", frozenset({"A1", "A2"})),
+            ("comma_and_space_separated", " A1 , A2 ", frozenset({"A1", "A2"})),
+            ("trailing_comma", "A1,", frozenset({"A1"})),
+        ]
+    )
+    def test_parses_the_filter_field(self, _name: str, raw: str | None, expected: frozenset[str]) -> None:
+        assert parse_app_ids(raw) == expected
+
+    def test_fanout_visits_only_the_selected_apps(self) -> None:
+        api = self._api()
+
+        rows = _collect("customer_reviews", api, _FakeManager(), app_ids="A1")
+
+        assert [(row["app_id"], row["id"]) for row in rows] == [("A1", "R1")]
+        assert f"{BASE_URL}/v1/apps/A2/customerReviews" not in [url for url, _ in api.calls]
+
+    def test_blank_filter_still_visits_every_app(self) -> None:
+        rows = _collect("customer_reviews", self._api(), _FakeManager(), app_ids="")
+
+        assert [row["app_id"] for row in rows] == ["A1", "A2"]
+
+    def test_apps_table_drops_the_unselected_apps(self) -> None:
+        rows = _collect("apps", self._api(), _FakeManager(), app_ids="A2")
+
+        assert [row["id"] for row in rows] == ["A2"]
+
+    def test_apps_table_fails_rather_than_replacing_itself_with_nothing(self) -> None:
+        # A full refresh that finishes with no rows leaves an empty table behind, so an app the key
+        # lost access to after setup would silently erase the synced inventory.
+        with pytest.raises(ValueError, match="match an app this API key can read"):
+            _collect("apps", self._api(), _FakeManager(), app_ids="A9")
+
+    def test_filter_matching_no_app_fails_with_the_curated_message(self) -> None:
+        with pytest.raises(ValueError, match="match an app this API key can read"):
+            _collect("customer_reviews", self._api(), _FakeManager(), app_ids="A9")
+
+    def test_unreadable_id_is_warned_about_while_the_readable_ones_sync(self) -> None:
+        logger = MagicMock()
+
+        rows = _collect("customer_reviews", self._api(), _FakeManager(), logger=logger, app_ids="A1,A9")
+
+        assert [row["app_id"] for row in rows] == ["A1"]
+        assert "A9" in logger.warning.call_args[0][0]
+
+
 def _responded_review(review_id: str, response_id: str) -> dict[str, Any]:
     review = _resource("customerReviews", review_id, rating=5)
     review["relationships"]["response"] = {"data": {"type": "customerReviewResponses", "id": response_id}}
@@ -706,6 +813,21 @@ def _collect_analytics(
 
 
 class TestAnalyticsReportStreams:
+    def test_a_report_request_is_started_only_on_a_selected_app(self) -> None:
+        api = _FakeAnalyticsApi(
+            {
+                APPS_URL: _page([_resource("apps", "A1"), _resource("apps", "A2")]),
+                REQUESTS_URL: _page([]),
+                f"{BASE_URL}/v1/apps/A2/analyticsReportRequests": _page([]),
+            }
+        )
+
+        _collect_analytics(api, _FakeManager(), app_ids="A1")
+
+        # The ONGOING request is this source's only write to the customer's account.
+        assert [post[1]["data"]["relationships"]["app"]["data"]["id"] for post in api.posts] == ["A1"]
+        assert f"{BASE_URL}/v1/apps/A2/analyticsReportRequests" not in [url for url, _ in api.calls]
+
     def test_full_chain_parses_daily_instances_into_keyed_rows(self) -> None:
         segment_1 = _gzip_csv("Date,App Name,App Apple Identifier,Sessions\n2026-07-31,Example,123,5\n")
         segment_2 = _gzip_csv("Date,App Name,App Apple Identifier,Sessions\n2026-08-01,Example,123,7\n")
