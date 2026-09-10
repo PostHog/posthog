@@ -29,17 +29,56 @@ from products.conversations.backend.pattern_detection import (
 class TestRequiredRequesters(SimpleTestCase):
     @parameterized.expand(
         [
-            ("no_baseline", None, DEFAULT_MIN_REQUESTERS),
-            ("recurring_topic_raises_bar", TicketTopicBaseline(distinct_days_seen=5), DEFAULT_MIN_REQUESTERS + 2),
-            ("rare_topic_spiking_lowers_bar", TicketTopicBaseline(mean_per_hour=0.1, distinct_days_seen=2), 3),
-            ("dismissals_raise_bar", TicketTopicBaseline(dismiss_count=2), DEFAULT_MIN_REQUESTERS + 2),
-            ("dismissals_cap_at_three", TicketTopicBaseline(dismiss_count=9), DEFAULT_MIN_REQUESTERS + 3),
-            ("confirmations_lower_bar", TicketTopicBaseline(confirm_count=2), DEFAULT_MIN_REQUESTERS - 2),
-            ("never_below_floor", TicketTopicBaseline(confirm_count=5, mean_per_hour=0.1), 3),
+            ("no_baseline", PatternSettings(), None, DEFAULT_MIN_REQUESTERS),
+            (
+                "recurring_topic_raises_bar",
+                PatternSettings(),
+                TicketTopicBaseline(distinct_days_seen=5),
+                DEFAULT_MIN_REQUESTERS + 2,
+            ),
+            (
+                "rare_topic_spiking_lowers_bar",
+                PatternSettings(),
+                TicketTopicBaseline(mean_per_hour=0.1, distinct_days_seen=2),
+                3,
+            ),
+            (
+                "dismissals_raise_bar",
+                PatternSettings(),
+                TicketTopicBaseline(dismiss_count=2),
+                DEFAULT_MIN_REQUESTERS + 2,
+            ),
+            (
+                "dismissals_cap_at_three",
+                PatternSettings(),
+                TicketTopicBaseline(dismiss_count=9),
+                DEFAULT_MIN_REQUESTERS + 3,
+            ),
+            (
+                "confirmations_lower_bar",
+                PatternSettings(),
+                TicketTopicBaseline(confirm_count=2),
+                DEFAULT_MIN_REQUESTERS - 2,
+            ),
+            ("never_below_floor", PatternSettings(), TicketTopicBaseline(confirm_count=5, mean_per_hour=0.1), 3),
+            # Ten tickets a day is normal for the topic, so a day-long window is not a spike.
+            (
+                "wide_window_scales_the_spike_bar_up",
+                PatternSettings(window_minutes=1440),
+                TicketTopicBaseline(mean_per_hour=0.1, distinct_days_seen=2),
+                DEFAULT_MIN_REQUESTERS,
+            ),
+            # Two an hour is normal, so ten in a quarter hour is a spike.
+            (
+                "short_window_scales_the_spike_bar_down",
+                PatternSettings(window_minutes=15),
+                TicketTopicBaseline(mean_per_hour=8.0, distinct_days_seen=2),
+                DEFAULT_MIN_REQUESTERS - 2,
+            ),
         ]
     )
-    def test_bar_moves_with_baseline(self, _name, baseline, expected):
-        assert required_requesters(PatternSettings(), baseline, observed_tickets=10) == expected
+    def test_bar_moves_with_baseline(self, _name, settings, baseline, expected):
+        assert required_requesters(settings, baseline, observed_tickets=10) == expected
 
 
 class TestRunDetection(BaseTest):

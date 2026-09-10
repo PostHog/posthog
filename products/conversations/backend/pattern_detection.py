@@ -37,6 +37,7 @@ DEFAULT_MIN_REQUESTERS = 5
 DEFAULT_MIN_TICKETS = 5
 MIN_REQUESTERS_FLOOR = 3
 DEFAULT_WINDOW_MINUTES = 60
+MINUTES_PER_HOUR = 60
 DISMISS_COOLDOWN_MINUTES = 24 * 60
 ESCALATION_MULTIPLE = 2
 AUTO_RESOLVE_QUIET_WINDOWS = 2
@@ -215,9 +216,12 @@ def required_requesters(settings: PatternSettings, baseline: TicketTopicBaseline
     """The bar for one topic: the team default, moved by what the baseline knows about the topic."""
     bar = settings.min_requesters
     if baseline is not None:
+        # The baseline learns an hourly rate, but observed_tickets covers the whole window, so the
+        # rate is scaled to the window before the two are compared.
+        expected_in_window = baseline.mean_per_hour * settings.window_minutes / MINUTES_PER_HOUR
         if baseline.distinct_days_seen >= RECURRING_DAYS:
             bar += 2
-        elif baseline.mean_per_hour > 0 and observed_tickets >= 3 * baseline.mean_per_hour + 3:
+        elif baseline.mean_per_hour > 0 and observed_tickets >= 3 * expected_in_window + 3:
             bar -= 2
         bar += min(baseline.dismiss_count, 3)
         bar -= min(baseline.confirm_count, 2)
