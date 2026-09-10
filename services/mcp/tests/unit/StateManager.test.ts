@@ -849,6 +849,21 @@ describe('StateManager', () => {
             expect(getGroupTypes).toHaveBeenCalledTimes(2)
         })
 
+        it('returns freshly fetched data when the cache write hits a Redis reconnect window', async () => {
+            const mockGroupTypes = [{ group_type: 'company', group_type_index: 0 }]
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes: vi.fn().mockResolvedValue(mockGroupTypes) }
+            vi.spyOn(cache, 'set').mockRejectedValue(
+                new Error("Stream isn't writeable and enableOfflineQueue options is false")
+            )
+            const reportException = vi.spyOn(stateManager as any, '_reportException')
+
+            const result = await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(result).toEqual(mockGroupTypes)
+            expect(reportException).not.toHaveBeenCalled()
+        })
+
         it('should return undefined (not stale data) when fetch succeeds then later fails', async () => {
             const mockGroupTypes = [{ group_type: 'company', group_type_index: 0 }]
             const getGroupTypes = vi

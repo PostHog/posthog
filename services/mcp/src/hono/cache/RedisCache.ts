@@ -1,3 +1,4 @@
+import { isTransientRedisError } from '@/lib/cache/redis-errors'
 import { ScopedCache } from '@/lib/cache/ScopedCache'
 
 import { redisOperationsTotal } from '../metrics'
@@ -57,6 +58,11 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
             return result
         } catch (error) {
             redisOperationsTotal.inc({ operation: 'get', status: 'error' })
+            // Nothing is known about the key, only about the transport, so read a miss.
+            if (isTransientRedisError(error)) {
+                console.warn(`[RedisCache] read of ${scopedKey} degraded to a miss: ${error.message}`)
+                return undefined
+            }
             throw error
         }
     }
