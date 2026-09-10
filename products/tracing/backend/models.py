@@ -51,7 +51,9 @@ class TeamTracingConfig(models.Model):
     # db_constraint=False so creating this table takes no lock on the hot posthog_team
     # parent; the real constraint is added lock-free via AddForeignKeyNotValid in the
     # migration, same as TracingView.
-    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True, db_constraint=False)
+    team = models.OneToOneField(
+        "posthog.Team", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
+    )
 
     # Span or resource attribute keys whose values match a PostHog person's distinct_id —
     # a span links to a person when any of these attributes holds their distinct ID.
