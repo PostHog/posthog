@@ -15,8 +15,26 @@ import contextlib
 from collections.abc import Iterator
 from contextvars import ContextVar
 from dataclasses import field
+from typing import TYPE_CHECKING
 
 from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.hogql import ast
+    from posthog.hogql.context import HogQLContext
+
+
+@frozen
+class RecordedExecution:
+    """One ClickHouse execution inside a scope, kept for the analysis to explain later.
+
+    The tree and context are the same objects the executor printed from, held by reference so
+    nothing is serialized on the request path. ``rows_read`` is what this one execution read.
+    """
+
+    tree: ast.Expr
+    context: HogQLContext
+    rows_read: int
 
 
 @frozen(frozen=False)
@@ -27,11 +45,18 @@ class QueryStats:
     duration_ms: float = 0.0
     # Runners that record from several threads share one QueryStats.
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    # Every execution the scope saw, so the slow-query analysis can explain each without rerunning
+    # it. References only; the executor fills this, raw `sync_execute` callers do not.
+    executions: list[RecordedExecution] = field(default_factory=list, repr=False, compare=False)
 
     def add(self, *, rows_read: int, duration_ms: float) -> None:
         with self.lock:
             self.rows_read += rows_read
             self.duration_ms += duration_ms
+
+    def record_execution(self, *, tree: ast.Expr, context: HogQLContext, rows_read: int) -> None:
+        with self.lock:
+            self.executions.append(RecordedExecution(tree=tree, context=context, rows_read=rows_read))
 
 
 _accumulator: ContextVar[QueryStats | None] = ContextVar("query_stats_accumulator", default=None)

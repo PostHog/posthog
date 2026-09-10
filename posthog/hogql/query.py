@@ -57,6 +57,7 @@ from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
+from posthog.hogql.query_stats import get_active as get_active_query_stats
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
@@ -807,6 +808,11 @@ class HogQLQueryExecutor:
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
 
+            # Record this execution for the slow-query analysis when a scope is active. Snapshot
+            # the scope's rows before the run so a run ClickHouse kills is still recorded with what
+            # it read: `sync_execute` adds its rows to the scope before the error propagates.
+            stats = get_active_query_stats()
+            rows_before = stats.rows_read if stats is not None else 0
             try:
                 try:
                     self.results, self.types = run_clickhouse_query()
@@ -823,6 +829,13 @@ class HogQLQueryExecutor:
                         self.error = "Unknown error"
                 else:
                     raise
+            finally:
+                if stats is not None and isinstance(self.clickhouse_prepared_ast, ast.Expr):
+                    stats.record_execution(
+                        tree=self.clickhouse_prepared_ast,
+                        context=clickhouse_context,
+                        rows_read=stats.rows_read - rows_before,
+                    )
 
         if self.debug and self.error is None:
             with self.timings.measure("explain"):
