@@ -217,14 +217,23 @@ describe('css loader script', () => {
         expect(links[0].href).toBe(`/static/${CSS_FILE}`)
     })
 
-    it('reports ready when a stylesheet abandoned by a timeout lands late', async () => {
-        const { ready, links } = runLoader()
+    it('stops the ladder when a stylesheet abandoned by a timeout lands late', async () => {
+        const { ready, links, beacons } = runLoader()
         jest.advanceTimersByTime(CSS_ATTEMPT_TIMEOUT_MS)
         expect(links).toHaveLength(2)
 
         applyStylesheet(links[0])
 
         await expect(ready).resolves.toBe(true)
+
+        // The page is styled now, so the rung still in flight must not report a fatal failure
+        // over it, and the rungs behind it must not run at all.
+        jest.advanceTimersByTime(CSS_ATTEMPT_TIMEOUT_MS * 3)
+        await flushProbes()
+
+        expect(links).toHaveLength(2)
+        expect(beacons).toHaveLength(1)
+        expect(beacons[0].properties).toMatchObject({ $exception_level: 'error', stylesheet_attempt: 1 })
     })
 
     it('recovers without a beacon or a probe when capture is opted out', async () => {

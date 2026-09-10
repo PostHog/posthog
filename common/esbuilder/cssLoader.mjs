@@ -170,6 +170,11 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                     if (isDone) { return; }
                     isDone = true;
                     clearTimeout(timer);
+                    // A link that an earlier timeout abandoned can still land and style the page.
+                    // The ladder then has the stylesheet it asked for, so a later failure must not
+                    // send a beacon or start another rung. A fatal beacon from a styled page also
+                    // makes the fatal count read worse than the boot really was.
+                    if (isReady) { return; }
                     console.error('[PostHog] App stylesheet ' + reason + ': ' + href);
                     // The probe only enriches the beacon, so it is worth a request only when
                     // there is a beacon to send. The ladder does not wait for either.
