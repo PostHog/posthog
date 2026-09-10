@@ -138,6 +138,11 @@
                                     },
                                     "maxItems": 2,
                                     "type": "array"
+                                },
+                                "taskActivity": {
+                                    "default": false,
+                                    "description": "Whether the canvas may read the activity of the task it is mounted beside through ph.taskActivity(). Hosts that do not render the canvas inside a task reject the call.",
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["insights", "inlineQueries", "captureEvents"],
