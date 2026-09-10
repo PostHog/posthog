@@ -1021,9 +1021,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="prune old streamlit app versions",
     )
 
+    # The minute is fixed because beat rebuilds its schedule on every start. A
+    # randrange minute draws a new value on each restart, so a restart inside the
+    # scheduled hour makes the sweep run a second time that night, and a restart
+    # that draws an earlier minute can make it skip the night. Minute 23 is odd,
+    # which also keeps the sweep off the minutes the */2 heartbeat tasks use.
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="2", minute=str(randrange(0, 40))),
+        crontab(hour="2", minute="23"),
         sweep_visual_review_retention.s(),
         name="sweep visual review retention",
     )

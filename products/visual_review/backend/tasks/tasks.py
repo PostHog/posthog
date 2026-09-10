@@ -187,6 +187,7 @@ def sweep_visual_review_retention() -> None:
                 repos_total=len(repos),
             )
             break
+        started = time.monotonic()
         try:
             result = retention.sweep_repo(repo, deadline=deadline)
         except Exception as e:
@@ -205,4 +206,5 @@ def sweep_visual_review_retention() -> None:
             runs_deleted=result.runs_deleted,
             artifacts_deleted=result.artifacts_deleted,
             objects_leaked=result.objects_leaked,
+            duration_seconds=round(time.monotonic() - started, 1),
         )

@@ -45,9 +45,9 @@ ARTIFACT_ORPHAN_GRACE_DAYS = 7
 
 ARTIFACT_SWEEP_BATCH = 500
 
-# Caps per invocation. The task runs daily and catches up over several days,
-# which keeps the first sweep of a large backlog off one long transaction.
-MAX_RUNS_PER_SWEEP = 2_000
+# Caps per invocation. The task runs daily and catches up over several days, so
+# a large backlog does not have to clear in one night.
+MAX_RUNS_PER_SWEEP = 10_000
 MAX_ARTIFACTS_PER_SWEEP = 20_000
 
 # The caps above bound rows, not wall clock. Deletes over the backlog are slow
