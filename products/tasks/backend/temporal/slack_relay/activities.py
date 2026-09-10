@@ -1,10 +1,10 @@
 import re
-from dataclasses import dataclass
 from typing import Any
 
 from markdown_to_mrkdwn import SlackMarkdownConverter
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
@@ -349,7 +349,7 @@ def _split_markdown_for_slack(text: str, limit: int = SLACK_MESSAGE_TEXT_LIMIT) 
     return chunks
 
 
-@dataclass
+@frozen
 class RelaySlackMessageInput:
     run_id: str
     relay_id: str
@@ -360,6 +360,9 @@ class RelaySlackMessageInput:
     # Id of the user message this relay answers (agent-server echo), used to
     # tag the exact sender; None falls back to the run-state/mapping actors.
     message_id: str | None = None
+    # Gateway trace id of the turn that produced this answer. Trailing and defaulted so a
+    # relay enqueued before this field existed still decodes.
+    trace_id: str | None = None
 
 
 @activity.defn
@@ -448,7 +451,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         or mapping.mentioning_slack_user_id
     )
 
-    handler = SlackThreadHandler(context, actor_slack_user_id=target)
+    handler = SlackThreadHandler(context, actor_slack_user_id=target, turn_trace_id=input.trace_id)
     handler.run_footer = load_run_footer(task_run.id)
     mention_prefix = f"<@{target}> " if target else ""
 

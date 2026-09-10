@@ -296,60 +296,6 @@ export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksHogqlExecuteCreateBodyTitleMax = 256
-
-export const notebooksHogqlExecuteCreateBodyVersionMin = -2147483648
-export const notebooksHogqlExecuteCreateBodyVersionMax = 2147483647
-
-export const notebooksHogqlExecuteCreateBodyVariablesItemNameMax = 200
-
-export const NotebooksHogqlExecuteCreateBody = /* @__PURE__ */ zod.object({
-    title: zod.string().max(notebooksHogqlExecuteCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
-    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
-    version: zod
-        .number()
-        .min(notebooksHogqlExecuteCreateBodyVersionMin)
-        .max(notebooksHogqlExecuteCreateBodyVersionMax)
-        .optional()
-        .describe(
-            'Version number for optimistic concurrency control. Must match the current version when updating content.'
-        ),
-    deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
-    variables: zod
-        .array(
-            zod
-                .object({
-                    name: zod
-                        .string()
-                        .max(notebooksHogqlExecuteCreateBodyVariablesItemNameMax)
-                        .describe(
-                            'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
-                        ),
-                    type: zod
-                        .string()
-                        .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
-                        ),
-                    value: zod
-                        .unknown()
-                        .optional()
-                        .describe(
-                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
-                        ),
-                })
-                .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
-        )
-        .optional()
-        .describe(
-            'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
-        ),
-    _create_in_folder: zod.string().optional(),
-})
-
-/**
  * Set the notebook's kernel compute configuration. Applies at sandbox provision time: a currently running kernel keeps its resources until restarted.
  */
 export const NotebooksKernelConfigCreateBody = /* @__PURE__ */ zod.object({
@@ -397,64 +343,6 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
                     name: zod
                         .string()
                         .max(notebooksKernelExecuteCreateBodyVariablesItemNameMax)
-                        .describe(
-                            'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
-                        ),
-                    type: zod
-                        .string()
-                        .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
-                        ),
-                    value: zod
-                        .unknown()
-                        .optional()
-                        .describe(
-                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
-                        ),
-                })
-                .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
-        )
-        .optional()
-        .describe(
-            'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
-        ),
-    _create_in_folder: zod.string().optional(),
-})
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksKernelExecuteStreamCreateBodyTitleMax = 256
-
-export const notebooksKernelExecuteStreamCreateBodyVersionMin = -2147483648
-export const notebooksKernelExecuteStreamCreateBodyVersionMax = 2147483647
-
-export const notebooksKernelExecuteStreamCreateBodyVariablesItemNameMax = 200
-
-export const NotebooksKernelExecuteStreamCreateBody = /* @__PURE__ */ zod.object({
-    title: zod
-        .string()
-        .max(notebooksKernelExecuteStreamCreateBodyTitleMax)
-        .nullish()
-        .describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
-    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
-    version: zod
-        .number()
-        .min(notebooksKernelExecuteStreamCreateBodyVersionMin)
-        .max(notebooksKernelExecuteStreamCreateBodyVersionMax)
-        .optional()
-        .describe(
-            'Version number for optimistic concurrency control. Must match the current version when updating content.'
-        ),
-    deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
-    variables: zod
-        .array(
-            zod
-                .object({
-                    name: zod
-                        .string()
-                        .max(notebooksKernelExecuteStreamCreateBodyVariablesItemNameMax)
                         .describe(
                             'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
                         ),

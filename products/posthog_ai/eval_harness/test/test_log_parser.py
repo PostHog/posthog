@@ -306,17 +306,20 @@ class TestLogParserToolCalls(unittest.TestCase):
         self.assertEqual(call.raw_name, EXEC_TOOL_NAME)
         self.assertEqual(call.output, "results")
 
-    def test_exec_call_with_json_flag_is_unwrapped(self):
-        raw = _make_tool_log(
-            EXEC_TOOL_NAME,
-            {"command": 'call --json query-trends {"x": 2}'},
-        )
-        parser = LogParser(raw, initial_prompt="hi")
+    def test_exec_call_flags_are_consumed_before_the_tool_name(self):
+        for command in (
+            'call --json query-trends {"x": 2}',
+            'call --no-skills query-trends {"x": 2}',
+            'call --confirm --json query-trends {"x": 2}',
+        ):
+            with self.subTest(command=command):
+                raw = _make_tool_log(EXEC_TOOL_NAME, {"command": command})
+                parser = LogParser(raw, initial_prompt="hi")
 
-        call = parser.get_tool_calls()[0]
-        self.assertEqual(call.name, "query-trends")
-        self.assertEqual(call.input, {"x": 2})
-        self.assertTrue(call.is_exec_unwrapped)
+                call = parser.get_tool_calls()[0]
+                self.assertEqual(call.name, "query-trends")
+                self.assertEqual(call.input, {"x": 2})
+                self.assertTrue(call.is_exec_unwrapped)
 
     def test_exec_info_command_produces_synthetic_name(self):
         raw = _make_tool_log(

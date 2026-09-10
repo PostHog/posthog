@@ -246,7 +246,6 @@ function PermissionOptionRows({ options, responding, onRespond }: PermissionOpti
                 const active = selectedIndex === index || hoveredIndex === index
                 const editing = isFeedbackOption(option) && selectedIndex === index
                 const sublabel = optionSublabel(option)
-                const showSublabel = sublabel && (editing || active)
                 return (
                     <div
                         key={option.optionId}
@@ -307,7 +306,7 @@ function PermissionOptionRows({ options, responding, onRespond }: PermissionOpti
                                 )}
                             </div>
                         </div>
-                        {showSublabel && <p className="mt-0.5 mb-0 pl-10 text-xs text-muted">{sublabel}</p>}
+                        {sublabel && <p className="mt-0.5 mb-0 pl-10 text-xs text-muted">{sublabel}</p>}
                     </div>
                 )
             })}
