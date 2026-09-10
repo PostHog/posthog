@@ -13,7 +13,13 @@ from posthog.temporal.ai_observability.eval_reports.schedule import (
 from posthog.temporal.ai_observability.eval_reports.types import (
     DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN,
     DEFAULT_MAX_SCHEDULED_EVAL_REPORTS_PER_RUN,
+    MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN,
 )
+
+
+def test_count_triggered_report_cap_reserves_temporal_pending_child_headroom() -> None:
+    assert DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN <= MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN
+    assert MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN < 2_000
 
 
 @pytest.mark.asyncio
