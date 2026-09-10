@@ -62,7 +62,7 @@ const COLUMN_WIDTHS = {
 } as const
 
 // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
-const ignoreDataTableQueryChange = (_query: DataTableNode): void => {}
+const ignoreDataTableQueryChange = (): void => {}
 
 function useGetCell(): (record: unknown, column: string) => unknown {
     const { accountsTableQueryPlan } = useValues(accountsLogic)
