@@ -136,6 +136,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "EmailOutboxMessage",
         "InstanceSetting",
         "Schedule",
+        # Staff-only abuse rules with no team. Reachable only through Django admin.
+        "SecurityRule",
         # --- Auto-scoped via ProductTeamModel (TeamScopedManager handles filtering) ---
         "SplineReticulator",  # CI scaffold (hogli product:bootstrap)
         # stamphog lives on a separate product DB; every model is a ProductTeamModel whose
@@ -289,6 +291,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "AsyncMigrationError",
         "InstanceSetting",
         "License",
+        "SecurityRule",  # staff-managed abuse rules that apply across every tenant in the region
         # --- Deprecated ---
         "Prompt",
         "PromptSequence",

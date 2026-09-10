@@ -134,6 +134,7 @@
         "@posthog/products-replay-vision": "workspace:*",
         "@posthog/products-revenue-analytics": "workspace:*",
         "@posthog/products-review-hog": "workspace:*",
+        "@posthog/products-security": "workspace:*",
         "@posthog/products-session-replay": "workspace:*",
         "@posthog/products-signals": "workspace:*",
         "@posthog/products-skills": "workspace:*",

@@ -1,0 +1,62 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+{% block extrastyle %}
+    {{ block.super }}
+    <style nonce="{{ request.csp_nonce }}">
+    .confirm-summary { margin: 12px 0 20px; }
+    .confirm-summary dt { font-weight: bold; margin-top: 10px; }
+    .confirm-summary dd { margin-left: 0; }
+    .confirm-impact { background: #f8f8f8; border: 1px solid #ddd; padding: 12px 16px; margin-bottom: 20px; }
+    </style>
+{% endblock %}
+{% block breadcrumbs %}
+    <div class="breadcrumbs">
+        <a href="{% url 'admin:index' %}">{% translate "Home" %}</a>
+        &rsaquo; <a href="{% url 'admin:security_securityrule_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+        &rsaquo; Confirm the rule
+    </div>
+{% endblock %}
+{% block content %}
+    <p>Check what this rule reaches before you save it. It applies in the {{ region }} region only.</p>
+    <dl class="confirm-summary">
+        <dt>Block</dt>
+        <dd>
+            {{ scope_label }}
+        </dd>
+        <dt>{{ target_label }}</dt>
+        <dd>
+            {{ target_value }}
+        </dd>
+        <dt>Reason</dt>
+        <dd>
+            {{ reason }}
+        </dd>
+        <dt>Expires</dt>
+        <dd>
+            {% if expires_at %}
+                {{ expires_at }}
+            {% else %}
+                Never. It stays until someone revokes it.
+            {% endif %}
+        </dd>
+    </dl>
+    <div class="confirm-impact">
+        {% if impact.address_count is not None %}
+            Covers {{ impact.address_count }} address{{ impact.address_count|pluralize:"es" }}.
+        {% elif impact.matched_active_accounts is not None %}
+            Matches {{ impact.matched_active_accounts }} active account{{ impact.matched_active_accounts|pluralize }} in this region.
+        {% else %}
+            Existing accounts are not affected. New signups that match are refused.
+        {% endif %}
+    </div>
+    <form method="post">
+        {% csrf_token %}
+        {% for field in form %}{{ field.as_hidden }}{% endfor %}
+        <input type="hidden" name="{{ confirm_field }}" value="1">
+        <div class="submit-row">
+            <input type="submit" class="default" value="Save rule">
+            <a href="{% url 'admin:security_securityrule_add' %}"
+               class="button cancel-link">Start over</a>
+        </div>
+    </form>
+{% endblock %}

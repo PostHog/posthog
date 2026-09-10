@@ -1,0 +1,89 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+{% block extrastyle %}
+    {{ block.super }}
+    <style nonce="{{ request.csp_nonce }}">
+    .lookup-form input[type=text] { width: 420px; }
+    .lookup-read-as { color: #666; margin: 8px 0 16px; }
+    .lookup-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+    .lookup-table th, .lookup-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #ddd; vertical-align: top; }
+    .lookup-table th { background: #f8f8f8; }
+    .verdict-blocked { color: #ba2121; font-weight: bold; }
+    .verdict-allowed { color: #447e03; font-weight: bold; }
+    .empty-state { color: #666; font-style: italic; }
+    </style>
+{% endblock %}
+{% block breadcrumbs %}
+    <div class="breadcrumbs">
+        <a href="{% url 'admin:index' %}">{% translate "Home" %}</a>
+        &rsaquo; <a href="{% url 'admin:security_securityrule_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+        &rsaquo; Look up
+    </div>
+{% endblock %}
+{% block content %}
+    <form method="get" class="lookup-form">
+        <p>Look up an email address, email domain, IP address, user ID, organization ID or project ID.</p>
+        <input type="text"
+               name="q"
+               value="{{ query }}"
+               placeholder="name@example.com"
+               autofocus>
+        <input type="submit" value="Look up">
+    </form>
+    {% if query %}
+        <p class="lookup-read-as">Read as {{ read_as }}. Only rules in the {{ region }} region were checked.</p>
+        <h2>What happens</h2>
+        <table class="lookup-table">
+            <thead>
+                <tr>
+                    <th>Surface</th>
+                    <th>Result</th>
+                    <th>Decided by</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for decision in decisions %}
+                    <tr>
+                        <td>{{ decision.surface }}</td>
+                        {% if decision.blocked %}
+                            <td class="verdict-blocked">Blocked</td>
+                            <td>
+                                <a href="{% url 'admin:security_securityrule_change' decision.rule.id %}">{{ decision.rule.target }}</a>
+                            </td>
+                        {% else %}
+                            <td class="verdict-allowed">Allowed</td>
+                            <td></td>
+                        {% endif %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <h2>Rules that match ({{ matches|length }})</h2>
+        {% if matches %}
+            <table class="lookup-table">
+                <thead>
+                    <tr>
+                        <th>Target</th>
+                        <th>Effect</th>
+                        <th>Scope</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rule in matches %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'admin:security_securityrule_change' rule.id %}">{{ rule.target }}</a>
+                            </td>
+                            <td>{{ rule.effect }}</td>
+                            <td>{{ rule.scope }}</td>
+                            <td>{{ rule.reason }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="empty-state">No active rule matches. Add a rule if this needs blocking.</p>
+        {% endif %}
+    {% endif %}
+{% endblock %}
