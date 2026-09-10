@@ -128,7 +128,8 @@ def _select_due_subscription_candidate_ids(
                     SELECT subscription.id, subscription.next_delivery_date
                     FROM posthog_subscription AS subscription
                     LEFT JOIN posthog_dashboard AS dashboard ON dashboard.id = subscription.dashboard_id
-                    LEFT JOIN posthog_insight AS insight ON insight.id = subscription.insight_id
+                    -- Insight kept the legacy dashboarditem relation name through the model rename.
+                    LEFT JOIN posthog_dashboarditem AS insight ON insight.id = subscription.insight_id
                     WHERE subscription.team_id = selected_teams.team_id
                       AND subscription.next_delivery_date <= %s
                       AND subscription.deleted = FALSE
