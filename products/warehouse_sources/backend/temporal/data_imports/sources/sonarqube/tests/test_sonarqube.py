@@ -5,11 +5,13 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube import sonarqube
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.sonarqube import (
     SonarqubeResumeConfig,
+    _error_detail,
     _extract_paging,
     _format_created_after,
     get_rows,
@@ -28,6 +30,8 @@ class TestNormalizeBaseUrl:
             ("trailing_slash", "https://sonar.example.com/", "https://sonar.example.com"),
             ("strips_path", "https://sonar.example.com/sonarqube/foo", "https://sonar.example.com"),
             ("keeps_port", "https://sonar.example.com:9000", "https://sonar.example.com:9000"),
+            # A self-hosted domain that only contains a cloud hostname is not the cloud product.
+            ("cloud_lookalike_allowed", "https://sonarcloud.io.example.com", "https://sonarcloud.io.example.com"),
             ("whitespace", "  https://sonar.example.com  ", "https://sonar.example.com"),
         ]
     )
@@ -42,6 +46,11 @@ class TestNormalizeBaseUrl:
             ("ftp", "ftp://x"),
             # Plaintext http would put the bearer token on the wire in the clear.
             ("http_rejected", "http://sonar.internal"),
+            # Cloud needs an `organization` on every list endpoint, so it can only fail mid-sync.
+            ("cloud_eu_rejected", "https://sonarcloud.io"),
+            ("cloud_us_rejected", "https://sonarqube.us"),
+            ("cloud_bare_host_rejected", "sonarcloud.io"),
+            ("cloud_subdomain_rejected", "https://api.sonarcloud.io"),
         ]
     )
     def test_invalid_raises(self, _name: str, value: str) -> None:
@@ -70,6 +79,24 @@ class TestExtractPaging:
     def test_top_level_shape(self) -> None:
         # /api/metrics/search returns p/ps/total at the top level instead.
         assert _extract_paging({"p": 1, "ps": 500, "total": 42}) == (1, 500, 42)
+
+
+class TestErrorDetail:
+    @parameterized.expand(
+        [
+            (
+                "sonarqube_error_shape",
+                b'{"errors":[{"msg":"The \'organization\' parameter is missing"}]}',
+                "The 'organization' parameter is missing",
+            ),
+            ("several_errors_joined", b'{"errors":[{"msg":"first"},{"msg":"second"}]}', "first; second"),
+            ("unexpected_shape_falls_back_to_body", b'{"message":"nope"}', '{"message":"nope"}'),
+            ("non_json_falls_back_to_body", b"<html>gateway</html>", "<html>gateway</html>"),
+            ("empty_body", b"", "no error message"),
+        ]
+    )
+    def test_detail(self, _name: str, body: bytes, expected: str) -> None:
+        assert _error_detail(body) == expected
 
 
 class _FakeResumableManager:
@@ -307,6 +334,7 @@ class TestWindowedIssues:
 class _FakeResponse:
     def __init__(self, status_code: int, payload: Any = None) -> None:
         self.status_code = status_code
+        self.ok = 200 <= status_code < 300
         self._payload = payload
         self.closed = False
 
@@ -354,6 +382,19 @@ class TestReadBounded:
         monkeypatch.setattr(sonarqube, "MAX_TRANSFER_SECONDS", 10)
         with pytest.raises(ValueError):
             sonarqube._read_bounded(_FakeStream([b"aaaa", b"bbbb"]))  # type: ignore[arg-type]
+
+
+class TestFetchPageErrors:
+    def test_client_error_carries_the_servers_explanation(self) -> None:
+        # SonarQube sends an empty HTTP reason phrase, so the raised message has to carry the
+        # server's own words or it reads "400 Client Error:  for url: ..." and names no cause.
+        session = MagicMock()
+        session.get.return_value = _FakeResponse(400, {"errors": [{"msg": "The 'organization' parameter is missing"}]})
+
+        with pytest.raises(requests.HTTPError) as error:
+            sonarqube._fetch_page(session, f"{_BASE}/api/rules/search", {}, MagicMock())
+
+        assert "400 Client Error: The 'organization' parameter is missing" in str(error.value)
 
 
 class TestValidateCredentials:

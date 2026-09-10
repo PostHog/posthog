@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SonarqubeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.sonarqube import SONARQUBE_CLOUD_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.source import SonarqubeSource
 
 _INCREMENTAL_ENDPOINTS = {"issues"}
@@ -35,13 +36,23 @@ class TestSonarqubeSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://sonar.example.com/api/issues/search?p=1&ps=500",
-            "403 Client Error: Forbidden for url: https://sonar.example.com/api/users/search?p=1&ps=500",
+            "401 Client Error: Insufficient privileges for url: https://sonar.example.com/api/issues/search?p=1&ps=500",
+            "403 Client Error: Insufficient privileges for url: https://sonar.example.com/api/users/search?p=1&ps=500",
+            # A misconfigured server URL fails the same way on every attempt, so it belongs here
+            # rather than in error tracking.
+            "400 Client Error: The 'organization' parameter is missing for url: https://sonar.example.com/api/rules/search",
+            SONARQUBE_CLOUD_ERROR,
         ],
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+    def test_non_retryable_errors_match_permanent_failures(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
+
+    def test_permanent_request_errors_keep_the_servers_own_message(self):
+        # No fixed string can name what a 400 rejected, so the raised message must survive.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert non_retryable_errors["400 Client Error"] is None
+        assert non_retryable_errors[SONARQUBE_CLOUD_ERROR] is None
 
     @pytest.mark.parametrize(
         "other_error",
@@ -105,6 +116,21 @@ class TestSonarqubeSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("https://sonar.example.com", "tok")
+
+    @mock.patch.object(SonarqubeSource, "is_database_host_valid", return_value=(True, None))
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.source.validate_sonarqube_credentials"
+    )
+    def test_validate_credentials_rejects_sonarqube_cloud(self, mock_validate, _mock_host):
+        # Cloud answers the credential probe with 200, so setup used to pass and every sync then
+        # failed with an unexplained 400.
+        config = SonarqubeSourceConfig(host="https://sonarcloud.io", token="tok")
+
+        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error_message == SONARQUBE_CLOUD_ERROR
+        mock_validate.assert_not_called()
 
     @mock.patch.object(SonarqubeSource, "is_database_host_valid", return_value=(False, "Blocked internal host"))
     @mock.patch(
