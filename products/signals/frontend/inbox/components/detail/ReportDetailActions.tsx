@@ -36,13 +36,6 @@ export interface ReportDetailAction {
     primary?: boolean
 }
 
-/**
- * Detail-pane actions as data: Resolve, Dismiss/Restore, and Refund. Create PR and Discuss are each
- * rendered separately as a standalone dropdown button (`CreatePrButton`, `DiscussReportButton`)
- * since they open a note popover rather than firing on click; rating a report lives at the end of
- * the body (`ReportFeedbackFooter`). Dismissing and resolving reuse the shared `useReportDismiss` /
- * `useReportResolve` dialog flows. Callers render these inline or inside a menu.
- */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const { reportStateChanged } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)

@@ -2,9 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { getSeriesColorPalette } from 'lib/colors'
+import { MetricDirectionColorPickers } from 'lib/components/Metric/MetricDirectionColorPickers'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonColorPicker } from 'lib/lemon-ui/LemonColor'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import {
     METRIC_COLOR_BY_DIRECTION_DEFAULT,
@@ -16,45 +15,6 @@ import {
 } from 'scenes/insights/views/Metric/Metric.utils'
 
 import { insightLogic } from '../insightLogic'
-
-const PRESET_COLORS = getSeriesColorPalette()
-
-function DirectionColorPickers({
-    increaseColor,
-    decreaseColor,
-    onIncrease,
-    onDecrease,
-}: {
-    increaseColor: string
-    decreaseColor: string
-    onIncrease: (color: string) => void
-    onDecrease: (color: string) => void
-}): JSX.Element {
-    return (
-        <div className="flex flex-col gap-1 pl-5">
-            <div className="flex items-center justify-between gap-2 p-1 px-2">
-                <span className="font-normal">Increase</span>
-                <LemonColorPicker
-                    colors={PRESET_COLORS}
-                    selectedColor={increaseColor}
-                    onSelectColor={onIncrease}
-                    showCustomColor
-                    preventPopoverClose
-                />
-            </div>
-            <div className="flex items-center justify-between gap-2 p-1 px-2">
-                <span className="font-normal">Decrease</span>
-                <LemonColorPicker
-                    colors={PRESET_COLORS}
-                    selectedColor={decreaseColor}
-                    onSelectColor={onDecrease}
-                    showCustomColor
-                    preventPopoverClose
-                />
-            </div>
-        </div>
-    )
-}
 
 export function MetricSummaryFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -97,7 +57,9 @@ export function MetricShowChangeFilter(): JSX.Element {
                 size="small"
             />
             {showChange && (
-                <DirectionColorPickers
+                <MetricDirectionColorPickers
+                    className="gap-1 pl-5"
+                    rowClassName="p-1 px-2"
                     increaseColor={trendsFilter?.metricChangeIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR}
                     decreaseColor={trendsFilter?.metricChangeDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR}
                     onIncrease={(color) => updateInsightFilter({ metricChangeIncreaseColor: color })}
@@ -125,7 +87,9 @@ export function MetricColorFilter(): JSX.Element {
                 size="small"
             />
             {colorByDirection && (
-                <DirectionColorPickers
+                <MetricDirectionColorPickers
+                    className="gap-1 pl-5"
+                    rowClassName="p-1 px-2"
                     increaseColor={trendsFilter?.metricLineIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR}
                     decreaseColor={trendsFilter?.metricLineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR}
                     onIncrease={(color) => updateInsightFilter({ metricLineIncreaseColor: color })}

@@ -81,7 +81,10 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
-from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
+from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import (
+    _write_and_upload,
+    upload_video_to_gemini_activity,
+)
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_ADMISSION_BUSY_ERROR_TYPE,
@@ -503,6 +506,98 @@ class TestCreateObservationActivity:
             observation_id=None, was_created=False, scanner_type=scanner.scanner_type
         )
         assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-no-consent").exists()
+
+    @parameterized.expand(
+        [
+            ("quota", 5, 5),
+            ("consent", None, None),
+        ]
+    )
+    def test_blocked_scan_emits_one_event_per_scanner_and_reason(
+        self, reason: str, expected_credit_limit: int | None, expected_credits_used: int | None
+    ) -> None:
+        # A refused scan writes no observation row, so this event is the only thing that can count it.
+        scanner = _make_scanner()
+        sibling = _make_scanner(team=scanner.team, name="sibling")
+        if reason == "consent":
+            org = scanner.team.organization
+            org.is_ai_data_processing_approved = False
+            org.save()
+
+        # Both gates would refuse, so the consent case reporting no credit figures is what proves
+        # consent is checked first.
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.quota_state",
+                return_value=QuotaSnapshot(
+                    credit_limit=5,
+                    credits_used=5,
+                    period_start=dt.datetime.now(dt.UTC),
+                    period_end=dt.datetime.now(dt.UTC),
+                    projected_monthly_credits=0,
+                ),
+            ),
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.posthoganalytics.capture"
+            ) as capture,
+        ):
+            for session_id in ("sess-a", "sess-b"):
+                assert self._admit(scanner, session_id).was_created is False
+            assert self._admit(sibling, "sess-c").was_created is False
+            # Flip consent so the same scanner is now refused for the other reason, which the dedup
+            # key holds separately.
+            org = scanner.team.organization
+            org.is_ai_data_processing_approved = reason == "consent"
+            org.save()
+            assert self._admit(scanner, "sess-d").was_created is False
+
+        emitted = [
+            (c.kwargs["properties"]["scanner_id"], c.kwargs["properties"]["reason"]) for c in capture.call_args_list
+        ]
+        # Two sessions on one scanner share an event; another scanner, or another reason, reports on
+        # its own.
+        assert emitted == [
+            (str(scanner.id), reason),
+            (str(sibling.id), reason),
+            (str(scanner.id), "quota" if reason == "consent" else "consent"),
+        ]
+        kwargs = capture.call_args_list[0].kwargs
+        assert kwargs["event"] == "replay_vision_scan_blocked"
+        assert kwargs["distinct_id"] == f"replay-vision:{scanner.team_id}"
+        properties = kwargs["properties"]
+        assert properties["reason"] == reason
+        assert properties["scanner_type"] == "monitor"
+        # The enum's value, not its repr: a dashboard filters on the string the event carries.
+        assert properties["triggered_by"] == "schedule"
+        assert properties["credit_limit"] == expected_credit_limit
+        assert properties["credits_used"] == expected_credits_used
+        assert properties["team_id"] == scanner.team_id
+        assert properties["organization_id"] == str(scanner.team.organization_id)
+        assert kwargs["groups"]["project"] == str(scanner.team.uuid)
+
+    def test_blocked_scan_settles_and_stays_quiet_when_the_dedup_store_fails(self) -> None:
+        # The scan is already refused, so a Redis outage must neither fail the activity into a retry
+        # that reaches the same decision, nor emit the per-session flood the dedup gate exists to stop.
+        scanner = _make_scanner()
+        org = scanner.team.organization
+        org.is_ai_data_processing_approved = False
+        org.save()
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.redis.get_client",
+                side_effect=RuntimeError("redis unreachable"),
+            ),
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.posthoganalytics.capture"
+            ) as capture,
+        ):
+            result = self._admit(scanner, "sess-redis-down")
+
+        assert result == CreateObservationOutput(
+            observation_id=None, was_created=False, scanner_type=scanner.scanner_type
+        )
+        capture.assert_not_called()
 
     @parameterized.expand(
         [
@@ -1690,6 +1785,46 @@ class TestFetchSessionEventsActivity:
         assert stored.metadata.duration_seconds == 300.0
         assert len(stored.events.rows) == 1
         assert stored.events.rows[0][1:] == ["$pageview", "2026-05-12T10:00:00Z", "sess-1"]
+
+    @pytest.mark.asyncio
+    async def test_resolved_identity_reaches_both_the_payload_and_the_observation_row(self) -> None:
+        # The row's `recording_subject_email` and the prompt's identity block are fed by one resolution step.
+        # If it stops populating, the email silently goes NULL — breaking the pinned properties, the
+        # `recording_subject` filter, and the `order_by` — while every scan still succeeds.
+        scanner = await sync_to_async(_make_scanner)()
+        observation = await sync_to_async(_make_observation)(scanner)
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        end = dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": end, "duration": 300, "active_seconds": 200}
+        mock_obj = self._make_session_replay_events_mock(
+            metadata,
+            [(["event", "timestamp", "$session_id"], [("$pageview", start, "sess-1")])],
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+                return_value=mock_obj,
+            ),
+            patch(
+                "products.replay_vision.backend.temporal.activities.fetch_session_events.fetch_session_person_properties",
+                return_value={"email": "rene@customer.example", "name": "Rene Diaz", "org__name": "Customer Co"},
+            ),
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation.id, team_id=scanner.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation.id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
+        assert stored is not None
+        assert stored.identity.person_email == "rene@customer.example"
+        assert stored.identity.person_name == "Rene Diaz"
+        assert stored.identity.person_organization == "Customer Co"
+
+        await sync_to_async(observation.refresh_from_db)()
+        assert observation.recording_subject_email == "rene@customer.example"
 
     @pytest.mark.asyncio
     async def test_fetches_a_single_page_with_the_configured_limit(self) -> None:
@@ -3076,6 +3211,28 @@ class TestClassifyGeminiError:
         # Claiming a kind here would be worse than the status quo: a PostHog bug would be blamed on the provider,
         # and for the transient kinds it would burn the retry budget before failing anyway.
         assert classify_gemini_error(ValueError("bad arg")) is None
+
+
+class TestUploadFinalizeFailures:
+    @parameterized.expand(
+        [
+            ("missing_file_key", KeyError("file")),
+            ("empty_body", TypeError("string indices must be integers, not 'str'")),
+            ("status_not_final", ValueError("Failed to upload file: Upload status is not finalized.")),
+            ("chunks_not_final", ValueError("All content has been uploaded, but the upload status is not finalized.")),
+            (
+                "no_upload_url",
+                KeyError("Failed to create file. Upload URL did not returned from the create file request."),
+            ),
+        ]
+    )
+    def test_maps_sdk_upload_failures_to_provider_transient(self, _label: str, error: Exception) -> None:
+        raw_client = MagicMock()
+        raw_client.files.upload.side_effect = error
+        with pytest.raises(ScannerFailureError) as exc_info:
+            _write_and_upload(raw_client, b"mp4", "video/mp4", "wf-1")
+        assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
+        assert exc_info.value.message == "The AI provider did not finish the video upload"
 
 
 class TestGeminiErrorRedaction:

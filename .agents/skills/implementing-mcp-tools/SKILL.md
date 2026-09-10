@@ -164,6 +164,10 @@ tools:
       # include and exclude are mutually exclusive
       selectable: true # add optional `fields` param so the agent picks a subset of `include` per call
       # (constrained to the allowlist); omit `fields` to return the full set. Requires `include`.
+      strip_nulls: true # remove keys whose value is `null`, applied after include/exclude
+      # Use it on tools that echo a nested serializer schema, where the unset optional fields
+      # dominate the payload. Rejected with `list: true`, where per-row null removal makes the
+      # TOON table larger. Use `exclude` to drop the fields on a list tool instead.
     feature_flag: my-flag-key # gate this tool behind a PostHog feature flag
     feature_flag_behavior: enable # 'enable' (default) or 'disable'
 ```

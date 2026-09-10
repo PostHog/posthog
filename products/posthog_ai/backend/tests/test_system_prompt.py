@@ -24,6 +24,13 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "`metric-describe`" in prompt
         assert "`data-catalog-metric-run`" in prompt
         assert "complete governed catalog" in prompt
+        assert "counts of active entities" in prompt
+        assert "failure and error rates" in prompt
+        assert "latency percentiles" in prompt
+        assert "ticket, submission, and hit volumes" in prompt
+        assert "cost per run" in prompt
+        assert "conversion rates" in prompt
+        assert "product skill's query recipe does not exempt" in prompt
 
     def test_includes_core_sections(self):
         prompt = self._build()["append"]

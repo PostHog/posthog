@@ -649,6 +649,8 @@ export interface ReplayObservationApi {
     readonly next_observation_id: string | null
     /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
     readonly label: ReplayObservationLabelApi | null
+    /** Whether the calling user has opened this observation. */
+    readonly viewed: boolean
     /** @nullable */
     started_at?: string | null
     /** @nullable */
@@ -887,7 +889,7 @@ export interface ReplayScannerApi {
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
-    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
      *
      * * `ai` - AI draft
      * * `template` - Template
@@ -1011,7 +1013,7 @@ export interface PatchedReplayScannerApi {
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer */
     scanner_type?: ScannerTypeEnumApi
-    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
      *
      * * `ai` - AI draft
      * * `template` - Template
@@ -1916,6 +1918,11 @@ export interface SignalScoutConfigApi {
     readonly skill_name: string
     /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
     readonly description: string
+    /**
+     * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+     * @maxLength 200
+     */
+    display_name?: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
     /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
@@ -2082,6 +2089,8 @@ export interface DraftScannerResponseApi {
      * @nullable
      */
     credit_limit: number | null
+    /** Goal-based flow only: the experiment whose participants the draft watches, when the goal named one of the project's launched experiments. Null when it named none. Carried separately from `query`, which never holds an exposure filter. */
+    experiment_targeting: ScannerExperimentTargetingApi | null
     /**
      * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
      * @nullable

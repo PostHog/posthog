@@ -24,9 +24,8 @@ export function SidebarQuestionInputWithSuggestions({
     hideSuggestions?: boolean
 }): JSX.Element {
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason, activeSuggestionGroup } = useValues(maxLogic)
-    const { setActiveGroup, setQuestion, focusInput, setFillInHint } = useActions(maxLogic)
+    const { setActiveGroup, setFillInHint, runSuggestion } = useActions(maxLogic)
     const { agentMode } = useValues(maxThreadLogic)
-    const { askMax } = useActions(maxThreadLogic)
     const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
 
     const [settingsModalOpen, setSettingsModalOpen] = useState(false)
@@ -78,15 +77,7 @@ export function SidebarQuestionInputWithSuggestions({
                         />
                         {selectedTopicData && (
                             <div className="w-full overflow-hidden" style={{ height: SUGGESTION_CARDS_HEIGHT_PX }}>
-                                <TopicSuggestions
-                                    topic={selectedTopicData}
-                                    onType={setQuestion}
-                                    onSubmit={(text) => askMax(text)}
-                                    onFillIn={(hint) => {
-                                        setFillInHint(hint)
-                                        focusInput()
-                                    }}
-                                />
+                                <TopicSuggestions topic={selectedTopicData} onRun={runSuggestion} />
                             </div>
                         )}
                     </div>

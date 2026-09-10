@@ -1,5 +1,6 @@
-import dataclasses
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 # Alpha Vantage exposes every dataset through a single /query endpoint selected by a `function`
 # parameter. Each function returns a bespoke JSON shape, so endpoints are grouped by a `kind` that
@@ -8,10 +9,10 @@ from typing import Literal
 # There is no pagination and no server-side incremental cursor (no `updated_after`/`since` filter),
 # so every table is full refresh only. Time-series data is naturally append-only by date, so
 # re-pulled rows dedupe on the primary key at merge time.
-ParseKind = Literal["time_series", "quote", "overview", "reports", "earnings"]
+ParseKind = Literal["time_series", "quote", "overview", "reports", "earnings", "corporate_action", "listing"]
 
 
-@dataclasses.dataclass
+@frozen
 class AlphaVantageEndpointConfig:
     name: str
     # The Alpha Vantage `function` query-param value (e.g. TIME_SERIES_DAILY).
@@ -21,7 +22,8 @@ class AlphaVantageEndpointConfig:
     # the injected `symbol` is always part of the key.
     primary_keys: list[str]
     # A stable date column used for datetime partitioning. Never a mutable field. None for snapshot
-    # tables (latest quote, company overview) that hold one row per symbol.
+    # tables (latest quote, company overview) and for the low-volume corporate-action and listing
+    # tables, where monthly partitions would hold a handful of rows each.
     partition_key: str | None = None
     description: str | None = None
     # Whether the table is selected for sync by default in the UI. Kept modest by default because the
@@ -37,6 +39,15 @@ ALPHA_VANTAGE_ENDPOINTS: dict[str, AlphaVantageEndpointConfig] = {
         primary_keys=["symbol", "date"],
         partition_key="date",
         description="Daily open/high/low/close/volume bars per symbol (20+ years of history). Full refresh.",
+    ),
+    "time_series_daily_adjusted": AlphaVantageEndpointConfig(
+        name="time_series_daily_adjusted",
+        function="TIME_SERIES_DAILY_ADJUSTED",
+        kind="time_series",
+        primary_keys=["symbol", "date"],
+        partition_key="date",
+        description="Daily bars per symbol with split/dividend-adjusted close, dividend amount, and split coefficient (25+ years of history). Requires a paid Alpha Vantage plan. Full refresh.",
+        should_sync_default=False,
     ),
     "time_series_weekly": AlphaVantageEndpointConfig(
         name="time_series_weekly",
@@ -101,6 +112,31 @@ ALPHA_VANTAGE_ENDPOINTS: dict[str, AlphaVantageEndpointConfig] = {
         primary_keys=["symbol", "fiscalDateEnding", "report_type"],
         partition_key="fiscalDateEnding",
         description="Annual and quarterly reported EPS (with estimates and surprise) per symbol. One row per report. Full refresh.",
+    ),
+    "dividends": AlphaVantageEndpointConfig(
+        name="dividends",
+        function="DIVIDENDS",
+        kind="corporate_action",
+        primary_keys=["symbol", "ex_dividend_date"],
+        description="Historical and declared dividend distributions per symbol. One row per distribution. Full refresh.",
+        should_sync_default=False,
+    ),
+    "splits": AlphaVantageEndpointConfig(
+        name="splits",
+        function="SPLITS",
+        kind="corporate_action",
+        primary_keys=["symbol", "effective_date"],
+        description="Historical stock split events per symbol. One row per split. Full refresh.",
+        should_sync_default=False,
+    ),
+    "listing_status": AlphaVantageEndpointConfig(
+        name="listing_status",
+        function="LISTING_STATUS",
+        kind="listing",
+        # Not symbol-scoped, so `symbol` alone is not enough: a delisted ticker can later be reused by
+        # a different active company, and the same ticker can be delisted more than once.
+        primary_keys=["symbol", "status", "ipoDate"],
+        description="Every active and delisted US stock and ETF with its exchange, asset type, and IPO/delisting dates. Covers the whole market rather than the configured symbols. Full refresh.",
     ),
 }
 

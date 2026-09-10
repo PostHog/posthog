@@ -111,7 +111,12 @@ def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags
 Available tags:
 {tag_list}
 
-{constraint} Only use tags from the list above. If no tags apply, return an empty list."""
+{constraint} Only use tags from the list above. If no tags apply, return an empty list.
+
+Respond with one JSON object and nothing else, in this exact shape:
+{{"tags": ["<tag name>", ...], "reasoning": "<brief explanation>"}}
+
+Always include both keys. Set "tags" to an array of tag name strings from the list above, and use an empty array when no tags apply. Do not send the tags as an object of names to true or false, and do not send a number or a bare string. Set "reasoning" to one or two sentences on why you selected those tags. Do not wrap the JSON in markdown fences, and do not add other keys."""
 
 
 @dataclass
