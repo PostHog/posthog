@@ -420,7 +420,7 @@ def _fetch_eval_report_candidate_page(
 
         candidate_limit = max_reports_per_run + 1
         candidates_per_team = math.ceil(candidate_limit / len(selected_team_ids))
-        query_params = [
+        query_params: list[Any] = [
             selected_team_ids,
             *(candidate_sql_params or []),
             *([item_cursor] if rotate_item_cursor else []),

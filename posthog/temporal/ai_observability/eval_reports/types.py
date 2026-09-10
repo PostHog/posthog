@@ -15,14 +15,14 @@ DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN = 2_000
 MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN = 5_000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ScheduleAllEvalReportsWorkflowInputs:
     buffer_minutes: int = 15
     max_reports_per_run: int = DEFAULT_MAX_SCHEDULED_EVAL_REPORTS_PER_RUN
     region: str = "local"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CheckCountTriggeredReportsWorkflowInputs:
     max_reports_per_run: int = DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN
     region: str = "local"
@@ -50,7 +50,7 @@ class CheckCountTriggeredEvalReportsBatchOutput:
     results: list[CheckCountTriggeredEvalReportOutput]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FetchDueEvalReportsOutput:
     report_ids: list[str]
     # Count-triggered candidates grouped one team per group, each group at most
