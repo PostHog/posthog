@@ -40,6 +40,14 @@ const getStatusCounts = (sources: { status: string }[]): StatusCount => {
     return counts
 }
 
+type IssueStatus = ExternalDataSchemaStatus.Running | ExternalDataSchemaStatus.Failed | ExternalDataSchemaStatus.Paused
+
+const STATUS_PHRASES: Record<IssueStatus, string> = {
+    [ExternalDataSchemaStatus.Running]: 'is syncing',
+    [ExternalDataSchemaStatus.Failed]: 'failed to sync',
+    [ExternalDataSchemaStatus.Paused]: 'is paused',
+}
+
 const SourceStatusMessage = ({
     length,
     singularVerb,
@@ -80,6 +88,14 @@ export const MarketingAnalyticsSourceStatusBanner = (): JSX.Element | null => {
     }
 
     const statusCounts = getStatusCounts(sourcesWithIssues)
+    // One outage usually fails every source with the same error, so show each error once.
+    const failureMessages = Array.from(
+        new Set(
+            sourcesWithIssues
+                .filter((source) => source.status === ExternalDataSchemaStatus.Failed)
+                .map((source) => source.statusMessage)
+        )
+    )
     const hasErrors = statusCounts[ExternalDataSchemaStatus.Failed] > 0
     const hasWarnings = statusCounts[MarketingSourceStatus.Warning] > 0
     const bannerType = hasErrors ? 'error' : hasWarnings ? 'warning' : 'info'
@@ -91,13 +107,9 @@ export const MarketingAnalyticsSourceStatusBanner = (): JSX.Element | null => {
                     <strong>{sourcesWithIssues[0].name}</strong>
                     {sourcesWithIssues[0].status === MarketingSourceStatus.Warning
                         ? `: ${sourcesWithIssues[0].statusMessage}`
-                        : ` is currently ${
-                              sourcesWithIssues[0].status === 'Running'
-                                  ? 'syncing'
-                                  : sourcesWithIssues[0].status === 'Failed'
-                                    ? 'failed'
-                                    : 'paused'
-                          }. ${sourcesWithIssues[0].statusMessage}`}
+                        : ` ${STATUS_PHRASES[sourcesWithIssues[0].status as IssueStatus]}. ${
+                              sourcesWithIssues[0].statusMessage
+                          }`}
                 </>
             ) : (
                 <>
@@ -126,12 +138,20 @@ export const MarketingAnalyticsSourceStatusBanner = (): JSX.Element | null => {
                         message="paused"
                     />
                 </>
-            )}{' '}
-            Check{' '}
-            <Link to={urls.settings('environment-marketing-analytics')} target="_blank">
-                marketing analytics settings
-            </Link>{' '}
-            for more details.
+            )}
+            {sourcesWithIssues.length > 1 &&
+                failureMessages.map((message) => (
+                    <div key={message} className="mt-1">
+                        {message}
+                    </div>
+                ))}
+            <div className="mt-1">
+                See the sync status of every source in{' '}
+                <Link to={urls.settings('environment-marketing-analytics')} target="_blank">
+                    marketing analytics settings
+                </Link>
+                .
+            </div>
         </LemonBanner>
     )
 }

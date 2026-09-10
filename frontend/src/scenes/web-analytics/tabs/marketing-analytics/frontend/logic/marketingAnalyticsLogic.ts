@@ -30,7 +30,13 @@ import {
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
-import { DataWarehouseSettingsTab, ExternalDataSchemaStatus, ExternalDataSource, IntervalType } from '~/types'
+import {
+    DataWarehouseSettingsTab,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+    IntervalType,
+} from '~/types'
 import { ChartDisplayType } from '~/types'
 
 import { mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
@@ -116,7 +122,7 @@ export enum MarketingSourceStatus {
 
 export type SourceStatus = ExternalDataSchemaStatus | MarketingSourceStatus
 
-function getSourceStatus(
+export function getSourceStatus(
     source: { id: string; name: string; type: string; prefix?: string },
     nativeSources: ExternalDataSource[],
     validExternalTables: ExternalTable[]
@@ -144,8 +150,12 @@ function getSourceStatus(
 
         const schemaStatuses = schemas.map((s) => s?.status).filter(Boolean)
 
-        if (schemaStatuses.includes(ExternalDataSchemaStatus.Failed)) {
-            return { status: ExternalDataSchemaStatus.Failed, message: 'One or more required tables failed to sync' }
+        const failedSchema = schemas.find((s) => s?.status === ExternalDataSchemaStatus.Failed)
+        if (failedSchema) {
+            return {
+                status: ExternalDataSchemaStatus.Failed,
+                message: failedSchema.latest_error || 'One or more required tables failed to sync.',
+            }
         }
         if (schemaStatuses.includes(ExternalDataSchemaStatus.Running)) {
             return {
@@ -189,7 +199,10 @@ function getSourceStatus(
                 return { status: ExternalDataSchemaStatus.Completed, message: 'Ready to use' }
             }
             if (externalTable.schema_status === ExternalDataSchemaStatus.Failed) {
-                return { status: ExternalDataSchemaStatus.Failed, message: 'Table sync failed' }
+                return {
+                    status: ExternalDataSchemaStatus.Failed,
+                    message: externalTable.latest_error || 'Table sync failed.',
+                }
             }
             if (externalTable.schema_status === ExternalDataSchemaStatus.Running) {
                 return { status: ExternalDataSchemaStatus.Running, message: 'Table is syncing' }
@@ -223,6 +236,8 @@ export type ExternalTable = {
     schema_name: string
     dw_source_type: string
     schema_status?: string
+    /** The sync error the backend wrote for this table's schema, shown to the person as-is. */
+    latest_error?: string | null
 }
 
 export type NativeSource = {
@@ -275,6 +290,7 @@ export interface marketingAnalyticsLogicValues {
         dw_source_type: string
         external_type: DataWarehouseSettingsTab
         id: string
+        latest_error?: string | null | undefined
         name: string
         schema_name: string
         schema_status?: string | undefined
@@ -562,6 +578,7 @@ export interface marketingAnalyticsLogicMeta {
             dw_source_type: string
             external_type: DataWarehouseSettingsTab
             id: string
+            latest_error?: string | null | undefined
             name: string
             schema_name: string
             schema_status?: string | undefined
@@ -947,6 +964,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             schema_name: table.schema?.name || table.name,
                             dw_source_type: tableType,
                             schema_status: table.schema?.status,
+                            latest_error:
+                                dataWarehouseSource?.schemas?.find(
+                                    (schema: ExternalDataSourceSchema) => schema.id === table.schema?.id
+                                )?.latest_error ?? null,
                         })
                     })
                 }
