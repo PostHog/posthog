@@ -401,22 +401,21 @@ _REPORT_SEARCH_BULLET = (
 
 # Per-capability, so an emit-only scout is never told about a tool it can't call: the shared wording
 # would otherwise name `edit_report` in a prompt whose scout has no edit scope.
-_RETRY_TAIL = (
-    " If unsure whether a call landed, re-read with `inbox-reports-list` / `inbox-reports-retrieve` "
-    "rather than re-sending."
+_EMIT_RETRY_SAFE = (
+    "An `emit_report` call that timed out or died mid-flight is safe to send again, unchanged: the "
+    "retry returns the report the first call authored, flagged `idempotent_replay`, never a second "
+    "report. Without an `idempotency_key` the report's content is the key, so pass one when your retry "
+    "might reword the report."
 )
 
-_REPORT_NOT_IDEMPOTENT_BOTH = (
-    "Neither `emit_report` nor `edit_report` is idempotent, so never retry a call that looked like it "
-    "failed: a retried `emit_report` that actually landed silently doubles the report, and a retried "
-    "`edit_report(append_note=...)` appends a second note, and `edit_report(append_evidence=...)` "
-    "appends duplicate signals and increases the report counters again." + _RETRY_TAIL
+_REPORT_RETRY_RULE_BOTH = (
+    _EMIT_RETRY_SAFE + " `edit_report` has no such barrier: a retried `edit_report(append_note=...)` "
+    "appends a second note, and `edit_report(append_evidence=...)` appends duplicate signals and "
+    "increases the report counters again. If unsure whether an edit landed, re-read the report with "
+    "`inbox-reports-retrieve` rather than re-sending."
 )
 
-_REPORT_NOT_IDEMPOTENT_EMIT_ONLY = (
-    "`emit_report` is not idempotent, so never retry one that looked like it failed: a retry that "
-    "actually succeeded the first time silently doubles the report." + _RETRY_TAIL
-)
+_REPORT_RETRY_RULE_EMIT_ONLY = _EMIT_RETRY_SAFE
 
 # The two additive channels on an edit, stated once and shared by both edit-capable personas.
 # An emit-only prompt names neither, because the scout has no edit scope.
@@ -435,19 +434,19 @@ _EDIT_EVIDENCE_VS_NOTE = (
 
 _AUTHORING_VS_EDITING_REPORT_BOTH = f"""# Authoring vs. editing: search the inbox first
 
-`scout-emit-report` is NOT idempotent: calling it twice authors two reports, and there is no dedupe matcher on this channel. Duplicate reports are the main failure mode here, so the discipline is **search, then decide**:
+`scout-emit-report` has no dedupe matcher: two calls covering one issue in different words author two reports. Duplicate reports are the main failure mode here, so the discipline is **search, then decide**:
 
 {_REPORT_SEARCH_BULLET}
 - **Edit when it already exists *and is still live*.** If a report covers the issue, prefer `scout-edit-report`. {_EDIT_EVIDENCE_VS_NOTE} Rewrite `title`/`summary` only on a report you own. One living report beats three near-duplicates fragmenting the inbox. But `edit_report` can't change a report's status, so appending to a `resolved` / `suppressed` / `failed` report buries a real relapse under a closed item: when the match is no longer live, treat the relapse as genuinely new, author a fresh report, and repoint your `report:` pointer at it.
-- **Author only when it's genuinely new.** A materially new issue, a known one with new evidence that changes the verdict, or a relapse whose prior report is no longer live. {_REPORT_NOT_IDEMPOTENT_BOTH}"""
+- **Author only when it's genuinely new.** A materially new issue, a known one with new evidence that changes the verdict, or a relapse whose prior report is no longer live. {_REPORT_RETRY_RULE_BOTH}"""
 
 _AUTHORING_REPORT_EMIT_ONLY = f"""# Authoring reports: search the inbox first
 
-`scout-emit-report` is NOT idempotent: calling it twice authors two reports, and there is no dedupe matcher on this channel. Duplicate reports are the main failure mode here, so the discipline is **search, then decide**:
+`scout-emit-report` has no dedupe matcher: two calls covering one issue in different words author two reports. Duplicate reports are the main failure mode here, so the discipline is **search, then decide**:
 
 {_REPORT_SEARCH_BULLET}
 - **Don't duplicate a *live* report.** This run can't edit reports, so when a still-open report already covers the issue, record a `remember(...)` note and skip rather than authoring a near-duplicate. A `resolved` / `suppressed` / `failed` report won't resurface and you can't reopen it, so a genuine relapse of a closed report *is* genuinely new: author a fresh report for it.
-- **Author only when it's genuinely new.** A materially new issue, or a relapse whose prior report is no longer live. {_REPORT_NOT_IDEMPOTENT_EMIT_ONLY}"""
+- **Author only when it's genuinely new.** A materially new issue, or a relapse whose prior report is no longer live. {_REPORT_RETRY_RULE_EMIT_ONLY}"""
 
 _EDITING_REPORT_EDIT_ONLY = f"""# Editing existing reports
 
