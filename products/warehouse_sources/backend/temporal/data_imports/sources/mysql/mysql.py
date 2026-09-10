@@ -36,6 +36,7 @@ from structlog.types import FilteringBoundLogger
 # Module-level error-capture seam. This module's best-effort probes (get_rows_to_sync,
 # explain_query, fetch_average_row_size) deliberately do NOT report handled failures here;
 # their guard tests patch `mysql.capture_exception` to enforce that.
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception  # noqa: F401
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -787,6 +788,17 @@ def _is_invisible_column(extra: str | None) -> bool:
     return _INVISIBLE_COLUMN_EXTRA_TOKEN in (extra or "").upper().split()
 
 
+@frozen
+class MySQLTableSetup:
+    """Everything `build_pipeline` learns about a table before it can stream rows."""
+
+    primary_keys: list[str] | None
+    projection: TableProjection[MySQLColumn]
+    chunk_size: int
+    rows_to_sync: int
+    partition_settings: PartitionSettings | None
+
+
 def _syncable_column_names(table: Table[MySQLColumn], logger: FilteringBoundLogger) -> list[str]:
     """Return the column names a sync-all read can name, or nothing to keep `SELECT *`.
 
@@ -1483,9 +1495,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 available_columns=available_columns,
             )
 
-        def _discover_metadata() -> tuple[
-            list[str] | None, TableProjection[MySQLColumn], int, PartitionSettings | None, int
-        ]:
+        def _discover_metadata() -> MySQLTableSetup:
             with self.connect(config) as connection:
                 with connection.cursor() as cursor:
                     primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
@@ -1517,15 +1527,24 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         if should_use_incremental_field
                         else None
                     )
-            return primary_keys, projection, chunk_size, partition_settings, rows_to_sync
+            return MySQLTableSetup(
+                primary_keys=primary_keys,
+                projection=projection,
+                chunk_size=chunk_size,
+                rows_to_sync=rows_to_sync,
+                partition_settings=partition_settings,
+            )
 
         # A PlanetScale/Vitess tablet can be momentarily unavailable even once the vtgate
         # handshake succeeds, so retry the whole metadata-discovery block (reopening the
         # connection) on a transient `code = Unavailable` rather than failing setup on the
         # first blip — see `_retry_on_transient_tablet_unavailable`.
-        primary_keys, setup_projection, chunk_size, partition_settings, rows_to_sync = (
-            _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
-        )
+        setup = _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
+        primary_keys = setup.primary_keys
+        setup_projection = setup.projection
+        chunk_size = setup.chunk_size
+        rows_to_sync = setup.rows_to_sync
+        partition_settings = setup.partition_settings
         binary_reporter = BinaryColumnReporter(logger)
 
         def _refreshed_projection(connection: pymysql.Connection) -> TableProjection[MySQLColumn]:
