@@ -74,6 +74,17 @@ class TestEmailLookupHandler(TestCase):
         finally:
             user.delete()
 
+    def test_owner_finds_their_account_when_python_and_postgres_fold_differently(self) -> None:
+        owner = User(email="owner@İstanbul.example", first_name="Owner", last_name="Account")
+        owner.set_password("testpass123")
+        owner.save()
+
+        found_user = EmailLookupHandler.get_user_by_email("owner@İstanbul.example")
+
+        self.assertIsNotNone(found_user)
+        if found_user is not None:
+            self.assertEqual(found_user.id, owner.id)
+
     @parameterized.expand(
         [
             ("typed_lowercase", "twin@example.com"),

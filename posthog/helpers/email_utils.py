@@ -293,11 +293,16 @@ class EmailLookupHandler:
         `iexact` would fold on `UPPER`, which is wider: `UPPER` maps `ı` (U+0131) to `I` and `ſ`
         (U+017F) to `S`, while `LOWER` leaves both alone. Two addresses that differ only by one of
         those characters are separate accounts at signup, so they have to stay separate here too.
+
+        Postgres folds both sides. Python's `str.lower()` is a different operation: it maps `İ`
+        (U+0130) to `i` plus a combining dot, where Postgres maps it to a plain `i`. Comparing a
+        Postgres fold against a Python fold would stop the owner of such an address matching
+        their own row.
         """
         from posthog.models.user import User
 
         queryset = User.objects.filter(is_active=is_active) if is_active else User.objects.all()
-        matches = queryset.alias(_lower_email=Lower("email")).filter(_lower_email=email.lower())
+        matches = queryset.alias(_lower_email=Lower("email")).filter(_lower_email=Lower(Value(email)))
 
         try:
             return matches.get()
@@ -319,13 +324,18 @@ class EmailMultiRecordHandler:
         Handle multiple user records with case variations of the same email.
 
         Returns:
-            Last logged in user deterministically
+            Last logged in user deterministically, preferring an active account
         """
+        # An active account wins first. Login reads deactivated rows too, and Django rejects the
+        # one row it gets back when that row is inactive, so a deactivated twin that won here would
+        # lock the active owner out.
         # Postgres sorts NULLs first on a DESC order, so an account that never logged in would win
         # the tie-break. The account a person still uses is the one that logged in most recently.
         # `-pk` keeps the choice stable when no candidate has ever logged in, so every caller that
         # resolves this address agrees on one account.
-        case_insensitive_matches = queryset.order_by(F("last_login").desc(nulls_last=True), "-pk")
+        case_insensitive_matches = queryset.order_by(
+            F("is_active").desc(), F("last_login").desc(nulls_last=True), "-pk"
+        )
         user_count = case_insensitive_matches.count()
         last_logged_in_user = case_insensitive_matches.first()
 
