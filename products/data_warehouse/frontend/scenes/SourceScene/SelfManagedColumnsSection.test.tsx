@@ -38,6 +38,15 @@ const SCHEMA = {
     joins: [],
 }
 
+// What a lazy schema load leaves in the store: table names and metadata, no fields.
+const SHALLOW_SCHEMA = {
+    tables: {
+        orders_csv: { ...SCHEMA.tables.orders_csv, fields: {} },
+        refunds_csv: { ...SCHEMA.tables.refunds_csv, fields: {} },
+    },
+    joins: [],
+}
+
 const TABLE: DataWarehouseTable = {
     id: 'table-1',
     name: 'orders_csv',
@@ -130,6 +139,18 @@ describe('SelfManagedColumnsSection', () => {
         await userEvent.click(screen.getByRole('button', { name: 'Save types' }))
 
         expect(updateSchema).not.toHaveBeenCalled()
+    })
+
+    it('shows the columns when the schema store hydrates the table after mount', async () => {
+        ;(performQuery as jest.Mock).mockResolvedValueOnce(SHALLOW_SCHEMA)
+        databaseTableListLogic.mount()
+        await databaseTableListLogic.asyncActions.loadDatabase({ shallow: true })
+
+        render(<SelfManagedColumnsSection table={TABLE} />)
+
+        // The section starts on a fields-less table, and hydration replaces that table object
+        // instead of reloading the whole schema.
+        expect(await screen.findByText('total')).toBeInTheDocument()
     })
 
     it('recovers from a failed schema query through the retry', async () => {

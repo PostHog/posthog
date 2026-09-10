@@ -33,10 +33,17 @@ export function SelfManagedColumnsSection({ table }: { table: DataWarehouseTable
     // The type dropdowns render from `selectedRow`, and `saveSchema` reads the table id off it, so
     // this table has to be the selected row before the editor can do anything.
     useEffect(() => {
-        if (schemaTable && selectedRow?.id !== schemaTable.id) {
-            selectRow(schemaTable)
+        if (!schemaTable || selectedRow === schemaTable) {
+            return
         }
-    }, [schemaTable, selectedRow?.id, selectRow])
+        // The schema store hands out a new table object when it hydrates that table's fields, and
+        // `selectedRow` does not follow, so this compares the object rather than the id. An open
+        // edit of the same table keeps the row it started on, because the pending types live there.
+        if (inEditSchemaMode && selectedRow?.id === schemaTable.id) {
+            return
+        }
+        selectRow(schemaTable)
+    }, [schemaTable, selectedRow, inEditSchemaMode, selectRow])
 
     // Edit mode and the pending types live in a logic that outlives this page, so without this a
     // half-finished edit comes back on the next visit.
