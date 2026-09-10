@@ -8,6 +8,7 @@ export type AgentErrorClassification =
   | "content_block_rejection"
   | "turn_ended_without_response"
   | "subscription_usage_limit"
+  | "task_spend_limit"
   | "agent_error";
 
 const RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS =
@@ -78,7 +79,7 @@ export function classifyAgentError(
     return "upstream_timeout";
   }
   if (SANDBOX_TASK_SPEND_LIMIT_PATTERN.test(text)) {
-    return "agent_error";
+    return "task_spend_limit";
   }
   if (
     UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
