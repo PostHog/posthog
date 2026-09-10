@@ -505,7 +505,7 @@ def create_or_update_slack_ticket(
                     "author_type": "support" if is_team_member else "customer",
                     "is_private": False,
                     "from_slack": True,
-                    "slack_message_ts": slack_message_ts,
+                    **({"slack_message_ts": slack_message_ts} if slack_message_ts else {}),
                     "slack_user_id": slack_user_id,
                     "slack_author_name": user_info["name"],
                     "slack_author_email": user_info.get("email"),
@@ -1129,6 +1129,7 @@ def _create_ticket_and_backfill(
         slack_team_id=slack_team_id,
         channel_detail=channel_detail,
         post_confirmation=post_confirmation,
+        slack_message_ts=source_message.get("ts"),
     )
     if ticket:
         _backfill_thread_replies(
@@ -1294,6 +1295,7 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
         is_thread_reply=existing,
         slack_team_id=slack_team_id,
         channel_detail=ChannelDetail.SLACK_BOT_MENTION,
+        slack_message_ts=message_ts,
     )
 
 
