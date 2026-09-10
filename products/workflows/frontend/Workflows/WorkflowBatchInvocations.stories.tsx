@@ -39,8 +39,8 @@ const TRUNCATION_LOG = [
     BATCH_JOB.id,
     '2026-09-08T09:03:12.000Z',
     'warn',
-    'Audience limit reached. This project allows at most 1000 recipients in one batch run, so 1000 were ' +
-        'enrolled and the rest did not receive this workflow. Narrow the audience with filters to reach ' +
+    'Audience limit reached. This project allows at most 1000 recipients in one batch run, so the people ' +
+        'above that limit did not receive this workflow. Narrow the audience with filters to reach ' +
         'everyone you intend to.',
 ]
 

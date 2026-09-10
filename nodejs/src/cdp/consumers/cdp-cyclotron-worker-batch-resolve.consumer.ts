@@ -450,7 +450,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         counterBatchHogFlowAudienceTruncated.labels({ hog_flow_id: state.hogFlowId }).inc()
         const message =
             `Audience limit reached. This project allows at most ${state.maxAudienceSize} recipients in one batch run, ` +
-            `so ${state.totalEnqueued} were enrolled and the rest did not receive this workflow. ` +
+            `so the people above that limit did not receive this workflow. ` +
             `Narrow the audience with filters to reach everyone you intend to.`
         logger.warn('⚠️', `${this.name} - audience truncated`, {
             batchJobId: state.batchJobId,
