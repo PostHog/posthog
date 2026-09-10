@@ -6,15 +6,15 @@ import { ScoutCostRollup, scoutCostWindowLabel } from '../../../utils/scoutCosts
 import { ScoutRosterRow } from '../../../utils/scoutGroups'
 import { formatRunCost } from '../../../utils/scoutRunsWindow'
 
-type CostRate = { unit: 'day' | 'run' | 'report'; of: (rollup: ScoutCostRollup) => number | null; title: string }
+type CostRate = { unit: 'day' | 'run' | 'report'; of: (rollup: ScoutCostRollup) => number | null; tooltip: string }
 
 const COST_RATES: CostRate[] = [
-    { unit: 'day', of: (rollup) => rollup.perDay, title: 'Spend over the window, divided by its days.' },
-    { unit: 'run', of: (rollup) => rollup.perRun, title: 'Spend over the runs that had spend attributed.' },
+    { unit: 'day', of: (rollup) => rollup.perDay, tooltip: 'Spend over the window, divided by its days.' },
+    { unit: 'run', of: (rollup) => rollup.perRun, tooltip: 'Spend over the runs that had spend attributed.' },
     {
         unit: 'report',
         of: (rollup) => rollup.perReport,
-        title: 'Spend over the reports the scout filed or added to. Blank when it produced none.',
+        tooltip: 'Spend over the reports the scout filed or added to. Blank when it produced none.',
     },
 ]
 
@@ -36,16 +36,22 @@ export function scoutCostColumns(
     rollups: Map<string, ScoutCostRollup>,
     windowDays: number
 ): LemonTableColumn<ScoutRosterRow, keyof ScoutRosterRow | undefined>[] {
-    return COST_RATES.map(({ unit, of, title }) => ({
+    return COST_RATES.map(({ unit, of, tooltip }) => ({
         title: (
-            <Tooltip title={`${title} Over the ${scoutCostWindowLabel(windowDays)}.`}>
-                <span>${`/${unit}`}</span>
+            <Tooltip title={`${tooltip} Over the ${scoutCostWindowLabel(windowDays)}.`}>
+                <span>{`$/${unit}`}</span>
             </Tooltip>
         ),
         key: `cost-per-${unit}`,
         width: '7%',
         align: 'right' as const,
-        sorter: (a: ScoutRosterRow, b: ScoutRosterRow) => sortValue(rollups, a, of) - sortValue(rollups, b, of),
+        sorter: (a: ScoutRosterRow, b: ScoutRosterRow) => {
+            const left = sortValue(rollups, a, of)
+            const right = sortValue(rollups, b, of)
+            // Two rows without a number are equal, and subtracting one infinity from the other
+            // would hand the table a NaN.
+            return left === right ? 0 : left - right
+        },
         render: (_: any, row: ScoutRosterRow) => {
             const rollup = rollups.get(row.config.skill_name)
             return rollup ? <ScoutCostCell value={of(rollup)} /> : <span />
