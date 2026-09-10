@@ -106,14 +106,17 @@ export function deriveThreadAgentStatus({
   isPromptPending?: boolean;
   isInitializing?: boolean;
 }): ThreadAgentStatus | null {
-  if (!hasActivity) return null;
+  if (!hasActivity && !isInitializing) return null;
+  if (isInitializing) {
+    return { phase: "active", label: "Loading" };
+  }
   if (hasError || cloudStatus === "failed") {
     return { phase: "error", label: errorTitle ?? "Failed" };
   }
   if (pendingPermissionCount > 0) {
     return { phase: "needs_input", label: "Needs input" };
   }
-  if (isPromptPending || isInitializing) {
+  if (isPromptPending) {
     return { phase: "active", label: "Working…" };
   }
   return null;

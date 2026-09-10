@@ -44,7 +44,7 @@ export const readSkillFileInput = z.object({
 
 export const readSkillFileOutput = z.string().nullable();
 
-export const skillScope = z.enum(["user", "repo"]);
+const skillScope = z.enum(["user", "repo"]);
 
 export const createSkillInput = z.object({
   scope: skillScope,
@@ -94,7 +94,7 @@ export const exportSkillInput = z.object({
   skillPath: z.string(),
 });
 
-export const exportedSkillFile = z.object({
+const exportedSkillFile = z.object({
   // Path relative to the skill directory, using "/" separators.
   path: z.string(),
   content: z.string(),
@@ -151,7 +151,6 @@ export type BundleLocalSkillInput = z.infer<typeof bundleLocalSkillInput>;
 export type BundleLocalSkillOutput = z.infer<typeof bundleLocalSkillOutput>;
 export type SkillBundleRef = z.infer<typeof bundleLocalSkillInput>;
 export type SkillInfo = z.infer<typeof skillInfo>;
-export type SkillScope = z.infer<typeof skillScope>;
 export type CreateSkillInput = z.infer<typeof createSkillInput>;
 export type SkillSource = z.infer<typeof skillSource>;
 export type SkillFileEntry = z.infer<typeof skillFileEntry>;

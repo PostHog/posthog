@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
@@ -48,7 +49,7 @@ class AppendSlackAgentDesignStepsInput:
     markdown_text: Optional[str] = None
 
 
-@dataclass
+@frozen
 class StopSlackAgentDesignStreamInput:
     slack_thread_context: dict[str, Any]
     ts: str
@@ -60,6 +61,9 @@ class StopSlackAgentDesignStreamInput:
     # Sources the provenance footer. Optional so a relay started before this field
     # existed replays cleanly — it just closes without one.
     run_id: Optional[str] = None
+    # Gateway trace id of the turn being closed, so the thumbs appended to the reply
+    # report against that turn.
+    trace_id: Optional[str] = None
 
 
 def _rewrite_object_tags(text: Optional[str], integration_id: int) -> Optional[str]:
@@ -124,11 +128,8 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        handler = SlackThreadHandler(context)
-        # Describing the run costs a query and a flag call, so only do it for a
-        # workspace that will actually be shown the result.
-        if handler.footer_enabled():
-            handler.run_footer = load_run_footer(input.run_id)
+        handler = SlackThreadHandler(context, turn_trace_id=input.trace_id)
+        handler.run_footer = load_run_footer(input.run_id)
         handler.stop_status_stream(
             ts=input.ts,
             complete_task_id=input.complete_task_id,

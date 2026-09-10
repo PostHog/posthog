@@ -11,6 +11,7 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
 
 from products.alerts.backend.models import AlertCheck, AlertConfiguration
+from products.product_analytics.backend.facade.models import Insight
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
@@ -86,21 +87,22 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert AlertConfiguration.objects.get(pk=self.alert["id"]).state == AlertState.NOT_FIRING
 
-    def test_alert_with_insight_with_filter(
+    def test_alert_cannot_be_pointed_at_an_insight_with_no_query(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
-        insight = self.dashboard_api.create_insight(
-            data={"name": "insight", "filters": {"events": [{"id": "$pageview"}], "display": "BoldNumber"}}
-        )[1]
+        # Only the ORM writes a query-less insight now, and an alert on one has nothing to evaluate.
+        insight = Insight.objects.create(
+            team=self.team,
+            name="insight",
+            filters={"events": [{"id": "$pageview"}], "display": "BoldNumber"},
+        )
 
-        self.client.patch(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", data={"insight": insight["id"]})
-        self.set_thresholds(lower=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{self.alert['id']}", data={"insight": insight.id}
+        )
 
-        run_alert_check(self.alert["id"])
-
-        assert mock_send_notifications_for_breaches.call_count == 1
-        anomalies = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
-        assert "The insight value ($pageview) for current interval (0) is less than lower threshold (1)" in anomalies
+        assert response.status_code == 400
+        assert AlertConfiguration.objects.get(pk=self.alert["id"]).insight_id != insight.id
 
     def test_alert_triggered_for_single_formula(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock

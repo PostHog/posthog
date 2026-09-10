@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.signals.backend.artefact_schemas import (
+    DISMISSAL_NOTE_MAX_LENGTH,
     CodeReference,
     NoteArtefact,
     Priority,
@@ -22,7 +23,13 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
     TaskRunArtefact,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportAssignment,
+)
+from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
 from products.tasks.backend.models import Channel, Task
@@ -272,6 +279,49 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert kwargs["team_id"] == self.team.id
         assert kwargs["exclude_user_id"] == self.user.id
 
+    @parameterized.expand(
+        [
+            ("open_pr", SignalReportAssignment.PrState.OPEN, True),
+            ("merged_pr", SignalReportAssignment.PrState.MERGED, False),
+            ("no_pr", None, False),
+        ]
+    )
+    def test_put_adding_reviewer_queues_github_assignment_for_a_reviewable_pr(
+        self, _name: str, pr_state: str | None, expected: bool
+    ):
+        # A reviewer added after the PR opened still reaches GitHub's "Assigned to me", which is
+        # the wiring this feature depends on. A closed PR and a report with no PR queue nothing.
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+        if pr_state is not None:
+            SignalReportAssignment.objects.create(
+                team_id=self.team.id,
+                report_id=report.id,
+                pr_url="https://github.com/PostHog/posthog/pull/7",
+                repository="posthog/posthog",
+                pr_number=7,
+                pr_state=pr_state,
+                pr_merged=pr_state == SignalReportAssignment.PrState.MERGED,
+            )
+
+        with (
+            patch("products.signals.backend.tasks.assign_reviewers_on_implementation_pr.delay") as mock_delay,
+            patch("products.signals.backend.views.send_reviewer_added_slack_notifications"),
+            patch(
+                "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
+                new_callable=AsyncMock,
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    self._detail_url(str(report.id), str(artefact.id)),
+                    data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_delay.called is expected
+
     def test_put_removing_reviewer_does_not_notify(self):
         # Removing a reviewer is not an add, so nobody is pinged.
         report = self._create_report()
@@ -293,6 +343,43 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         mock_task.delay.assert_not_called()
+
+    @parameterized.expand([("impersonated", True), ("genuine", False)])
+    def test_put_reviewer_change_forwards_scout_note_only_for_genuine_edit(self, _name, impersonated):
+        # A reviewer edit steers scouts only when it is a genuine team edit. A support-staff edit made
+        # while impersonating is not team ownership evidence, so it forwards no scout note — matching
+        # the reviewer-corrections profile, which already excludes impersonated rows. The activity row
+        # and the edit itself still stand either way.
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}, {"github_login": "bob"}])
+
+        with (
+            patch("products.signals.backend.views.is_impersonated_session", return_value=impersonated),
+            patch(
+                "products.signals.backend.views.forward_reviewer_correction_note",
+                return_value=ForwardedCorrectionNotes(note_ids=(), targets_resolved=0),
+            ) as mock_forward,
+            patch(
+                "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
+                new_callable=AsyncMock,
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    self._detail_url(str(report.id), str(artefact.id)),
+                    data=json.dumps({"content": [{"github_login": "alice"}]}),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
+        if impersonated:
+            mock_forward.assert_not_called()
+        else:
+            mock_forward.assert_called_once()
+            correction = mock_forward.call_args.kwargs["correction"]
+            assert correction is not None
+            assert correction.removed_logins == ("bob",)
 
     def test_put_reviewers_autostart_delegates_when_report_complete(self):
         # With actionability + repo + priority + reviewers all present, the reconstruction reaches
@@ -988,14 +1075,26 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalReportArtefact.objects.filter(report=report).exists()
 
-    def test_post_status_type_with_invalid_content_returns_400(self):
+    @parameterized.expand(
+        [
+            ("priority_out_of_range", "priority_judgment", {"priority": "P9"}),
+            # The state API caps the note; the generic endpoint must not be the way around that cap.
+            (
+                "dismissal_note_over_the_cap",
+                "dismissal",
+                {"reason": "other", "note": "x" * (DISMISSAL_NOTE_MAX_LENGTH + 1)},
+            ),
+        ]
+    )
+    def test_post_rejects_content_that_fails_the_type_schema(self, _name, artefact_type, content):
         report = self._create_report()
         response = self.client.post(
             self._list_url(str(report.id)),
-            data=json.dumps({"artefact_type": "priority_judgment", "content": {"priority": "P9"}}),
+            data=json.dumps({"artefact_type": artefact_type, "content": content}),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
 
     def test_post_rejects_unknown_type(self):
         report = self._create_report()

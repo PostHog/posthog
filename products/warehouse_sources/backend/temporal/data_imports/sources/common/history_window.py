@@ -45,7 +45,7 @@ def history_start_for_schema(
         logger.warning("history_window.unknown_source_type", source_type=schema.source.source_type)
         return None
 
-    lookback = source.history_lookback
+    lookback = source.history_lookback_for_schema(schema.name)
     if lookback is None:
         return None
 

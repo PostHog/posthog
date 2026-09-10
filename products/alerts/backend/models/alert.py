@@ -163,16 +163,18 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     schedule_restriction = models.JSONField(null=True, blank=True, default=None)
 
-    # When enabled and the alert transitions to FIRING, an investigation agent runs
-    # and writes its findings to a linked Notebook. Only effective for detector-based
-    # (anomaly) alerts. See posthog/temporal/alerts/workflows.py for the trigger logic.
+    # When enabled, an investigation agent runs on each firing check, up to three per
+    # firing episode, and writes its findings to a linked Notebook. Only effective for
+    # detector-based (anomaly) alerts. See posthog/temporal/alerts/investigation.py for
+    # the trigger logic.
     investigation_agent_enabled = models.BooleanField(default=False)
 
-    # When enabled (and investigation_agent_enabled is on), notification dispatch is
-    # held until the investigation agent produces a verdict — and suppressed if the
-    # verdict is false_positive. A safety-net Temporal workflow force-notifies after a
-    # grace period if the investigation stalls, so users can never silently miss a
-    # real fire. See posthog/temporal/alerts/workflows.py (RunInvestigationSafetyNetWorkflow).
+    # When enabled (and investigation_agent_enabled is on), the episode's first fire is
+    # held until the investigation agent produces a verdict, and suppressed if the
+    # verdict is false_positive. Later fires of the episode notify without waiting. A
+    # safety-net Temporal workflow force-notifies after a grace period if the
+    # investigation stalls, so users can never silently miss a real fire.
+    # See posthog/temporal/alerts/workflows.py (RunInvestigationSafetyNetWorkflow).
     investigation_gates_notifications = models.BooleanField(default=False)
 
     # What to do with an "inconclusive" verdict when notifications are gated.

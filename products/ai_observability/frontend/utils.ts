@@ -10,7 +10,7 @@ import { hogql } from '~/queries/utils'
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
     EVALUATION_NOT_SKIPPED_HOGQL,
-    EVALUATION_PASSED_HOGQL,
+    EVALUATION_RESULT_TRUE_HOGQL,
     EVALUATION_RUNS_QUERY_LIMIT,
 } from './evaluations/constants'
 import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
@@ -105,6 +105,72 @@ export function cleanPagedSearchOrderParams(
 
 function formatUsage(inputTokens: number, outputTokens?: number | null): string | null {
     return `${inputTokens} → ${outputTokens || 0} (∑ ${inputTokens + (outputTokens || 0)})`
+}
+
+/** Whether an AI content property holds anything to render. An empty container holds nothing. */
+export function hasAiContent(value: unknown): boolean {
+    if (value === null || value === undefined || value === '') {
+        return false
+    }
+    if (Array.isArray(value)) {
+        return value.length > 0
+    }
+    if (typeof value === 'object') {
+        return Object.keys(value).length > 0
+    }
+    return true
+}
+
+/**
+ * Picks the AI value to render or pass on: the first that carries content, else the first that is
+ * present at all. Content first, because a generation can send an empty `$ai_output_choices` while
+ * `$ai_output` holds the response, and a nullish check would keep the empty container. Presence as
+ * the fallback, because `useAIData` runs the heavy-property lookup when a side is nullish — a
+ * generation whose output genuinely is empty must render its notice, not fire that query.
+ */
+export function selectAiValue(...values: unknown[]): unknown {
+    return values.find(hasAiContent) ?? values.find((value) => value !== null && value !== undefined)
+}
+
+// Token counts arrive straight off untyped event properties, so a provider that reports one as a
+// string still has to be readable. posthog-ai below 7.3.0 sent them as `{ total, noCache, cacheRead }`.
+// Ingestion normalizes that now, but events captured before it still hold the object shape.
+export function aiTokenCount(value: unknown): number | null {
+    const unwrapped =
+        value !== null && typeof value === 'object' && !Array.isArray(value) && 'total' in value
+            ? (value as { total: unknown }).total
+            : value
+    const parsed = typeof unwrapped === 'string' ? Number(unwrapped) : unwrapped
+    return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null
+}
+
+// Stop reasons that explain an empty output. Each provider spells the same outcome its own way, and
+// the OTel middlewares pass the value through verbatim. `max_tokens`, `MAX_TOKENS`, and `length` all
+// mean the response ran out of room, so match a normalized set rather than one literal.
+const TRUNCATED_STOP_REASONS = new Set(['max_tokens', 'max_output_tokens', 'length', 'model_length'])
+const BLOCKED_STOP_REASONS = new Set([
+    'prohibited_content',
+    'content_filter',
+    'content_filtered',
+    'safety',
+    'recitation',
+    'blocklist',
+])
+
+/** Maps an `$ai_stop_reason` value to what it means for the user, or null for a normal ending. */
+export function describeStopReason(value: unknown): string | null {
+    if (typeof value !== 'string') {
+        return null
+    }
+    // The Vercel AI SDK hyphenates its values, so `content-filter` has to reach the same entry.
+    const normalized = value.trim().toLowerCase().replace(/-/g, '_')
+    if (TRUNCATED_STOP_REASONS.has(normalized)) {
+        return 'The response hit its token limit.'
+    }
+    if (BLOCKED_STOP_REASONS.has(normalized)) {
+        return 'The provider blocked the response.'
+    }
+    return null
 }
 
 export function formatLLMUsage(
@@ -1230,7 +1296,7 @@ export async function queryEvaluationRuns(params: {
 export interface EvaluationRunsStats {
     total: number
     applicable: number
-    passed: number
+    trueCount: number
 }
 
 // Counts every matching run server-side. queryEvaluationRuns caps its fetch at
@@ -1256,7 +1322,7 @@ export async function queryEvaluationRunsStats(params: {
         SELECT
             count() as total,
             countIf(properties.$ai_evaluation_result IS NOT NULL AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as applicable,
-            countIf(${hogql.raw(EVALUATION_PASSED_HOGQL)} AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as passed
+            countIf(${hogql.raw(EVALUATION_RESULT_TRUE_HOGQL)} AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as true_count
         FROM events
         WHERE
             event = '$ai_evaluation'
@@ -1272,12 +1338,12 @@ export async function queryEvaluationRunsStats(params: {
     const row = response.results?.[0]
 
     if (!row) {
-        return { total: 0, applicable: 0, passed: 0 }
+        return { total: 0, applicable: 0, trueCount: 0 }
     }
 
     return {
         total: Number(row[0]) || 0,
         applicable: Number(row[1]) || 0,
-        passed: Number(row[2]) || 0,
+        trueCount: Number(row[2]) || 0,
     }
 }

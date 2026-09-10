@@ -24,16 +24,21 @@ const CODEX_REASONING_EFFORT_OPTIONS: ReasoningEffortOption[] = [
   },
 ];
 
-// OpenAI's `reasoning_effort` exposes an "extra high" tier on the gpt-5.5 and
-// gpt-5.6 families. GPT-5.6 also supports the "max" tier. Older models top out
-// at "high".
+// OpenAI's `reasoning_effort` exposes an "extra high" tier on the gpt-5.5,
+// gpt-5.6, and gpt-6-astra families. GPT-5.6 and GPT-6 Astra also support the
+// "max" tier. Older models top out at "high".
 export function supportsXhighEffort(modelId: string): boolean {
   const id = modelId.toLowerCase();
-  return id.includes("gpt-5.5") || id.includes("gpt-5.6");
+  return (
+    id.includes("gpt-5.5") ||
+    id.includes("gpt-5.6") ||
+    id.includes("gpt-6-astra")
+  );
 }
 
 export function supportsMaxEffort(modelId: string): boolean {
-  return modelId.toLowerCase().includes("gpt-5.6");
+  const id = modelId.toLowerCase();
+  return id.includes("gpt-5.6") || id.includes("gpt-6-astra");
 }
 
 export function getReasoningEffortOptions(

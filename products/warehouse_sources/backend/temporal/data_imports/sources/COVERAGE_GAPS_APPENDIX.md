@@ -38,14 +38,14 @@ Note: Source uses a static ENDPOINTS list (products/warehouse_sources/backend/te
 
 ## ActiveCampaign — gaps
 
-Today (12): `accounts`, `automations`, `campaigns`, `contacts`, `custom_fields`, `deal_groups`, `deal_stages`, `deals`, `forms`, `lists`, `segments`, `tags`
+Today (16): `accounts`, `automations`, `campaigns`, `contacts`, `custom_fields`, `deal_groups`, `deal_stages`, `deals`, `ecom_customers`, `ecom_order_products`, `ecom_orders`, `email_activities`, `forms`, `lists`, `segments`, `tags`
 
 Diffed against: <https://developers.activecampaign.com/reference/overview>
 
-- [ ] `emailActivities` — per-contact email opens/clicks/sends, the core engagement fact table (high)
-- [ ] `ecomOrders` — e-commerce revenue transactions; no commerce data is synced at all today (high)
-- [ ] `ecomOrderProducts` — order line items needed for product-level revenue breakdowns (high)
-- [ ] `ecomCustomers` — resolves the customer IDs carried on ecom orders (high)
+- [x] `emailActivities` — per-contact email opens/clicks/sends, the core engagement fact table (high)
+- [x] `ecomOrders` — e-commerce revenue transactions; no commerce data is synced at all today (high)
+- [x] `ecomOrderProducts` — order line items needed for product-level revenue breakdowns (high)
+- [x] `ecomCustomers` — resolves the customer IDs carried on ecom orders (high)
 - [ ] `dealActivities (GET /deals/{id}/dealActivities)` — deal stage-transition and change history (high)
 - [ ] `contactActivities (GET /activities)` — contact-level activity timeline across campaigns and automations (high)
 - [ ] `contactLists (list memberships)` — membership table joining synced contacts to synced lists (high)
@@ -294,7 +294,7 @@ Note: Endpoint paths confirmed by reading https://amplitude.com/docs/apis/analyt
 
 ## Anthropic — gaps
 
-Today (10): `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `service_accounts`, `usage_report`, `users`, `workspace_members`, `workspaces`
+Today (9): `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `usage_report`, `users`, `workspace_members`, `workspaces`
 
 Diffed against: <https://platform.claude.com/llms.txt>
 
@@ -305,7 +305,7 @@ Diffed against: <https://platform.claude.com/llms.txt>
 - [ ] `GET /v1/organizations/rbac_groups and .../rbac_groups/{id}/members` — group definitions plus the membership join for the users already synced (high)
 - [ ] `GET /v1/organizations/rbac_roles and .../rbac_roles/{id}/permissions` — lookup resolving the role identifiers carried on users and workspace_members (medium)
 - [ ] `GET /v1/organizations/analytics/summaries (Get Activity Summaries)` — rolled-up org activity as the vendor reports it (medium)
-- [ ] `GET /v1/organizations/service_accounts/{id}/workspaces and /workspaces/{id}/service_accounts` — service-account-to-workspace membership join for the service_accounts already synced (medium)
+- ~~`GET /v1/organizations/service_accounts/{id}/workspaces and /workspaces/{id}/service_accounts`~~ — not reachable: Anthropic serves the service-account endpoints only to an `org:admin` OAuth token, which this source never holds
 - [ ] `GET /v1/organizations/analytics/connectors, /plugins, /skills` — adoption breakdown by connector, plugin and skill (medium)
 - [ ] `GET /v1/messages/batches` — batch job history with request counts and status, for batch spend analysis (medium)
 - [ ] `GET /v1/organizations/analytics/chat_projects and /analytics/artifacts` — Claude project and artifact usage breakdown (low)

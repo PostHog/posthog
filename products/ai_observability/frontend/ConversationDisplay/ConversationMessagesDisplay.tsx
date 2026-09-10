@@ -3,13 +3,14 @@ import { useValues } from 'kea'
 import React from 'react'
 
 import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled, IconWrench } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils/guards'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { aiBlobRenderHandlers, resolveAiBlobUrl, resolveDataUri } from '../aiBlob'
@@ -22,6 +23,8 @@ import { containsSearchQuery } from '../searchUtils'
 import type { GenerationSentiment } from '../sentimentResults'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
 import {
+    aiTokenCount,
+    describeStopReason,
     getGeminiInlineData,
     hasStringContentField,
     isAnthropicDocumentMessage,
@@ -38,6 +41,7 @@ import {
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
 import { MessageActionsMenu } from './MessageActionsMenu'
+import { MessageActionsMenuProvider } from './MessageActionsMenuProvider'
 import { RedactedMediaPlaceholder } from './RedactedMediaPlaceholder'
 import { XMLViewer } from './XMLViewer'
 
@@ -71,6 +75,59 @@ function getInitialMessageShowStates(
     return { input: inputStates, output: outputStates }
 }
 
+function billedTokenCount(value: unknown): number | null {
+    const count = aiTokenCount(value)
+    return count !== null && count > 0 ? count : null
+}
+
+// Explains a generation that rendered no content. `$ai_stop_reason` is the provider's own account of
+// why it stopped, so it outranks anything inferred from token counts. Providers disagree on whether
+// reasoning tokens sit inside the output count or beside it, so name each count that is present
+// rather than deriving one from the other.
+function describeEmptyOutput(
+    outputTokens: unknown,
+    reasoningTokens: unknown,
+    textOutputTokens: unknown,
+    stopReason: unknown
+): string | null {
+    const output = billedTokenCount(outputTokens)
+    const reasoning = billedTokenCount(reasoningTokens)
+    const namedCause = describeStopReason(stopReason)
+    const textOutput = aiTokenCount(textOutputTokens)
+
+    // Providers disagree on where reasoning tokens are counted. OpenAI-style providers count them
+    // inside the output total, so reasoning can never exceed output there, and matching counts mean
+    // the whole output was reasoning. Gemini-style providers count them separately, so a reasoning
+    // count above a nonzero output count can only come from that style, which means the output
+    // tokens are real content that went missing. `$ai_text_output_tokens` is the provider's own
+    // split and needs no inference: zero means nothing textual was generated, under either style.
+    const providerSaysNoText = textOutput === 0 && output !== null
+    const reasoningMatchesOutput = textOutput === null && output !== null && reasoning !== null && reasoning === output
+
+    const counts = [
+        output !== null ? `${humanFriendlyNumber(output)} output tokens` : null,
+        // When the counts match, listing both reads as two amounts. One number, one claim about it.
+        reasoning !== null && !reasoningMatchesOutput ? `${humanFriendlyNumber(reasoning)} reasoning tokens` : null,
+    ].filter(Boolean)
+
+    // A provider can block a response before billing anything, so a known cause stands on its own.
+    if (counts.length === 0) {
+        return namedCause
+    }
+
+    const cause =
+        namedCause ??
+        (providerSaysNoText
+            ? 'None of them were text.'
+            : reasoningMatchesOutput
+              ? 'All of them may have been reasoning.'
+              : output === null && reasoning !== null
+                ? 'The model may have spent its budget on reasoning.'
+                : 'The response may have been cut short, or the SDK may not have captured it.')
+
+    return `The provider reported ${counts.join(' and ')} but no content was captured. ${cause}`
+}
+
 export function ConversationMessagesDisplay({
     inputNormalized,
     outputNormalized,
@@ -78,10 +135,15 @@ export function ConversationMessagesDisplay({
     errorData,
     httpStatus,
     raisedError,
+    outputTokens,
+    reasoningTokens,
+    textOutputTokens,
+    stopReason,
     bordered = false,
     searchQuery,
     displayOption,
     traceId,
+    eventId,
     generationSentiment,
     highlightMessageIndex,
 }: {
@@ -92,11 +154,19 @@ export function ConversationMessagesDisplay({
     errorData: any
     httpStatus?: number
     raisedError?: boolean
+    /** `$ai_output_tokens`, used to explain an output the provider billed for but never sent. */
+    outputTokens?: unknown
+    /** `$ai_reasoning_tokens`. Some providers bill only these, so they alone can explain an empty output. */
+    reasoningTokens?: unknown
+    /** `$ai_text_output_tokens`. An explicit zero says every billed output token was reasoning. */
+    textOutputTokens?: unknown
+    /** `$ai_stop_reason`. The provider's own account of why it stopped, so it outranks any inference. */
+    stopReason?: unknown
     bordered?: boolean
     searchQuery?: string
     displayOption?: ConversationDisplayOption
     traceId?: string | null
-    generationEventId?: string
+    eventId?: string
     generationSentiment?: GenerationSentiment | null
     /** Original $ai_input index to auto-expand and highlight (e.g. from sentiment tab deep link) */
     highlightMessageIndex?: number | null
@@ -258,6 +328,7 @@ export function ConversationMessagesDisplay({
                             className={isHighlighted ? 'ring-2 ring-primary/30 rounded' : undefined}
                         >
                             <LLMMessageDisplay
+                                actionMenuKey={`input-${i}`}
                                 message={message}
                                 show={inputMessageShowStates[i] || false}
                                 onToggle={() => toggleMessage('input', i)}
@@ -282,8 +353,18 @@ export function ConversationMessagesDisplay({
 
     const showOutputSection = outputNormalized.length > 0 || !raisedError
 
+    // Nothing to render means the provider either charged for work whose content never reached the
+    // event, or told us why it stopped. Name that, so an empty box isn't mistaken for a provider
+    // that said nothing.
+    const emptyOutputExplanation =
+        outputNormalized.length === 0
+            ? describeEmptyOutput(outputTokens, reasoningTokens, textOutputTokens, stopReason)
+            : null
+
     return (
-        <>
+        <MessageActionsMenuProvider
+            resetKey={`${eventId ?? ''}:${traceId ?? ''}:${inputRolesSignature}:${outputRolesSignature}`}
+        >
             <LLMInputOutput
                 inputDisplay={inputDisplay}
                 outputDisplay={
@@ -292,6 +373,7 @@ export function ConversationMessagesDisplay({
                             outputNormalized.map((message, i) => (
                                 <LLMMessageDisplay
                                     key={i}
+                                    actionMenuKey={`output-${i}`}
                                     message={message}
                                     show={outputMessageShowStates[i] || false}
                                     isOutput
@@ -305,8 +387,19 @@ export function ConversationMessagesDisplay({
                                 />
                             ))
                         ) : (
-                            <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
-                                No output
+                            <div className="rounded border text-default p-2 bg-[var(--bg-fill-error-tertiary)]">
+                                <div className="italic">No output</div>
+                                {emptyOutputExplanation && (
+                                    <div className="mt-1 text-xs" data-attr="ai-empty-output-explanation">
+                                        {emptyOutputExplanation}{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/ai-observability/troubleshooting#why-does-my-generation-show-no-output"
+                                            target="_blank"
+                                        >
+                                            Learn more
+                                        </Link>
+                                    </div>
+                                )}
                             </div>
                         )
                     ) : null
@@ -350,7 +443,7 @@ export function ConversationMessagesDisplay({
                     </div>
                 </div>
             )}
-        </>
+        </MessageActionsMenuProvider>
     )
 }
 
@@ -654,6 +747,7 @@ export const LLMMessageDisplay = React.memo(
         onToggleMarkdownRendering,
         onToggleXmlRendering,
         messageSentiment,
+        actionMenuKey,
     }: {
         message: CompatMessage
         isOutput?: boolean
@@ -669,6 +763,7 @@ export const LLMMessageDisplay = React.memo(
         onToggleMarkdownRendering?: () => void
         onToggleXmlRendering?: () => void
         messageSentiment?: { label: string; score: number }
+        actionMenuKey?: string
     }): JSX.Element => {
         const { currentTeamId } = useValues(teamLogic)
         const { role, content, ...additionalKwargs } = message
@@ -890,6 +985,7 @@ export const LLMMessageDisplay = React.memo(
                                     explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
                                 />
                                 <MessageActionsMenu
+                                    menuKey={actionMenuKey}
                                     content={
                                         typeof content === 'string' ? content : (JSON.stringify(content, null, 2) ?? '')
                                     }

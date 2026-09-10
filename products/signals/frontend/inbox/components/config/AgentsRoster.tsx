@@ -3,6 +3,7 @@ import { memo, useCallback, useMemo, useState } from 'react'
 
 import { IconArrowUpRight, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSkeleton,
@@ -614,6 +615,8 @@ export function AgentsRoster(): JSX.Element {
         isCiSignalsToggling,
         toolStatusBySource,
         enablingTool,
+        sourceConfigsLoadFailed,
+        sourceConfigsLoading,
     } = useValues(signalSourcesLogic)
     const {
         toggleConversations,
@@ -627,6 +630,7 @@ export function AgentsRoster(): JSX.Element {
         initiateDataWarehouseSourceToggle,
         enableSourceTool,
         loadToolDataEvents,
+        loadSourceConfigs,
     } = useActions(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
@@ -843,6 +847,22 @@ export function AgentsRoster(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3">
+            {sourceConfigsLoadFailed && (
+                // Without the configs every data-import source reads as never connected, so warn
+                // instead of letting a person act on switches that do not reflect the server.
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Retry',
+                        onClick: () => loadSourceConfigs(),
+                        loading: sourceConfigsLoading,
+                        'data-attr': 'signals-retry-source-configs',
+                    }}
+                >
+                    Couldn't load your signal sources, so the switches below may not match what's on.
+                </LemonBanner>
+            )}
+
             {!redesign && (
                 <div className="flex items-center gap-1.5 text-xs text-muted">
                     <span className={`size-2 rounded-full ${armedCount ? 'bg-success' : 'bg-border-bold'}`} />

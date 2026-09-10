@@ -6,7 +6,7 @@ import { PostHog } from "posthog-node";
 import { getAppVersion } from "../utils/env";
 import { uuidv7 } from "../utils/uuidv7";
 
-export class PosthogNodeAnalytics implements IAnalytics {
+class PosthogNodeAnalytics implements IAnalytics {
   private client: PostHog | null = null;
   private currentUserId: string | null = null;
   private sessionId: string | null = null;

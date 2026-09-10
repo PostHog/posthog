@@ -19,6 +19,7 @@ from products.conversations.backend.models import (
     EmailThreadParticipant,
     EmailThreadParticipantKind,
 )
+from products.conversations.backend.services.email_links import recover_links_from_html
 from products.customer_analytics.backend.facade.email_matching import (
     schedule_email_thread_link_recalculation_for_threads,
 )
@@ -34,6 +35,12 @@ class EmailAddress:
 
 
 @dataclass(frozen=True, kw_only=True)
+class EmailBody:
+    text: str
+    html: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class ParsedEmail:
     message_id: str
     in_reply_to: str | None
@@ -45,12 +52,29 @@ class ParsedEmail:
     subject: str
     body_plain: str
     stripped_text: str
+    body_html: str = ""
+    stripped_html: str = ""
     sender_authenticated: bool
     dkim_passed: bool
     dkim_signing_domains: tuple[str, ...]
     capture_address: str
     attachments: tuple[UploadedFile, ...]
     forwarding_challenge_tokens: tuple[str, ...] = ()
+
+    def body_with_matching_html(self, *, prefer_stripped: bool) -> "EmailBody":
+        """Return the body text we store paired with the HTML of the same scope.
+
+        Link recovery must never scan a wider HTML than the text it rewrites: the
+        stripped body drops quoted history, so pairing it with the full `body_html`
+        would attach a historical URL to current prose. `stripped_html` covers the
+        same new part; `body_html` is the fallback when no stripped HTML exists (for
+        example Gmail sync, whose text is never quote-stripped).
+        """
+        if prefer_stripped and self.stripped_text:
+            return EmailBody(text=self.stripped_text, html=self.stripped_html or self.body_html)
+        if self.body_plain:
+            return EmailBody(text=self.body_plain, html=self.body_html or self.stripped_html)
+        return EmailBody(text=self.stripped_text, html=self.stripped_html or self.body_html)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -183,9 +207,8 @@ def _upsert_participants(
 
 
 def _message_content(*, thread: EmailThread, email: ParsedEmail) -> str:
-    if thread.message_count > 0:
-        return email.stripped_text or email.body_plain
-    return email.body_plain or email.stripped_text
+    body = email.body_with_matching_html(prefer_stripped=thread.message_count > 0)
+    return recover_links_from_html(body.text, body.html)
 
 
 def _update_thread_summary(*, thread: EmailThread, email: ParsedEmail, content: str) -> None:

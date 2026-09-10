@@ -7,6 +7,7 @@ import { InboxMetaSeparator } from "@posthog/ui/features/inbox/components/InboxM
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { PrDiffStats } from "@posthog/ui/features/inbox/components/PrDiffStats";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
+import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/ReportReviewersSection";
 import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/components/utils/ReportImplementationPrLink";
 import { PrCommentsSection } from "@posthog/ui/features/pr-review/PrCommentsSection";
 import { PrDecisionBlock } from "@posthog/ui/features/pr-review/PrDecisionBlock";
@@ -41,7 +42,7 @@ export function PullRequestDetail({
  * they're pipeline machinery, and the decision block distills what matters
  * from them into one line.
  */
-function PullRequestDetailContent({ report }: { report: SignalReport }) {
+export function PullRequestDetailContent({ report }: { report: SignalReport }) {
   const prRef = report.implementation_pr_url
     ? parsePrUrl(report.implementation_pr_url)
     : null;
@@ -53,16 +54,6 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
       backTo="/inbox/pulls"
       backLabel="Back to pull requests"
       fallbackTitle="Untitled pull request"
-      breadcrumb={
-        prRef ? (
-          <>
-            <span className="text-(--gray-8)">/</span>
-            <span className="font-mono text-[13px] text-gray-11">
-              {prRef.repoSlug}#{prRef.number}
-            </span>
-          </>
-        ) : undefined
-      }
       metaSuffix={
         prUrl ? (
           <>
@@ -96,6 +87,8 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
       }
       footer={<ReportFeedbackFooter report={report} />}
       evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
-    />
+    >
+      <ReportReviewersSection report={report} />
+    </InboxDetailFrame>
   );
 }

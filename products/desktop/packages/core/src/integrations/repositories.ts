@@ -11,11 +11,6 @@ export interface RepositoryOption {
   repository: string;
 }
 
-export interface RepositorySelection {
-  integrationId: number | null;
-  repository: string | null;
-}
-
 export interface TeamRepositoryIntegration {
   id: number;
   display_name?: string;
@@ -98,35 +93,6 @@ export function repositoryOptionsEqual(
       );
     })
   );
-}
-
-export function findRepositoryOption(
-  options: ReadonlyArray<RepositoryOption>,
-  selection: RepositorySelection,
-): RepositoryOption | null {
-  if (!selection.integrationId || !selection.repository) return null;
-  return (
-    options.find(
-      (option) =>
-        option.integrationId === selection.integrationId &&
-        option.repository === selection.repository,
-    ) ?? null
-  );
-}
-
-export function toRepositorySelection(
-  option: RepositoryOption | null,
-): RepositorySelection {
-  return {
-    integrationId: option?.integrationId ?? null,
-    repository: option?.repository ?? null,
-  };
-}
-
-export function isRepositorySelectionComplete(
-  selection: RepositorySelection,
-): boolean {
-  return !!selection.integrationId && !!selection.repository;
 }
 
 export interface TeamRepositoriesResult {

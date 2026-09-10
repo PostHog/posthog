@@ -352,6 +352,8 @@ impl PersonHogLeaderService {
         key: &PersonCacheKey,
     ) -> Result<Arc<CachedPerson>, Status> {
         let Some(fallback) = &self.fallback else {
+            // Without the pool a cache miss answers NotFound, which callers
+            // read as authoritative death; production always sets it.
             return Err(Status::not_found(format!(
                 "person not found: team_id={}, person_id={}",
                 key.team_id, key.person_id
@@ -1064,6 +1066,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             &set_once_properties,
             &unset_properties,
             &person_properties,
+            req.force_update,
         );
 
         // OR-merge: identification never reverts through this RPC, so
@@ -1096,6 +1099,16 @@ impl PersonHogLeader for PersonHogLeaderService {
         // Fast path: no diffs detected, skip the clone in apply_property_updates
         if !updates.has_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
+            return Ok(Response::new(UpdatePersonPropertiesResponse {
+                person: Some(cached_person_to_proto(&person)),
+                updated: false,
+            }));
+        }
+
+        // Filtered-only changes are answered without writing, matching the
+        // Postgres suppression; a scalar move or force promotes everything.
+        if !updates.has_non_filtered_changes && !identity_changed && !last_seen_changed {
+            counter!("personhog_leader_updates_total", "outcome" => "filtered_only").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
                 person: Some(cached_person_to_proto(&person)),
                 updated: false,
@@ -1519,6 +1532,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         // is an identify; last_seen_at max-merges like the update path —
         // the merged person was last seen whenever any constituent was
         // (snapshot values were already hour-floored when stored).
+        //
+        // The Postgres backend never passes last_seen_at to its merge
+        // update; the caller's follow-up update advances it.
         let created_at = snapshots
             .iter()
             .map(|snapshot| snapshot.created_at)
@@ -1589,7 +1605,6 @@ impl PersonHogLeader for PersonHogLeaderService {
         if op_type == LifecycleOpType::Unspecified {
             return Err(Status::invalid_argument("op_type must be specified"));
         }
-
         // A fence installed anywhere but the current owner protects
         // nothing: the map that gates writes is the owner's. Both guards
         // are needed — ownership covers a pod that already handed the
@@ -2196,6 +2211,71 @@ mod tests {
     /// The person is seeded deliberately: without it a removed check
     /// would still surface `FailedPrecondition` from the ownership guard
     /// further down, and the test would pass having proved nothing.
+    /// Filtered-only lanes answer updated=false with no write or produce;
+    /// force writes. A demotion regression would produce, hang on the
+    /// absent broker, and time out rather than pass.
+    #[tokio::test]
+    async fn filtered_only_update_answers_without_writing() {
+        let service = make_test_service().await;
+        let (team_id, person_id) = (7, 43);
+        service.cache.create_partition(0);
+        service.cache.put(
+            0,
+            PersonCacheKey { team_id, person_id },
+            CachedPerson {
+                id: person_id,
+                uuid: "00000000-0000-0000-0000-000000000008".to_string(),
+                team_id,
+                properties: serde_json::to_vec(
+                    &serde_json::json!({"$current_url": "https://example.com/a"}),
+                )
+                .unwrap(),
+                created_at: 0,
+                version: 3,
+                is_identified: false,
+                is_deleted: false,
+                last_seen_at: None,
+                approx_bytes: 64,
+            },
+        );
+
+        let request = |force: bool| {
+            let mut request = Request::new(UpdatePersonPropertiesRequest {
+                force_update: force,
+                team_id,
+                person_id,
+                event_name: "$pageview".to_string(),
+                set_properties: serde_json::to_vec(
+                    &serde_json::json!({"$current_url": "https://example.com/b"}),
+                )
+                .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
+            });
+            request
+                .metadata_mut()
+                .insert("x-partition", "0".parse().unwrap());
+            request
+        };
+
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            service.update_person_properties(request(false)),
+        )
+        .await
+        .expect("a demoted update must answer without producing")
+        .expect("demoted update answers ok")
+        .into_inner();
+        assert!(!response.updated);
+        assert_eq!(
+            response.person.expect("carries the person").version,
+            3,
+            "a discarded change must not bump the version"
+        );
+    }
+
     #[tokio::test]
     async fn update_refuses_once_authority_is_surrendered() {
         let clock = Arc::new(AuthorityClock::unclaimed());
@@ -2225,6 +2305,7 @@ mod tests {
 
         let request = || {
             let mut request = Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id,
                 person_id,
                 event_name: "$set".to_string(),
@@ -2382,6 +2463,7 @@ mod tests {
         let held = mutex.lock().await;
 
         let mut request = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id,
             person_id,
             event_name: "$set".to_string(),
@@ -2465,6 +2547,7 @@ mod tests {
         assert_eq!(err.code(), Code::FailedPrecondition);
 
         let mut write = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id,
             person_id,
             event_name: "$set".to_string(),

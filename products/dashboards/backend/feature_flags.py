@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 DASHBOARD_WIDGETS_FLAG = "dashboard-widgets"
 DASHBOARD_CUSTOMIZATION_FLAG = "dashboard-customization"
+DASHBOARD_SAVED_VIEWS_FLAG = "dashboard-saved-views"
 
 
 def widget_flag_enabled(flag: str, *, team: Team, user: User | None = None) -> bool:
@@ -41,3 +42,7 @@ def dashboard_widgets_enabled(*, team: Team, user: User | None = None) -> bool:
 
 def dashboard_customization_enabled(*, team: Team, user: User | None = None) -> bool:
     return widget_flag_enabled(DASHBOARD_CUSTOMIZATION_FLAG, team=team, user=user)
+
+
+def dashboard_saved_views_enabled(*, team: Team) -> bool:
+    return widget_flag_enabled(DASHBOARD_SAVED_VIEWS_FLAG, team=team)

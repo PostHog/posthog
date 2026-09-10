@@ -8,6 +8,7 @@ export type SettingsCategory =
   | "environments"
   | "cloud-environments"
   | "agents"
+  | "task-agent-defaults"
   | "skills"
   | "mcp-servers"
   | "personalization"
@@ -21,7 +22,7 @@ export type SettingsCategory =
   | "advanced"
   | "discord";
 
-export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
+const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "general",
   "notifications",
   "plan-usage",
@@ -31,6 +32,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "environments",
   "cloud-environments",
   "agents",
+  "task-agent-defaults",
   "skills",
   "mcp-servers",
   "personalization",
@@ -62,6 +64,7 @@ export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   environments: "Environments",
   "cloud-environments": "Environments",
   agents: "Agents",
+  "task-agent-defaults": "Model",
   skills: "Skills",
   "mcp-servers": "MCP servers",
   personalization: "Personalization",
