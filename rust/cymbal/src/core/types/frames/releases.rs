@@ -203,9 +203,11 @@ fn sanitize_remote_url(url: &str) -> Option<String> {
     }
 
     let Some(scheme_end) = trimmed.find("://") else {
-        // In `git@host:owner/repo.git` the leading `git` is a fixed SSH username, not a secret.
-        let path = trimmed.split_once(':').map_or("", |(_, path)| path);
-        return if path_holds_credential(path) {
+        // SSH carries no password, so the `git` in `git@host:owner/repo.git` is a fixed
+        // username. Any other userinfo is not an SSH login and may be a token.
+        let (authority, path) = trimmed.split_once(':').unwrap_or((trimmed, ""));
+        let user = authority.split_once('@').map_or("", |(user, _)| user);
+        return if (!user.is_empty() && user != "git") || path_holds_credential(path) {
             None
         } else {
             Some(trimmed.to_string())
@@ -382,7 +384,7 @@ mod tests {
     #[test]
     fn event_remote_urls_drop_credentials_query_and_fragment() {
         // `None` means the URL cannot be cleaned, so the key is dropped from the event.
-        let cases: [(&str, Option<&str>); 9] = [
+        let cases: [(&str, Option<&str>); 10] = [
             (
                 "https://user:password@github.com/example/repo.git?token=query#access_token=fragment",
                 Some("https://github.com/example/repo.git"),
@@ -408,6 +410,8 @@ mod tests {
                 None,
             ),
             ("git@github.com:ghs_tokenvalue@example/repo.git", None),
+            // SSH has no password slot, so a non-`git` userinfo is not a login.
+            ("ghs_tokenvalue@github.com:example/repo.git", None),
             ("https://user:ghp_tokenvalue?x@github.com/example/repo.git", None),
             (
                 "https://github.com/example/@scope/package.git",
