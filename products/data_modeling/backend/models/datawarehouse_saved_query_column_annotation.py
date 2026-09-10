@@ -21,9 +21,9 @@ class DataWarehouseSavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFi
     # constraint takes a SHARE ROW EXCLUSIVE lock on the parent, which stalls under write traffic. Team
     # scoping is enforced at the app level by TeamScopedRootMixin. The saved_query FK targets a non-hot
     # table, so it keeps its constraint.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     saved_query = models.ForeignKey(
         "data_modeling.DataWarehouseSavedQuery", on_delete=models.CASCADE, related_name="column_annotations"
