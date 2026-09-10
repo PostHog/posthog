@@ -350,11 +350,6 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except (ValueError, DjangoValidationError):
             raise exceptions.NotFound()
         try:
-            source = KnowledgeSource.objects.only("id", "is_generated").get(id=source_id, team_id=self.team_id)
-        except KnowledgeSource.DoesNotExist:
-            raise exceptions.NotFound()
-        _ensure_user_managed_source(source)
-        try:
             source = logic.claim_refresh_source(source_id=source_id, team_id=self.team_id)
         except KnowledgeSource.DoesNotExist:
             raise exceptions.NotFound()
@@ -394,11 +389,6 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             source_id = UUID(pk)
         except (ValueError, DjangoValidationError):
             raise exceptions.NotFound()
-        try:
-            source = KnowledgeSource.objects.only("id", "is_generated").get(id=source_id, team_id=self.team_id)
-        except KnowledgeSource.DoesNotExist:
-            raise exceptions.NotFound()
-        _ensure_user_managed_source(source)
         try:
             deleted = logic.delete_source(source_id, self.team_id)
         except logic.GeneratedSourceReadOnlyError:

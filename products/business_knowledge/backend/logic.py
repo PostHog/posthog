@@ -20,8 +20,8 @@ from django.db import (
     connection as db_connection,
     transaction,
 )
-from django.db.models import Count, Exists, F, Max, OuterRef, Q, QuerySet
-from django.db.models.functions import Substr
+from django.db.models import Count, Exists, F, IntegerField, Max, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models.functions import Coalesce, Substr
 from django.utils import timezone
 
 import structlog
@@ -117,7 +117,7 @@ class SourceBusyError(Exception):
 
 
 class GeneratedSourceReadOnlyError(Exception):
-    pass
+    """A system-managed source cannot be changed through user mutation paths."""
 
 
 class EmptyContentError(Exception):
@@ -308,6 +308,34 @@ def check_text_source_quota(team_id: int, text: str) -> None:
 # --- Queries -----------------------------------------------------------------
 
 
+def _document_count_subquery() -> Coalesce:
+    count = (
+        KnowledgeDocument.objects.filter(
+            team_id=OuterRef("team_id"),
+            source_id=OuterRef("pk"),
+        )
+        .order_by()
+        .values("source_id")
+        .annotate(total=Count("id"))
+        .values("total")[:1]
+    )
+    return Coalesce(Subquery(count, output_field=IntegerField()), Value(0))
+
+
+def _chunk_count_subquery() -> Coalesce:
+    count = (
+        KnowledgeChunk.objects.filter(
+            team_id=OuterRef("team_id"),
+            source_id=OuterRef("pk"),
+        )
+        .order_by()
+        .values("source_id")
+        .annotate(total=Count("id"))
+        .values("total")[:1]
+    )
+    return Coalesce(Subquery(count, output_field=IntegerField()), Value(0))
+
+
 def _unsafe_documents_subquery() -> Exists:
     return Exists(
         KnowledgeDocument.objects.filter(
@@ -361,8 +389,8 @@ def list_for_team(team_id: int) -> list[KnowledgeSource]:
     return list(
         KnowledgeSource.objects.filter(team_id=team_id)
         .annotate(
-            _document_count=Count("documents", distinct=True),
-            _chunk_count=Count("chunks", distinct=True),
+            _document_count=_document_count_subquery(),
+            _chunk_count=_chunk_count_subquery(),
             _has_unsafe_documents=_unsafe_documents_subquery(),
             _has_pending_embeddings=_pending_embedding_documents_subquery(),
             _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
@@ -375,8 +403,8 @@ def list_for_team(team_id: int) -> list[KnowledgeSource]:
 def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
     try:
         return KnowledgeSource.objects.annotate(
-            _document_count=Count("documents", distinct=True),
-            _chunk_count=Count("chunks", distinct=True),
+            _document_count=_document_count_subquery(),
+            _chunk_count=_chunk_count_subquery(),
             _has_unsafe_documents=_unsafe_documents_subquery(),
             _has_pending_embeddings=_pending_embedding_documents_subquery(),
             _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),

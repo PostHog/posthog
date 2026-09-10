@@ -1,3 +1,5 @@
+"""Cross-product contracts exposed by Business knowledge."""
+
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass

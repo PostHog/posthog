@@ -3,7 +3,6 @@ import uuid
 from uuid import UUID
 
 from django.db import transaction
-from django.utils import timezone
 
 from posthog.models.scoping import team_scope
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -21,13 +20,13 @@ MAX_DOCUMENT_TITLE_LENGTH = 512
 
 
 class InvalidGeneratedKnowledgeDocument(ValueError):
-    pass
+    """The generated document violates the internal write contract."""
 
 
-def _validate_input(input: CreateGeneratedKnowledgeDocument) -> tuple[str, str, str]:
-    analysis_version = input.analysis_version.strip()
-    title = input.title.strip()
-    content = input.content
+def _validate_input(document_input: CreateGeneratedKnowledgeDocument) -> tuple[str, str, str]:
+    analysis_version = document_input.analysis_version.strip()
+    title = document_input.title.strip()
+    content = document_input.content
 
     if not analysis_version or len(analysis_version) > MAX_ANALYSIS_VERSION_LENGTH:
         raise InvalidGeneratedKnowledgeDocument("analysis_version is invalid")
@@ -39,6 +38,12 @@ def _validate_input(input: CreateGeneratedKnowledgeDocument) -> tuple[str, str, 
         raise InvalidGeneratedKnowledgeDocument("content is empty")
     if len(content.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
         raise InvalidGeneratedKnowledgeDocument("content is too large")
+    combined_content = f"{title}\n{content}".lower()
+    if any(
+        str(provenance_id).lower() in combined_content
+        for provenance_id in (document_input.ticket_id, document_input.resolution_comment_id)
+    ):
+        raise InvalidGeneratedKnowledgeDocument("provenance identifiers cannot appear in generated content")
 
     return analysis_version, title, content
 
@@ -47,8 +52,11 @@ def _source_id(team_id: int) -> UUID:
     return uuid.uuid5(uuid.NAMESPACE_DNS, f"team-{team_id}.generated.business-knowledge.posthog")
 
 
-def _document_stable_id(input: CreateGeneratedKnowledgeDocument, analysis_version: str) -> str:
-    return f"{GENERATED_KNOWLEDGE_ORIGIN}:{input.ticket_id}:{input.resolution_comment_id}:{analysis_version}"
+def _document_stable_id(document_input: CreateGeneratedKnowledgeDocument, analysis_version: str) -> str:
+    return (
+        f"{GENERATED_KNOWLEDGE_ORIGIN}:"
+        f"{document_input.ticket_id}:{document_input.resolution_comment_id}:{analysis_version}"
+    )
 
 
 def _validate_existing_document(
@@ -81,26 +89,25 @@ def set_generated_source_ready(team_id: int, *, ready: bool) -> bool:
             return False
         source.status = SourceStatus.READY if ready else SourceStatus.ERROR
         source.error_message = "" if ready else "Generated source is disabled."
-        source.updated_at = timezone.now()
         source.save(update_fields=["status", "error_message", "updated_at"])
         return True
 
 
 @transaction.atomic
 def create_generated_document(
-    input: CreateGeneratedKnowledgeDocument,
+    document_input: CreateGeneratedKnowledgeDocument,
 ) -> tuple[KnowledgeDocument, bool]:
-    canonical_team_id = resolve_effective_team_id(input.team_id)
+    canonical_team_id = resolve_effective_team_id(document_input.team_id)
     with team_scope(canonical_team_id, canonical=True):
-        return _create_generated_document(input, team_id=canonical_team_id)
+        return _create_generated_document(document_input, team_id=canonical_team_id)
 
 
 def _create_generated_document(
-    input: CreateGeneratedKnowledgeDocument,
+    document_input: CreateGeneratedKnowledgeDocument,
     *,
     team_id: int,
 ) -> tuple[KnowledgeDocument, bool]:
-    analysis_version, title, content = _validate_input(input)
+    analysis_version, title, content = _validate_input(document_input)
     logic._acquire_source_quota_lock(team_id)
 
     source, _ = KnowledgeSource.objects.get_or_create(
@@ -117,7 +124,7 @@ def _create_generated_document(
     if not source.is_generated or source.source_type != SourceType.TEXT:
         raise InvalidGeneratedKnowledgeDocument("generated source identity is already in use")
 
-    stable_id = _document_stable_id(input, analysis_version)
+    stable_id = _document_stable_id(document_input, analysis_version)
     document_id = uuid.uuid5(source.id, stable_id)
     existing = KnowledgeDocument.objects.filter(
         team_id=team_id,
@@ -134,19 +141,30 @@ def _create_generated_document(
         )
         return existing, False
 
+    existing = KnowledgeDocument.objects.filter(id=document_id, team_id=team_id).first()
+    if existing is not None:
+        _validate_existing_document(
+            existing,
+            expected_id=document_id,
+            source=source,
+            stable_id=stable_id,
+            team_id=team_id,
+        )
+        return existing, False
+
     document, created = KnowledgeDocument.objects.get_or_create(
         id=document_id,
+        team_id=team_id,
+        source=source,
+        stable_id=stable_id,
         defaults={
-            "team_id": team_id,
-            "source": source,
-            "stable_id": stable_id,
             "title": title,
             "content": content,
             "metadata": {
                 "source_type": SourceType.TEXT,
                 "origin": GENERATED_KNOWLEDGE_ORIGIN,
-                "ticket_id": str(input.ticket_id),
-                "resolution_comment_id": str(input.resolution_comment_id),
+                "ticket_id": str(document_input.ticket_id),
+                "resolution_comment_id": str(document_input.resolution_comment_id),
                 "analysis_version": analysis_version,
             },
             "content_hash": sha256_of(content),

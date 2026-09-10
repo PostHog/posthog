@@ -3,15 +3,15 @@ from . import contracts
 
 
 class GeneratedKnowledgeDocumentError(Exception):
-    pass
+    """Base error for generated knowledge document writes."""
 
 
 class GeneratedKnowledgeDocumentInvalidInputError(GeneratedKnowledgeDocumentError):
-    pass
+    """The generated document input violates the facade contract."""
 
 
 class GeneratedKnowledgeDocumentQuotaExceededError(GeneratedKnowledgeDocumentError):
-    pass
+    """The team has no remaining Business knowledge chunk capacity."""
 
 
 def set_generated_knowledge_source_ready(team_id: int, *, ready: bool) -> bool:
@@ -19,10 +19,10 @@ def set_generated_knowledge_source_ready(team_id: int, *, ready: bool) -> bool:
 
 
 def create_generated_knowledge_document(
-    input: contracts.CreateGeneratedKnowledgeDocument,
+    document_input: contracts.CreateGeneratedKnowledgeDocument,
 ) -> contracts.GeneratedKnowledgeDocument:
     try:
-        document, created = generated_documents.create_generated_document(input)
+        document, created = generated_documents.create_generated_document(document_input)
     except generated_documents.InvalidGeneratedKnowledgeDocument as error:
         raise GeneratedKnowledgeDocumentInvalidInputError(str(error)) from error
     except logic.QuotaExceededError as error:
