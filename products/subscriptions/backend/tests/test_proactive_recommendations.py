@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -32,6 +32,7 @@ from products.subscriptions.backend.models import (
     ProactivePreparedArtifact,
     ProactiveRecommendation,
     ProactiveRecommendationOutcome,
+    ProactiveRecommendationRun,
 )
 from products.tasks.backend.facade.repository_authorization import (
     AuthorizableRepository,
@@ -140,6 +141,81 @@ def test_proactive_configuration_options_only_expose_currently_authorizable_repo
     assert options.repositories == (
         proactive.ProactiveRepositoryOptionDTO(repository="posthog/posthog", repository_integration_id=123),
     )
+
+
+@pytest.mark.django_db
+def test_proactive_history_returns_compact_recommendation_artifact_and_outcome(team) -> None:
+    run = ProactiveRecommendationRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        subscription_id=123,
+        delivery_id=uuid4(),
+        actor_id=456,
+        snapshot_hash="a" * 64,
+        status=ProactiveRecommendationRun.Status.COMPLETED,
+    )
+    recommendation = ProactiveRecommendation.objects.for_team(team.id).create(
+        team_id=team.id,
+        run=run,
+        semantic_key="signup-friction",
+        recommendation={
+            "title": "Reduce sign-up friction",
+            "why_now": "New users are leaving before account setup.",
+            "confidence": 0.8,
+            "effort": "small",
+            "expected_metric_movement": "Increase completed sign-ups.",
+        },
+        citations=[
+            {"title": "Sign-up trend", "url": "https://example.com/sign-up-trend"},
+            {"title": "Unsafe", "url": "javascript:alert(1)"},
+        ],
+    )
+    artifact = ProactivePreparedArtifact.objects.for_team(team.id).create(
+        team_id=team.id,
+        run=run,
+        recommendation=recommendation,
+        kind=ProactivePreparedArtifact.Kind.DRAFT_PR,
+        status=ProactivePreparedArtifact.Status.ADOPTED,
+        artifact_config_hash="b" * 64,
+        input_hash="c" * 64,
+        url="https://example.com/draft-pr",
+        prepared_at=datetime(2026, 9, 8, 9, tzinfo=UTC),
+        adopted_at=datetime(2026, 9, 9, 9, tzinfo=UTC),
+    )
+    ProactiveRecommendationOutcome.objects.for_team(team.id).create(
+        team_id=team.id,
+        artifact=artifact,
+        status=ProactiveRecommendationOutcome.Status.IMPROVED,
+        metric_name="Completed sign-ups",
+        expected_metric_movement="completed sign-ups",
+        direction=ProactiveRecommendationOutcome.Direction.INCREASE,
+        baseline_value=Decimal("120"),
+        observed_value=Decimal("146.5"),
+        delta=Decimal("26.5"),
+        baseline_from=date(2026, 9, 1),
+        baseline_to=date(2026, 9, 7),
+        observed_from=datetime(2026, 9, 9, tzinfo=UTC),
+        observed_to=datetime(2026, 9, 15, 23, 59, 59, 999999, tzinfo=UTC),
+        due_at=datetime(2026, 9, 16, 9, tzinfo=UTC),
+    )
+
+    history = proactive.list_proactive_history(team_id=team.id, subscription_id=123)
+
+    assert len(history) == 1
+    entry = history[0]
+    assert entry.recommendation_title == "Reduce sign-up friction"
+    assert entry.confidence == 0.8
+    assert entry.effort == "small"
+    assert entry.metric_direction == "increase"
+    assert entry.expected_metric_movement == "Increase completed sign-ups."
+    assert entry.citations[0].url == "https://example.com/sign-up-trend"
+    assert entry.citations[1].url is None
+    assert entry.artifact is not None
+    assert entry.artifact.status == "adopted"
+    assert entry.artifact.adopted_at == artifact.adopted_at
+    assert entry.outcome is not None
+    assert entry.outcome.direction == "increase"
+    assert entry.outcome.expected_metric_movement == "completed sign-ups"
+    assert entry.outcome.delta == Decimal("26.5")
 
 
 @pytest.mark.django_db

@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import hashlib
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import cast
+from typing import Literal, cast
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.conf import settings
@@ -20,6 +21,7 @@ from products.subscriptions.backend.facade.api import start_recommendation_gener
 from products.subscriptions.backend.facade.contracts import (
     Recommendation,
     RecommendationCitation,
+    RecommendationEffort,
     RecommendationGenerationHandle,
     RecommendationGenerationInput,
     RecommendationResult,
@@ -27,7 +29,9 @@ from products.subscriptions.backend.facade.contracts import (
 )
 from products.subscriptions.backend.facade.measurements import canonicalize_measurement
 from products.subscriptions.backend.models import (
+    ProactivePreparedArtifact,
     ProactiveRecommendation,
+    ProactiveRecommendationOutcome,
     ProactiveRecommendationRun,
     ProactiveSubscriptionConfig,
 )
@@ -87,6 +91,55 @@ class RecommendationRunDTO:
     status: RecommendationStatus
 
 
+ProactiveArtifactHistoryStatus = Literal["preparing", "prepared", "adopted", "failed"]
+ProactiveOutcomeHistoryStatus = Literal["pending", "improved", "regressed", "inconclusive", "unavailable"]
+
+
+@frozen
+class ProactiveHistoryCitationDTO:
+    title: str
+    url: str | None
+
+
+@frozen
+class ProactiveArtifactHistoryDTO:
+    kind: str
+    status: ProactiveArtifactHistoryStatus
+    url: str | None
+    prepared_at: datetime | None
+    adopted_at: datetime | None
+
+
+@frozen
+class ProactiveOutcomeHistoryDTO:
+    status: ProactiveOutcomeHistoryStatus
+    metric_name: str | None
+    expected_metric_movement: str | None
+    direction: Literal["increase", "decrease"] | None
+    baseline_value: Decimal | None
+    observed_value: Decimal | None
+    delta: Decimal | None
+    baseline_from: date | None
+    baseline_to: date | None
+    observed_from: datetime | None
+    observed_to: datetime | None
+    due_at: datetime | None
+
+
+@frozen
+class ProactiveHistoryEntryDTO:
+    delivery_id: UUID
+    recommendation_title: str
+    why_now: str | None
+    confidence: float | None
+    effort: RecommendationEffort | None
+    metric_direction: Literal["increase", "decrease"] | None
+    expected_metric_movement: str | None
+    citations: tuple[ProactiveHistoryCitationDTO, ...]
+    artifact: ProactiveArtifactHistoryDTO | None
+    outcome: ProactiveOutcomeHistoryDTO | None
+
+
 def get_proactive_config(*, team_id: int, subscription_id: int) -> ProactiveConfigDTO:
     config = ProactiveSubscriptionConfig.objects.for_team(team_id).filter(subscription_id=subscription_id).first()
     return ProactiveConfigDTO(
@@ -96,6 +149,120 @@ def get_proactive_config(*, team_id: int, subscription_id: int) -> ProactiveConf
         repository=config.repository if config else None,
         repository_integration_id=config.repository_integration_id if config else None,
     )
+
+
+def list_proactive_history(*, team_id: int, subscription_id: int) -> tuple[ProactiveHistoryEntryDTO, ...]:
+    """Return the bounded, user-facing recommendation history for one subscription."""
+    recommendations = (
+        ProactiveRecommendation.objects.for_team(team_id)
+        .filter(run__subscription_id=subscription_id)
+        .select_related("run", "prepared_artifact__outcome")
+        .order_by("-created_at")[:20]
+    )
+    return tuple(
+        _history_entry(run=recommendation.run, recommendation=recommendation) for recommendation in recommendations
+    )
+
+
+def _history_entry(
+    *, run: ProactiveRecommendationRun, recommendation: ProactiveRecommendation
+) -> ProactiveHistoryEntryDTO:
+    payload = recommendation.recommendation if isinstance(recommendation.recommendation, Mapping) else {}
+    title = _history_text(payload.get("title")) or "Recommendation"
+    return ProactiveHistoryEntryDTO(
+        delivery_id=run.delivery_id,
+        recommendation_title=title,
+        why_now=_history_text(payload.get("why_now")),
+        confidence=_history_confidence(payload.get("confidence")),
+        effort=_history_effort(payload.get("effort")),
+        metric_direction=_history_metric_direction(payload.get("metric_direction")),
+        expected_metric_movement=_history_text(payload.get("expected_metric_movement")),
+        citations=_history_citations(recommendation.citations),
+        artifact=_history_artifact(recommendation),
+        outcome=_history_outcome(recommendation),
+    )
+
+
+def _history_citations(value: object) -> tuple[ProactiveHistoryCitationDTO, ...]:
+    if not isinstance(value, list):
+        return ()
+    citations: list[ProactiveHistoryCitationDTO] = []
+    for index, citation in enumerate(value[:3]):
+        if not isinstance(citation, Mapping):
+            continue
+        citations.append(
+            ProactiveHistoryCitationDTO(
+                title=_history_text(citation.get("title")) or f"Source {index + 1}",
+                url=_safe_history_url(citation.get("url")),
+            )
+        )
+    return tuple(citations)
+
+
+def _history_artifact(recommendation: ProactiveRecommendation) -> ProactiveArtifactHistoryDTO | None:
+    try:
+        artifact = recommendation.prepared_artifact
+    except ProactivePreparedArtifact.DoesNotExist:
+        return None
+    return ProactiveArtifactHistoryDTO(
+        kind=artifact.kind,
+        status=cast(ProactiveArtifactHistoryStatus, artifact.status),
+        url=_safe_history_url(artifact.url),
+        prepared_at=artifact.prepared_at,
+        adopted_at=artifact.adopted_at,
+    )
+
+
+def _history_outcome(recommendation: ProactiveRecommendation) -> ProactiveOutcomeHistoryDTO | None:
+    try:
+        artifact = recommendation.prepared_artifact
+        outcome = artifact.outcome
+    except ProactivePreparedArtifact.DoesNotExist:
+        return None
+    except ProactiveRecommendationOutcome.DoesNotExist:
+        return None
+    return ProactiveOutcomeHistoryDTO(
+        status=cast(ProactiveOutcomeHistoryStatus, outcome.status),
+        metric_name=outcome.metric_name,
+        expected_metric_movement=outcome.expected_metric_movement,
+        direction=cast(Literal["increase", "decrease"] | None, outcome.direction),
+        baseline_value=outcome.baseline_value,
+        observed_value=outcome.observed_value,
+        delta=outcome.delta,
+        baseline_from=outcome.baseline_from,
+        baseline_to=outcome.baseline_to,
+        observed_from=outcome.observed_from,
+        observed_to=outcome.observed_to,
+        due_at=outcome.due_at,
+    )
+
+
+def _history_text(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _history_confidence(value: object) -> float | None:
+    return float(value) if not isinstance(value, bool) and isinstance(value, (int, float)) and 0 <= value <= 1 else None
+
+
+def _history_effort(value: object) -> RecommendationEffort | None:
+    return (
+        cast(RecommendationEffort, value) if isinstance(value, str) and value in {"small", "medium", "large"} else None
+    )
+
+
+def _history_metric_direction(value: object) -> Literal["increase", "decrease"] | None:
+    normalized = value.strip().lower() if isinstance(value, str) else None
+    return cast(Literal["increase", "decrease"], normalized) if normalized in {"increase", "decrease"} else None
+
+
+def _safe_history_url(value: object) -> str | None:
+    if not isinstance(value, str) or len(value) > 2_000:
+        return None
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        return None
+    return value
 
 
 def update_proactive_config(

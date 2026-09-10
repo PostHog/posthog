@@ -671,6 +671,153 @@ export interface PatchedSubscriptionWriteApi {
     delivery_config?: DeliveryConfigApi
 }
 
+export interface ProactiveHistoryCitationApi {
+    /** Short title for evidence supporting this recommendation. */
+    title: string
+    /**
+     * Safe external evidence URL when one was available.
+     * @nullable
+     */
+    url: string | null
+}
+
+export interface ProactiveHistoryArtifactApi {
+    /** Prepared artifact kind, such as a draft pull request or experiment draft. */
+    kind: string
+    /** Artifact state: preparing, prepared, adopted, or failed. Adopted means the external change took effect. */
+    status: string
+    /**
+     * Artifact destination when it is safe to link, such as the draft pull request or experiment.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * Time this artifact became ready for review or use.
+     * @nullable
+     */
+    prepared_at: string | null
+    /**
+     * Time this artifact was adopted, when it has taken effect.
+     * @nullable
+     */
+    adopted_at: string | null
+}
+
+/**
+ * * `increase` - increase
+ * * `decrease` - decrease
+ */
+export type ProactiveHistoryOutcomeDirectionEnumApi =
+    (typeof ProactiveHistoryOutcomeDirectionEnumApi)[keyof typeof ProactiveHistoryOutcomeDirectionEnumApi]
+
+export const ProactiveHistoryOutcomeDirectionEnumApi = {
+    Increase: 'increase',
+    Decrease: 'decrease',
+} as const
+
+export interface ProactiveHistoryOutcomeApi {
+    /** Outcome state: pending, improved, regressed, inconclusive, or unavailable. */
+    status: string
+    /**
+     * Frozen metric name used for the one-time outcome comparison.
+     * @nullable
+     */
+    metric_name: string | null
+    /**
+     * Expected metric movement captured with the recommendation.
+     * @nullable
+     */
+    expected_metric_movement: string | null
+    /** Expected direction for the metric movement.
+     *
+     * * `increase` - increase
+     * * `decrease` - decrease */
+    direction: ProactiveHistoryOutcomeDirectionEnumApi | null
+    /**
+     * Metric total in the frozen baseline window.
+     * @nullable
+     * @pattern ^-?\d{0,20}(?:\.\d{0,10})?$
+     */
+    baseline_value: string | null
+    /**
+     * Metric total in the observed window after adoption.
+     * @nullable
+     * @pattern ^-?\d{0,20}(?:\.\d{0,10})?$
+     */
+    observed_value: string | null
+    /**
+     * Absolute difference between observed and baseline metric totals.
+     * @nullable
+     * @pattern ^-?\d{0,20}(?:\.\d{0,10})?$
+     */
+    delta: string | null
+    /**
+     * First inclusive calendar date in the baseline window.
+     * @nullable
+     */
+    baseline_from: string | null
+    /**
+     * Last inclusive calendar date in the baseline window.
+     * @nullable
+     */
+    baseline_to: string | null
+    /**
+     * Start of the observed UTC calendar window after adoption.
+     * @nullable
+     */
+    observed_from: string | null
+    /**
+     * End of the observed UTC calendar window after adoption.
+     * @nullable
+     */
+    observed_to: string | null
+    /**
+     * Time the one-time outcome readout becomes available when it is pending.
+     * @nullable
+     */
+    due_at: string | null
+}
+
+export interface ProactiveHistoryEntryApi {
+    /** Delivery that generated this recommendation. */
+    delivery_id: string
+    /** Recommendation title captured at delivery time. */
+    recommendation_title: string
+    /**
+     * Concise reason this recommendation was generated for that delivery.
+     * @nullable
+     */
+    why_now: string | null
+    /**
+     * Recommendation confidence from zero to one.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    confidence: number | null
+    /**
+     * Estimated implementation effort: small, medium, or large.
+     * @nullable
+     */
+    effort: string | null
+    /**
+     * Expected direction for the recommendation metric.
+     * @nullable
+     */
+    metric_direction: string | null
+    /**
+     * Expected metric movement captured with the recommendation.
+     * @nullable
+     */
+    expected_metric_movement: string | null
+    /** Up to three supporting evidence citations. */
+    citations: ProactiveHistoryCitationApi[]
+    /** Prepared artifact, when the recommendation created one. */
+    artifact: ProactiveHistoryArtifactApi | null
+    /** One-time outcome result after an artifact was adopted, when available. */
+    outcome: ProactiveHistoryOutcomeApi | null
+}
+
 /**
  * * `starting` - Starting
  * * `completed` - Completed

@@ -4146,6 +4146,16 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         self._assert_visibility(subscription, sees_subscription=sees_subscription, sees_deliveries=sees_deliveries)
 
+    def test_pulse_history_requires_query_viewer_access_before_reading_outcomes(self):
+        subscription = self._sub_on_an_ai_prompt()
+        self._rule("query")
+
+        with patch("ee.api.subscription.list_proactive_history") as history:
+            response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/pulse-history/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        history.assert_not_called()
+
     @parameterized.expand(
         [
             ("restricted insight", "restricted_insight"),

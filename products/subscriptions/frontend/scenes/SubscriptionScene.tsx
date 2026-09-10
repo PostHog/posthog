@@ -18,6 +18,7 @@ import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/
 import { SubscriptionResourceTypeEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { SubscriptionDeliveryHistory } from './components/SubscriptionDeliveryHistory'
+import { SubscriptionPulseHistory } from './components/SubscriptionPulseHistory'
 import { isSubscriptionEnabled, subscriptionEditHref, subscriptionName } from './components/SubscriptionsTable'
 import { SubscriptionSummary } from './components/SubscriptionSummary'
 import { subscriptionSceneLogic } from './subscriptionSceneLogic'
@@ -92,6 +93,10 @@ export function SubscriptionScene(): JSX.Element {
         deliveryStatusFilter,
         deliveryFeedback,
         recentlyThankedDeliveries,
+        pulseHistory,
+        pulseHistoryLoading,
+        pulseHistoryError,
+        showPulseHistory,
     } = useValues(subscriptionSceneLogic)
     const { loadDeliveriesPage, deliverSubscription, setDeliveryStatusFilter, submitDeliveryFeedback } =
         useActions(subscriptionSceneLogic)
@@ -138,6 +143,13 @@ export function SubscriptionScene(): JSX.Element {
                         deliveryFeedback={deliveryFeedback}
                         recentlyThankedDeliveries={recentlyThankedDeliveries}
                     />
+                    {showPulseHistory ? (
+                        <SubscriptionPulseHistory
+                            history={pulseHistory}
+                            loading={pulseHistoryLoading}
+                            hasError={pulseHistoryError}
+                        />
+                    ) : null}
                 </div>
             )}
         </SceneContent>
