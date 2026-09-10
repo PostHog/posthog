@@ -53,8 +53,10 @@ def check_event_filter(tree: ast.AST, plan: QueryPlan | None = None) -> EventFil
     worst = min(outcomes, key=lambda outcome: _CLASS_ORDER.index(outcome.classification))
 
     key_used = plan.event_key_used() if plan is not None else None
-    if key_used is True:
-        # ClickHouse reports what it really used, so it overrules anything the tree suggests.
+    if key_used is True and worst.reason != "negated":
+        # ClickHouse reports what it really used, so it overrules anything the tree suggests. A
+        # negation is the exception: `event` enters the key condition, but excluding a value skips
+        # only granules made entirely of it, so the plan cannot say that it pruned.
         return EventFilterOutcome(classification="usable")
     if key_used is False and worst.classification == "usable":
         # The plan says some read did not prune, not which one, so a clause can only be named

@@ -248,6 +248,15 @@ class TestEventFilterCheck(QueryScanCheckTest):
         self.assertEqual(outcome.reason, "not_pruned")
         self.assertIsNone(outcome.clause)
 
+    @freeze_time(NOW)
+    def test_a_plan_listing_the_key_does_not_excuse_a_negated_filter(self) -> None:
+        tree, _context = self.prepare("SELECT count() FROM events WHERE event != 'purchase'")
+
+        outcome = check_event_filter(tree, parse_query_plan(load_plan("event_filter_usable")))
+
+        self.assertEqual(outcome.classification, "not_used")
+        self.assertEqual(outcome.reason, "negated")
+
 
 class TestStartDateCheck(QueryScanCheckTest):
     @parameterized.expand(
