@@ -37,6 +37,9 @@ describe("PrRefChip", () => {
     expect(
       await screen.findByText("Show pull request status in sessions"),
     ).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-slot="tooltip-content"]'),
+    ).toHaveTextContent("PostHog/posthog#23985");
     expect(screen.getByText("Created by @octocat")).toBeInTheDocument();
     expect(screen.getByText("CI passed")).toBeInTheDocument();
   });
