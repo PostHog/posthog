@@ -3,20 +3,20 @@
 Triggers gate thread openers only. A transition whose event satisfies one of an
 alert's triggers opens a notification thread per destination: a root Slack
 message whose `ts` is stored on the thread row. Every other lifecycle event is
-delivered as a reply into that thread, without a second trigger evaluation, and
-status transitions also edit the root in place.
+delivered as a reply into that thread, without a second trigger or filter
+evaluation, and status transitions also edit the root in place.
 
 Delivery is at-least-once. A per-thread send claim serializes concurrent
 deliveries so two notifications never post at the same time (the loser retries
 into the winner's thread), and delivered notification ids recorded on the row make
 a retry after a successful save a no-op. A crash between the Slack post and that
-save still re-posts on retry. The alert's stored filters are evaluated by the
-follow-up filter-evaluation layer before openers actually send; until then
-delivery is trigger-only.
+save still re-posts on retry. The alert's stored filters gate openers (see
+filtering.py).
 """
 
 import dataclasses
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.db import IntegrityError
 from django.db.models import Q
@@ -31,6 +31,11 @@ from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertDestination,
     ErrorTrackingAlertThread,
+)
+from products.error_tracking.backend.temporal.alerts.filtering import (
+    alert_filters_match,
+    fetch_exception_properties,
+    has_configured_filters,
 )
 from products.error_tracking.backend.temporal.alerts.messages import (
     DEFAULT_HEADLINE,
@@ -107,11 +112,6 @@ def plan_alert_deliveries(inputs: AlertDeliveryWorkflowInputs) -> list[PlannedDe
     planned: list[PlannedDelivery] = []
     for alert in alerts:
         trigger_matched = trigger is not None and trigger in alert.triggers
-        if trigger_matched and _has_configured_filters(alert):
-            # Until the filter-evaluation layer lands, alerts with configured
-            # filters never open threads: missing an opener is better than posting
-            # issues the user filtered out.
-            trigger_matched = False
         for destination in destinations_by_alert.get(alert.id, []):
             thread = threads_by_destination.get(destination.id)
             if thread is None and not trigger_matched:
@@ -128,18 +128,57 @@ def plan_alert_deliveries(inputs: AlertDeliveryWorkflowInputs) -> list[PlannedDe
     return planned
 
 
-def _has_configured_filters(alert: ErrorTrackingAlert) -> bool:
-    # Empty filters still carry trivially-true compiled bytecode, so look at the
-    # configured predicate keys instead.
-    filters = alert.filters or {}
-    return any(filters.get(key) for key in ("events", "actions", "properties", "filter_test_accounts"))
+def _opener_filter_matches(
+    planned: list[PlannedDelivery], inputs: AlertDeliveryWorkflowInputs
+) -> dict[UUID, bool | None]:
+    """Filters gate openers only, evaluated once per (transition, alert).
+
+    Replies follow the thread without a second evaluation, so this only looks at
+    alerts with a planned opener, and only fetches the triggering exception's
+    properties when at least one of those alerts configures filters.
+    """
+    opener_alerts = {delivery.alert.id: delivery.alert for delivery in planned if delivery.is_opener}
+    if not opener_alerts:
+        return {}
+    exception_properties: dict[str, object] = {}
+    if any(has_configured_filters(alert) for alert in opener_alerts.values()):
+        try:
+            exception_properties = fetch_exception_properties(inputs)
+        except Exception:
+            # Filtered openers cannot be decided without the properties, but that
+            # must not hold back alerts that never needed them: those deliver now,
+            # the undecided ones fail the activity so the retry evaluates them.
+            logger.exception(
+                "error_tracking_alert_exception_properties_unavailable",
+                team_id=inputs.team_id,
+                issue_id=inputs.issue_id,
+                notification_id=inputs.notification_id,
+            )
+            return {
+                alert_id: (None if has_configured_filters(alert) else True) for alert_id, alert in opener_alerts.items()
+            }
+    return {
+        alert_id: alert_filters_match(alert, inputs, exception_properties) for alert_id, alert in opener_alerts.items()
+    }
 
 
 def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
     planned = plan_alert_deliveries(inputs)
+    filter_matches = _opener_filter_matches(planned, inputs)
     delivered = 0
     failures = 0
     for delivery in planned:
+        if delivery.is_opener:
+            verdict = filter_matches.get(delivery.alert.id, True)
+            if verdict is None:
+                # Undecided: the exception properties could not be fetched. Counted
+                # as a failure so the activity retries once the rest has delivered.
+                failures += 1
+                continue
+            if not verdict:
+                # A filtered-out opener leaves no thread behind, so later replies for
+                # this issue stay unclaimed and a matching opener can still root one.
+                continue
         try:
             if _deliver_one(delivery, inputs):
                 delivered += 1
