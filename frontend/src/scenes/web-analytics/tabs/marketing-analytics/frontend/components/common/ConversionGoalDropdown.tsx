@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter as ActionFilterComponent } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
@@ -13,16 +13,15 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { isDataWarehouseNode } from '~/queries/utils'
-import { conversionGoalPopoverFields } from '~/taxonomy/taxonomy'
-import { ActionFilter, BaseMathType, AnyDataWarehouseFilter, EntityTypes, FilterType, PropertyMathType } from '~/types'
-
 import {
     ConversionGoalSchema,
     DISTINCT_ID_FIELD_SCHEMA_FIELD,
     TIMESTAMP_FIELD_SCHEMA_FIELD,
     UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
     UTM_SOURCE_NAME_SCHEMA_FIELD,
-} from '../../../utils'
+} from '~/taxonomy/marketingAnalytics'
+import { conversionGoalPopoverFields } from '~/taxonomy/taxonomy'
+import { ActionFilter, BaseMathType, AnyDataWarehouseFilter, EntityTypes, FilterType, PropertyMathType } from '~/types'
 
 interface ConversionGoalDropdownProps {
     value: ConversionGoalFilter
@@ -139,7 +138,8 @@ export function ConversionGoalDropdown({
                     // Override the schema with the schema from the data warehouse
                     if (data_warehouse?.[0]?.type === EntityTypes.DATA_WAREHOUSE) {
                         const dwNode = data_warehouse[0] as AnyDataWarehouseFilter &
-                            Record<ConversionGoalSchema, string>
+                            Record<ConversionGoalSchema, string> &
+                            Partial<Pick<DataWarehouseNode, 'id_field' | 'dw_source_type'>>
                         const schema = dwNode
                         const overrideSchema: Record<ConversionGoalSchema, string> = {
                             utm_campaign_name: schema[UTM_CAMPAIGN_NAME_SCHEMA_FIELD],

@@ -1,10 +1,15 @@
 import { v4 as uuidv4 } from 'uuid'
 
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { SessionFilter, SessionFilterConfig } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
-import { createRedisPoolFromConfig } from '~/utils/db/redis'
+import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 
 // nosemgrep: redis-unencrypted-transport (local testing only)
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1'
+
+// Single-session convenience over the batched isBlocked.
+const blocked = (filter: SessionFilter, teamId: number, sessionId: string): Promise<boolean> =>
+    filter.isBlocked(new SessionSet().add(teamId, sessionId)).then((s) => s.has(teamId, sessionId))
 
 describe('SessionFilter integration', () => {
     let sessionFilter: SessionFilter
@@ -44,15 +49,15 @@ describe('SessionFilter integration', () => {
             // Bucket capacity is 5, so 6th session should be blocked
             for (let i = 1; i <= 5; i++) {
                 const sessionId = `${testRunId}-session-${i}`
-                await sessionFilter.handleNewSession(teamId, sessionId)
-                const isBlocked = await sessionFilter.isBlocked(teamId, sessionId)
+                await sessionFilter.handleNewSessions(new SessionSet().add(teamId, sessionId))
+                const isBlocked = await blocked(sessionFilter, teamId, sessionId)
                 expect(isBlocked).toBe(false)
             }
 
             // 6th session should be rate limited and blocked
             const blockedSessionId = `${testRunId}-session-6`
-            await sessionFilter.handleNewSession(teamId, blockedSessionId)
-            const isBlocked = await sessionFilter.isBlocked(teamId, blockedSessionId)
+            await sessionFilter.handleNewSessions(new SessionSet().add(teamId, blockedSessionId))
+            const isBlocked = await blocked(sessionFilter, teamId, blockedSessionId)
             expect(isBlocked).toBe(true)
         })
 
@@ -71,11 +76,11 @@ describe('SessionFilter integration', () => {
             })
 
             // First session consumes the bucket
-            await filter1.handleNewSession(teamId, `${testRunId}-first-session`)
+            await filter1.handleNewSessions(new SessionSet().add(teamId, `${testRunId}-first-session`))
 
             // Second session should be blocked
-            await filter1.handleNewSession(teamId, sessionId)
-            expect(await filter1.isBlocked(teamId, sessionId)).toBe(true)
+            await filter1.handleNewSessions(new SessionSet().add(teamId, sessionId))
+            expect(await blocked(filter1, teamId, sessionId)).toBe(true)
 
             // Create a new filter instance (simulating a new consumer)
             const filter2 = new SessionFilter({
@@ -88,11 +93,11 @@ describe('SessionFilter integration', () => {
             })
 
             // The blocked session should still be blocked (fetched from Redis)
-            const isBlockedInNewFilter = await filter2.isBlocked(teamId, sessionId)
+            const isBlockedInNewFilter = await blocked(filter2, teamId, sessionId)
             expect(isBlockedInNewFilter).toBe(true)
 
             // A new session that was never blocked should not be blocked
-            const isNewSessionBlocked = await filter2.isBlocked(teamId, `${testRunId}-never-blocked`)
+            const isNewSessionBlocked = await blocked(filter2, teamId, `${testRunId}-never-blocked`)
             expect(isNewSessionBlocked).toBe(false)
         })
 
@@ -109,12 +114,12 @@ describe('SessionFilter integration', () => {
             })
 
             // First session consumes the bucket
-            await disabledFilter.handleNewSession(teamId, `${testRunId}-disabled-session-1`)
+            await disabledFilter.handleNewSessions(new SessionSet().add(teamId, `${testRunId}-disabled-session-1`))
 
             // Second session would be rate limited but should NOT be blocked
             const session2 = `${testRunId}-disabled-session-2`
-            await disabledFilter.handleNewSession(teamId, session2)
-            expect(await disabledFilter.isBlocked(teamId, session2)).toBe(false)
+            await disabledFilter.handleNewSessions(new SessionSet().add(teamId, session2))
+            expect(await blocked(disabledFilter, teamId, session2)).toBe(false)
         })
 
         it('should correctly cache blocked status locally', async () => {
@@ -130,18 +135,94 @@ describe('SessionFilter integration', () => {
             })
 
             // Exhaust bucket and block a session
-            await filter.handleNewSession(teamId, `${testRunId}-cache-first`)
+            await filter.handleNewSessions(new SessionSet().add(teamId, `${testRunId}-cache-first`))
             const blockedSession = `${testRunId}-cache-blocked`
-            await filter.handleNewSession(teamId, blockedSession)
+            await filter.handleNewSessions(new SessionSet().add(teamId, blockedSession))
 
             // First isBlocked call goes to Redis
-            const isBlocked1 = await filter.isBlocked(teamId, blockedSession)
+            const isBlocked1 = await blocked(filter, teamId, blockedSession)
             expect(isBlocked1).toBe(true)
 
             // Second call should be served from cache (we can't directly verify this
             // in integration test, but we can verify the result is consistent)
-            const isBlocked2 = await filter.isBlocked(teamId, blockedSession)
+            const isBlocked2 = await blocked(filter, teamId, blockedSession)
             expect(isBlocked2).toBe(true)
+        })
+    })
+
+    describe('batch behavior', () => {
+        it('blocks a mixed batch in one call and reads each session back from a fresh instance', async () => {
+            const teamId = 5
+            const allowed = `${testRunId}-batch-allowed`
+            const blockedA = `${testRunId}-batch-blocked-a`
+            const blockedB = `${testRunId}-batch-blocked-b`
+
+            // Budget of 1: within a single batched call the first new session is allowed and the rest
+            // are rate-limited and blocked. Verifies the pipelined write persists every blocked key.
+            const writer = new SessionFilter({
+                redisPool,
+                bucketCapacity: 1,
+                bucketReplenishRate: 0.001,
+                blockingEnabled: true,
+                filterEnabled: true,
+                localCacheTtlMs: 100,
+            })
+            await writer.handleNewSessions(
+                new SessionSet().add(teamId, allowed).add(teamId, blockedA).add(teamId, blockedB)
+            )
+
+            // A fresh instance (cold local cache) resolves the whole batch from Redis in one read.
+            const reader = new SessionFilter({
+                redisPool,
+                bucketCapacity: 1000,
+                bucketReplenishRate: 1,
+                blockingEnabled: true,
+                filterEnabled: true,
+                localCacheTtlMs: 100,
+            })
+            const result = await reader.isBlocked(
+                new SessionSet()
+                    .add(teamId, allowed)
+                    .add(teamId, blockedA)
+                    .add(teamId, blockedB)
+                    .add(teamId, `${testRunId}-batch-never`)
+            )
+
+            expect(result.has(teamId, allowed)).toBe(false)
+            expect(result.has(teamId, blockedA)).toBe(true)
+            expect(result.has(teamId, blockedB)).toBe(true)
+            expect(result.has(teamId, `${testRunId}-batch-never`)).toBe(false)
+        })
+
+        it('keeps blocks isolated per team in Redis', async () => {
+            const teamA = 6
+            const teamB = 7
+            const shared = `${testRunId}-team-shared`
+
+            // Block (team A, shared) by exhausting team A's budget; team B is never touched.
+            const writer = new SessionFilter({
+                redisPool,
+                bucketCapacity: 1,
+                bucketReplenishRate: 0.001,
+                blockingEnabled: true,
+                filterEnabled: true,
+                localCacheTtlMs: 100,
+            })
+            await writer.handleNewSessions(new SessionSet().add(teamA, `${testRunId}-team-filler`).add(teamA, shared))
+
+            // A fresh instance reads both teams' identically-named session from Redis in one batch.
+            const reader = new SessionFilter({
+                redisPool,
+                bucketCapacity: 1000,
+                bucketReplenishRate: 1,
+                blockingEnabled: true,
+                filterEnabled: true,
+                localCacheTtlMs: 100,
+            })
+            const result = await reader.isBlocked(new SessionSet().add(teamA, shared).add(teamB, shared))
+
+            expect(result.has(teamA, shared)).toBe(true) // blocked in Redis for team A
+            expect(result.has(teamB, shared)).toBe(false) // team B's key was never written
         })
     })
 })

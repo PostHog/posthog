@@ -22,10 +22,13 @@ describe('computeYAxisGutters', () => {
     })
 
     it('stacks same-side gutters outward, each offset by the inner gutters width plus the gap', () => {
-        const gutters = computeYAxisGutters(scales({ left: axis('left'), right: axis('right'), right2: axis('right') }), {
-            yTicks: [],
-            yAxisFormatters: formatters,
-        })
+        const gutters = computeYAxisGutters(
+            scales({ left: axis('left'), right: axis('right'), right2: axis('right') }),
+            {
+                yTicks: [],
+                yAxisFormatters: formatters,
+            }
+        )
         const right = gutters.find((g) => g.axisId === 'right')
         const right2 = gutters.find((g) => g.axisId === 'right2')
         expect(right).toMatchObject({ offset: 0, width: 20 })
@@ -33,13 +36,30 @@ describe('computeYAxisGutters', () => {
     })
 
     it('reserves a title band that pushes the next same-side gutter out', () => {
-        const gutters = computeYAxisGutters(scales({ left: axis('left'), right: axis('right'), right2: axis('right') }), {
-            yTicks: [],
-            yAxisFormatters: formatters,
-            titles: { right: 'Inner title' },
-        })
+        const gutters = computeYAxisGutters(
+            scales({ left: axis('left'), right: axis('right'), right2: axis('right') }),
+            {
+                yTicks: [],
+                yAxisFormatters: formatters,
+                titles: { right: 'Inner title' },
+            }
+        )
         const right2 = gutters.find((g) => g.axisId === 'right2')
         expect(right2?.offset).toBe(20 + GUTTER_GAP + Y_AXIS_TITLE_MARGIN)
         expect(gutters.find((g) => g.axisId === 'right')?.title).toBe('Inner title')
+    })
+
+    it('skips hidden axes entirely, so the next same-side gutter takes their slot', () => {
+        const gutters = computeYAxisGutters(
+            scales({ left: axis('left'), right: axis('right'), right2: axis('right') }),
+            {
+                yTicks: [],
+                yAxisFormatters: formatters,
+                hiddenAxes: { right: true },
+            }
+        )
+        expect(gutters.map((g) => g.axisId)).toEqual(['left', 'right2'])
+        const right2 = gutters.find((g) => g.axisId === 'right2')
+        expect(right2).toMatchObject({ offset: 0 })
     })
 })

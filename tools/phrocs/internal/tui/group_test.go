@@ -368,6 +368,30 @@ func TestGroupDimensions(t *testing.T) {
 	}
 }
 
+// ── initialGroupDimIndex ─────────────────────────────────────────────────────
+
+func TestInitialGroupDimIndex(t *testing.T) {
+	dims := []string{"layer", "tech", "capability"}
+	cases := []struct {
+		name         string
+		defaultGroup string
+		want         int
+	}{
+		{"unset is ungrouped", "", -1},
+		{"first dimension", "layer", 0},
+		{"middle dimension", "tech", 1},
+		{"last dimension", "capability", 2},
+		{"unknown dimension is ungrouped", "team", -1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := initialGroupDimIndex(dims, tc.defaultGroup); got != tc.want {
+				t.Errorf("initialGroupDimIndex(%v, %q) = %d, want %d", dims, tc.defaultGroup, got, tc.want)
+			}
+		})
+	}
+}
+
 // ── TUI integration ──────────────────────────────────────────────────────────
 
 func readyGroupModel(t *testing.T) Model {
@@ -411,6 +435,36 @@ func TestGroup_cycleWithG(t *testing.T) {
 	m = update(m, keypress('g'))
 	if m.isGrouped() {
 		t.Errorf("after third g: should be ungrouped, got %q", m.activeGroupDim())
+	}
+}
+
+func TestGroup_defaultGroupStartsGrouped(t *testing.T) {
+	f := false
+	cfg := &config.Config{
+		Procs: map[string]config.ProcConfig{
+			"backend":  {Shell: "echo", Autostart: &f, Groups: map[string]string{"layer": "Application"}},
+			"capture":  {Shell: "echo", Autostart: &f, Groups: map[string]string{"layer": "Ingestion"}},
+			"frontend": {Shell: "echo", Autostart: &f, Groups: map[string]string{"layer": "Application"}},
+		},
+		DefaultGroup:     "layer",
+		MouseScrollSpeed: 3,
+		Scrollback:       1000,
+		GroupOrder:       map[string][]string{"layer": {"Application", "Ingestion"}},
+	}
+	mgr := process.NewManager(cfg)
+	m := New(mgr, cfg, "", nil)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = next.(Model)
+
+	if !m.isGrouped() {
+		t.Fatal("default_group set: model should start grouped")
+	}
+	if m.activeGroupDim() != "layer" {
+		t.Errorf("default_group: got %q, want layer", m.activeGroupDim())
+	}
+	// Cursor must land on a real process, never a header.
+	if m.sidebarEntries[m.entryCursor].isNonSelectable() {
+		t.Error("entryCursor landed on a non-selectable entry on startup")
 	}
 }
 

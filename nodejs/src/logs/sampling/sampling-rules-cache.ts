@@ -1,7 +1,7 @@
 import { trace } from '@opentelemetry/api'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 
 import { type SamplingRuleRow, compileRuleSet } from './compile-rules'
 import type { CompiledRuleSet } from './evaluate'

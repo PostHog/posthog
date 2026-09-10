@@ -1,12 +1,14 @@
 import {
+    buildLogsSessionScope,
     formatFilterGroupValues,
+    getDistinctIdWithKey,
     getFiltersSummaryLines,
     getSessionIdFromLogAttributes,
     isDistinctIdKey,
     isSessionIdKey,
 } from './utils'
 
-jest.mock('products/logs/frontend/components/LogsViewer/Filters/LogsDateRangePicker/utils', () => ({
+jest.mock('lib/components/DateFilter/DateRangePicker/utils', () => ({
     formatDateRangeLabel: () => '-1h \u2192 now',
 }))
 
@@ -37,6 +39,43 @@ describe('logs utils', () => {
     ])('isDistinctIdKey(%s)', (key, expected) => {
         it(`returns ${expected}`, () => {
             expect(isDistinctIdKey(key)).toBe(expected)
+        })
+    })
+
+    describe('isDistinctIdKey with configured keys', () => {
+        it('matches a configured key exactly, without dot-suffix expansion', () => {
+            expect(isDistinctIdKey('user.id', ['user.id'])).toBe(true)
+            expect(isDistinctIdKey('prefixed.user.id', ['user.id'])).toBe(false)
+        })
+
+        it('keeps matching the built-in conventions alongside configured keys', () => {
+            expect(isDistinctIdKey('posthogDistinctId', ['user.id'])).toBe(true)
+            expect(isDistinctIdKey('unrelated', ['user.id'])).toBe(false)
+        })
+    })
+
+    describe('getDistinctIdWithKey', () => {
+        it('prefers a configured key over a convention, and attributes over resource_attributes', () => {
+            expect(
+                getDistinctIdWithKey({ distinct_id: 'convention', 'user.id': 'configured' }, undefined, ['user.id'])
+            ).toEqual({ key: 'user.id', value: 'configured', source: 'attribute' })
+            expect(getDistinctIdWithKey({}, { 'user.id': 'configured' }, ['user.id'])).toEqual({
+                key: 'user.id',
+                value: 'configured',
+                source: 'resource_attribute',
+            })
+        })
+
+        it('falls back to the built-in conventions when no configured key carries a value', () => {
+            expect(getDistinctIdWithKey({ posthogDistinctId: 'abc' }, undefined, ['user.id'])).toEqual({
+                key: 'posthogDistinctId',
+                value: 'abc',
+                source: 'attribute',
+            })
+        })
+
+        it('returns null when the log carries no distinct id', () => {
+            expect(getDistinctIdWithKey({ unrelated: 'x' }, { 'service.name': 'api' }, ['user.id'])).toBeNull()
         })
     })
 
@@ -93,6 +132,97 @@ describe('logs utils', () => {
         })
     })
 
+    describe('configured session ID keys', () => {
+        it.each([
+            [
+                'configured key wins over a built-in convention key',
+                ['my.custom.key'],
+                { session_id: 'builtin', 'my.custom.key': 'custom' },
+                undefined,
+                'custom',
+            ],
+            [
+                'configured keys are checked in list order',
+                ['second.key', 'first.key'],
+                { 'first.key': 'first', 'second.key': 'second' },
+                undefined,
+                'second',
+            ],
+            [
+                'configured key found in resource_attributes',
+                ['my.custom.key'],
+                undefined,
+                { 'my.custom.key': 'from-resource' },
+                'from-resource',
+            ],
+            [
+                'falls back to built-in conventions when configured keys are absent',
+                ['my.custom.key'],
+                { $session_id: 'builtin' },
+                undefined,
+                'builtin',
+            ],
+            [
+                'configured keys match exactly, not by dot suffix',
+                ['custom.key'],
+                { 'prefix.custom.key': 'suffixed' },
+                undefined,
+                null,
+            ],
+            [
+                // Without an own-property check these resolve to the Object.prototype member,
+                // which is truthy and would be returned as though the attribute held it.
+                'a configured key naming an Object.prototype member resolves nothing',
+                ['constructor'],
+                { $session_id: 'builtin' },
+                undefined,
+                'builtin',
+            ],
+            [
+                'an Object.prototype member name resolves nothing when no convention key is present',
+                ['valueOf'],
+                { 'http.method': 'GET' },
+                undefined,
+                null,
+            ],
+        ])('%s', (_, configuredKeys, attributes, resourceAttributes, expected) => {
+            expect(
+                getSessionIdFromLogAttributes(
+                    attributes as Record<string, unknown> | undefined,
+                    resourceAttributes as Record<string, unknown> | undefined,
+                    configuredKeys
+                )
+            ).toBe(expected)
+        })
+
+        it.each([
+            ['my.custom.key', ['my.custom.key'], true],
+            ['prefix.my.custom.key', ['my.custom.key'], false],
+        ])('isSessionIdKey(%s, %j) returns %s', (key, configuredKeys, expected) => {
+            expect(isSessionIdKey(key, configuredKeys)).toBe(expected)
+        })
+    })
+
+    describe('buildLogsSessionScope', () => {
+        it('scopes the date range around the timestamp', () => {
+            // Without a window the viewer's default range (last hour) hides any session older
+            // than that, which is most sessions reached from an error.
+            expect(buildLogsSessionScope('sess-1', '2026-03-24T12:00:00.000Z')).toEqual({
+                sessionId: 'sess-1',
+                initialFilters: {
+                    dateRange: {
+                        date_from: '2026-03-24T11:30:00.000Z',
+                        date_to: '2026-03-24T12:30:00.000Z',
+                    },
+                },
+            })
+        })
+
+        it('leaves the range alone without a timestamp', () => {
+            expect(buildLogsSessionScope('sess-1')).toEqual({ sessionId: 'sess-1', initialFilters: undefined })
+        })
+    })
+
     const filterGroup = (
         ...filters: Array<{ key: string; value: any; type?: string; operator?: string }>
     ): Record<string, any> => ({
@@ -133,6 +263,33 @@ describe('logs utils', () => {
             [{ label: 'Severity', value: 'Error, Fatal' }],
         ],
         ['singular service', { serviceNames: ['api'] }, [{ label: 'Service', value: 'api' }]],
+        // A viewer-written selection lives in the group, so an entry holding it has to summarize the
+        // same way one holding a dedicated field does.
+        [
+            'group-stored level and service selections',
+            {
+                filterGroup: filterGroup(
+                    { key: 'severity_level', value: ['error'], type: 'log' },
+                    { key: 'service_name', value: ['api'], type: 'log' }
+                ),
+            },
+            [
+                { label: 'Severity', value: 'Error' },
+                { label: 'Service', value: 'api' },
+            ],
+        ],
+        [
+            'a group-stored exclusion still shows as a filter',
+            {
+                filterGroup: filterGroup({
+                    key: 'service_name',
+                    value: ['api'],
+                    type: 'log',
+                    operator: 'is_not',
+                }),
+            },
+            [{ label: 'Filter', value: 'service_name=api' }],
+        ],
         [
             'plural services with truncation',
             { serviceNames: ['api', 'worker', 'scheduler', 'cron'] },

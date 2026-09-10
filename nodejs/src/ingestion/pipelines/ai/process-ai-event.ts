@@ -7,9 +7,9 @@
  * - Cost calculation (for generation/embedding/evaluation events)
  * - Model parameter extraction (for generation/embedding/evaluation events)
  */
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { logger } from '~/common/utils/logger'
+import { AI_EVENT_TYPES, COSTED_AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { PluginEvent } from '~/plugin-scaffold'
-import { logger } from '~/utils/logger'
 
 import { convertRawEvent } from './convert-raw-event'
 import { EventWithProperties, extractCoreModelParams, processCost } from './costs'
@@ -47,13 +47,7 @@ export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithPrope
     // Normalize error messages for all AI events with errors.
     const withErrorNormalization = processAiErrorNormalization(normalized)
 
-    // Only generation/embedding/evaluation events get cost processing and model param extraction.
-    const isCosted =
-        withErrorNormalization.event === '$ai_generation' ||
-        withErrorNormalization.event === '$ai_embedding' ||
-        withErrorNormalization.event === '$ai_evaluation'
-
-    if (!isCosted) {
+    if (!COSTED_AI_EVENT_TYPES.has(withErrorNormalization.event)) {
         return withErrorNormalization
     }
 

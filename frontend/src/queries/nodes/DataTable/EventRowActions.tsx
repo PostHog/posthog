@@ -10,11 +10,12 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { ArchiveSurveyButton } from 'scenes/surveys/components/ArchiveSurveyButton'
+import { isSurveyResponseEvent } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { saveActionFromEvent } from '~/models/saveAsActionDialog'
-import { EventType, SurveyEventName } from '~/types'
+import { EventType } from '~/types'
 
 export function EventRowActions({
     event,
@@ -59,7 +60,7 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                     Create action from event
                 </LemonButton>
             )}
-            {event.event === SurveyEventName.SENT && event.uuid && event.properties.$survey_id ? (
+            {isSurveyResponseEvent(event.event, event.properties) && event.uuid && event.properties.$survey_id ? (
                 <ArchiveSurveyButton surveyId={event.properties.$survey_id} responseUuid={event.uuid} />
             ) : null}
             {event.uuid && event.timestamp && <EventCopyLinkButton event={event} />}
@@ -68,10 +69,10 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                     fullWidth
                     sideIcon={<IconWarning />}
                     data-attr="events-table-issue-link"
-                    to={urls.errorTrackingIssue(
-                        event.properties.$exception_issue_id,
-                        event.properties.$exception_fingerprint
-                    )}
+                    to={urls.errorTrackingIssue(event.properties.$exception_issue_id, {
+                        fingerprint: event.properties.$exception_fingerprint,
+                        timestamp: event.timestamp,
+                    })}
                 >
                     Visit issue
                 </LemonButton>

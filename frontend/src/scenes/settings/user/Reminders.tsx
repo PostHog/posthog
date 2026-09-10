@@ -4,9 +4,9 @@ import { Form } from 'kea-forms'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -108,14 +108,13 @@ function ReminderModal(): JSX.Element {
                 {reminderForm.scheduleType === 'one-off' && (
                     <LemonField name="scheduled_at" label="Fires at">
                         {({ value, onChange }) => (
-                            <LemonCalendarSelectInput
+                            <DatePicker
                                 value={value ? dayjs(value) : null}
                                 onChange={(date) => onChange(date ? date.toISOString() : null)}
                                 granularity="minute"
                                 placeholder="Select date and time"
-                                buttonProps={{
-                                    disabledReason: !isScheduleEditable ? 'This reminder has already fired' : undefined,
-                                }}
+                                maxDate={dayjs().add(10, 'year')}
+                                disabledReason={!isScheduleEditable ? 'This reminder has already fired' : undefined}
                             />
                         )}
                     </LemonField>
@@ -149,15 +148,14 @@ function ReminderModal(): JSX.Element {
                 {reminderForm.scheduleType !== 'one-off' && (
                     <LemonField name="end_date" label="Ends" info="Optional. The reminder stops after this time.">
                         {({ value, onChange }) => (
-                            <LemonCalendarSelectInput
+                            <DatePicker
                                 value={value ? dayjs(value) : null}
                                 onChange={(date) => onChange(date ? date.toISOString() : null)}
                                 granularity="minute"
                                 placeholder="No end date"
                                 clearable
-                                buttonProps={{
-                                    disabledReason: !isScheduleEditable ? 'This reminder has already fired' : undefined,
-                                }}
+                                maxDate={dayjs().add(10, 'year')}
+                                disabledReason={!isScheduleEditable ? 'This reminder has already fired' : undefined}
                             />
                         )}
                     </LemonField>

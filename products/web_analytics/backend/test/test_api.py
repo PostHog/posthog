@@ -3,7 +3,9 @@ from urllib.parse import urlparse
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import Mock, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -11,6 +13,9 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
+from posthog.rate_limit import LlmsTxtFetchBurstRateThrottle
+
+from products.web_analytics.backend.llms_txt import FetchedLlmsTxt
 
 QUERY_TIMESTAMP = "2025-01-29"
 
@@ -275,3 +280,140 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
         dashboard_url = response.json()["dashboard_url"]
         assert f"/project/{self.team.id}/web" in dashboard_url
         assert "utm_source=" in dashboard_url
+
+
+class TestWebAnalyticsRecapAPI(ClickhouseTestMixin, APIBaseTest):
+    ENDPOINT = "/api/environments/{team_id}/web_analytics/recap/"
+
+    def _url(self, team_id=None):
+        return self.ENDPOINT.format(team_id=team_id or self.team.id)
+
+    def test_recap_extends_digest_with_persona_and_highlights(self):
+        with freeze_time(QUERY_TIMESTAMP):
+            _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
+            _create_pageview(self.team, distinct_id="user_1", url="https://example.com/", timestamp="2025-01-25")
+            flush_persons_and_events()
+
+            response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        # superset of the digest shape
+        assert {"visitors", "pageviews", "sessions", "bounce_rate", "avg_session_duration", "goals"} <= set(data.keys())
+        # plus the recap-only fields
+        assert {
+            "persona",
+            "highlights",
+            "period_label",
+            "period_start",
+            "period_end",
+            "project_name",
+            "recap_url",
+        } <= set(data.keys())
+        assert set(data["persona"].keys()) == {"id", "name", "emoji", "blurb", "color"}
+        assert isinstance(data["highlights"], list)
+        assert data["period_start"] == "2025-01-22"
+        assert data["period_end"] == "2025-01-29"
+        assert data["project_name"] == self.team.name
+
+    def test_empty_team_gets_just_getting_started_persona(self):
+        with freeze_time(QUERY_TIMESTAMP):
+            response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["persona"]["id"] == "just_getting_started"
+        assert data["highlights"] == []
+
+    def test_recap_url_points_at_recap_route(self):
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        recap_url = response.json()["recap_url"]
+        assert f"/project/{self.team.id}/web/recap" in recap_url
+        assert "utm_source=web_analytics_recap" in recap_url
+
+    def test_cannot_read_other_teams_recap(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        response = self.client.get(self._url(team_id=other_team.id))
+
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            (["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+            (["web_analytics:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_personal_api_key_requires_web_analytics_read_scope(self, scopes, expected_status):
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        with freeze_time(QUERY_TIMESTAMP):
+            response = self.client.get(self._url(), HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        assert response.status_code == expected_status
+
+
+class TestWebAnalyticsLlmsTxtAPI(APIBaseTest):
+    ENDPOINT = "/api/projects/{team_id}/web_analytics/llms_txt/"
+
+    def _url(self) -> str:
+        return self.ENDPOINT.format(team_id=self.team.id)
+
+    @patch(
+        "products.web_analytics.backend.api.api.fetch_llms_txt",
+        return_value=FetchedLlmsTxt(content="# Example\n/docs", url="https://example.com/llms.txt"),
+    )
+    def test_loads_llms_txt_content(self, fetch_llms_txt_mock: Mock) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"url": "https://example.com/llms.txt"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"content": "# Example\n/docs", "url": "https://example.com/llms.txt"}
+        fetch_llms_txt_mock.assert_called_once_with("https://example.com/llms.txt")
+
+    @parameterized.expand(
+        [
+            (["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+            (["web_analytics:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_personal_api_key_requires_web_analytics_read_scope(self, scopes: list[str], expected_status: int) -> None:
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        with patch(
+            "products.web_analytics.backend.api.api.fetch_llms_txt",
+            return_value=FetchedLlmsTxt(content="# Example", url="https://example.com/llms.txt"),
+        ):
+            response = self.client.post(
+                self._url(),
+                data={"url": "https://example.com/llms.txt"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {api_key}",
+            )
+
+        assert response.status_code == expected_status
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch(
+        "products.web_analytics.backend.api.api.fetch_llms_txt",
+        return_value=FetchedLlmsTxt(content="# Example", url="https://example.com/llms.txt"),
+    )
+    def test_fetching_is_throttled_for_the_session_authenticated_ui(self, _fetch: Mock, _enabled: Mock) -> None:
+        # The project-global Burst/Sustained pair only throttles personal API key traffic, so without
+        # an override the browser could hold a web worker per call in an unbounded loop.
+        cache.clear()
+
+        with patch.object(LlmsTxtFetchBurstRateThrottle, "rate", "2/minute"):
+            assert self.client.post(self._url(), {"url": "https://example.com/llms.txt"}).status_code == 200
+            assert self.client.post(self._url(), {"url": "https://example.com/llms.txt"}).status_code == 200
+            throttled = self.client.post(self._url(), {"url": "https://example.com/llms.txt"})
+
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS

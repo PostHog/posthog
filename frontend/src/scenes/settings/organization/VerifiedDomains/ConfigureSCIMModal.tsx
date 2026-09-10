@@ -11,6 +11,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
@@ -83,55 +84,67 @@ export function ConfigureSCIMModal(): JSX.Element {
                     <h3>Configure SCIM provisioning</h3>
                 </LemonModal.Header>
                 <LemonModal.Content className="space-y-2">
-                    <p>
-                        <Link to="https://posthog.com/docs/data/sso#setting-up-scim" target="_blank" targetBlankIcon>
-                            Read the docs
-                        </Link>
-                    </p>
-
-                    <LemonSwitch
-                        checked={scimConfig.scim_enabled ?? false}
-                        onChange={handleToggleScim}
-                        disabled={scimConfigLoading}
-                        label="Enable SCIM"
-                    />
-
-                    {scimConfig.scim_enabled && (
+                    {scimConfigLoading ? (
+                        <div className="flex min-h-40 items-center justify-center">
+                            <Spinner size="large" captureTime />
+                        </div>
+                    ) : (
                         <>
-                            <div>
-                                <LemonLabel className="block mb-1">SCIM Base URL</LemonLabel>
-                                <CopyToClipboardInline description="SCIM base URL">
-                                    {scimConfig.scim_base_url || ''}
-                                </CopyToClipboardInline>
-                            </div>
+                            <p>
+                                <Link
+                                    to="https://posthog.com/docs/data/sso#setting-up-scim"
+                                    target="_blank"
+                                    targetBlankIcon
+                                >
+                                    Read the docs
+                                </Link>
+                            </p>
 
-                            <div>
-                                <LemonLabel className="block mb-1">Bearer Token</LemonLabel>
-                                {showToken ? (
-                                    <>
-                                        <CopyToClipboardInline description="Bearer token">
-                                            {scimConfig.scim_bearer_token || ''}
+                            <LemonSwitch
+                                checked={scimConfig.scim_enabled ?? false}
+                                onChange={handleToggleScim}
+                                disabled={scimConfigLoading}
+                                label="Enable SCIM"
+                            />
+
+                            {scimConfig.scim_enabled && (
+                                <>
+                                    <div>
+                                        <LemonLabel className="block mb-1">SCIM Base URL</LemonLabel>
+                                        <CopyToClipboardInline description="SCIM base URL">
+                                            {scimConfig.scim_base_url || ''}
                                         </CopyToClipboardInline>
-                                        <LemonBanner type="warning" className="my-2">
-                                            Save this token, it will only be shown once.
-                                        </LemonBanner>
-                                    </>
-                                ) : (
-                                    <>
-                                        <p className="text-muted">
-                                            The bearer token is only displayed once when generated.
-                                        </p>
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={handleRegenerateToken}
-                                            icon={<IconRefresh />}
-                                            loading={scimConfigLoading}
-                                        >
-                                            Regenerate token
-                                        </LemonButton>
-                                    </>
-                                )}
-                            </div>
+                                    </div>
+
+                                    <div>
+                                        <LemonLabel className="block mb-1">Bearer Token</LemonLabel>
+                                        {showToken ? (
+                                            <>
+                                                <CopyToClipboardInline description="Bearer token">
+                                                    {scimConfig.scim_bearer_token || ''}
+                                                </CopyToClipboardInline>
+                                                <LemonBanner type="warning" className="my-2">
+                                                    Save this token, it will only be shown once.
+                                                </LemonBanner>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className="text-muted">
+                                                    The bearer token is only displayed once when generated.
+                                                </p>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    onClick={handleRegenerateToken}
+                                                    icon={<IconRefresh />}
+                                                    loading={scimConfigLoading}
+                                                >
+                                                    Regenerate token
+                                                </LemonButton>
+                                            </>
+                                        )}
+                                    </div>
+                                </>
+                            )}
                         </>
                     )}
                 </LemonModal.Content>

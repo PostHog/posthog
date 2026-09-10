@@ -9,6 +9,8 @@ import { mswDecorator } from '~/mocks/browser'
 import featureFlags from './__mocks__/feature_flags.json'
 import { featureFlagLogic } from './featureFlagLogic'
 
+const STALE_FLAG_ID = 1498
+
 const meta: Meta = {
     component: App,
     tags: ['ff'],
@@ -18,6 +20,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
         pageUrl: urls.featureFlags(),
+        testOptions: { viewport: { width: 1300, height: 2000 } },
     },
     decorators: [
         mswDecorator({
@@ -33,17 +36,51 @@ const meta: Meta = {
                         detail: 'Not found.',
                     },
                 ],
-                '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => [
-                    200,
-                    featureFlags.results.find((r) => r.id === Number(params['flagId'])),
-                ],
-                '/api/projects/:team_id/feature_flags/:flagId/status': () => [
-                    200,
-                    {
-                        status: 'active',
-                        reason: 'Feature flag is active',
-                    },
-                ],
+                '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
+                    const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
+                    if (flag?.id !== STALE_FLAG_ID) {
+                        return [200, flag]
+                    }
+                    // A flag that stopped being called but still gates 40% of users. That is the
+                    // case the stale banner exists for, because "stale" reads most easily as "safe
+                    // to delete" when the flag is still live for real users.
+                    return [
+                        200,
+                        {
+                            ...flag,
+                            last_called_at: '2022-12-14T00:00:00Z',
+                            filters: { ...flag.filters, groups: [{ properties: [], rollout_percentage: 40 }] },
+                        },
+                    ]
+                },
+                '/api/projects/:team_id/feature_flags/:flagId/status': ({ params }) =>
+                    Number(params['flagId']) === STALE_FLAG_ID
+                        ? [
+                              200,
+                              {
+                                  status: 'stale',
+                                  reason: 'Flag has not been called in 45 days',
+                                  rollout: {
+                                      effectively_full_rollout: false,
+                                      has_targeting_conditions: false,
+                                      max_rollout_percentage: 40,
+                                      is_multivariate: false,
+                                  },
+                              },
+                          ]
+                        : [
+                              200,
+                              {
+                                  status: 'active',
+                                  reason: 'Feature flag is active',
+                                  rollout: {
+                                      effectively_full_rollout: false,
+                                      has_targeting_conditions: false,
+                                      max_rollout_percentage: 50,
+                                      is_multivariate: false,
+                                  },
+                              },
+                          ],
                 '/api/environments/:team_id/default_evaluation_contexts/': {
                     default_evaluation_contexts: [],
                     available_contexts: [],
@@ -94,6 +131,12 @@ export const EditEncryptedRemoteConfigFeatureFlag: Story = {
     },
 }
 
+export const StaleFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(STALE_FLAG_ID),
+    },
+}
+
 export const FeatureFlagNotFound: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1111111111111),
@@ -106,6 +149,12 @@ const waitForMountedFeatureFlagLogic = async (): Promise<ReturnType<typeof featu
             const logic = featureFlagLogic.findMounted({ id: 'new' })
             if (!logic) {
                 throw new Error('featureFlagLogic({ id: "new" }) not yet mounted')
+            }
+            // The new-flag loader awaits default release conditions, so wait for it to settle —
+            // otherwise loadFeatureFlagSuccess resets the flag to NEW_FLAG after a play function
+            // configures it below.
+            if (logic.values.featureFlagLoading) {
+                throw new Error('feature flag loader still pending')
             }
             return logic
         },
@@ -171,8 +220,6 @@ export const NewRemoteConfigFlagPayloadError: Story = {
 
         logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
         logic.actions.setFeatureFlagValue('is_remote_configuration', true)
-        // Yield to let React flush the state updates before triggering validation.
-        await new Promise((resolve) => setTimeout(resolve, 50))
         // Submit with empty payload: validatePayloadRequired fails, submitFeatureFlagFailure fires,
         // the listener expands the payload section, and the inline error is rendered.
         logic.actions.submitFeatureFlag()

@@ -1,12 +1,18 @@
+from typing import TYPE_CHECKING
+
 from posthog.hogql import ast
 
-from posthog.api.embedding_worker import generate_embedding
-from posthog.models.team.team import Team
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
 
 
 # Takes an embed text call, calls out to the embedding worker,
 # and then returns an embedding.
-def resolve_embed_text(team: Team | int | None, node: ast.Call) -> ast.Constant:
+def resolve_embed_text(team: "Team | int | None", node: ast.Call) -> ast.Constant:
+    # Lazy imports keep the embedding worker (API layer) and Django ORM off this module's import path.
+    from posthog.api.embedding_worker import generate_embedding  # noqa: PLC0415
+    from posthog.models.team.team import Team  # noqa: PLC0415
+
     args = node.args
 
     if team is None:

@@ -1,34 +1,30 @@
 import re
 from typing import Any, cast
 
-from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Q, QuerySet
+from django.db.models import Q
 
-import django_filters
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
-from rest_framework import exceptions, request, response, serializers, status
-from rest_framework.pagination import PageNumberPagination
+from rest_framework import exceptions, request, response, serializers
 from rest_framework.request import Request
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scim_request_log import (
+    PaginatedSCIMRequestLogSerializer,
+    SCIMRequestLogQuerySerializer,
+    paginated_scim_request_logs_response,
+)
 from posthog.api.utils import action
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models import OrganizationDomain, User
+from posthog.models.identity_provider_config import ConfigScope
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
-from ee.api.scim.utils import (
-    disable_scim_for_domain,
-    enable_scim_for_domain,
-    get_scim_base_url,
-    mask_email,
-    mask_string,
-    regenerate_scim_token,
-)
+from ee.api.scim.utils import get_scim_base_url
 from ee.models.scim_request_log import SCIMRequestLog
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
@@ -53,23 +49,16 @@ def _capture_domain_event(request, domain: OrganizationDomain, event_type: str, 
 
 
 class OrganizationDomainSerializer(serializers.ModelSerializer):
-    UPDATE_ONLY_WHEN_VERIFIED = [
-        "jit_provisioning_enabled",
-        "sso_enforcement",
-        "scim_enabled",
-        "id_jag_issuer_url",
-        "id_jag_jwks_url",
-        "id_jag_allowed_clients",
-    ]
+    # Maps each verification-gated attribute's serializer source (the key seen in `validated_data`)
+    # to the public field name used in error responses.
+    UPDATE_ONLY_WHEN_VERIFIED = {
+        "jit_provisioning_enabled": "jit_provisioning_enabled",
+        "sso_enforcement": "sso_enforcement",
+    }
 
-    scim_base_url = serializers.SerializerMethodField()
-    scim_bearer_token = serializers.SerializerMethodField()
-    id_jag_allowed_clients = serializers.ListField(
-        child=serializers.CharField(max_length=256),
-        required=False,
-        allow_empty=True,
-        help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
-    )
+    scim_base_url = (
+        serializers.SerializerMethodField()
+    )  # TODO: remove this from the org domain api and have the frontend use the idp config api to get the scim base url
 
     class Meta:
         model = OrganizationDomain
@@ -81,45 +70,14 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "verification_challenge",
             "jit_provisioning_enabled",
             "sso_enforcement",
-            "has_saml",
-            "saml_entity_id",
-            "saml_acs_url",
-            "saml_x509_cert",
-            "has_scim",
-            "scim_enabled",
             "scim_base_url",
-            "scim_bearer_token",
-            "has_id_jag",
-            "id_jag_issuer_url",
-            "id_jag_jwks_url",
-            "id_jag_allowed_clients",
         )
         extra_kwargs = {
             "verified_at": {"read_only": True},
             "verification_challenge": {"read_only": True},
             "is_verified": {"read_only": True},
-            "has_saml": {"read_only": True},
-            "has_scim": {"read_only": True},
             "scim_base_url": {"read_only": True},
-            "scim_bearer_token": {"read_only": True},
-            "has_id_jag": {"read_only": True},
-            "id_jag_issuer_url": {
-                "required": False,
-                "allow_null": True,
-                "allow_blank": True,
-                "help_text": "Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.",
-            },
-            "id_jag_jwks_url": {
-                "required": False,
-                "allow_null": True,
-                "allow_blank": True,
-                "help_text": "Override JWKS URL. Defaults to OIDC discovery on the issuer URL.",
-            },
         }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._scim_plain_token: str | None = None
 
     def get_fields(self):
         fields = super().get_fields()
@@ -136,11 +94,6 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "jit_provisioning_enabled", None
         )  # can never be set on creation because domain must be verified
         validated_data.pop("sso_enforcement", None)  # can never be set on creation because domain must be verified
-        validated_data.pop("scim_enabled", None)
-        validated_data.pop("scim_bearer_token", None)
-        validated_data.pop("id_jag_issuer_url", None)
-        validated_data.pop("id_jag_jwks_url", None)
-        validated_data.pop("id_jag_allowed_clients", None)
         instance: OrganizationDomain = super().create(validated_data)
 
         return instance
@@ -150,30 +103,15 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Please enter a valid domain or subdomain name.")
         return domain
 
-    @staticmethod
-    def _normalize_optional_url(value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
-        if not stripped:
-            return None
-        return stripped.rstrip("/")
-
-    def validate_id_jag_issuer_url(self, value: str | None) -> str | None:
-        return self._normalize_optional_url(value)
-
-    def validate_id_jag_jwks_url(self, value: str | None) -> str | None:
-        return self._normalize_optional_url(value)
-
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(OrganizationDomain, self.instance)
         organization: Organization = self.context["view"].organization
 
         if instance and not instance.verified_at:
-            for protected_attr in self.UPDATE_ONLY_WHEN_VERIFIED:
-                if protected_attr in attrs:
+            for source_attr, public_name in self.UPDATE_ONLY_WHEN_VERIFIED.items():
+                if source_attr in attrs:
                     raise serializers.ValidationError(
-                        {protected_attr: "This attribute cannot be updated until the domain is verified."},
+                        {public_name: "This attribute cannot be updated until the domain is verified."},
                         code="verification_required",
                     )
         if instance and attrs.get("jit_provisioning_enabled", None):
@@ -183,113 +121,17 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
                     code="feature_not_available",
                 )
 
-        if instance and attrs.get("scim_enabled") is not None:
-            if not organization.is_feature_available(AvailableFeature.SCIM):
-                raise serializers.ValidationError(
-                    {"scim_enabled": "SCIM provisioning is not available for this organization."},
-                    code="feature_not_available",
-                )
-
-        if instance and attrs.get("id_jag_issuer_url"):
-            if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
-                raise serializers.ValidationError(
-                    {"id_jag_issuer_url": "XAA (ID-JAG) is not available for this organization."},
-                    code="feature_not_available",
-                )
-
         return attrs
 
     def update(self, instance: OrganizationDomain, validated_data: dict[str, Any]) -> OrganizationDomain:
         validated_data.pop("domain", None)  # domain is immutable after creation
-        scim_enabled = validated_data.pop("scim_enabled", None)
-        validated_data.pop("scim_bearer_token", None)
-
-        scim_plain_token: str | None = None
-
-        # Generate new token when enabling SCIM, clear when disabling
-        if scim_enabled is not None:
-            if scim_enabled:
-                if not instance.scim_enabled:
-                    scim_plain_token = enable_scim_for_domain(instance)
-            else:
-                if instance.scim_enabled:
-                    disable_scim_for_domain(instance)
-
-        instance = super().update(instance, validated_data)
-
-        self._scim_plain_token = scim_plain_token
-
-        id_jag_fields = {"id_jag_issuer_url", "id_jag_jwks_url", "id_jag_allowed_clients"}
-        if id_jag_fields.intersection(validated_data):
-            try:
-                instance.full_clean()
-            except DjangoValidationError as e:
-                raise serializers.ValidationError(e.message_dict) from e
-
-        return instance
+        return super().update(instance, validated_data)
 
     def get_scim_base_url(self, obj: OrganizationDomain) -> str | None:
-        if not obj.has_scim:
+        configs = list(obj.identity_provider_configs_for_scope(ConfigScope.SCIM).filter(scim_enabled=True)[:2])
+        if len(configs) != 1 or not configs[0].has_scim or not configs[0].scim_slug:
             return None
-        return get_scim_base_url(obj, self.context.get("request"))
-
-    def get_scim_bearer_token(self, obj: OrganizationDomain) -> str | None:
-        return getattr(self, "_scim_plain_token", None)
-
-
-class SCIMRequestLogSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SCIMRequestLog
-        fields = (
-            "id",
-            "request_method",
-            "request_path",
-            "request_headers",
-            "request_body",
-            "response_status",
-            "response_body",
-            "identity_provider",
-            "duration_ms",
-            "created_at",
-        )
-        read_only_fields = fields
-
-
-class SCIMRequestLogPagination(PageNumberPagination):
-    page_size = 20
-    page_size_query_param = "page_size"
-    max_page_size = 100
-
-
-def _looks_like_email(value: str) -> bool:
-    return "@" in value and "." in value.rpartition("@")[2]
-
-
-def _search_scim_logs(queryset: QuerySet, _name: str, value: str) -> QuerySet:
-    q = Q(request_path__icontains=value) | Q(request_body__icontains=value)
-    if _looks_like_email(value):
-        masked = mask_email(value)
-        q = q | Q(request_body__icontains=masked)
-    else:
-        masked = mask_string(value)
-        if masked != value:
-            q = q | Q(request_body__icontains=masked)
-    return queryset.filter(q)
-
-
-class SCIMRequestLogFilter(django_filters.FilterSet):
-    status_min = django_filters.NumberFilter(field_name="response_status", lookup_expr="gte")
-    status_max = django_filters.NumberFilter(field_name="response_status", lookup_expr="lte")
-    search = django_filters.CharFilter(method="filter_search")
-    after = django_filters.IsoDateTimeFilter(field_name="created_at", lookup_expr="gte")
-    before = django_filters.IsoDateTimeFilter(field_name="created_at", lookup_expr="lte")
-
-    class Meta:
-        model = SCIMRequestLog
-        fields: list[str] = []
-
-    def filter_search(self, queryset: QuerySet, name: str, value: str) -> QuerySet:
-        return _search_scim_logs(queryset, name, value)
+        return get_scim_base_url(configs[0])
 
 
 @extend_schema(extensions={"x-product": "core"})
@@ -330,11 +172,7 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
     def _capture_domain_setting_event(self, request: Request) -> None:
         data = request.data
-        if any(f.startswith("saml_") for f in data):
-            event_type = "saml configured"
-        elif any(f.startswith("id_jag_") for f in data):
-            event_type = "id-jag configured"
-        elif "sso_enforcement" in data:
+        if "sso_enforcement" in data:
             event_type = "sso enforcement updated"
         elif data.get("jit_provisioning_enabled") is True:
             event_type = "jit provisioning enabled"
@@ -350,48 +188,43 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance = self.get_object()
 
+        # With `enforce_verified_domains` on, deleting the domain that admits the acting admin
+        # (including the last verified domain) locks them out at their next request, and possibly
+        # the whole organization with them. Mirrors the guard on enabling the setting.
+        if instance.is_verified and self.organization.enforce_verified_domains:
+            user = cast(User, request.user)
+            email_domain = user.email[user.email.index("@") + 1 :] if "@" in user.email else ""
+            still_admitted = (
+                OrganizationDomain.objects.verified_domains()
+                .filter(organization=self.organization, domain__iexact=email_domain)
+                .exclude(pk=instance.pk)
+                .exists()
+            )
+            if not still_admitted:
+                raise exceptions.ValidationError(
+                    "You can't delete this domain while membership is restricted to verified email domains, because your own email address would no longer be allowed. Turn off that setting first.",
+                    code="would_block_self",
+                )
+
+        identity_provider_configs = list(instance.identity_provider_configs)
         _capture_domain_event(
             request,
             instance,
             "deleted",
             properties={
                 "is_verified": instance.is_verified,
-                "had_saml": instance.has_saml,
+                "had_saml": any(config.has_saml for config in identity_provider_configs),
                 "had_jit_provisioning": instance.jit_provisioning_enabled,
                 "had_sso_enforcement": bool(instance.sso_enforcement),
-                "had_scim": instance.has_scim,
-                "had_id_jag": instance.has_id_jag,
+                "had_scim": any(config.has_scim for config in identity_provider_configs),
+                "had_id_jag": any(config.has_id_jag for config in identity_provider_configs),
             },
         )
 
         instance.delete()
         return response.Response(status=204)
 
-    @action(methods=["POST"], detail=True, url_path="scim/token")
-    def scim_token(self, request: Request, **kwargs) -> response.Response:
-        """
-        Regenerate SCIM bearer token.
-        """
-        domain: OrganizationDomain = self.get_object()
-
-        if not domain.organization.is_feature_available(AvailableFeature.SCIM):
-            raise exceptions.PermissionDenied("SCIM is not available for this organization")
-
-        if not domain.scim_enabled:
-            return response.Response(
-                {"detail": "SCIM is not enabled for this domain"}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        plain_token = regenerate_scim_token(domain)
-
-        return response.Response(
-            {
-                "scim_enabled": True,
-                "scim_base_url": get_scim_base_url(domain, request),
-                "scim_bearer_token": plain_token,
-            }
-        )
-
+    @extend_schema(parameters=[SCIMRequestLogQuerySerializer], responses=PaginatedSCIMRequestLogSerializer)
     @action(methods=["GET"], detail=True, url_path="scim/logs")
     def scim_logs(self, request: Request, **kwargs) -> response.Response:
         membership = OrganizationMembership.objects.filter(
@@ -401,10 +234,10 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             raise exceptions.PermissionDenied("Only organization admins can view SCIM logs.")
 
         domain: OrganizationDomain = self.get_object()
-        queryset = SCIMRequestLog.objects.filter(organization_domain=domain)
-        queryset = SCIMRequestLogFilter(request.query_params, queryset=queryset).qs
-
-        paginator = SCIMRequestLogPagination()
-        page = paginator.paginate_queryset(queryset, request)
-        serializer = SCIMRequestLogSerializer(page, many=True)
-        return paginator.get_paginated_response(serializer.data)
+        # SCIM authenticates against the linked IdP config, so its requests are logged against the
+        # config. Match the domain too: rows logged before the move carry only that until the
+        # `backfill_scim_request_log_config` command reaches them, and a domain that was later
+        # unlinked from its config keeps nothing else to find its history by.
+        scope = Q(organization_domain=domain) | Q(identity_provider_config__in=domain.identity_provider_configs)
+        queryset = SCIMRequestLog.objects.filter(scope)
+        return paginated_scim_request_logs_response(request, queryset)

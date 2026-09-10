@@ -4,23 +4,32 @@ The scout calls `remember`/`forget` via this module. Scratchpad is the narrow
 per-team memory surface — MCP-readable across agents — that other scouts and
 PostHog AI can read to see what the scout fleet has learned about a team.
 
-Simplified in PR 2 review: `tags`, `scope`, `expires_at`, and `authority` were
-dropped (none were earning their keep on the stack). Retrieval is ILIKE on
-`content` and `key` only; all entries are durable per-team memory.
+Simplified in PR 2 review: `tags`, `scope`, and `authority` were dropped (none were
+earning their keep on the stack). Retrieval is ILIKE on `content` and `key` only.
+Entries are durable by default; `expires_at` is the opt-in TTL for the ones that
+are only true for a while, mirroring `notes.py`.
 """
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from typing import Any
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q, QuerySet, TextField, Value
+from django.db.models.functions import Left
+from django.utils import timezone
 
 from products.signals.backend.models import SignalScratchpad
+from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
+from products.signals.backend.scout_harness.tools.runs import _build_task_url
 
 # Defensive cap on search results.
 DEFAULT_SCRATCHPAD_SEARCH_LIMIT = 20
-MAX_SCRATCHPAD_SEARCH_LIMIT = 100
+MAX_SCRATCHPAD_SEARCH_LIMIT = 1000
 
 # Keys/content are agent-chosen prose. Match the model's column lengths so callers
 # get a clean error before hitting the DB.
@@ -41,7 +50,12 @@ class ScratchpadEntry:
     content: str
     created_at: str | None = None
     updated_at: str | None = None
+    expires_at: str | None = None
     created_by_run_id: str | None = None
+    # Who created the entry: the scout run's skill name, resolved from `created_by_run`, or the
+    # stored `pipeline:*` identity when a report-pipeline stage wrote it and there is no run.
+    created_by_skill: str | None = None
+    created_by_run_url: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -51,14 +65,36 @@ def search_scratchpad(
     *,
     team_id: int,
     text: str | None = None,
+    key: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
     limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
     keys_only: bool = False,
     content_max_chars: int | None = None,
+    include_expired: bool = False,
 ) -> list[ScratchpadEntry]:
-    """Return memories the agent should consider when planning a run.
+    """Return memories the agent should consider when planning a run, newest first.
 
     `text` matches ILIKE against `content` and `key`. The previous `tags` filter
     + GIN index were dropped in PR 2 review.
+
+    Expired entries (`expires_at` in the past) are excluded by default, so a memory a
+    scout wrote as time-boxed stops loading into run prompts on its own rather than
+    waiting for a `forget` that rarely comes. `include_expired=True` brings them back
+    for a human auditing what the fleet remembered and when it lapsed. This filters the
+    read only — while an entry is inside its post-expiry grace, `forget` and the
+    `remember` upsert still see the key. Once the expiry is well past (see
+    `prune_expired_scratchpad_entries`), the daily janitor hard-deletes the row.
+
+    `key` is an exact match on the unique `(team, key)` pair — at most one row, and the
+    only way to fetch a known entry reliably. `text` can't stand in for it: an ILIKE
+    across content *and* key means a key mentioned inside enough other bodies pushes the
+    row you wanted past the limit.
+
+    `date_from` / `date_to` are a half-open window on `updated_at` (the entry's
+    sort key) — `updated_at >= date_from` and `updated_at < date_to`. Pass `date_to`
+    (the `updated_at` of the oldest entry seen) to walk backwards past the result
+    cap on subsequent calls (cursor-style iteration), mirroring `search_recent_runs`.
 
     Result-scoping projections keep an orientation/dedupe scan from pulling every
     entry's full body — `content` is an unbounded TextField, so a wide scan can
@@ -68,15 +104,58 @@ def search_scratchpad(
       pick the entries worth a full read, then re-query the chosen ones.
     - `content_max_chars=N` truncates each `content` to the first `N` characters
       (a preview). Ignored when `keys_only=True`, which already drops the body.
+
+    Both projections are applied in SQL, not after the fact: a preview that Postgres
+    trims still costs the full row to fetch and hand to Django, which defeats the point
+    on exactly the wide scans these exist for.
     """
     clamped_limit = _clamp_search_limit(limit)
-    qs = SignalScratchpad.objects.filter(team_id=team_id)
+    # Join the creating run (and its task_run) so per-row skill/url resolution in `_to_entry`
+    # stays a single query rather than an N+1 across the result window.
+    qs = SignalScratchpad.objects.filter(team_id=team_id).select_related("created_by_run", "created_by_run__task_run")
+    qs = _project_content_in_sql(qs, keys_only=keys_only, content_max_chars=content_max_chars)
+    if key:
+        qs = qs.filter(key=key)
     if text:
-        from django.db.models import Q
-
         qs = qs.filter(Q(content__icontains=text) | Q(key__icontains=text))
+    if not include_expired:
+        qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+    if date_from is not None:
+        qs = qs.filter(updated_at__gte=date_from)
+    if date_to is not None:
+        qs = qs.filter(updated_at__lt=date_to)
     qs = qs.order_by("-updated_at", "-id")[:clamped_limit]
     return [_to_entry(row, keys_only=keys_only, content_max_chars=content_max_chars) for row in qs]
+
+
+def search_scratchpad_naming(
+    *,
+    team_id: int,
+    key_prefix: str,
+    terms: Sequence[str],
+    limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
+) -> list[ScratchpadEntry]:
+    """Entries under `key_prefix` whose key or content names one of `terms` as a whole token.
+
+    Not an agent tool, and deliberately not `search_scratchpad(text=...)`. That search is a
+    substring ILIKE, which is what an agent exploring its own prose wants and the wrong thing for
+    resolving an identifier: a login like `ai` matches `email`, and one scan per term turns a caller
+    holding a list into a query fan-out. Terms are matched on a non-alphanumeric boundary, all of
+    them in one query, and the body is projected away because a caller here wants the holders.
+    """
+    wanted = [term for term in dict.fromkeys(terms) if term]
+    if not wanted:
+        return []
+    boundary = "[^A-Za-z0-9_-]"
+    pattern = f"(^|{boundary})({'|'.join(re.escape(term) for term in wanted)})({boundary}|$)"
+    qs = SignalScratchpad.objects.filter(team_id=team_id, key__startswith=key_prefix).select_related(
+        "created_by_run", "created_by_run__task_run"
+    )
+    qs = _project_content_in_sql(qs, keys_only=True, content_max_chars=None)
+    qs = qs.filter(Q(content__iregex=pattern) | Q(key__iregex=pattern))
+    qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+    qs = qs.order_by("-updated_at", "-id")[: _clamp_search_limit(limit)]
+    return [_to_entry(row, keys_only=True) for row in qs]
 
 
 def remember(
@@ -85,26 +164,44 @@ def remember(
     key: str,
     content: str,
     run_id: str | None = None,
+    identity: str | None = None,
+    expires_at: datetime | None = None,
 ) -> ScratchpadEntry:
     """Write or update a memory entry. Idempotent on `(team, key)`.
+
+    A write carries the entry's whole state, `expires_at` included: passing one sets
+    the expiry, omitting one clears it. Sticky expiry would be the worse default —
+    a scout rewriting an entry that has since become permanent has no way to know an
+    earlier run put a clock on it, and the entry would keep vanishing.
+
+    `identity` names a report-pipeline writer (`pipeline:report-research`,
+    `pipeline:implementation`), which has no `SignalScoutRun` row to point `run_id` at.
+    It is stored on create only, so provenance names the entry's author rather than
+    whoever last rewrote it — the same rule `created_by_run` follows.
 
     The previous `human_confirmed` authority guard was dropped — the human-in-the-
     loop write path was reserved-for-future and never landed. Re-add if it ships.
     """
-    _validate_key_content(key, content)
+    _validate_entry(key=key, content=content, expires_at=expires_at)
 
     try:
-        row = _upsert_entry(team_id=team_id, key=key, content=content, run_id=run_id)
+        row = _upsert_entry(
+            team_id=team_id, key=key, content=content, run_id=run_id, identity=identity, expires_at=expires_at
+        )
     except IntegrityError:
         # Lost the create race: our SELECT saw no row, but a concurrent request
         # committed an insert for the same `(team, key)` before ours, tripping the
         # unique constraint. The row now exists, so a single retry resolves to the
         # update branch and preserves the idempotent-upsert contract.
-        row = _upsert_entry(team_id=team_id, key=key, content=content, run_id=run_id)
+        row = _upsert_entry(
+            team_id=team_id, key=key, content=content, run_id=run_id, identity=identity, expires_at=expires_at
+        )
     return _to_entry(row)
 
 
-def _upsert_entry(*, team_id: int, key: str, content: str, run_id: str | None) -> SignalScratchpad:
+def _upsert_entry(
+    *, team_id: int, key: str, content: str, run_id: str | None, identity: str | None, expires_at: datetime | None
+) -> SignalScratchpad:
     with transaction.atomic():
         existing = SignalScratchpad.objects.select_for_update().filter(team_id=team_id, key=key).first()
         if existing is None:
@@ -113,10 +210,14 @@ def _upsert_entry(*, team_id: int, key: str, content: str, run_id: str | None) -
                 key=key,
                 content=content,
                 created_by_run_id=run_id,
+                created_by_identity=identity,
+                expires_at=expires_at,
             )
         existing.content = content
-        # Don't overwrite `created_by_run` so we keep the original creator's lineage.
-        existing.save(update_fields=["content", "updated_at"])
+        existing.expires_at = expires_at
+        # Don't overwrite `created_by_run` / `created_by_identity` so we keep the original
+        # creator's lineage.
+        existing.save(update_fields=["content", "expires_at", "updated_at"])
         return existing
 
 
@@ -130,7 +231,7 @@ def forget(*, team_id: int, key: str) -> bool:
     return True
 
 
-def _validate_key_content(key: str, content: str) -> None:
+def _validate_entry(*, key: str, content: str, expires_at: datetime | None) -> None:
     if not key or not key.strip():
         raise InvalidScratchpadError("memory key must be non-empty")
     if len(key) > MAX_SCRATCHPAD_KEY_LENGTH:
@@ -140,6 +241,16 @@ def _validate_key_content(key: str, content: str) -> None:
     if len(content) > MAX_SCRATCHPAD_CONTENT_LENGTH:
         raise InvalidScratchpadError(
             f"memory content length {len(content)} exceeds max {MAX_SCRATCHPAD_CONTENT_LENGTH}"
+        )
+    # An expiring follow-up disappears from the queue search before the scout can validate it,
+    # while `derived_metadata` still reads the row off the manager and reports the run as a
+    # validation pass — the queue loses work and the flag says otherwise. The run prompt tells
+    # scouts not to do this, but a prompt is guidance, so the invariant is enforced here where
+    # every writer passes.
+    if expires_at is not None and key.startswith(FOLLOWUP_KEY_PREFIX):
+        raise InvalidScratchpadError(
+            f"a '{FOLLOWUP_KEY_PREFIX}' entry can't expire — its validate-after date says when to check it, "
+            "not when it stops mattering. Put the date in `content` and leave `expires_at` unset."
         )
 
 
@@ -157,13 +268,56 @@ def _to_entry(
     # Django's FK descriptor exposes both `created_by_run` (object) and `created_by_run_id`
     # (the raw FK column). `getattr` keeps Pyright happy without a join.
     run_pk = getattr(row, "created_by_run_id", None)
+    # Resolve the creating scout's identity + a deep-link to its run. `search_scratchpad` joins
+    # both via select_related, so this is a no-N+1 read on the list path; the single-row write
+    # path lazy-loads, which is fine. A report-pipeline stage has no run, so it falls back to the
+    # `pipeline:*` identity it stamped; a human-authored entry has neither and leaves these null.
+    run = row.created_by_run if run_pk else None
+    task_run = getattr(run, "task_run", None) if run is not None else None
     return ScratchpadEntry(
         key=row.key,
-        content=_project_content(row.content, keys_only=keys_only, content_max_chars=content_max_chars),
+        content=_resolve_content(row, keys_only=keys_only, content_max_chars=content_max_chars),
         created_at=row.created_at.isoformat() if row.created_at else None,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        expires_at=row.expires_at.isoformat() if row.expires_at else None,
         created_by_run_id=str(run_pk) if run_pk else None,
+        created_by_skill=run.skill_name if run is not None else row.created_by_identity,
+        created_by_run_url=_build_task_url(
+            team_id=row.team_id,
+            task_id=str(task_run.task_id) if task_run is not None else None,
+            task_run_id=str(task_run.id) if task_run is not None else None,
+        ),
     )
+
+
+def _project_content_in_sql(
+    qs: QuerySet[SignalScratchpad], *, keys_only: bool, content_max_chars: int | None
+) -> QuerySet[SignalScratchpad]:
+    """Push the body projection into the query so Postgres never ships prose we drop.
+
+    `content` is unbounded (50k chars by the write clamp), so a 1000-row scan that trims
+    in Python still moves ~50 MB through the driver first. `defer` keeps the column out
+    of the SELECT; the annotation carries whatever slice the caller actually asked for.
+    """
+    # `Left` rejects a length below 1, and a zero-char preview is a blank body anyway.
+    if keys_only or (content_max_chars is not None and content_max_chars <= 0):
+        return qs.defer("content").annotate(projected_content=Value("", output_field=TextField()))
+    if content_max_chars is None:
+        return qs
+    # Clamp to the write cap: a preview longer than the longest storable body is a no-op, and an
+    # unbounded value would reach Postgres as an out-of-range `LEFT()` length and 500.
+    return qs.defer("content").annotate(
+        projected_content=Left("content", min(content_max_chars, MAX_SCRATCHPAD_CONTENT_LENGTH))
+    )
+
+
+def _resolve_content(row: SignalScratchpad, *, keys_only: bool, content_max_chars: int | None) -> str:
+    # Present only on the search path, where the projection was pushed into SQL above.
+    # The write path returns whole rows and falls through to the in-memory projection.
+    projected = getattr(row, "projected_content", None)
+    if projected is not None:
+        return projected
+    return _project_content(row.content, keys_only=keys_only, content_max_chars=content_max_chars)
 
 
 def _project_content(content: str, *, keys_only: bool, content_max_chars: int | None) -> str:

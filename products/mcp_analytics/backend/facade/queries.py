@@ -5,6 +5,46 @@ mcp_analytics is tach-isolated to expose only `backend.facade.*`, so core's
 `backend.hogql_queries` directly.
 """
 
+from products.mcp_analytics.backend.hogql_queries.dashboard_series import (
+    MCPToolCallBreakdownQueryRunner,
+    MCPToolCallsAndErrorsQueryRunner,
+)
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
+from products.mcp_analytics.backend.hogql_queries.missing_capabilities import MCPMissingCapabilitiesQueryRunner
+from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
+    MCPToolCategoriesQueryRunner,
+    MCPToolCategoryCountsQueryRunner,
+    MCPToolCategoryMapQueryRunner,
+    MCPToolQualityDailyStatsQueryRunner,
+    MCPToolQualityRowsQueryRunner,
+)
+from products.mcp_analytics.backend.hogql_queries.tool_tables import (
+    MCPToolDailyStatsQueryRunner,
+    MCPToolDescriptionsQueryRunner,
+    MCPToolFailureOccurrencesQueryRunner,
+    MCPToolFailuresQueryRunner,
+    MCPToolNeighborsQueryRunner,
+    MCPToolSampleIntentsQueryRunner,
+    MCPToolStatsQueryRunner,
+    MCPToolTopUsersQueryRunner,
+)
 
-__all__ = ["MCPHarnessBreakdownQueryRunner"]
+__all__ = [
+    "MCPHarnessBreakdownQueryRunner",
+    "MCPToolCallBreakdownQueryRunner",
+    "MCPToolCallsAndErrorsQueryRunner",
+    "MCPToolCategoriesQueryRunner",
+    "MCPToolCategoryCountsQueryRunner",
+    "MCPToolCategoryMapQueryRunner",
+    "MCPToolDailyStatsQueryRunner",
+    "MCPToolDescriptionsQueryRunner",
+    "MCPToolFailureOccurrencesQueryRunner",
+    "MCPToolFailuresQueryRunner",
+    "MCPToolNeighborsQueryRunner",
+    "MCPToolQualityDailyStatsQueryRunner",
+    "MCPToolQualityRowsQueryRunner",
+    "MCPToolSampleIntentsQueryRunner",
+    "MCPToolStatsQueryRunner",
+    "MCPToolTopUsersQueryRunner",
+    "MCPMissingCapabilitiesQueryRunner",
+]

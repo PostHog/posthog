@@ -3,7 +3,7 @@ import React from 'react'
 import type { BarChartPrivate } from '../../core/bar-layout'
 import { useChartLayout } from '../../core/chart-context'
 import type { BarScaleSet, StackedBand } from '../../core/scales'
-import type { Series, TooltipContext } from '../../core/types'
+import type { Series, TooltipConfig, TooltipContext } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
 import {
     type BarLayout,
@@ -22,6 +22,7 @@ export interface BarTooltipProps<Meta> {
     topStackedKeyByAxis: Map<string, string>
     layout: BarLayout
     isHorizontal: boolean
+    tooltipConfig?: TooltipConfig
 }
 
 export function BarTooltip<Meta>({
@@ -32,8 +33,10 @@ export function BarTooltip<Meta>({
     topStackedKeyByAxis,
     layout,
     isHorizontal,
+    tooltipConfig,
 }: BarTooltipProps<Meta>): React.ReactElement | null {
     const { scales, labels } = useChartLayout()
+    const { hitArea = 'bar', ...defaultTooltipConfig } = tooltipConfig ?? {}
     const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
     if (d3Scales && ctx.hoverPosition && ctx.dataIndex >= 0) {
         const narrowed = narrowSeriesByCursor(
@@ -44,18 +47,19 @@ export function BarTooltip<Meta>({
             stackedData,
             topStackedKeyByAxis,
             labels,
-            allSeries
+            allSeries,
+            hitArea
         )
         if (!narrowed) {
             return null
         }
-        return <>{userTooltip ? userTooltip(narrowed) : DefaultTooltip(narrowed)}</>
+        return <>{userTooltip ? userTooltip(narrowed) : <DefaultTooltip {...narrowed} {...defaultTooltipConfig} />}</>
     }
-    return <>{userTooltip ? userTooltip(ctx) : DefaultTooltip(ctx)}</>
+    return <>{userTooltip ? userTooltip(ctx) : <DefaultTooltip {...ctx} {...defaultTooltipConfig} />}</>
 }
 
-/** Moves the cursor-resolved segment to seriesData[0] and (for sparse-stacked overlap)
- *  re-reads its value at its own dataIndex so it isn't a zero from a band-collapsed cell. */
+/** Filters seriesData to only the segments hit by the cursor, and (for sparse-stacked overlap)
+ *  re-reads the visible segment's value at its own dataIndex so it isn't a zero from a band-collapsed cell. */
 function narrowSeriesByCursor<Meta>(
     ctx: TooltipContext<Meta>,
     scales: BarScaleSet,
@@ -64,14 +68,15 @@ function narrowSeriesByCursor<Meta>(
     stackedData: Map<string, StackedBand> | undefined,
     topStackedKeyByAxis: Map<string, string>,
     labels: string[],
-    allSeries: Series<Meta>[]
+    allSeries: Series<Meta>[],
+    hitArea: 'bar' | 'band'
 ): TooltipContext<Meta> | null {
     const cursor = ctx.hoverPosition
     if (!cursor) {
         return ctx
     }
     const seriesList = ctx.seriesData.map((entry) => entry.series)
-    const { hits } = resolveBarsAtCursor({
+    const { hits, strictHit } = resolveBarsAtCursor({
         series: seriesList,
         label: ctx.label,
         dataIndex: ctx.dataIndex,
@@ -85,6 +90,8 @@ function narrowSeriesByCursor<Meta>(
     if (hits.size === 0) {
         return null
     }
+    // Same rects as click routing, so the tooltip and a click classify a position identically.
+    const inTrackArea = layout === 'grouped' ? strictHit == null : undefined
     let visibleKey: string | null = null
     let visibleDataIndex: number | null = null
     if (isStackedLayout(layout)) {
@@ -99,27 +106,24 @@ function narrowSeriesByCursor<Meta>(
             stackedData,
             topStackedKeyByAxis,
         })
-        // No filled segment under the cursor — it's in the empty track past the bar's value
-        // extent (e.g. right of the longest horizontal bar). Suppress rather than show a tooltip.
-        if (!visible) {
+        // Nothing filled under the cursor, so it sits in the empty track past the bar's value
+        // extent, such as right of the longest horizontal bar.
+        if (!visible && hitArea === 'bar') {
             return null
         }
-        visibleKey = visible.series.key
-        visibleDataIndex = visible.dataIndex
+        visibleKey = visible?.series.key ?? null
+        visibleDataIndex = visible?.dataIndex ?? null
     }
-    let filtered = ctx.seriesData.filter((entry) => hits.has(entry.series.key))
-    if (isStackedLayout(layout) && filtered.length > 1 && visibleKey) {
-        const idx = filtered.findIndex((entry) => entry.series.key === visibleKey)
-        if (idx > 0) {
-            filtered = [filtered[idx], ...filtered.filter((_, i) => i !== idx)]
-        }
-    }
+    // Surface the hovered identity so consumer tooltips can single out the segment/bar the
+    // cursor is actually over — stacked keeps every segment in seriesData, so index 0 is not it.
+    const hoveredSeriesKey = visibleKey ?? (hits.size === 1 ? hits.values().next().value : undefined)
+    const filtered = ctx.seriesData.filter((entry) => hits.has(entry.series.key))
     // For sparse-stacked overlap ctx.dataIndex is a zero cell for the visible series. Rewrite
     // the entry's value (and ctx.dataIndex) to the segment's own index so row clicks route
     // correctly downstream.
     if (visibleKey != null && visibleDataIndex != null && visibleDataIndex !== ctx.dataIndex) {
         const di = visibleDataIndex
-        filtered = filtered.map((entry) => {
+        const revalued = filtered.map((entry) => {
             if (entry.series.key !== visibleKey) {
                 return entry
             }
@@ -127,7 +131,7 @@ function narrowSeriesByCursor<Meta>(
             const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : entry.value
             return { ...entry, value }
         })
-        return { ...ctx, seriesData: filtered, dataIndex: di }
+        return { ...ctx, seriesData: revalued, dataIndex: di, hoveredSeriesKey, inTrackArea }
     }
-    return { ...ctx, seriesData: filtered }
+    return { ...ctx, seriesData: filtered, hoveredSeriesKey, inTrackArea }
 }

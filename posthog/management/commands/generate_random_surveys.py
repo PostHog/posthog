@@ -11,7 +11,7 @@ from django.utils import timezone
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team, User
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
-from posthog.models.person.person import Person, PersonDistinctId
+from posthog.persons_seed import SeedPerson, fetch_recent_persons_with_distinct_id
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 from products.surveys.backend.models import Survey
@@ -244,16 +244,6 @@ LLM_NEGATIVE_FEEDBACK = [
 ]
 
 
-class PersonData:
-    """Holds person data for event generation."""
-
-    def __init__(self, distinct_id: str, person_uuid: str, properties: dict, created_at: Any):
-        self.distinct_id = distinct_id
-        self.person_uuid = person_uuid
-        self.properties = properties
-        self.created_at = created_at
-
-
 class Command(BaseCommand):
     help = "Generate random surveys for development purposes"
 
@@ -270,37 +260,6 @@ class Command(BaseCommand):
         """
         result = sync_execute(query, {"team_id": team.id, "limit": limit})
         return [row[0] for row in result if row[0]]
-
-    def get_real_persons(self, team: Team, limit: int = 50) -> list[PersonData]:
-        """Fetch real persons from the database that were created by demo data generation."""
-        persons_data: list[PersonData] = []
-
-        # Query persons with their distinct IDs
-        persons = (
-            Person.objects.filter(team_id=team.id)  # nosemgrep: no-direct-persons-db-orm
-            .prefetch_related("persondistinctid_set")
-            .order_by("-created_at")[:limit]
-        )
-
-        for person in persons:
-            distinct_ids = PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                person=person, team_id=team.id
-            ).values_list(  # nosemgrep: no-direct-persons-db-orm
-                "distinct_id", flat=True
-            )
-
-            if distinct_ids:
-                # Use the first distinct_id for the person
-                persons_data.append(
-                    PersonData(
-                        distinct_id=distinct_ids[0],
-                        person_uuid=str(person.uuid),
-                        properties=person.properties or {},
-                        created_at=person.created_at,
-                    )
-                )
-
-        return persons_data
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -847,7 +806,7 @@ class Command(BaseCommand):
         self,
         event_name: str,
         properties: dict[str, Any],
-        person_data: PersonData,
+        person_data: SeedPerson,
         timestamp: Any,
         team: Team,
         index: int,
@@ -925,7 +884,7 @@ class Command(BaseCommand):
         team: Team,
         num_responses: int,
         days_back: int,
-        persons_data: list[PersonData],
+        persons_data: list[SeedPerson],
         with_trace_ids: bool = False,
         real_trace_ids: list[str] | None = None,
     ) -> tuple[int, int, int]:
@@ -1144,9 +1103,9 @@ class Command(BaseCommand):
         total_dismissed = 0
 
         # Fetch real persons from the database if responses are requested
-        persons_data: list[PersonData] = []
+        persons_data: list[SeedPerson] = []
         if num_responses > 0:
-            persons_data = self.get_real_persons(team, limit=100)
+            persons_data = fetch_recent_persons_with_distinct_id(team.id, limit=100)
             if persons_data:
                 self.stdout.write(
                     self.style.SUCCESS(f"Found {len(persons_data)} persons in the database to use for responses")

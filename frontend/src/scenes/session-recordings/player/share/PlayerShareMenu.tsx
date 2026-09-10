@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconExternal, IconGlobe, IconShare, IconShield } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -10,10 +11,16 @@ import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/Pl
 import { PlayerShareLogicProps } from 'scenes/session-recordings/player/share/playerShareLogic'
 import { urls } from 'scenes/urls'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 export function PlayerShareMenu(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
+    const sharingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SharingConfiguration,
+        AccessControlLevel.Viewer
+    )
 
     const getCurrentPlayerTime = (): number => {
         // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
@@ -79,6 +86,7 @@ export function PlayerShareMenu(): JSX.Element {
                     label: 'Share public link',
                     icon: <IconGlobe />,
                     onClick: () => onShare('public'),
+                    disabledReason: sharingDisabledReason ?? undefined,
                     'data-attr': 'share-public-link',
                 },
             ]}

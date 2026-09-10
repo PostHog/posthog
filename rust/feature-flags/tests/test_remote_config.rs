@@ -552,7 +552,140 @@ async fn test_remote_config_at_current_with_token_resolves_project() {
 }
 
 #[tokio::test]
-async fn test_remote_config_at_current_without_token_returns_404() {
+async fn test_remote_config_at_current_secret_token_resolves_project() {
+    // `@current` with no `?token=`, authenticated by a team secret token: the project resolves
+    // from the credential's own team (Django: `team_from_request`). This server-SDK shape
+    // previously 404'd before auth.
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(
+        &context,
+        team.id,
+        "rc-current-secret",
+        "plain-payload",
+        true,
+        false,
+    )
+    .await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/rc-current-secret/remote_config",
+            server.addr
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        Value::String("plain-payload".to_string())
+    );
+}
+
+#[tokio::test]
+async fn test_remote_config_at_current_personal_key_resolves_current_team() {
+    // `@current` with no `?token=`, authenticated by a personal API key: the project resolves
+    // from the key user's current team (Django: `user.current_team`). This is how server SDKs
+    // fetch remote config with a personal key, and it previously 404'd before auth.
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_current_pak");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    let (_pak_id, api_key) = context
+        .create_personal_api_key(user_id, "RC Current", vec!["feature_flag:read"], None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(
+        &context,
+        team.id,
+        "rc-current-pak",
+        "plain-payload",
+        true,
+        false,
+    )
+    .await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/rc-current-pak/remote_config",
+            server.addr
+        ))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        Value::String("plain-payload".to_string())
+    );
+}
+
+#[tokio::test]
+async fn test_remote_config_at_current_without_credentials_returns_401() {
+    // `@current` with neither a `?token=` nor a bearer credential cannot resolve a project and is
+    // unauthenticated (Django: AuthenticationFailed) — resolution must not leak as a 404.
+    let config = Config::default_test_config();
+    let _context = TestContext::new(Some(&config)).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/whatever/remote_config",
+            server.addr
+        ))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 401);
+}
+
+#[tokio::test]
+async fn test_remote_config_at_current_invalid_personal_key_returns_401() {
+    // `@current` with a personal-key-shaped bearer that doesn't exist must be 401 (invalid
+    // credential), not 404: an unknown key can't resolve a project, but it's an auth failure
+    // rather than a missing project, matching the numeric-id path and Django.
+    let config = Config::default_test_config();
+    let _context = TestContext::new(Some(&config)).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/whatever/remote_config",
+            server.addr
+        ))
+        .header("Authorization", "Bearer phx_nonexistent_key")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 401);
+}
+
+#[tokio::test]
+async fn test_remote_config_at_current_resolves_then_404s_missing_flag() {
+    // `@current` resolves the project from the credential, then a flag that doesn't exist (or
+    // isn't a remote-config flag) still 404s — the resolution must not over-serve.
     let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;
     let (_team, secret_token, _) = context
@@ -561,11 +694,9 @@ async fn test_remote_config_at_current_without_token_returns_404() {
         .unwrap();
 
     let server = common::ServerHandle::for_config(config.clone()).await;
-    // `@current` without a `?token=` needs the caller's current team (not an SDK path, not
-    // ported), and any other non-numeric segment is Django's int() ValueError -> 404.
     let response = reqwest::Client::new()
         .get(format!(
-            "http://{}/api/projects/@current/feature_flags/x/remote_config",
+            "http://{}/api/projects/@current/feature_flags/does-not-exist/remote_config",
             server.addr
         ))
         .header("Authorization", format!("Bearer {secret_token}"))
@@ -708,8 +839,231 @@ async fn test_remote_config_empty_payload_returns_empty_body() {
         .unwrap();
 
     assert_eq!(response.status(), 200);
+    // Empty responses still carry an etag so a client polling a not-yet-set payload can 304.
+    let etag = response
+        .headers()
+        .get("etag")
+        .expect("empty response should carry an etag")
+        .to_str()
+        .unwrap()
+        .to_string();
+    // The credential-isolation headers must hold on the empty-body path too.
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "private, no-cache"
+    );
+    assert_eq!(
+        response.headers().get("vary").unwrap().to_str().unwrap(),
+        "Authorization"
+    );
+    // No Content-Type, matching DRF's `Response(None)`.
+    assert!(response.headers().get("content-type").is_none());
     // Empty body, not the JSON literal "null".
     assert_eq!(response.text().await.unwrap(), "");
+
+    let revalidated = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-empty"))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", &etag)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(revalidated.status(), 304);
+}
+
+#[tokio::test]
+async fn test_remote_config_etag_roundtrip() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-etag", "etag-payload", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // First request: 200 with a weak etag and revalidation cache headers.
+    let response = client
+        .get(url(&server.addr, team.id, "rc-etag"))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let etag = response
+        .headers()
+        .get("etag")
+        .expect("200 response should carry an etag")
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(etag.starts_with("W/\""), "expected weak etag, got {etag}");
+    // The body is written as a pre-serialized String, so the JSON content type is an
+    // explicit override of axum's text/plain default.
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "application/json"
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "private, no-cache"
+    );
+    assert_eq!(
+        response.headers().get("vary").unwrap().to_str().unwrap(),
+        "Authorization"
+    );
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        Value::String("etag-payload".to_string())
+    );
+
+    // Matching If-None-Match: 304 with no body, echoing the etag.
+    let revalidated = client
+        .get(url(&server.addr, team.id, "rc-etag"))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", &etag)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(revalidated.status(), 304);
+    assert_eq!(
+        revalidated.headers().get("etag").unwrap().to_str().unwrap(),
+        etag
+    );
+    assert_eq!(
+        revalidated
+            .headers()
+            .get("cache-control")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "private, no-cache"
+    );
+    assert_eq!(
+        revalidated.headers().get("vary").unwrap().to_str().unwrap(),
+        "Authorization"
+    );
+    assert_eq!(revalidated.text().await.unwrap(), "");
+
+    // Stale If-None-Match: full 200 with the payload and the current etag.
+    let stale = client
+        .get(url(&server.addr, team.id, "rc-etag"))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", "W/\"0000000000000000\"")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(stale.status(), 200);
+    assert_eq!(stale.headers().get("etag").unwrap().to_str().unwrap(), etag);
+    assert_eq!(
+        stale.json::<Value>().await.unwrap(),
+        Value::String("etag-payload".to_string())
+    );
+}
+
+#[tokio::test]
+async fn test_remote_config_encrypted_etag_differs_by_credential() {
+    // The etag is derived from the resolved body, so a secret-key caller's redacted response
+    // and a personal-key caller's decrypted response must carry different etags — an etag
+    // computed from the stored row (or shared across credential classes) would let a client
+    // that cached the redacted body 304-validate it where plaintext should be served.
+    let mut config = Config::default_test_config();
+    config.flags_secret_keys = K1.to_string();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_etag_pak");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    let (_pak_id, api_key) = context
+        .create_personal_api_key(
+            user_id,
+            "RC ETag PAK",
+            vec!["feature_flag:read"],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    insert_rc_flag(&context, team.id, "rc-enc-etag", TOK_PRIMARY, true, true).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let redacted_response = client
+        .get(url(&server.addr, team.id, "rc-enc-etag"))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(redacted_response.status(), 200);
+    let redacted_etag = redacted_response
+        .headers()
+        .get("etag")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    // The redacted-body etag must not 304 a decrypting caller: they get plaintext and its etag.
+    let decrypted_response = client
+        .get(url(&server.addr, team.id, "rc-enc-etag"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("If-None-Match", &redacted_etag)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(decrypted_response.status(), 200);
+    let decrypted_etag = decrypted_response
+        .headers()
+        .get("etag")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(decrypted_etag, redacted_etag);
+    assert_eq!(
+        decrypted_response.json::<Value>().await.unwrap(),
+        Value::String(PLAINTEXT.to_string())
+    );
+
+    // A decrypting caller revalidating its own etag gets a 304 (decryption is deterministic).
+    let revalidated = client
+        .get(url(&server.addr, team.id, "rc-enc-etag"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("If-None-Match", &decrypted_etag)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(revalidated.status(), 304);
 }
 
 #[tokio::test]
@@ -941,8 +1295,37 @@ async fn test_remote_config_personal_key_updates_last_used_at() {
 }
 
 #[tokio::test]
+async fn test_remote_config_project_secret_key_updates_last_used_at() {
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let (psak_id, psak) = context
+        .create_project_secret_api_key(team.id, "RC PSAK LastUsed", Some(vec!["feature_flag:read"]))
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-psak-lastused", "plain", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-psak-lastused"))
+        .header("Authorization", format!("Bearer {psak}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    common::poll_for_psak_last_used_at(
+        &context,
+        &psak_id,
+        "Timed out waiting for last_used_at to be set for the remote_config project secret key",
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_remote_config_skip_writes_does_not_update_last_used_at() {
-    // The shared State::record_pak_last_used helper must honor skip_writes: with it on, a
+    // The shared State::record_api_key_last_used helper must honor skip_writes: with it on, a
     // personal-key request still authenticates (200) but records no last_used_at. Complements
     // test_remote_config_personal_key_updates_last_used_at, which covers the write path.
     let mut config = Config::default_test_config();
@@ -1026,7 +1409,7 @@ async fn test_remote_config_token_without_auth_returns_401() {
 #[tokio::test]
 async fn test_remote_config_personal_key_no_decryptor_returns_500() {
     // With no FLAGS_SECRET_KEYS/SECRET_KEY the decryptor is None; an encrypted-flag decrypt
-    // request must 500 (FlagError::Internal), never leak ciphertext.
+    // request must 500 (FlagError::RemoteConfigDecryptFailed), never leak ciphertext.
     let mut config = Config::default_test_config();
     config.flags_secret_keys = String::new();
     config.secret_key = String::new();
@@ -1064,9 +1447,13 @@ async fn test_remote_config_personal_key_no_decryptor_returns_500() {
         .unwrap();
 
     let status = response.status();
-    let body = response.text().await.unwrap();
+    let body: Value = response.json().await.unwrap();
     assert_eq!(status, 500, "body: {body}");
-    assert!(!body.contains("world"), "leaked plaintext: {body}");
+    assert_eq!(body["code"], "remote_config_decrypt_failed");
+    assert!(
+        !body.to_string().contains("world"),
+        "leaked plaintext: {body}"
+    );
 }
 
 #[tokio::test]
@@ -1115,7 +1502,12 @@ async fn test_remote_config_personal_key_decrypt_failure_returns_500() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), 500);
+    let status = response.status();
+    // The SDK parses every remote_config response body as JSON on any status code, so this
+    // must not regress to a plain-text 500 that fails res.json() client-side.
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(status, 500, "body: {body}");
+    assert_eq!(body["code"], "remote_config_decrypt_failed");
 }
 
 #[tokio::test]
@@ -1126,7 +1518,7 @@ async fn test_remote_config_project_secret_api_key_encrypted_returns_redacted() 
     config.flags_secret_keys = K1.to_string();
     let context = TestContext::new(Some(&config)).await;
     let team = context.insert_new_team(None).await.unwrap();
-    let psak = context
+    let (_, psak) = context
         .create_project_secret_api_key(team.id, "RC PSAK", Some(vec!["feature_flag:read"]))
         .await
         .unwrap();

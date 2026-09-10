@@ -3,7 +3,9 @@
 #
 # Requirements:
 #   - zig (any recent version; used as a hermetic x86_64-linux cross C compiler/linker)
+#   - llvm-objcopy (e.g. from an llvm toolchain)
 #   - rustup with the x86_64-unknown-linux-gnu target installed
+#   - a Go toolchain (for the Go fixture)
 #     (rustup target add x86_64-unknown-linux-gnu)
 #
 # DWARF source paths are remapped to the stable prefix /cymbal_tests/native so
@@ -29,6 +31,24 @@ zig cc "${CFLAGS[@]}" -fPIE -pie -o test_binary_pie test_binary.c
 # Inline expansion fixture (PIE).
 zig cc "${CFLAGS[@]}" -fPIE -pie -o test_binary_inline test_binary_inline.c
 
+# CLI classification fixtures: an ELF without debug info, and one with debug
+# info but no GNU build id. Neither can be symbolicated; the CLI must triage
+# them instead of uploading them. The strip is explicit because zig links its
+# runtime objects with debug info even when -g is absent; any objcopy able to
+# read ELF works (llvm-objcopy here since macOS binutils can't).
+zig cc -target x86_64-linux-gnu -O1 -Wl,--build-id=sha1 -o test_binary_nodebug test_binary.c
+llvm-objcopy --strip-debug test_binary_nodebug test_binary_nodebug
+zig cc -target x86_64-linux-gnu -g -O1 "-fdebug-prefix-map=$PWD=/cymbal_tests/native" -Wl,--build-id=none -o test_binary_nobuildid test_binary.c
+
+# Android NDK-shaped fixture: an aarch64-linux-android shared object with a
+# JNI entry, Itanium-mangled C++, and an inlined leaf. Freestanding because
+# zig ships no bionic libc; the tests only need DWARF + build id + symbols.
+# max-page-size matches the NDK's 16 KiB default, giving the executable
+# segment the nonzero load bias real Android .so mappings have.
+zig c++ -target aarch64-linux-android -shared -fPIC -g -O1 -nostdlib \
+    -fno-exceptions -fno-rtti "-fdebug-prefix-map=$PWD=/cymbal_tests/native" \
+    -Wl,--build-id=sha1 -Wl,-z,max-page-size=16384 -o libtest_android.so test_android.cpp
+
 # Rust fixture: real rustc-mangled symbols for the demangling assertions.
 # zig is used as the cross linker via the zigcc-x86_64-linux wrapper.
 cat > .zigcc-x86_64-linux <<'WRAP'
@@ -51,6 +71,34 @@ rm .zigcc-x86_64-linux
 zstd -19 -f -q test_rust_binary
 rm test_rust_binary
 
+# Go fixture: real Go function naming and mid-stack inlining. -B gobuildid
+# derives the GNU build id from the Go build ID; committed zstd-compressed.
+GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-B gobuildid" -o test_go_binary test_go.go
+zstd -19 -f -q test_go_binary
+rm test_go_binary
+
+# Go fixture with on-disk source paths: -trimpath strips the absolute paths
+# the CLI's --include-source bundling reads from disk, so this variant keeps
+# them, remapping only the project directory to the stable test prefix (the
+# baked-in GOROOT paths are machine-specific; tests must not assert on them).
+GOOS=linux GOARCH=amd64 go build -ldflags "-B gobuildid" \
+    -gcflags "all=-trimpath=$PWD=>/cymbal_tests/native" \
+    -asmflags "all=-trimpath=$PWD=>/cymbal_tests/native" \
+    -o test_go_binary_paths test_go.go
+zstd -19 -f -q test_go_binary_paths
+rm test_go_binary_paths
+
+# Go Mach-O fixtures: DWARF lives in the executable itself (Go never emits a
+# dSYM). -compressdwarf=false keeps the DWARF readable by symbolic; the
+# default build carries compressed __zdebug sections and is the fixture for
+# the "rebuild with -compressdwarf=false" guidance.
+GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-compressdwarf=false" -o test_go_binary_macho test_go.go
+zstd -19 -f -q test_go_binary_macho
+rm test_go_binary_macho
+GOOS=darwin GOARCH=arm64 go build -trimpath -o test_go_binary_macho_zdebug test_go.go
+zstd -19 -f -q test_go_binary_macho_zdebug
+rm test_go_binary_macho_zdebug
+
 echo "Built fixtures:"
-file test_binary_nopie test_binary_pie test_binary_inline
-ls -la test_rust_binary.zst
+file test_binary_nopie test_binary_pie test_binary_inline test_binary_nodebug test_binary_nobuildid
+ls -la test_rust_binary.zst test_go_binary.zst test_go_binary_paths.zst test_go_binary_macho.zst test_go_binary_macho_zdebug.zst

@@ -1,13 +1,24 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, Tag, Team
+from posthog.api.tagged_item import (
+    BULK_UPDATE_TAGS_MAX_IDS,
+    BULK_UPDATE_TAGS_MAX_OPERATIONS,
+    BULK_UPDATE_TAGS_MAX_TAGS,
+    BulkUpdateTagsRequestSerializer,
+    BulkUpdateTagsUUIDRequestSerializer,
+)
+from posthog.models import ActivityLog, Organization, Tag, Team
 from posthog.models.tagged_item import TaggedItem
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestTaggedItemSerializerMixin(APIBaseTest):
@@ -96,6 +107,15 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Tags are returned in alphabetical order regardless of insertion order
         assert response.json() == ["apple tag", "zebra tag"]
+
+    def test_can_search_tags_with_pagination(self) -> None:
+        Tag.objects.bulk_create([Tag(name=f"dashboard-{index:03}", team_id=self.team.id) for index in range(3)])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/tags?search=dashboard&limit=2")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == ["dashboard-000", "dashboard-001"]
+        assert response.json()["next"] is not None
 
 
 class TestBulkUpdateTags(APIBaseTest):
@@ -194,6 +214,33 @@ class TestBulkUpdateTags(APIBaseTest):
         data = response.json()
         assert data["updated"][0]["tags"] == ["existing"]
         assert data["skipped"] == []
+
+    def test_bulk_update_tags_logs_activity(self):
+        # A silent bulk edit was the reported gap: single-object updates log tag changes, the bulk
+        # path didn't. Guards that the shared mixin threads its bulk_tag_activity_scope into an
+        # activity entry (scope + "updated" verb + tags diff) for the resource.
+        dashboard = self._create_dashboard_with_tags("dash", ["existing"])
+
+        response = self.client.post(
+            self._bulk_update_url(),
+            {"ids": [dashboard.id], "action": "add", "tags": ["new"]},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        logs = ActivityLog.objects.filter(scope="Dashboard", activity="updated", item_id=str(dashboard.id))
+        assert logs.count() == 1
+        log = logs.get()
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {
+                "type": "Dashboard",
+                "action": "changed",
+                "field": "tags",
+                "before": ["existing"],
+                "after": ["existing", "new"],
+            }
+        ]
 
     # --- Validation errors ---
 
@@ -379,3 +426,43 @@ class TestBulkUpdateTags(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["type"] == "validation_error"
         assert response.json()["attr"] == "ids"
+
+
+SERIALIZER_VARIANTS = [
+    ("int_ids", BulkUpdateTagsRequestSerializer, lambda n: list(range(n))),
+    ("uuid_ids", BulkUpdateTagsUUIDRequestSerializer, lambda n: [str(uuid4()) for _ in range(n)]),
+]
+
+
+class TestBulkUpdateTagsRequestValidation(SimpleTestCase):
+    @parameterized.expand(SERIALIZER_VARIANTS)
+    def test_rejects_too_many_tags(self, _name, serializer_class, make_ids):
+        serializer = serializer_class(
+            data={
+                "ids": make_ids(1),
+                "action": "add",
+                "tags": [f"tag-{i}" for i in range(BULK_UPDATE_TAGS_MAX_TAGS + 1)],
+            }
+        )
+        assert not serializer.is_valid()
+        assert "tags" in serializer.errors
+
+    @parameterized.expand(SERIALIZER_VARIANTS)
+    def test_rejects_tag_longer_than_tag_name_column(self, _name, serializer_class, make_ids):
+        serializer = serializer_class(data={"ids": make_ids(1), "action": "add", "tags": ["x" * 256]})
+        assert not serializer.is_valid()
+        assert "tags" in serializer.errors
+
+    @parameterized.expand(SERIALIZER_VARIANTS)
+    def test_rejects_ids_times_distinct_tags_over_cap(self, _name, serializer_class, make_ids):
+        tags = [f"tag-{i}" for i in range(BULK_UPDATE_TAGS_MAX_OPERATIONS // BULK_UPDATE_TAGS_MAX_IDS + 1)]
+        serializer = serializer_class(data={"ids": make_ids(BULK_UPDATE_TAGS_MAX_IDS), "action": "add", "tags": tags})
+        assert not serializer.is_valid()
+        assert "must not exceed" in str(serializer.errors["tags"][0])
+
+    @parameterized.expand(SERIALIZER_VARIANTS)
+    def test_duplicate_tags_count_once_toward_the_cap(self, _name, serializer_class, make_ids):
+        # 100 entries normalizing to 20 distinct tags: 500 ids x 20 tags == the cap, not over it.
+        tags = [f"Tag-{i % 20}" for i in range(BULK_UPDATE_TAGS_MAX_TAGS)]
+        serializer = serializer_class(data={"ids": make_ids(BULK_UPDATE_TAGS_MAX_IDS), "action": "add", "tags": tags})
+        assert serializer.is_valid(), serializer.errors

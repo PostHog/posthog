@@ -7,16 +7,19 @@ import { EventName as EventNameComponent } from 'products/actions/frontend/compo
 interface EventNameProps {
     query: EventsNode | EventsQuery | SessionsQuery
     setQuery?: (query: EventsNode | EventsQuery | SessionsQuery) => void
+    /** See `QueryContext.includeHiddenEvents`. The hosting surface decides, not this component. */
+    includeHiddenEvents?: boolean
 }
 
-export function EventName({ query, setQuery }: EventNameProps): JSX.Element {
+export function EventName({ query, setQuery, includeHiddenEvents }: EventNameProps): JSX.Element {
     return (
         <EventNameComponent
             value={query.event ?? ''}
             disabled={!setQuery}
             onChange={(value) => setQuery?.({ ...query, event: value })}
             allEventsOption="clear"
-            groupTypes={[TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events]}
+            groupTypes={[TaxonomicFilterGroupType.Events]}
+            includeHiddenEvents={includeHiddenEvents}
         />
     )
 }

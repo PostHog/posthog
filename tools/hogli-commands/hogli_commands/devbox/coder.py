@@ -12,6 +12,7 @@ import csv
 import sys
 import json
 import shlex
+import base64
 import shutil
 import socket
 import functools
@@ -26,10 +27,17 @@ from typing import Any, NoReturn
 
 import click
 import requests
+from hogli import telemetry
 from hogli.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-_TAILSCALE_RUNBOOK_URL = "https://runbooks.posthog.com/vpn/#tailscale"
+_TAILSCALE_RUNBOOK_URL = "https://wiki.posthog.com/access/vpn#which-tailnet"
+# The only tailnet that routes to devboxes. PostHog also runs per-environment
+# tailnets (dev, prod-us, prod-eu, internal) for CI runners and subnet routers;
+# none of them reach the Coder control plane. Tailscale only asks which tailnet
+# to join at first sign-in, so someone who picked wrong there stays wrong
+# silently and forever -- worth naming as its own diagnosis.
+EXPECTED_TAILNET = "posthog.com"
 DEFAULT_TEMPLATE = "posthog-linux"
 # Newer coder versions added an interactive "Select a preset" prompt to `coder
 # create` that `--yes` does not bypass. Callers must always forward `--preset`
@@ -67,10 +75,18 @@ AUTO_START_APP_PARAMETER = "auto_start_app"
 # parameters, so forwarding the region here breaks every resume instead of
 # suppressing a picker. Valid values match the template contract exactly.
 WORKSPACE_REGION_PARAMETER = "workspace_region"
+DISK_SIZE_PARAMETER = "disk_size"
 REGIONS = ("us-east-1", "eu-central-1")
 DEFAULT_REGION = REGIONS[0]
-# Key of the workspace metadata item the template publishes the region back as.
+
+# Immutable, create-time parameter consumed by `devbox:clone`: the EC2 instance
+# of the source devbox. The template images that instance server-side and boots
+# the new box from the capture, so the duplicate comes up with the source's full
+# disk state instead of a blank golden AMI. Empty everywhere else.
+CLONE_SOURCE_PARAMETER = "clone_source_instance_id"
+# Keys of the workspace metadata items the template publishes back.
 REGION_METADATA_KEY = "region"
+DISK_METADATA_KEY = "disk"
 # Workspace-name suffix per region. us-east-1 is the historical default and
 # carries no suffix, so existing workspace names stay unchanged. Non-default
 # regions append `-{suffix}` at the end of the name so that a single user can
@@ -110,9 +126,15 @@ class CoderUserInfo(dict[str, str]):
     """Normalized subset of Coder user fields used by hogli."""
 
 
-def _fail(message: str) -> NoReturn:
-    """Print a short actionable error and exit."""
+def _fail(message: str, *, cause: str | None = None) -> NoReturn:
+    """Print a short actionable error and exit.
+
+    ``cause`` is a stable slug recorded on the command's telemetry event.
+    Without it every distinct failure reads as one undifferentiated error.
+    """
     click.echo(click.style(message, fg="red"))
+    if cause:
+        telemetry.add_command_properties(devbox_failure_cause=cause)
     raise SystemExit(1)
 
 
@@ -344,10 +366,34 @@ def _tailscale_status() -> dict[str, Any] | None:
         return None
 
 
+def _backend_running(status: dict[str, Any] | None) -> bool:
+    """Return whether a `tailscale status --json` blob reports a live backend."""
+    return bool(status and status.get("BackendState") == "Running")
+
+
+def _tailnet_name(status: dict[str, Any] | None) -> str | None:
+    """Return the active tailnet's name from a `tailscale status --json` blob."""
+    current_tailnet = (status or {}).get("CurrentTailnet")
+    if not isinstance(current_tailnet, dict):
+        return None
+    name = current_tailnet.get("Name")
+    return name if isinstance(name, str) and name else None
+
+
 def tailscale_connected() -> bool:
     """Check if Tailscale is running and connected."""
+    return _backend_running(_tailscale_status())
+
+
+def tailscale_state() -> tuple[bool, str | None]:
+    """Return ``(connected, tailnet name)`` from a single `tailscale status` probe.
+
+    Bundled because each `_tailscale_status()` call is a subprocess, and the
+    two facts are always reported next to each other. The name is ``None``
+    when Tailscale is down or the blob does not name a tailnet.
+    """
     status = _tailscale_status()
-    return bool(status and status.get("BackendState") == "Running")
+    return _backend_running(status), _tailnet_name(status)
 
 
 def _tailscale_install_hint() -> str:
@@ -377,6 +423,21 @@ def _tailscale_cli_missing_on_macos() -> bool:
     return sys.platform == "darwin" and shutil.which("tailscale") is None and os.path.isfile(_MACOS_TAILSCALE_CLI)
 
 
+def _tailnet_switch_hint() -> str:
+    """Return the command for moving to the PostHog tailnet.
+
+    On macOS the GUI is how most people signed in, and `tailscale` is often
+    not on PATH at all -- so name the app-bundle CLI there instead.
+    """
+    cli = _MACOS_TAILSCALE_CLI if _tailscale_cli_missing_on_macos() else "tailscale"
+    return (
+        f"`{cli} switch {EXPECTED_TAILNET}` if you have signed into it before, "
+        f"otherwise `{cli} logout && {cli} login` and pick {EXPECTED_TAILNET} "
+        "at the tailnet picker (in the GUI: Add account, sign in, select "
+        f"{EXPECTED_TAILNET})."
+    )
+
+
 def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
     """Fail fast when the host is not connected to a Tailscale tailnet.
 
@@ -393,7 +454,8 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
             "Tailscale is not installed.\n"
             f"  {_tailscale_install_hint()}\n"
             f"  See {_TAILSCALE_RUNBOOK_URL} for joining the PostHog tailnet.\n"
-            f"  Then {setup_hint}"
+            f"  Then {setup_hint}",
+            cause="tailscale_not_installed",
         )
 
     # CLI is resolvable, but the daemon is not running -- the user needs to
@@ -408,14 +470,16 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
             "  To use the CLI from your shell, symlink it once:\n"
             f"    sudo ln -sfn {_MACOS_TAILSCALE_CLI} /usr/local/bin/tailscale\n"
             f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
-            f"  Then {setup_hint}"
+            f"  Then {setup_hint}",
+            cause="tailscale_not_connected_cli_missing",
         )
 
     _fail(
         "Tailscale is installed but not connected.\n"
         f"  {_tailscale_connect_hint()}\n"
         f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
-        f"  Then {setup_hint}"
+        f"  Then {setup_hint}",
+        cause="tailscale_not_connected",
     )
 
 
@@ -439,6 +503,10 @@ def ensure_tailscale_routes_accepted() -> None:
     if _tailscale_routes_accepted():
         return
 
+    # The fix below is silent, so without this the number of hosts that land
+    # here stays unknowable.
+    telemetry.add_command_properties(devbox_routes_were_off=True)
+
     tailscale_path = _resolve_tailscale()
     if not tailscale_path:
         return
@@ -451,7 +519,10 @@ def ensure_tailscale_routes_accepted() -> None:
     result = subprocess.run(cmd, env=_tailscale_env(tailscale_path))
     if result.returncode != 0:
         manual = "tailscale set --accept-routes" if sys.platform == "darwin" else "sudo tailscale set --accept-routes"
-        _fail(f"Failed to enable Tailscale subnet routes. Run manually: {manual}")
+        _fail(
+            f"Failed to enable Tailscale subnet routes. Run manually: {manual}",
+            cause="accept_routes_failed",
+        )
 
 
 def coder_reachable(timeout: float = 5.0) -> bool:
@@ -472,8 +543,12 @@ class CoderReachabilityDiagnosis:
     fix rather than a list of commands the user has to interpret. ``facts``
     is a short list of diagnostic data (tailnet name, resolved IP, peer
     health) that is safe to share verbatim when asking for help.
+
+    ``code`` is the same cause as a stable slug. ``cause`` interpolates
+    hostnames and peer names, so it cannot be grouped on.
     """
 
+    code: str
     cause: str
     next_step: str
     facts: list[str]
@@ -518,26 +593,39 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
     status = _tailscale_status()
     tailnet_name: str | None = None
     if status:
-        current_tailnet = status.get("CurrentTailnet")
-        if isinstance(current_tailnet, dict):
-            name = current_tailnet.get("Name")
-            if isinstance(name, str) and name:
-                tailnet_name = name
-                facts.append(f"Tailscale tailnet: {name}")
-        if tailnet_name is None:
-            facts.append("Tailscale tailnet: <unknown>")
+        tailnet_name = _tailnet_name(status)
+        facts.append(f"Tailscale tailnet: {tailnet_name or '<unknown>'}")
     else:
         facts.append("Tailscale status: unavailable")
+
+    # Checked before DNS and TCP because every downstream probe fails the same
+    # way from the wrong tailnet, and their fixes (MagicDNS, the ACL grant)
+    # would all be red herrings.
+    if tailnet_name is not None and tailnet_name != EXPECTED_TAILNET:
+        return CoderReachabilityDiagnosis(
+            code="wrong_tailnet",
+            cause=f"Signed into the '{tailnet_name}' tailnet, not '{EXPECTED_TAILNET}'.",
+            next_step=(
+                f"Devboxes only exist on '{EXPECTED_TAILNET}' — the other tailnets are for CI "
+                f"runners and subnet routers. Switch: {_tailnet_switch_hint()} "
+                f"Details: {_TAILSCALE_RUNBOOK_URL}"
+            ),
+            facts=facts,
+        )
 
     resolved_ip = _resolve_host_ip(host)
     if resolved_ip is None:
         facts.append(f"DNS for {host}: failed")
         return CoderReachabilityDiagnosis(
+            code="dns_lookup_failed",
             cause=f"DNS lookup for {host} failed.",
             next_step=(
-                "MagicDNS may be off or you may be on the wrong tailnet. "
-                "Verify the tailnet name above is PostHog's, then run "
-                "`sudo tailscale up --accept-dns`."
+                "MagicDNS is probably off — turn on 'Use Tailscale DNS' in the "
+                "client, or run `sudo tailscale up --accept-dns`. If it is "
+                "already on, a stale router/ISP resolver is the usual culprit: "
+                "add 8.8.8.8 or 1.1.1.1 to this machine's DNS settings. Do not "
+                "reach for an exit node — devboxes are reached as tailnet peers, "
+                "so it only slows everything down and hides the real cause."
             ),
             facts=facts,
         )
@@ -546,6 +634,7 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
     if _tcp_reachable(host, 443):
         facts.append(f"TCP {host}:443: open")
         return CoderReachabilityDiagnosis(
+            code="https_probe_failed",
             cause=f"TCP to {host}:443 works but the HTTPS probe failed.",
             next_step=(
                 "The Coder deployment may be restarting, or your system clock "
@@ -582,12 +671,13 @@ def _diagnose_blocked_route(
 
     if not routers:
         return CoderReachabilityDiagnosis(
+            code="no_subnet_routes_advertised",
             cause="No peer on your tailnet advertises subnet routes.",
             next_step=(
-                "Either you are not on the PostHog tailnet (check the name "
-                "above), or your account has not been added to the Tailscale "
-                f"policy yet. See {_TAILSCALE_RUNBOOK_URL} for the policy "
-                "request flow, then reach out to Team DevEx with the facts below."
+                f"Either you are not on the '{EXPECTED_TAILNET}' tailnet (check "
+                "the name above), or your account has not been added to the "
+                f"Tailscale policy yet. See {_TAILSCALE_RUNBOOK_URL} for both, "
+                "then reach out to Team DevEx with the facts below."
             ),
             facts=facts,
         )
@@ -595,6 +685,7 @@ def _diagnose_blocked_route(
     if not online_routers:
         names = ", ".join(str(p.get("HostName") or "?") for p in routers)
         return CoderReachabilityDiagnosis(
+            code="subnet_router_offline",
             cause=f"Subnet router peer is offline ({names}).",
             next_step=(
                 "Wait a minute and retry. If it stays offline, reach out to Team DevEx — the relay likely needs a bounce."
@@ -603,6 +694,7 @@ def _diagnose_blocked_route(
         )
 
     return CoderReachabilityDiagnosis(
+        code="tcp_blocked",
         cause="TCP is blocked despite an online subnet router on your tailnet.",
         next_step=(
             "A non-Tailscale VPN or a local firewall is likely intercepting, "
@@ -638,7 +730,7 @@ def ensure_coder_reachable() -> None:
             *(f"  - {fact}" for fact in diagnosis.facts),
         ]
     )
-    _fail(body)
+    _fail(body, cause=diagnosis.code)
 
 
 def _encode_ssh_option(value: str) -> str:
@@ -821,7 +913,7 @@ def ensure_coder_authenticated() -> None:
         return
 
     if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     coder_url = get_coder_url()
     click.echo(f"Logging in to {coder_url}...")
@@ -837,10 +929,10 @@ def ensure_runtime_ready() -> None:
     ensure_coder_reachable()
 
     if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     if not coder_authenticated():
-        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}")
+        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", cause="coder_login_not_ready")
 
     _warn_version_mismatch()
 
@@ -1087,22 +1179,42 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
-def get_workspace_region(workspace: dict[str, Any]) -> str | None:
-    """Return the region a workspace lives in, or ``None`` when unknown.
+def _workspace_metadata_value(workspace: dict[str, Any], key: str) -> str | None:
+    """Return a ``coder_metadata`` item value the template publishes back.
 
-    The template publishes the region as a ``coder_metadata`` item (key
-    ``region``), which surfaces under ``latest_build.resources[].metadata[]``
-    in the ``coder list`` payload. Returns ``None`` for boxes created before
-    the metadata item existed so callers can render their own placeholder.
+    Items surface under ``latest_build.resources[].metadata[]`` in the ``coder
+    list`` payload. Returns ``None`` when the key is absent (e.g. boxes created
+    before that item existed) so callers can decide on a fallback.
     """
-    resources = workspace.get("latest_build", {}).get("resources", [])
-    for resource in resources:
+    for resource in workspace.get("latest_build", {}).get("resources", []):
         for item in resource.get("metadata", []):
-            if isinstance(item, dict) and item.get("key") == REGION_METADATA_KEY:
+            if isinstance(item, dict) and item.get("key") == key:
                 value = item.get("value")
                 if isinstance(value, str) and value:
                     return value
     return None
+
+
+def get_workspace_region(workspace: dict[str, Any]) -> str | None:
+    """Return the region a workspace lives in, or ``None`` when unknown.
+
+    The template publishes the region as a ``coder_metadata`` item (key
+    ``region``). Returns ``None`` for boxes created before the metadata item
+    existed so callers can render their own placeholder.
+    """
+    return _workspace_metadata_value(workspace, REGION_METADATA_KEY)
+
+
+def get_workspace_disk_size(workspace: dict[str, Any]) -> int | None:
+    """Return a workspace's root disk size in GiB, or ``None`` when unknown.
+
+    The template publishes it as a ``coder_metadata`` item (key ``disk``, value
+    like ``"100 GiB"``). A clone must request at least the source's size or the
+    instance fails to launch from the captured AMI (``InvalidBlockDeviceMapping``).
+    """
+    value = _workspace_metadata_value(workspace, DISK_METADATA_KEY)
+    match = re.search(r"^(\d+)\s*GiB$", value.strip()) if value else None
+    return int(match.group(1)) if match else None
 
 
 def _list_template_presets(template: str) -> list[str]:
@@ -1204,7 +1316,7 @@ def create_workspace(
     ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
-        "disk_size": str(disk_size),
+        DISK_SIZE_PARAMETER: str(disk_size),
         "repo": repo,
         WORKSPACE_REGION_PARAMETER: region,
     }
@@ -1230,6 +1342,117 @@ def create_workspace(
     ]
     result = _run_with_param_retry(base_args, parameters, verbose=verbose)
     if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
+# A metadata read over ssh is near-instant; keep the ceiling tight so a wedged
+# box fails fast instead of hanging the clone.
+INSTANCE_ID_TIMEOUT = 60
+
+_INSTANCE_ID_RE = re.compile(r"\bi-[0-9a-f]{8,17}\b")
+
+# Runs ON the source devbox (over its ssh alias) and prints the box's own EC2
+# instance id from IMDSv2. A read-only metadata lookup -- no AWS credentials and
+# no imaging permissions. The clone template captures the AMI from this id
+# server-side, after verifying the instance carries the requester's owner tag.
+_INSTANCE_ID_SCRIPT = """#!/usr/bin/env bash
+set -euo pipefail
+TOKEN=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id
+"""
+
+
+def get_source_instance_id(workspace_name: str, *, timeout: int = INSTANCE_ID_TIMEOUT) -> str:
+    """Return the source devbox's own EC2 instance id (``i-...``), read from IMDS.
+
+    A read-only metadata lookup over the box's ssh alias -- hogli makes no AWS
+    calls and needs no imaging permissions. The clone template captures the AMI
+    from this id server-side, after verifying the instance carries the
+    requester's ownership tag.
+    """
+    if not coder_ssh_alias_configured(workspace_name):
+        _fail(f"ssh alias for '{workspace_name}' is not configured. {RUNTIME_SETUP_HINT}")
+
+    encoded = base64.b64encode(_INSTANCE_ID_SCRIPT.encode()).decode()
+    try:
+        result = subprocess.run(
+            ["ssh", _ssh_host_alias(workspace_name), f"echo {encoded} | base64 -d | bash"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        _fail(f"Timed out after {timeout}s reading the source devbox's instance id.")
+
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        _fail("Failed to read the source devbox's instance id over ssh.")
+
+    match = _INSTANCE_ID_RE.search(result.stdout)
+    if match is None:
+        sys.stderr.write(result.stdout)
+        sys.stderr.write(result.stderr)
+        _fail("Could not determine the source devbox's EC2 instance id.")
+    return match.group(0)
+
+
+def clone_workspace(
+    target: str,
+    *,
+    source_instance_id: str,
+    disk_size: int,
+    region: str,
+    template: str = DEFAULT_TEMPLATE,
+    verbose: bool = False,
+) -> None:
+    """Create ``target`` as a clone via server-side AMI capture.
+
+    ``clone_source_instance_id`` tells the template which instance to image; the
+    template verifies ownership and captures the AMI itself, so hogli passes
+    only the id. ``disk_size`` must be at least the source's or the clone fails
+    to launch from the captured snapshot; ``region`` must match the source's
+    (the AMI is region-scoped). Every other parameter falls back to the
+    template default (``--use-parameter-defaults``), which resolves git identity
+    to the workspace owner -- the source's on-disk config rides in via the AMI.
+
+    ``--copy-parameters-from`` is deliberately NOT used: Coder resolves a copied
+    value ahead of an explicit ``--parameter``, so it silently overrides
+    ``clone_source_instance_id`` back to the source's empty value and boots a
+    blank golden box as a successful clone. This also skips the param-retry
+    shim, which would drop ``clone_source_instance_id`` on a template that
+    predates the clone change; that key is load-bearing, so we fail loudly.
+    """
+    # --preset none is required: newer Coder shows an interactive preset picker
+    # that --yes does not bypass, which would hang the build.
+    args = _append_parameter_flags(
+        [
+            "coder",
+            "create",
+            target,
+            "--template",
+            template,
+            "--preset",
+            NO_PRESET,
+            "--use-parameter-defaults",
+            "--yes",
+        ],
+        {
+            CLONE_SOURCE_PARAMETER: source_instance_id,
+            DISK_SIZE_PARAMETER: str(disk_size),
+            WORKSPACE_REGION_PARAMETER: region,
+        },
+    )
+    result = _run_build(args, verbose=verbose)
+    if result.returncode != 0:
+        match = _PARAM_NOT_PRESENT_RE.search(result.stdout or "")
+        missing = match.group(1) if match else None
+        if missing == CLONE_SOURCE_PARAMETER:
+            _fail(
+                f"This Coder template does not accept '{CLONE_SOURCE_PARAMETER}', so it cannot be "
+                "cloned. Deploy the cloud-infra devbox-clone template change first."
+            )
+        if missing is not None:
+            _fail(f"This Coder template does not accept the '{missing}' parameter.")
         raise SystemExit(result.returncode)
 
 

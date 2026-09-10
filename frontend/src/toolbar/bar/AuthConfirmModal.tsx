@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 
 import { IconWarning, IconX } from '@posthog/icons'
 
-import { Logomark } from 'lib/brand/Logomark'
+import { Logomark } from 'lib/brand'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -127,7 +127,7 @@ export function AuthConfirmModal({ visible, onClose }: AuthConfirmModalProps): J
                     <IconX />
                 </button>
                 <div className="UiHostConfigModal__branding">
-                    <Logomark />
+                    <Logomark variant="mono" />
                 </div>
                 <h2 id={HEADING_ID} className="UiHostConfigModal__header">
                     Confirm sign in
@@ -139,7 +139,7 @@ export function AuthConfirmModal({ visible, onClose }: AuthConfirmModalProps): J
                 <p className="flex items-center gap-1">
                     <IconWarning className="text-warning shrink-0" />
                     <span>
-                        Only continue if you recognize this domain as your PostHog instance — signing in elsewhere could
+                        Only continue if you recognize this domain as your PostHog instance. Signing in elsewhere could
                         expose your account.
                     </span>
                 </p>

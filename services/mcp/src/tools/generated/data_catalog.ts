@@ -1,0 +1,801 @@
+// AUTO-GENERATED from products/data_catalog/mcp/tools.yaml + OpenAPI — do not edit
+import { z } from 'zod'
+
+import type { Schemas } from '@/api/generated'
+import * as orvalSchemas from '@/generated/data_catalog/api'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
+import {
+    withPostHogUrl,
+    withInformationalResponse,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithInformationalResponse,
+} from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const DataCatalogCertificationCertifySchema = () => {
+    const DataCatalogCertificationsCertifyCreateParams = orvalSchemas.DataCatalogCertificationsCertifyCreateParams()
+    return DataCatalogCertificationsCertifyCreateParams.omit({ project_id: true }).extend({
+        id: DataCatalogCertificationsCertifyCreateParams.shape['id'].describe(
+            'Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).'
+        ),
+    })
+}
+
+const DataCatalogCertificationCertifySchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const dataCatalogCertificationCertifyPrepare = (): ToolBase<
+    ReturnType<typeof DataCatalogCertificationCertifySchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'data-catalog-certification-certify-prepare',
+    schema: DataCatalogCertificationCertifySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogCertificationCertifySchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'data-catalog-certification-certify',
+            actionLabel: 'certify source',
+            messageTemplate:
+                "About to mark certification '{id}' as certified (agents should prefer this source). Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const dataCatalogCertificationCertifyExecute = (): ToolBase<
+    typeof DataCatalogCertificationCertifySchemaExecute,
+    Schemas.DataCatalogCertification
+> => ({
+    name: 'data-catalog-certification-certify-execute',
+    schema: DataCatalogCertificationCertifySchemaExecute,
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof DataCatalogCertificationCertifySchemaExecute>
+    ) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof DataCatalogCertificationCertifySchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'data-catalog-certification-certify',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const result = await context.api.request<Schemas.DataCatalogCertification>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/certifications/${encodeURIComponent(String(params.id))}/certify/`,
+        })
+        return result
+    },
+})
+
+const DataCatalogCertificationDeprecateSchema = () => {
+    const DataCatalogCertificationsDeprecateCreateParams = orvalSchemas.DataCatalogCertificationsDeprecateCreateParams()
+    return DataCatalogCertificationsDeprecateCreateParams.omit({ project_id: true }).extend({
+        id: DataCatalogCertificationsDeprecateCreateParams.shape['id'].describe(
+            'Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).'
+        ),
+    })
+}
+
+const DataCatalogCertificationDeprecateSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const dataCatalogCertificationDeprecatePrepare = (): ToolBase<
+    ReturnType<typeof DataCatalogCertificationDeprecateSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'data-catalog-certification-deprecate-prepare',
+    schema: DataCatalogCertificationDeprecateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogCertificationDeprecateSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'data-catalog-certification-deprecate',
+            actionLabel: 'deprecate source',
+            messageTemplate:
+                "About to mark certification '{id}' as deprecated (agents should avoid this source). Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const dataCatalogCertificationDeprecateExecute = (): ToolBase<
+    typeof DataCatalogCertificationDeprecateSchemaExecute,
+    Schemas.DataCatalogCertification
+> => ({
+    name: 'data-catalog-certification-deprecate-execute',
+    schema: DataCatalogCertificationDeprecateSchemaExecute,
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof DataCatalogCertificationDeprecateSchemaExecute>
+    ) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<
+            z.infer<ReturnType<typeof DataCatalogCertificationDeprecateSchema>>
+        >(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'data-catalog-certification-deprecate',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+            stash: __runtime.stash,
+            expectedScope: { projectId: String(__scopeProjectId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const result = await context.api.request<Schemas.DataCatalogCertification>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/certifications/${encodeURIComponent(String(params.id))}/deprecate/`,
+        })
+        return result
+    },
+})
+
+const DataCatalogCertificationProposeSchema = () => {
+    const DataCatalogCertificationsCreateBody = orvalSchemas.DataCatalogCertificationsCreateBody()
+    return DataCatalogCertificationsCreateBody
+}
+
+const dataCatalogCertificationPropose = (): ToolBase<
+    ReturnType<typeof DataCatalogCertificationProposeSchema>,
+    Schemas.DataCatalogCertification
+> => ({
+    name: 'data-catalog-certification-propose',
+    schema: DataCatalogCertificationProposeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogCertificationProposeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.table_id !== undefined) {
+            body['table_id'] = params.table_id
+        }
+        if (params.saved_query_id !== undefined) {
+            body['saved_query_id'] = params.saved_query_id
+        }
+        if (params.table_name !== undefined) {
+            body['table_name'] = params.table_name
+        }
+        if (params.view_name !== undefined) {
+            body['view_name'] = params.view_name
+        }
+        if (params.notes !== undefined) {
+            body['notes'] = params.notes
+        }
+        if (params.proposed_status !== undefined) {
+            body['proposed_status'] = params.proposed_status
+        }
+        const result = await context.api.request<Schemas.DataCatalogCertification>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/certifications/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DataCatalogMetricApproveSchema = () => {
+    const DataCatalogMetricsApproveCreateParams = orvalSchemas.DataCatalogMetricsApproveCreateParams()
+    return DataCatalogMetricsApproveCreateParams.omit({ project_id: true })
+}
+
+const DataCatalogMetricApproveSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const dataCatalogMetricApprovePrepare = (): ToolBase<
+    ReturnType<typeof DataCatalogMetricApproveSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'data-catalog-metric-approve-prepare',
+    schema: DataCatalogMetricApproveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogMetricApproveSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'data-catalog-metric-approve',
+            actionLabel: 'approve metric',
+            messageTemplate:
+                "About to approve metric '{name}' as a canonical, human-vouched metric. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const dataCatalogMetricApproveExecute = (): ToolBase<
+    typeof DataCatalogMetricApproveSchemaExecute,
+    Schemas.DataCatalogMetric
+> => ({
+    name: 'data-catalog-metric-approve-execute',
+    schema: DataCatalogMetricApproveSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof DataCatalogMetricApproveSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof DataCatalogMetricApproveSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'data-catalog-metric-approve',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const result = await context.api.request<Schemas.DataCatalogMetric>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/approve/`,
+        })
+        return result
+    },
+})
+
+const DataCatalogMetricCreateSchema = () => {
+    const DataCatalogMetricsCreateBody = orvalSchemas.DataCatalogMetricsCreateBody()
+    return DataCatalogMetricsCreateBody
+}
+
+const dataCatalogMetricCreate = (): ToolBase<
+    ReturnType<typeof DataCatalogMetricCreateSchema>,
+    Schemas.DataCatalogMetric
+> => ({
+    name: 'data-catalog-metric-create',
+    schema: DataCatalogMetricCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogMetricCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.unit !== undefined) {
+            body['unit'] = params.unit
+        }
+        if (params.definition !== undefined) {
+            body['definition'] = params.definition
+        }
+        if (params.source_insight_short_id !== undefined) {
+            body['source_insight_short_id'] = params.source_insight_short_id
+        }
+        if (params.ai_model !== undefined) {
+            body['ai_model'] = params.ai_model
+        }
+        if (params.confidence !== undefined) {
+            body['confidence'] = params.confidence
+        }
+        if (params.reasoning !== undefined) {
+            body['reasoning'] = params.reasoning
+        }
+        body['created_source'] = 'ai_generated'
+        const result = await context.api.request<Schemas.DataCatalogMetric>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DataCatalogMetricDeleteSchema = () => {
+    const DataCatalogMetricsDestroyParams = orvalSchemas.DataCatalogMetricsDestroyParams()
+    return DataCatalogMetricsDestroyParams.omit({ project_id: true })
+}
+
+const DataCatalogMetricDeleteSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const dataCatalogMetricDeletePrepare = (): ToolBase<
+    ReturnType<typeof DataCatalogMetricDeleteSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'data-catalog-metric-delete-prepare',
+    schema: DataCatalogMetricDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogMetricDeleteSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'data-catalog-metric-delete',
+            actionLabel: 'delete metric',
+            messageTemplate: "About to delete metric '{name}'. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const dataCatalogMetricDeleteExecute = (): ToolBase<typeof DataCatalogMetricDeleteSchemaExecute, unknown> => ({
+    name: 'data-catalog-metric-delete-execute',
+    schema: DataCatalogMetricDeleteSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof DataCatalogMetricDeleteSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof DataCatalogMetricDeleteSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'data-catalog-metric-delete',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,
+        })
+        return result
+    },
+})
+
+const DataCatalogMetricRunSchema = () => {
+    const DataCatalogMetricsRunCreateBody = orvalSchemas.DataCatalogMetricsRunCreateBody()
+    const DataCatalogMetricsRunCreateParams = orvalSchemas.DataCatalogMetricsRunCreateParams()
+    const DataCatalogMetricsRunCreateQueryParams = orvalSchemas.DataCatalogMetricsRunCreateQueryParams()
+    return DataCatalogMetricsRunCreateParams.omit({ project_id: true })
+        .extend(DataCatalogMetricsRunCreateQueryParams.shape)
+        .extend(DataCatalogMetricsRunCreateBody.shape)
+}
+
+const dataCatalogMetricRun = (): ToolBase<
+    ReturnType<typeof DataCatalogMetricRunSchema>,
+    Schemas.DataCatalogMetricRun
+> => ({
+    name: 'data-catalog-metric-run',
+    schema: DataCatalogMetricRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogMetricRunSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.date_from !== undefined) {
+            body['date_from'] = params.date_from
+        }
+        if (params.date_to !== undefined) {
+            body['date_to'] = params.date_to
+        }
+        if (params.interval !== undefined) {
+            body['interval'] = params.interval
+        }
+        if (params.query_id !== undefined) {
+            body['query_id'] = params.query_id
+        }
+        const result = await context.api.request<Schemas.DataCatalogMetricRun>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/run/`,
+            body,
+            query: {
+                refresh: params.refresh,
+            },
+        })
+        return result
+    },
+})
+
+const DataCatalogMetricUpdateSchema = () => {
+    const DataCatalogMetricsPartialUpdateBody = orvalSchemas.DataCatalogMetricsPartialUpdateBody()
+    const DataCatalogMetricsPartialUpdateParams = orvalSchemas.DataCatalogMetricsPartialUpdateParams()
+    return DataCatalogMetricsPartialUpdateParams.omit({ project_id: true })
+        .extend(DataCatalogMetricsPartialUpdateBody.omit({ name: true }).shape)
+        .extend({ new_name: DataCatalogMetricsPartialUpdateBody.shape['name'] })
+}
+
+const dataCatalogMetricUpdate = (): ToolBase<
+    ReturnType<typeof DataCatalogMetricUpdateSchema>,
+    Schemas.DataCatalogMetric
+> => ({
+    name: 'data-catalog-metric-update',
+    schema: DataCatalogMetricUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogMetricUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.new_name !== undefined) {
+            body['name'] = params.new_name
+        }
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.unit !== undefined) {
+            body['unit'] = params.unit
+        }
+        if (params.definition !== undefined) {
+            body['definition'] = params.definition
+        }
+        if (params.source_insight_short_id !== undefined) {
+            body['source_insight_short_id'] = params.source_insight_short_id
+        }
+        if (params.ai_model !== undefined) {
+            body['ai_model'] = params.ai_model
+        }
+        if (params.confidence !== undefined) {
+            body['confidence'] = params.confidence
+        }
+        if (params.reasoning !== undefined) {
+            body['reasoning'] = params.reasoning
+        }
+        body['created_source'] = 'ai_generated'
+        const result = await context.api.request<Schemas.DataCatalogMetric>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DataCatalogMetricsRefreshFromInsightCreateSchema = () => {
+    const DataCatalogMetricsRefreshFromInsightCreateParams =
+        orvalSchemas.DataCatalogMetricsRefreshFromInsightCreateParams()
+    return DataCatalogMetricsRefreshFromInsightCreateParams.omit({ project_id: true })
+}
+
+const dataCatalogMetricsRefreshFromInsightCreate = (): ToolBase<
+    ReturnType<typeof DataCatalogMetricsRefreshFromInsightCreateSchema>,
+    Schemas.DataCatalogMetric
+> => ({
+    name: 'data-catalog-metrics-refresh-from-insight-create',
+    schema: DataCatalogMetricsRefreshFromInsightCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof DataCatalogMetricsRefreshFromInsightCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataCatalogMetric>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/refresh_from_insight/`,
+        })
+        return result
+    },
+})
+
+const DataCatalogRelationshipAcceptSchema = () => {
+    const DataCatalogRelationshipProposalsAcceptCreateParams =
+        orvalSchemas.DataCatalogRelationshipProposalsAcceptCreateParams()
+    return DataCatalogRelationshipProposalsAcceptCreateParams.omit({ project_id: true })
+}
+
+const DataCatalogRelationshipAcceptSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const dataCatalogRelationshipAcceptPrepare = (): ToolBase<
+    ReturnType<typeof DataCatalogRelationshipAcceptSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'data-catalog-relationship-accept-prepare',
+    schema: DataCatalogRelationshipAcceptSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogRelationshipAcceptSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'data-catalog-relationship-accept',
+            actionLabel: 'accept relationship',
+            messageTemplate:
+                "About to accept relationship proposal '{id}', promoting it to a real warehouse join. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const dataCatalogRelationshipAcceptExecute = (): ToolBase<
+    typeof DataCatalogRelationshipAcceptSchemaExecute,
+    Schemas.DataCatalogRelationshipProposal
+> => ({
+    name: 'data-catalog-relationship-accept-execute',
+    schema: DataCatalogRelationshipAcceptSchemaExecute,
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof DataCatalogRelationshipAcceptSchemaExecute>
+    ) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof DataCatalogRelationshipAcceptSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'data-catalog-relationship-accept',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const result = await context.api.request<Schemas.DataCatalogRelationshipProposal>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/relationship_proposals/${encodeURIComponent(String(params.id))}/accept/`,
+        })
+        return result
+    },
+})
+
+const DataCatalogRelationshipProposeSchema = () => {
+    const DataCatalogRelationshipProposalsCreateBody = orvalSchemas.DataCatalogRelationshipProposalsCreateBody()
+    return DataCatalogRelationshipProposalsCreateBody
+}
+
+const dataCatalogRelationshipPropose = (): ToolBase<
+    ReturnType<typeof DataCatalogRelationshipProposeSchema>,
+    Schemas.DataCatalogRelationshipProposal
+> => ({
+    name: 'data-catalog-relationship-propose',
+    schema: DataCatalogRelationshipProposeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogRelationshipProposeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_table_name !== undefined) {
+            body['source_table_name'] = params.source_table_name
+        }
+        if (params.source_table_key !== undefined) {
+            body['source_table_key'] = params.source_table_key
+        }
+        if (params.joining_table_name !== undefined) {
+            body['joining_table_name'] = params.joining_table_name
+        }
+        if (params.joining_table_key !== undefined) {
+            body['joining_table_key'] = params.joining_table_key
+        }
+        if (params.field_name !== undefined) {
+            body['field_name'] = params.field_name
+        }
+        if (params.configuration !== undefined) {
+            body['configuration'] = params.configuration
+        }
+        if (params.confidence !== undefined) {
+            body['confidence'] = params.confidence
+        }
+        if (params.reasoning !== undefined) {
+            body['reasoning'] = params.reasoning
+        }
+        if (params.evidence !== undefined) {
+            body['evidence'] = params.evidence
+        }
+        const result = await context.api.request<Schemas.DataCatalogRelationshipProposal>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/relationship_proposals/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DataCatalogRelationshipRejectSchema = () => {
+    const DataCatalogRelationshipProposalsRejectCreateBody =
+        orvalSchemas.DataCatalogRelationshipProposalsRejectCreateBody()
+    const DataCatalogRelationshipProposalsRejectCreateParams =
+        orvalSchemas.DataCatalogRelationshipProposalsRejectCreateParams()
+    return DataCatalogRelationshipProposalsRejectCreateParams.omit({ project_id: true }).extend(
+        DataCatalogRelationshipProposalsRejectCreateBody.shape
+    )
+}
+
+const DataCatalogRelationshipRejectSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const dataCatalogRelationshipRejectPrepare = (): ToolBase<
+    ReturnType<typeof DataCatalogRelationshipRejectSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'data-catalog-relationship-reject-prepare',
+    schema: DataCatalogRelationshipRejectSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataCatalogRelationshipRejectSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'data-catalog-relationship-reject',
+            actionLabel: 'reject relationship',
+            messageTemplate:
+                "About to reject relationship proposal '{id}'. This permanently suppresses re-proposing the pair. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const dataCatalogRelationshipRejectExecute = (): ToolBase<
+    typeof DataCatalogRelationshipRejectSchemaExecute,
+    Schemas.DataCatalogRelationshipProposal
+> => ({
+    name: 'data-catalog-relationship-reject-execute',
+    schema: DataCatalogRelationshipRejectSchemaExecute,
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof DataCatalogRelationshipRejectSchemaExecute>
+    ) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof DataCatalogRelationshipRejectSchema>>>(
+            context,
+            {
+                incomingArgs: confirmationParams,
+                purpose: 'data-catalog-relationship-reject',
+                codec: __runtime.codec,
+                ledger: __runtime.ledger,
+                stash: __runtime.stash,
+                expectedScope: { projectId: String(__scopeProjectId) },
+            }
+        )
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.rejection_reason !== undefined) {
+            body['rejection_reason'] = params.rejection_reason
+        }
+        const result = await context.api.request<Schemas.DataCatalogRelationshipProposal>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/relationship_proposals/${encodeURIComponent(String(params.id))}/reject/`,
+            body,
+        })
+        return result
+    },
+})
+
+const MetricDescribeSchema = () => {
+    const DataCatalogMetricsRetrieveParams = orvalSchemas.DataCatalogMetricsRetrieveParams()
+    return DataCatalogMetricsRetrieveParams.omit({ project_id: true })
+}
+
+const metricDescribe = (): ToolBase<
+    ReturnType<typeof MetricDescribeSchema>,
+    WithInformationalResponse<Schemas.DataCatalogMetric>
+> => ({
+    name: 'metric-describe',
+    schema: MetricDescribeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MetricDescribeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataCatalogMetric>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,
+        })
+        return withInformationalResponse(
+            result,
+            'governed-metric-definition',
+            "Use it only to understand or adapt the metric definition for the user's request."
+        )
+    },
+})
+
+const MetricListSchema = () => {
+    const DataCatalogMetricsListQueryParams = orvalSchemas.DataCatalogMetricsListQueryParams()
+    return DataCatalogMetricsListQueryParams
+}
+
+const metricList = (): ToolBase<
+    ReturnType<typeof MetricListSchema>,
+    WithInformationalResponse<WithPostHogUrl<Schemas.PaginatedDataCatalogMetricList>>
+> => ({
+    name: 'metric-list',
+    schema: MetricListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MetricListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedDataCatalogMetricList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'name',
+                    'display_name',
+                    'description',
+                    'status',
+                    'is_drifted',
+                    'unit',
+                    'definition_kind',
+                ])
+            ),
+        } as typeof result
+        return withInformationalResponse(
+            await withPostHogUrl(context, filtered, '/data-catalog'),
+            'governed-metric-catalog',
+            "Use it only to identify a metric relevant to the user's request."
+        )
+    },
+})
+
+export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'data-catalog-certification-certify-prepare': dataCatalogCertificationCertifyPrepare,
+    'data-catalog-certification-certify-execute': dataCatalogCertificationCertifyExecute,
+    'data-catalog-certification-deprecate-prepare': dataCatalogCertificationDeprecatePrepare,
+    'data-catalog-certification-deprecate-execute': dataCatalogCertificationDeprecateExecute,
+    'data-catalog-certification-propose': dataCatalogCertificationPropose,
+    'data-catalog-metric-approve-prepare': dataCatalogMetricApprovePrepare,
+    'data-catalog-metric-approve-execute': dataCatalogMetricApproveExecute,
+    'data-catalog-metric-create': dataCatalogMetricCreate,
+    'data-catalog-metric-delete-prepare': dataCatalogMetricDeletePrepare,
+    'data-catalog-metric-delete-execute': dataCatalogMetricDeleteExecute,
+    'data-catalog-metric-run': dataCatalogMetricRun,
+    'data-catalog-metric-update': dataCatalogMetricUpdate,
+    'data-catalog-metrics-refresh-from-insight-create': dataCatalogMetricsRefreshFromInsightCreate,
+    'data-catalog-relationship-accept-prepare': dataCatalogRelationshipAcceptPrepare,
+    'data-catalog-relationship-accept-execute': dataCatalogRelationshipAcceptExecute,
+    'data-catalog-relationship-propose': dataCatalogRelationshipPropose,
+    'data-catalog-relationship-reject-prepare': dataCatalogRelationshipRejectPrepare,
+    'data-catalog-relationship-reject-execute': dataCatalogRelationshipRejectExecute,
+    'metric-describe': metricDescribe,
+    'metric-list': metricList,
+}

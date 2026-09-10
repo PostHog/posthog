@@ -1,11 +1,15 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { teamLogic } from '~/scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
-import { supportSettingsLogic } from './supportSettingsLogic'
+import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
 
 describe('supportSettingsLogic', () => {
     let logic: ReturnType<typeof supportSettingsLogic.build>
@@ -13,13 +17,13 @@ describe('supportSettingsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                'api/conversations/v1/email/status': { configs: [] },
+                '/api/conversations/v1/email/status': { configs: [] },
             },
             post: {
-                'api/environments/:team_id/': async ({ request }) => [200, await request.json()],
-                'api/conversations/v1/teams/select-channel': { ok: true, teams_channels: [] },
-                'api/conversations/v1/teams/install': { ok: true, status: 'installed' },
-                'api/conversations/v1/teams/channels': { channels: [] },
+                '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                '/api/conversations/v1/teams/select-channel': { ok: true, teams_channels: [] },
+                '/api/conversations/v1/teams/install': { ok: true, status: 'installed' },
+                '/api/conversations/v1/teams/channels': { channels: [] },
             },
         })
         initKeaTests()
@@ -27,6 +31,130 @@ describe('supportSettingsLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    describe('aiAllChannelsForFeatureFlags', () => {
+        it.each([
+            ['no flags enabled', {}, ['widget', 'email', 'slack']],
+            [
+                'teams and github enabled',
+                {
+                    [FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]: true,
+                    [FEATURE_FLAGS.PRODUCT_SUPPORT_GITHUB_CHANNEL]: true,
+                },
+                ['widget', 'email', 'slack', 'teams', 'github'],
+            ],
+        ])('%s', (_label, flags, expected) => {
+            expect(aiAllChannelsForFeatureFlags(flags)).toEqual(expected)
+        })
+    })
+
+    describe('connectEmail', () => {
+        let errorToastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
+        })
+
+        afterEach(() => {
+            errorToastSpy.mockRestore()
+        })
+
+        it.each([
+            [
+                'endpoint error',
+                { error: 'The domain is already registered with another Mailgun account.' },
+                'The domain is already registered with another Mailgun account.',
+            ],
+            ['validation error', { detail: 'Enter a valid email address.' }, 'Enter a valid email address.'],
+        ])('shows the backend reason for an %s', async (_label, body, expectedMessage) => {
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                },
+                post: {
+                    '/api/conversations/v1/email/connect': () => [400, body],
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setNewEmailFromEmail('help@example.com')
+            logic.actions.setNewEmailFromName('Example Support')
+
+            logic.actions.connectEmail()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(errorToastSpy).toHaveBeenCalledWith(expectedMessage)
+        })
+    })
+
+    describe('default email channel', () => {
+        const configs = [
+            { id: 'a', from_email: 'a@x.com', domain_verified: true, is_default: true },
+            { id: 'b', from_email: 'b@x.com', domain_verified: true, is_default: false },
+        ] as any[]
+
+        it('moves the primary flag to exactly one channel on setDefaultEmailDone', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners() // let the afterMount load settle first
+            logic.actions.loadEmailConfigsDone(configs)
+            logic.actions.setDefaultEmailDone('b')
+
+            expect(logic.values.emailConfigs.filter((c) => c.is_default).map((c) => c.id)).toEqual(['b'])
+        })
+
+        it('promotes a replacement when the primary is disconnected', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadEmailConfigsDone(configs)
+            logic.actions.disconnectEmailDone('a')
+
+            expect(logic.values.emailConfigs.map((c) => ({ id: c.id, is_default: c.is_default }))).toEqual([
+                { id: 'b', is_default: true },
+            ])
+        })
+    })
+
+    describe('aiResolutionChannels selector', () => {
+        it('drops flag-gated channels that are no longer available', async () => {
+            initKeaTests(true, {
+                conversations_settings: {
+                    slack_enabled: true,
+                    teams_enabled: true,
+                    ai_resolution_channels: ['widget', 'slack', 'teams'],
+                },
+            } as unknown as TeamType)
+            featureFlagLogic.mount()
+
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                aiAllChannels: ['widget', 'email', 'slack'],
+                aiResolutionChannels: ['widget', 'slack'],
+            })
+        })
+    })
+
+    describe('slackNeedsReconnect selector', () => {
+        it.each([
+            ['slack not connected', { slack_enabled: false }, false],
+            ['install predates scope tracking', { slack_enabled: true }, true],
+            ['install missing files:write', { slack_enabled: true, slack_scopes: ['chat:write', 'files:read'] }, true],
+            [
+                'install has both file scopes',
+                { slack_enabled: true, slack_scopes: ['chat:write', 'files:read', 'files:write'] },
+                false,
+            ],
+        ])('%s', async (_label, settings, expected) => {
+            initKeaTests(true, { conversations_settings: settings } as unknown as TeamType)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toMatchValues({ slackNeedsReconnect: expected })
+        })
     })
 
     describe('aiSuggestionsEnabled selector', () => {
@@ -76,6 +204,56 @@ describe('supportSettingsLogic', () => {
 
             logic.actions.updateCurrentTeamFailure('update failed')
             expect(logic.values.aiSuggestionsLoading).toBe(false)
+        })
+    })
+
+    describe('aiDiagnosticsEnabled selector', () => {
+        it.each([
+            ['conversations_settings is undefined', undefined, false],
+            ['ai_diagnostics_enabled is not set', { widget_enabled: true }, false],
+            ['ai_diagnostics_enabled is true', { ai_diagnostics_enabled: true }, true],
+        ])('%s', async (_label, settings, expected) => {
+            if (settings) {
+                initKeaTests(true, { conversations_settings: settings } as unknown as TeamType)
+            }
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toMatchValues({ aiDiagnosticsEnabled: expected })
+        })
+    })
+
+    describe('setAiDiagnosticsEnabled', () => {
+        it('sets loading state and dispatches updateCurrentTeam', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setAiDiagnosticsEnabled(true)
+            })
+                .toDispatchActions(['setAiDiagnosticsLoading', 'updateCurrentTeam'])
+                .toMatchValues({ aiDiagnosticsLoading: true })
+        })
+
+        it('clears loading state on updateCurrentTeamSuccess', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            logic.actions.setAiDiagnosticsLoading(true)
+            expect(logic.values.aiDiagnosticsLoading).toBe(true)
+
+            logic.actions.updateCurrentTeamSuccess({} as TeamType)
+            expect(logic.values.aiDiagnosticsLoading).toBe(false)
+        })
+
+        it('clears loading state on updateCurrentTeamFailure', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            logic.actions.setAiDiagnosticsLoading(true)
+            expect(logic.values.aiDiagnosticsLoading).toBe(true)
+
+            logic.actions.updateCurrentTeamFailure('update failed')
+            expect(logic.values.aiDiagnosticsLoading).toBe(false)
         })
     })
 
@@ -164,13 +342,13 @@ describe('supportSettingsLogic', () => {
 
             useMocks({
                 get: {
-                    'api/conversations/v1/email/status': { configs: [] },
+                    '/api/conversations/v1/email/status': { configs: [] },
                 },
                 post: {
-                    'api/environments/:team_id/': async ({ request }) => [200, await request.json()],
-                    'api/conversations/v1/teams/select-channel': { ok: true, teams_channels: updatedChannels },
-                    'api/conversations/v1/teams/install': { ok: true, status: 'installed' },
-                    'api/conversations/v1/teams/channels': { channels: [] },
+                    '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                    '/api/conversations/v1/teams/select-channel': { ok: true, teams_channels: updatedChannels },
+                    '/api/conversations/v1/teams/install': { ok: true, status: 'installed' },
+                    '/api/conversations/v1/teams/channels': { channels: [] },
                 },
             })
 

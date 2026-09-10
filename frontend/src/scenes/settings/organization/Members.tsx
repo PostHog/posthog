@@ -185,7 +185,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 }
 
 export function Members(): JSX.Element | null {
-    const { filteredMembers, membersLoading, search } = useValues(membersLogic)
+    const { filteredMembers, members, membersLoading, search } = useValues(membersLogic)
     const { downloadMembersListDisabledReason } = useValues(membersExportLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
@@ -196,6 +196,8 @@ export function Members(): JSX.Element | null {
     const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
 
     const adminRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const hasHiddenMembers =
+        (members?.length ?? 0) > 0 && (members?.length ?? 0) < (currentOrganization?.member_count ?? 0)
 
     useOnMountEffect(ensureAllMembersLoaded)
 
@@ -351,9 +353,35 @@ export function Members(): JSX.Element | null {
                 data-attr="org-members-table"
                 defaultSorting={{ columnKey: 'level', order: -1 }}
                 pagination={{ pageSize: 50 }}
+                footer={
+                    hasHiddenMembers && (
+                        <div className="flex items-center gap-2 px-3 py-2">
+                            <div className="flex">
+                                {[0, 1, 2].map((index) => (
+                                    <ProfilePicture
+                                        key={index}
+                                        name="?"
+                                        index={index}
+                                        size="md"
+                                        className={index > 0 ? '-ml-1.5' : ''}
+                                    />
+                                ))}
+                            </div>
+                            <span className="text-secondary">
+                                Other organization members{' '}
+                                <Tooltip title="Your organization only shows the full member list to admins.">
+                                    <IconInfo className="text-base align-middle" />
+                                </Tooltip>
+                            </span>
+                        </div>
+                    )
+                }
             />
             <h3 className="mt-4">Two-factor authentication</h3>
-            <PayGateMini feature={AvailableFeature.TWOFA_ENFORCEMENT}>
+            <PayGateMini
+                feature={AvailableFeature.TWOFA_ENFORCEMENT}
+                featureDetail="organization-members-two-factor-authentication"
+            >
                 <p>Require all organization members to use two-factor authentication.</p>
                 <LemonSwitch
                     label="Enforce 2FA"
@@ -365,7 +393,10 @@ export function Members(): JSX.Element | null {
             </PayGateMini>
 
             <h3 className="mt-4">Invite settings</h3>
-            <PayGateMini feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}>
+            <PayGateMini
+                feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}
+                featureDetail="organization-member-and-project-invites"
+            >
                 <p>Control who can send organization invites.</p>
                 <LemonSwitch
                     label={
@@ -399,7 +430,10 @@ export function Members(): JSX.Element | null {
             {posthog.isFeatureEnabled(FEATURE_FLAGS.MEMBERS_CAN_USE_PERSONAL_API_KEYS) && (
                 <>
                     <h3 className="mt-4">Security settings</h3>
-                    <PayGateMini feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}>
+                    <PayGateMini
+                        feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
+                        featureDetail="organization-members-personal-api-key-access"
+                    >
                         <p>Configure security permissions for organization members.</p>
                         <LemonSwitch
                             label={

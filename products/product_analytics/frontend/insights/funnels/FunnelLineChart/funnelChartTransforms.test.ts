@@ -1,5 +1,3 @@
-import type { FunnelStepWithNestedBreakdown } from '~/types'
-
 import { buildFunnelLineSeries, buildFunnelLineTimeSeriesConfig, type IndexedFunnelStep } from './funnelChartTransforms'
 
 const RED = '#ff0000'
@@ -56,6 +54,19 @@ describe('funnelChartTransforms', () => {
 
             expect(series[0].meta).toMatchObject({ breakdown_value: 'Spike', compare_label: 'current' })
             expect(series[1].meta).toMatchObject({ breakdown_value: 'Spike', compare_label: 'previous' })
+        })
+
+        it('carries the per-period conversion counts into series meta', () => {
+            const step = makeStep({
+                reached_from_step_count: [200, 200, 200, 200, 200],
+                reached_to_step_count: [20, 40, 60, 80, 100],
+            })
+            const series = buildFunnelLineSeries([step], { getColor: () => RED })
+
+            expect(series[0].meta).toMatchObject({
+                reached_from_step_count: [200, 200, 200, 200, 200],
+                reached_to_step_count: [20, 40, 60, 80, 100],
+            })
         })
 
         it('normalises missing data to an empty array so the trends transform accepts it', () => {
@@ -168,14 +179,6 @@ describe('funnelChartTransforms', () => {
             })
 
             expect(config.trendLines).toBeUndefined()
-        })
-    })
-
-    describe('type contracts', () => {
-        it('IndexedFunnelStep is assignable from FunnelStepWithNestedBreakdown', () => {
-            const step: FunnelStepWithNestedBreakdown = makeStep()
-            const indexed: IndexedFunnelStep = { ...step, id: 0, seriesIndex: 0, colorIndex: 0 }
-            expect(indexed.id).toBe(0)
         })
     })
 })

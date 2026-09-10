@@ -1,0 +1,22 @@
+{
+    "compilerOptions": {
+        "module": "nodenext",
+        "target": "esnext",
+        "declaration": true,
+        "removeComments": true,
+        "moduleResolution": "nodenext",
+        "esModuleInterop": true,
+        "allowJs": true,
+        "sourceMap": true,
+        "rootDir": "src/",
+        "outDir": "dist/",
+        "types": ["node"],
+        "resolveJsonModule": true,
+        "strict": true,
+        "noImplicitAny": true,
+        "useUnknownInCatchVariables": false,
+        "skipLibCheck": true
+    },
+    "include": ["src"],
+    "exclude": ["node_modules", "dist", "bin"]
+}

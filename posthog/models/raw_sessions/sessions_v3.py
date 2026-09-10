@@ -235,23 +235,9 @@ def ALTER_SHARDED_RAW_SESSIONS_TABLE_SETTINGS_V3():
     )
 
 
-SESSION_V3_LOWER_TIER_AD_IDS = [
-    "gclsrc",
-    "dclid",
-    "gbraid",
-    "wbraid",
-    "msclkid",
-    "twclid",
-    "li_fat_id",
-    "mc_cid",
-    "igshid",
-    "ttclid",
-    "epik",
-    "qclid",
-    "sccid",
-    "_kx",
-    "irclid",
-]
+# Re-exported from the Django-free posthog.raw_sessions_v3_ad_ids module so the HogQL schema can
+# use it without booting Django; kept importable here for existing callers.
+from posthog.raw_sessions_v3_ad_ids import SESSION_V3_LOWER_TIER_AD_IDS  # noqa: E402
 
 new_line = "\n"
 
@@ -767,49 +753,6 @@ FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}
 GROUP BY session_id_v7, session_timestamp, team_id
 """
 )
-
-RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_V3 = """
-SELECT
-    value,
-    count(value)
-FROM (
-    SELECT
-        {property_expr} as value
-    FROM
-        raw_sessions_v3
-    WHERE
-        team_id = %(team_id)s AND
-        session_timestamp >= now() - INTERVAL 30 DAY AND
-        {property_expr} IS NOT NULL AND
-        {property_expr} != ''
-    ORDER BY session_id_v7 DESC
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY count(value) DESC
-LIMIT 20
-"""
-
-RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER_V3 = """
-SELECT
-    value,
-    count(value)
-FROM (
-    SELECT
-        {property_expr} as value
-    FROM
-        raw_sessions_v3
-    WHERE
-        team_id = %(team_id)s AND
-        session_timestamp >= now() - INTERVAL 30 DAY AND
-        {property_expr} ILIKE %(value)s
-    ORDER BY session_id_v7 DESC
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY count(value) DESC
-LIMIT 20
-"""
 
 
 def GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(

@@ -4,8 +4,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -19,6 +19,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
+import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
+
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { DuplicateToProjectModal } from './DuplicateToProjectModal'
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
@@ -28,6 +30,7 @@ export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
     productKey: ProductKey.SURVEYS,
+    emptyState: surveysEmptyState,
 }
 
 function NewSurveyButton(): JSX.Element {
@@ -42,7 +45,7 @@ function NewSurveyButton(): JSX.Element {
 
     return (
         <AccessControlAction resourceType={AccessControlResourceType.Survey} minAccessLevel={AccessControlLevel.Editor}>
-            <AppShortcut
+            <Shortcut
                 name="NewSurvey"
                 keybind={[keyBinds.new]}
                 intent="New survey"
@@ -59,7 +62,7 @@ function NewSurveyButton(): JSX.Element {
                 >
                     New survey
                 </LemonButton>
-            </AppShortcut>
+            </Shortcut>
         </AccessControlAction>
     )
 }

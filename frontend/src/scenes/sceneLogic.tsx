@@ -1,6 +1,19 @@
-import equal from 'fast-deep-equal'
-import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { deepEqual as equal } from 'fast-equals'
+import {
+    MakeLogicType,
+    BuiltLogic,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
+import { combineUrl, router, urlToAction } from 'kea-router'
+import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
@@ -12,6 +25,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import { retryImport } from 'lib/utils/retryImport'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import {
@@ -38,13 +52,14 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
 
+import type { BillingType } from '../types'
 import { handleLoginRedirect } from './authentication/login/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { parseCouponCampaign } from './coupons/utils'
 import { isOnboardingRedirectSuppressed } from './onboarding/legacy/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
-import type { sceneLogicType } from './sceneLogicType'
+import type { SceneProps } from './sceneTypes'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
@@ -60,17 +75,15 @@ interface MountedSceneLogic {
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
 /**
- * Homepage tab snapshot for JSON persistence: strips `sceneParams` (deep/cyclic routing state),
- * ensures an id, and marks it pinned + inactive. Every other `SceneTab` field is kept so new fields
- * aren't forgotten; if a future field holds non-plain data, omit it here explicitly.
+ * Homepage snapshot for JSON persistence: strips `sceneParams` (deep/cyclic routing state) and
+ * ensures an id. Every other `SceneTab` field is kept so new fields aren't forgotten; if a future
+ * field holds non-plain data, omit it here explicitly.
  */
 const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
     const { sceneParams: _omitSceneParams, ...rest } = tab
     return {
         ...rest,
         id: tab.id || generateTabId(),
-        pinned: true,
-        active: false,
     }
 }
 
@@ -78,7 +91,15 @@ const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
 // before any async fetch — otherwise urlToAction runs with a null homepage and /home can't redirect.
 const getBootstrappedHomepage = (): SceneTab | null => {
     const homepage = getAppContext()?.homepage
-    return homepage ? tabToPersistableSnapshot(homepage) : null
+    if (!homepage) {
+        return null
+    }
+    // A homepage saved against a scene that no longer ships would send `/` to a dead route on
+    // every visit, with no way back except reconfiguring it. Fall back to the project default.
+    if (homepage.sceneId && !sceneConfigurations[homepage.sceneId]) {
+        return null
+    }
+    return tabToPersistableSnapshot(homepage)
 }
 
 const pathPrefixesOnboardingNotRequiredFor = [
@@ -86,7 +107,6 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/settings',
     urls.organizationBilling(),
     urls.billingAuthorizationStatus(),
-    urls.wizard(),
     '/instance',
     urls.moveToPostHogCloud(),
     urls.unsubscribe(),
@@ -99,6 +119,10 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/integrations',
     // /account-connected/<kind> — return after linking GitHub etc.; /complete/github-link/ redirects here.
     '/account-connected',
+    // /account/* — credential/passkey round-trips (e.g. /account/credential-review) must complete
+    // even when onboarding is incomplete, else finishing security setup bounces straight back to
+    // /onboarding and the user is stuck in a redirect loop.
+    '/account',
     // /oauth/authorize and any /oauth/* callback path.
     '/oauth',
     // /connect/vercel/link (urls.vercelConnect) and other connect round-trips.
@@ -107,10 +131,22 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/agentic',
     // /cli/authorize, /cli/live (CLI auth round-trip).
     '/cli',
+    // /stamphog/install/callback — GitHub App install round-trip carrying a one-time OAuth code;
+    // if /onboarding swallows it the installation completes on GitHub but no repos ever connect.
+    '/stamphog/install/callback',
+    // /verify_email/<uuid>/<token> — email verification/change confirmation must run its
+    // urlToAction (POST /api/users/verify_email/) even when onboarding is incomplete, else
+    // /onboarding swallows the click and the email is never updated.
+    urls.verifyEmail(),
     '/startups',
     '/coupons',
     '/legal',
 ]
+
+export function isOnboardingNotRequiredForPath(pathname: string): boolean {
+    const path = removeProjectIdIfPresent(pathname)
+    return pathPrefixesOnboardingNotRequiredFor.some((prefix) => path.startsWith(prefix))
+}
 
 const DelayedLoadingSpinner = (): JSX.Element => {
     const [show, setShow] = useState(false)
@@ -169,6 +205,172 @@ export function withForwardedSearchParams(
     return redirectUrlObj.pathname + redirectUrlObj.search + redirectUrlObj.hash
 }
 
+/**
+ * Builds a redirect URL that carries the incoming hash (e.g. #panel=max:<prompt>, merged over any
+ * hash the target already has) plus the allow-listed query params, so URL-driven side panel prompts
+ * survive scene redirects like `/` → the homepage.
+ */
+function withForwardedHashAndSearchParams(
+    redirectUrl: string,
+    currentSearchParams: Params,
+    hashParams: Params,
+    forwardedQueryParams: string[]
+): string {
+    return withForwardedSearchParams(
+        combineUrl(redirectUrl, {}, hashParams).url,
+        currentSearchParams,
+        forwardedQueryParams
+    )
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sceneLogicValues {
+    billing: BillingType | null // billingLogic
+    organizationBeingDeleted: string | null // organizationLogic
+    activeExportedScene: SceneExport<SceneProps> | null
+    activeLoadedScene: LoadedScene | null
+    activeSceneComponentParams: Record<string, any>
+    activeSceneId: string | null
+    activeSceneLogic: BuiltLogic | null
+    activeSceneLogicProps: Record<string, any>
+    activeSceneProductKey: ProductKey | null
+    exportedScenes: Record<string, SceneExport<SceneProps>>
+    hashParams: Record<string, any>
+    homepage: SceneTab | null
+    lastReloadAt: number | null
+    lastSetScenePayload: Record<string, any>
+    loadingScene: string | null
+    sceneConfig: SceneConfig | null
+    sceneId: string | null
+    sceneKey: string | null
+    sceneParams: SceneParams
+    searchParams: Record<string, any>
+    titleAndIcon: {
+        iconType: FileSystemIconType | 'blank' | 'loading'
+        title: string
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sceneLogicActions {
+    hideInviteModal: () => {
+        value: true
+    } // inviteLogic
+    locationChanged: ({
+        method,
+        pathname,
+        search,
+        searchParams,
+        hash,
+        hashParams,
+        initial,
+        url,
+        routerState,
+    }: LocationChangedPayload) => {
+        hash: string
+        hashParams: Record<string, any>
+        initial: boolean
+        method: 'POP' | 'PUSH' | 'REPLACE'
+        pathname: string
+        routerState: Record<string, any>
+        search: string
+        searchParams: Record<string, any>
+        url: string
+    } // router
+    loadScene: (
+        sceneId: string,
+        sceneKey: string | undefined,
+        params: SceneParams,
+        method: string
+    ) => {
+        method: string
+        params: SceneParams
+        sceneId: string
+        sceneKey: string | undefined
+    }
+    openScene: (
+        sceneId: string,
+        sceneKey: string | undefined,
+        params: SceneParams,
+        method: string
+    ) => {
+        method: string
+        params: SceneParams
+        sceneId: string
+        sceneKey: string | undefined
+    }
+    reloadBrowserDueToImportError: () => {
+        value: true
+    }
+    setExportedScene: (
+        exportedScene: SceneExport,
+        sceneId: string,
+        sceneKey: string | undefined,
+        params: SceneParams
+    ) => {
+        exportedScene: SceneExport<SceneProps>
+        params: SceneParams
+        sceneId: string
+        sceneKey: string | undefined
+    }
+    setHomepage: (tab: SceneTab | null) => {
+        tab: SceneTab | null
+    }
+    setScene: (
+        sceneId: string,
+        sceneKey: string | undefined,
+        params: SceneParams,
+        scrollToTop?: boolean,
+        exportedScene?: SceneExport
+    ) => {
+        exportedScene: SceneExport<SceneProps> | undefined
+        params: SceneParams
+        sceneId: string
+        sceneKey: string | undefined
+        scrollToTop: boolean
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sceneLogicProps {
+    scenes?: Record<string, () => any>
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sceneLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        sceneConfig: (sceneId: string | null) => SceneConfig | null
+        activeSceneId: (sceneId: string | null, isCurrentTeamUnavailable: boolean) => string | null
+        activeExportedScene: (
+            activeSceneId: string | null,
+            exportedScenes: Record<string, SceneExport<SceneProps>>
+        ) => SceneExport<SceneProps> | null
+        activeLoadedScene: (
+            activeSceneId: string | null,
+            activeExportedScene: SceneExport<SceneProps> | null,
+            sceneParams: SceneParams
+        ) => LoadedScene | null
+        activeSceneComponentParams: (sceneParams: SceneParams) => Record<string, any>
+        activeSceneLogicProps: (
+            activeExportedScene: SceneExport<SceneProps> | null,
+            sceneParams: SceneParams
+        ) => Record<string, any>
+        activeSceneLogic: (
+            activeExportedScene: SceneExport<SceneProps> | null,
+            activeSceneLogicProps: Record<string, any>
+        ) => BuiltLogic | null
+        searchParams: (sceneParams: SceneParams) => Record<string, any>
+        hashParams: (sceneParams: SceneParams) => Record<string, any>
+        titleAndIcon: (arg: { iconType: FileSystemIconType | 'blank' | 'loading'; title: string }) => {
+            iconType: FileSystemIconType | 'blank' | 'loading'
+            title: string
+        }
+        activeSceneProductKey: (activeExportedScene: SceneExport<SceneProps> | null) => ProductKey | null
+    }
+}
+
+export type sceneLogicType = MakeLogicType<sceneLogicValues, sceneLogicActions, sceneLogicProps, sceneLogicMeta>
+
 export const sceneLogic = kea<sceneLogicType>([
     props(
         {} as {
@@ -178,7 +380,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
 
     connect(() => ({
-        logic: [router, userLogic, preflightLogic],
+        logic: [router, userLogic, preflightLogic, teamLogic],
         actions: [router, ['locationChanged'], inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
@@ -308,7 +510,7 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         activeSceneId: [
             (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable],
-            (sceneId, isCurrentTeamUnavailable) => {
+            (sceneId: string | null, isCurrentTeamUnavailable: boolean) => {
                 const effectiveResourceAccessControl = getAppContext()?.effective_resource_access_control
 
                 // Get the access control resource type for the current scene
@@ -339,14 +541,21 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         activeExportedScene: [
             (s) => [s.activeSceneId, s.exportedScenes],
-            (activeSceneId, exportedScenes) => {
+            (
+                activeSceneId: string | null,
+                exportedScenes: Record<string, SceneExport<import('scenes/sceneTypes').SceneProps>>
+            ) => {
                 return activeSceneId ? exportedScenes[activeSceneId] : null
             },
             { resultEqualityCheck: (a, b) => a === b },
         ],
         activeLoadedScene: [
             (s) => [s.activeSceneId, s.activeExportedScene, s.sceneParams],
-            (activeSceneId, activeExportedScene, sceneParams): LoadedScene | null => {
+            (
+                activeSceneId: string | null,
+                activeExportedScene: SceneExport<import('scenes/sceneTypes').SceneProps> | null,
+                sceneParams: SceneParams
+            ): LoadedScene | null => {
                 return {
                     ...(activeExportedScene ?? { component: DelayedLoadingSpinner }),
                     id: activeSceneId ?? Scene.Error404,
@@ -356,7 +565,7 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         activeSceneComponentParams: [
             (s) => [s.sceneParams],
-            (sceneParams): Record<string, any> => {
+            (sceneParams: SceneParams): Record<string, any> => {
                 return {
                     ...sceneParams.params,
                 }
@@ -365,7 +574,10 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         activeSceneLogicProps: [
             (s) => [s.activeExportedScene, s.sceneParams],
-            (activeExportedScene, sceneParams): Record<string, any> => {
+            (
+                activeExportedScene: SceneExport<import('scenes/sceneTypes').SceneProps> | null,
+                sceneParams: SceneParams
+            ): Record<string, any> => {
                 return {
                     ...activeExportedScene?.paramsToProps?.(sceneParams),
                 }
@@ -374,7 +586,10 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
         activeSceneLogic: [
             (s) => [s.activeExportedScene, s.activeSceneLogicProps],
-            (activeExportedScene, activeSceneLogicProps): BuiltLogic | null => {
+            (
+                activeExportedScene: SceneExport<import('scenes/sceneTypes').SceneProps> | null,
+                activeSceneLogicProps: Record<string, any>
+            ): BuiltLogic | null => {
                 if (activeExportedScene?.logic) {
                     try {
                         return activeExportedScene.logic.build(activeSceneLogicProps)
@@ -396,8 +611,14 @@ export const sceneLogic = kea<sceneLogicType>([
                 return null
             },
         ],
-        searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
-        hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
+        searchParams: [
+            (s) => [s.sceneParams],
+            (sceneParams: SceneParams): Record<string, any> => sceneParams.searchParams || {},
+        ],
+        hashParams: [
+            (s) => [s.sceneParams],
+            (sceneParams: SceneParams): Record<string, any> => sceneParams.hashParams || {},
+        ],
 
         titleAndIcon: [
             (s) => [
@@ -433,7 +654,8 @@ export const sceneLogic = kea<sceneLogicType>([
                     return { title: '...', iconType: 'loading' }
                 },
             ],
-            (titleAndIcon) => titleAndIcon as { title: string; iconType: FileSystemIconType | 'loading' | 'blank' },
+            (titleAndIcon: { iconType: FileSystemIconType | 'blank' | 'loading'; title: string }) =>
+                titleAndIcon as { title: string; iconType: FileSystemIconType | 'loading' | 'blank' },
             { resultEqualityCheck: equal },
         ],
         activeSceneProductKey: [
@@ -523,9 +745,6 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     }
                 } catch (error) {
-                    // Scene logic builders (e.g. dashboardLogic.key()) can throw on malformed
-                    // route params like `/dashboard/abc`. Capture so regressions surface, then
-                    // route to Error404 so the user sees a proper 404 instead of a blank crash.
                     posthog.captureException(error, { extra: { sceneId, sceneKey } })
                     newLogicErrored = true
                 }
@@ -627,9 +846,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         // If the delegation invite is cancelled or expires, the backend clears
                         // onboarding_delegated_to_invite and the redirect re-fires.
                         !isOnboardingRedirectSuppressed(user) &&
-                        !pathPrefixesOnboardingNotRequiredFor.some((path) =>
-                            removeProjectIdIfPresent(location.pathname).startsWith(path)
-                        )
+                        !isOnboardingNotRequiredForPath(location.pathname)
                     ) {
                         const nextUrl =
                             getRelativeNextPath(params.searchParams.next, location) ??
@@ -677,7 +894,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 let importedScene
                 try {
                     window.ESBUILD_LOAD_CHUNKS?.(sceneId)
-                    importedScene = await props.scenes[sceneId]()
+                    // Capture the importer in the narrowed scope; the early guard above ensures it's
+                    // defined, but that narrowing wouldn't flow into the retryImport closure.
+                    const importScene = props.scenes[sceneId]
+                    importedScene = await retryImport(() => importScene())
                 } catch (error: any) {
                     if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error
@@ -733,20 +953,33 @@ export const sceneLogic = kea<sceneLogicType>([
     })),
 
     urlToAction(({ actions, values }) => {
-        const mapping: Record<
-            string,
-            (
-                params: Params,
-                searchParams: Params,
-                hashParams: Params,
-                payload: {
-                    method: string
+        type RouteHandler = (
+            params: Params,
+            searchParams: Params,
+            hashParams: Params,
+            payload: {
+                method: string
+            }
+        ) => any
+        const mapping: Record<string, RouteHandler> = {}
+
+        // Malformed URLs (a stray `%`, embedded whitespace) can make redirect building or
+        // scene dispatch throw synchronously while kea-router matches the route. Nothing
+        // upstream catches it, so the whole app fails to render. Guard every route handler:
+        // capture the error and fall back to a 404 instead of crashing.
+        const guardRoute =
+            (handler: RouteHandler): RouteHandler =>
+            (params, searchParams, hashParams, payload) => {
+                try {
+                    return handler(params, searchParams, hashParams, payload)
+                } catch (error) {
+                    posthog.captureException(error, { extra: { source: 'sceneLogic.urlToAction' } })
+                    actions.loadScene(Scene.Error404, undefined, emptySceneParams, payload.method)
                 }
-            ) => any
-        > = {}
+            }
 
         for (const path of Object.keys(redirects)) {
-            mapping[path] = (params, searchParams, hashParams) => {
+            mapping[path] = guardRoute((params, searchParams, hashParams) => {
                 const redirect = redirects[path]
                 const redirectUrl =
                     typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
@@ -754,12 +987,12 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(
                     withForwardedSearchParams(redirectUrl, searchParams, forwardedRedirectQueryParams)
                 )
-            }
+            })
         }
         // The Home button (via `/`) and a direct visit to /home should both land on the user's
         // configured homepage (set in the Configure home modal). Redirect there unless we're
         // already at it, which also guards against loops when the homepage is the launchpad itself.
-        const redirectToConfiguredHomepage = (searchParams: Params): boolean => {
+        const redirectToConfiguredHomepage = (searchParams: Params, hashParams: Params): boolean => {
             const homepage = values.homepage
             if (!homepage) {
                 return false
@@ -768,11 +1001,12 @@ export const sceneLogic = kea<sceneLogicType>([
             if (removeProjectIdIfPresent(targetPathname) === '/') {
                 targetPathname = addProjectIdIfMissing(urls.projectHomepage())
             }
-            // Forward allow-listed params (e.g. modal) onto the homepage the same way the launchpad
-            // redirect does, and compare against that final target so a forwarded param can't loop.
-            const target = withForwardedSearchParams(
+            // Forward the incoming hash and allow-listed params (e.g. modal) onto the homepage, and
+            // compare against that final target so a forwarded param can't loop.
+            const target = withForwardedHashAndSearchParams(
                 targetPathname + (homepage.search || '') + (homepage.hash || ''),
                 searchParams,
+                hashParams,
                 forwardedRedirectQueryParams
             )
             const loc = router.values.currentLocation
@@ -783,20 +1017,25 @@ export const sceneLogic = kea<sceneLogicType>([
             return true
         }
 
-        mapping['/'] = (_params, searchParams) => {
-            if (redirectToConfiguredHomepage(searchParams)) {
+        mapping['/'] = guardRoute((_params, searchParams, hashParams) => {
+            if (redirectToConfiguredHomepage(searchParams, hashParams)) {
                 return
             }
             router.actions.replace(
-                withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
+                withForwardedHashAndSearchParams(
+                    urls.projectHomepage(),
+                    searchParams,
+                    hashParams,
+                    forwardedRedirectQueryParams
+                )
             )
-        }
+        })
 
         const projectHomepagePath = urls.projectHomepage()
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams, { method }) => {
+            mapping[path] = guardRoute((params, searchParams, hashParams, { method }) => {
                 // A direct visit to /home honors the configured homepage just like the Home button.
-                if (path === projectHomepagePath && redirectToConfiguredHomepage(searchParams)) {
+                if (path === projectHomepagePath && redirectToConfiguredHomepage(searchParams, hashParams)) {
                     return
                 }
                 actions.openScene(
@@ -809,7 +1048,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     },
                     method
                 )
-            }
+            })
         }
 
         mapping['/*'] = (_, __, { method }) => {

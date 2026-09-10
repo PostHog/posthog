@@ -374,9 +374,12 @@ class TestGetOrgBatchPage(APIBaseTest):
         assert page.cursor is None
 
     def test_keyset_pagination_returns_first_middle_and_final_pages(self):
-        orgs = [self.organization]
-        orgs.extend(Organization.objects.create(name=f"Org {i}") for i in range(4))
-        expected_ids = sorted(str(org.id) for org in orgs)
+        for i in range(4):
+            Organization.objects.create(name=f"Org {i}")
+        # Expected ids come from the database rather than just the orgs created above:
+        # committed strays from earlier suites can survive in CI's shared --reuse-db
+        # database, and pagination pages over whatever exists.
+        expected_ids = sorted(str(oid) for oid in Organization.objects.values_list("id", flat=True))
 
         first_page = _get_org_batch_page(
             OrgBatchPageInput(
@@ -387,25 +390,20 @@ class TestGetOrgBatchPage(APIBaseTest):
         assert [oid for batch in first_page.batches for oid in batch] == expected_ids[:2]
         assert first_page.cursor == expected_ids[1]
 
-        middle_page = _get_org_batch_page(
-            OrgBatchPageInput(
-                workflow_input=WAWeeklyDigestInput(active_since_days=None, batch_size=2),
-                cursor=first_page.cursor,
-                page_size=2,
+        final_ids: list[str] = []
+        cursor: str | None = first_page.cursor
+        while cursor is not None:
+            page = _get_org_batch_page(
+                OrgBatchPageInput(
+                    workflow_input=WAWeeklyDigestInput(active_since_days=None, batch_size=2),
+                    cursor=cursor,
+                    page_size=2,
+                )
             )
-        )
-        assert [oid for batch in middle_page.batches for oid in batch] == expected_ids[2:4]
-        assert middle_page.cursor == expected_ids[3]
+            final_ids.extend(oid for batch in page.batches for oid in batch)
+            cursor = page.cursor
 
-        final_page = _get_org_batch_page(
-            OrgBatchPageInput(
-                workflow_input=WAWeeklyDigestInput(active_since_days=None, batch_size=2),
-                cursor=middle_page.cursor,
-                page_size=2,
-            )
-        )
-        assert [oid for batch in final_page.batches for oid in batch] == expected_ids[4:]
-        assert final_page.cursor is None
+        assert expected_ids[:2] + final_ids == expected_ids
 
     def test_active_since_filter_excludes_orgs_with_only_dormant_members(self):
         self.user.last_login = timezone.now()

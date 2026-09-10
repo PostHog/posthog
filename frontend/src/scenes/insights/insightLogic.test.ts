@@ -2,8 +2,11 @@ import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -576,6 +579,32 @@ describe('insightLogic', () => {
         await expectLogic(logic).toDispatchActions([savedInsightsLogic().actionTypes.updateInsight])
     })
 
+    test('saveInsight clears the browser draft only when saving a new insight', async () => {
+        const draftKey = `draft-query-${MOCK_TEAM_ID}`
+        localStorage.setItem(draftKey, JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 1 }))
+
+        const updateProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            cachedInsight: { id: 42, short_id: Insight42, query: examples.FunnelsQuery, result: {} },
+        }
+        logic = insightLogic(updateProps)
+        logic.mount()
+        insightDataLogic(updateProps).mount()
+        await expectLogic(logic, () => {
+            logic.actions.saveInsight()
+        }).toFinishAllListeners()
+        expect(localStorage.getItem(draftKey)).not.toBeNull()
+
+        const newProps: InsightLogicProps = { dashboardItemId: 'new' }
+        logic = insightLogic(newProps)
+        logic.mount()
+        insightDataLogic(newProps).mount()
+        await expectLogic(logic, () => {
+            logic.actions.saveInsight()
+        }).toFinishAllListeners()
+        expect(localStorage.getItem(draftKey)).toBeNull()
+    })
+
     test('saveInsight updates dashboards', async () => {
         const dashLogic = dashboardLogic({ id: MOCK_DASHBOARD_ID })
         dashLogic.mount()
@@ -693,6 +722,32 @@ describe('insightLogic', () => {
                         return name === 'new name' && description === 'new description'
                     }),
                 })
+        })
+
+        it('updates query and savedInsight.query on renameInsightSuccess (display-option save)', async () => {
+            const updatedQuery: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { showLegend: true },
+                },
+            }
+            const originalResult = logic.values.insight.result
+
+            insightsModel.actions.renameInsightSuccess(
+                insightModelWith({
+                    id: 42,
+                    short_id: Insight42,
+                    query: updatedQuery,
+                    result: null, // display-option PATCHes don't recompute — server returns null
+                })
+            )
+
+            // query updated, existing result preserved (not blanked by the null in the response)
+            expect(objectsEqual(logic.values.insight.query, updatedQuery)).toBe(true)
+            expect(logic.values.insight.result).toEqual(originalResult)
+            expect(objectsEqual(logic.values.savedInsight.query, updatedQuery)).toBe(true)
         })
 
         it('does not react to rename of a different insight', async () => {
@@ -991,6 +1046,50 @@ describe('insightLogic', () => {
 
             await expectLogic(router).toNotHaveDispatchedActions(['push'])
         })
+
+        it('marks the insight as duplicating until the request settles', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+            })
+                .toMatchValues({ insightDuplicating: true })
+                .toFinishAllListeners()
+                .toMatchValues({ insightDuplicating: false })
+        })
+
+        // Catching the rejection skips the gate `initKea` applies to loader failures, so the
+        // listener has to reapply it: a validation error is the app's own bug and stays
+        // reportable, while an access-denied 403 the AccessDenied scene already handles would
+        // file an issue sharing its stack with every other ApiError, burying real crashes.
+        it.each([
+            ['a validation error', 400, { detail: 'Insight limit reached' }, 1],
+            [
+                'a failure the app recovers from',
+                403,
+                { detail: 'You do not have permission', code: 'permission_denied' },
+                0,
+            ],
+        ])(
+            'toasts %s rather than doing nothing, and reports it only if it is worth filing',
+            async (_, status, body, timesReported) => {
+                useMocks({
+                    post: {
+                        '/api/environments/:team_id/insights/': () => [status, body],
+                    },
+                })
+                jest.spyOn(lemonToast, 'error')
+                jest.spyOn(posthog, 'captureException')
+
+                await expectLogic(logic, () => {
+                    logic.actions.duplicateInsight(logic.values.insight as QueryBasedInsightModel, true)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ insightDuplicating: false })
+
+                expect(lemonToast.error).toHaveBeenCalledWith(body.detail)
+                expect(posthog.captureException).toHaveBeenCalledTimes(timesReported)
+                await expectLogic(router).toNotHaveDispatchedActions(['push'])
+            }
+        )
     })
 
     describe('hasOverrides', () => {
@@ -1013,6 +1112,88 @@ describe('insightLogic', () => {
             logic.mount()
 
             expect(logic.values.hasOverrides).toBe(expected)
+        })
+    })
+
+    describe('loadInsight refresh mode', () => {
+        // Overridden queries get their own cache key, which nothing warms — a cache-only-ish
+        // `async` read yields `result: null` and the scene shows "Chart data didn't load".
+        const seenRefreshParams: (string | null)[] = []
+
+        beforeEach(() => {
+            seenRefreshParams.length = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': ({ request }) => {
+                        const url = new URL(request.url)
+                        seenRefreshParams.push(url.searchParams.get('refresh'))
+                        return [
+                            200,
+                            {
+                                results: [
+                                    {
+                                        id: 42,
+                                        short_id: Insight42,
+                                        result: ['result from api'],
+                                        filters: API_FILTERS,
+                                        name: 'original name',
+                                    },
+                                ],
+                            },
+                        ]
+                    },
+                },
+            })
+        })
+
+        it('uses async without overrides', async () => {
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+
+            expect(seenRefreshParams).toEqual(['async'])
+        })
+
+        it('blocks on a cache miss when overrides are present', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                dashboardId: 33,
+                filtersOverride: { date_from: '-14d' },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+
+            expect(seenRefreshParams).toEqual(['async_except_on_cache_miss'])
+        })
+
+        it('treats empty overrides as no overrides', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                dashboardId: 33,
+                filtersOverride: {},
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+
+            expect(seenRefreshParams).toEqual(['async'])
+        })
+    })
+
+    describe('insightMissing', () => {
+        // A notebook cell binds a saved insight by short id. When that insight is gone, the API
+        // returns no results and the loader throws — the cell needs a flag it can turn into a
+        // "not found" screen instead of silently rendering a blank default query.
+        it('is set when the insight cannot be found', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [200, { results: [] }],
+                },
+            })
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightFailure'])
+
+            expect(logic.values.insightMissing).toBe(true)
         })
     })
 
@@ -1140,6 +1321,58 @@ describe('insightLogic', () => {
                 .toMatchValues({
                     savedInsight: partial({ favorited: true }),
                 })
+        })
+    })
+
+    describe('updateDashboardInsight query merge', () => {
+        const canonicalQuery = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
+                dateRange: { date_from: 'all' },
+            },
+        }
+        const dashboardOverriddenQuery = {
+            ...canonicalQuery,
+            source: {
+                ...canonicalQuery.source,
+                dateRange: { date_from: '-14d' },
+            },
+        }
+
+        beforeEach(() => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                dashboardId: MOCK_DASHBOARD_ID,
+                cachedInsight: insightModelWith({ query: canonicalQuery }),
+            })
+            logic.mount()
+        })
+
+        it('does not overwrite the canonical query on a dashboard-scoped refresh', async () => {
+            dashboardsModel.actions.updateDashboardInsight(
+                insightModelWith({
+                    query: dashboardOverriddenQuery,
+                    dashboards: [MOCK_DASHBOARD_ID],
+                    dashboard_tiles: [{ dashboard_id: MOCK_DASHBOARD_ID }],
+                }),
+                undefined,
+                MOCK_DASHBOARD_ID
+            )
+
+            await expectLogic(logic).toMatchValues({ insight: partial({ query: canonicalQuery }) })
+        })
+
+        it('applies the query from a non-scoped update', async () => {
+            dashboardsModel.actions.updateDashboardInsight(
+                insightModelWith({
+                    query: dashboardOverriddenQuery,
+                    dashboards: [MOCK_DASHBOARD_ID],
+                })
+            )
+
+            await expectLogic(logic).toMatchValues({ insight: partial({ query: dashboardOverriddenQuery }) })
         })
     })
 })

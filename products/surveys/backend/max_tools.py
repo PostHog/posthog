@@ -18,6 +18,7 @@ from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
 from products.surveys.backend.models import Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
@@ -83,6 +84,13 @@ def get_team_survey_config(team: Team) -> dict[str, Any]:
         "appearance": survey_config.get("appearance", {}),
         "default_settings": {"type": "popover", "enable_partial_responses": True},
     }
+
+
+async def _validate_linked_flag_id(team: Team, linked_flag_id: int | None) -> None:
+    if linked_flag_id is None:
+        return
+    if not await FeatureFlag.objects.filter(pk=linked_flag_id, team_id=team.id).aexists():
+        raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
 
 # SimpleSurveyQuestion attribute -> internal question dict key. Rating-only fields (scale, display)
@@ -220,21 +228,26 @@ def _build_targeting_conditions(
 
 
 SURVEY_CREATION_TOOL_DESCRIPTION = dedent("""
-    Create and optionally launch an in-app survey.
+    Create and optionally launch a survey.
 
     # When to use
     - The user wants to create a new survey
     - The user mentions NPS, CSAT, PMF, or feedback surveys
+    - The user wants a hosted survey with a shareable link
 
     # Design principles
-    These are in-app surveys shown as overlays. Keep to 1-3 questions.
-    DO NOT set should_launch=true unless the user explicitly asks to launch.
+    Keep to 1-3 questions. DO NOT set should_launch=true unless the user explicitly asks to launch.
 
     # Survey types
-    - "popover" (default): small overlay that appears on the page — use this for most surveys
-    - "widget": persistent tab/button on the page edge, good for always-available feedback
+    - "popover" (default): small in-app overlay that appears on the page — use this for most surveys
+    - "widget": persistent in-app tab/button on the page edge, good for always-available feedback
+    - "external_survey": a hosted standalone page with a shareable public link — use this when the
+      user wants to send a survey via a link (email, social, QR code) rather than show it inside their app
     - "api": headless, no UI — for custom implementations only
-    Note: hosted surveys (standalone pages with a shareable link) are not yet supported by this tool. If a user asks, let them know it's coming soon.
+
+    # Targeting
+    Targeting (target_url, feature flags, device types, wait period) only applies to in-app surveys.
+    It does not apply to "external_survey" hosted surveys and is ignored for them.
 
     # Semantic question types
     - "nps": 0-10 numeric rating (Net Promoter Score)
@@ -258,7 +271,9 @@ class CreateSurveyToolArgs(BaseModel):
     name: str = Field(description="Survey name")
     description: str = Field(default="", description="Brief survey description")
     questions: list[SimpleSurveyQuestion] = Field(description="List of questions")
-    survey_type: Literal["popover", "widget", "api"] = Field(default="popover", description="Survey display type")
+    survey_type: Literal["popover", "widget", "external_survey", "api"] = Field(
+        default="popover", description="Survey display type"
+    )
     should_launch: bool = Field(default=False, description="Launch immediately after creation")
     target_url: str | None = Field(default=None, description="URL path to target (e.g. '/pricing')")
     target_url_match: Literal["exact", "contains", "regex"] | None = Field(
@@ -313,15 +328,20 @@ class CreateSurveyTool(MaxTool):
             "enable_partial_responses": True,
         }
 
-        if linked_flag_id is not None:
-            survey_data["linked_flag_id"] = linked_flag_id
-
         if responses_limit is not None:
             survey_data["responses_limit"] = responses_limit
 
-        conditions = _build_targeting_conditions(target_url, target_url_match, linked_flag_variant, wait_period_days)
-        if conditions:
-            survey_data["conditions"] = conditions
+        # Hosted (external) surveys are standalone pages with no in-app display context, so the
+        # backend rejects flag/URL/device targeting on them. Skip targeting entirely for those.
+        if survey_type != Survey.SurveyType.EXTERNAL_SURVEY:
+            if linked_flag_id is not None:
+                survey_data["linked_flag_id"] = linked_flag_id
+
+            conditions = _build_targeting_conditions(
+                target_url, target_url_match, linked_flag_variant, wait_period_days
+            )
+            if conditions:
+                survey_data["conditions"] = conditions
 
         if self.context.get("insight_id"):
             survey_data["linked_insight_id"] = self.context["insight_id"]
@@ -349,6 +369,9 @@ class CreateSurveyTool(MaxTool):
                     "error_message": "No questions provided in the survey configuration.",
                 }
 
+            if survey_type != Survey.SurveyType.EXTERNAL_SURVEY:
+                await _validate_linked_flag_id(self._team, linked_flag_id)
+
             survey_data = self._build_survey_data(
                 name=name,
                 description=description,
@@ -374,7 +397,18 @@ class CreateSurveyTool(MaxTool):
                 survey_url = f"/surveys/guided/{survey_id}"
             else:
                 survey_url = f"/surveys/{survey_id}?edit=true"
-            return f"Survey '{created_survey.name}' created{launch_msg} successfully! [View survey]({survey_url})", {
+
+            message = f"Survey '{created_survey.name}' created{launch_msg} successfully! [View survey]({survey_url})"
+            if survey_type == Survey.SurveyType.EXTERNAL_SURVEY:
+                # The public shareable link only works once the survey is running.
+                share_hint = (
+                    "Its public shareable link is on the survey page."
+                    if should_launch
+                    else "Launch it to activate its public shareable link, which you'll find on the survey page."
+                )
+                message = f"{message} {share_hint}"
+
+            return message, {
                 "survey_id": created_survey.id,
                 "survey_name": created_survey.name,
                 "survey_type": survey_type,
@@ -555,6 +589,8 @@ class EditSurveyTool(MaxTool):
                     "error": "not_found",
                     "error_message": f"No survey found with ID '{survey_id}' in your team.",
                 }
+
+            await _validate_linked_flag_id(team, linked_flag_id)
 
             update_data: dict[str, Any] = {}
 

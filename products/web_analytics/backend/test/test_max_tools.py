@@ -1,9 +1,16 @@
-from posthog.test.base import APIBaseTest
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseDestroyTablesMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 
 from posthog.schema import (
     CompareFilter,
     EventPropertyFilter,
     PropertyOperator,
+    PropertyType,
     SessionPropertyFilter,
     WebAnalyticsAssistantFilters,
 )
@@ -22,6 +29,33 @@ class TestWebAnalyticsFilterOptionsToolkit(APIBaseTest):
         assert "final_answer" in tool_names
         assert "retrieve_web_analytics_property_values" in tool_names
         assert "ask_user_for_help" in tool_names
+
+
+class TestWebAnalyticsPropertyValues(ClickhouseDestroyTablesMixin, APIBaseTest):
+    def test_retrieve_event_property_values_returns_distinct_values(self):
+        for browser in ["Chrome", "Chrome", "Firefox"]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="d1",
+                properties={"$browser": browser},
+            )
+        flush_persons_and_events()
+
+        toolkit = WebAnalyticsFilterOptionsToolkit(self.team, self.user)
+        values = toolkit._retrieve_property_values("$browser", PropertyType.EVENT)
+
+        assert set(values) == {"Chrome", "Firefox"}
+
+    def test_retrieve_person_property_values_returns_plain_names(self):
+        _create_person(distinct_ids=["u1"], team=self.team, properties={"country": "US"})
+        _create_person(distinct_ids=["u2"], team=self.team, properties={"country": "UK"})
+        flush_persons_and_events()
+
+        toolkit = WebAnalyticsFilterOptionsToolkit(self.team, self.user)
+        values = toolkit._retrieve_property_values("country", PropertyType.PERSON)
+
+        assert set(values) == {"US", "UK"}
 
 
 class TestWebAnalyticsAssistantFilters(APIBaseTest):

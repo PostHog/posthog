@@ -67,7 +67,7 @@ function DialogContent({
                 data-quill-portal="modal-content"
                 data-slot="dialog-content"
                 data-size={size}
-                className={cn('quill-dialog__content grid gap-4', className)}
+                className={cn('quill-dialog__content grid', className)}
                 {...props}
             >
                 {children}
@@ -115,8 +115,17 @@ function DialogBody({
     className,
     render,
     children,
+    viewportClassName,
     ...props
-}: useRender.ComponentProps<'div'>): React.ReactElement {
+}: useRender.ComponentProps<'div'> & {
+    /**
+     * Class applied to the inner ScrollArea viewport (`data-slot="scroll-area-viewport"`),
+     * the element that actually scrolls. For example, `viewportClassName="p-0"` drops the
+     * default body padding for full-bleed content. Ignored when a custom `render` is
+     * supplied (set `viewportClassName` on your own `<ScrollArea>` there instead).
+     */
+    viewportClassName?: string
+}): React.ReactElement {
     /*
      * Default render = `<ScrollArea>` so consumers get scroll shadows
      * (and edge-overflow data attrs) for free. The scroll-area-aware
@@ -133,8 +142,13 @@ function DialogBody({
      * order stays stable (eslint-plugin-react-hooks would flag a
      * conditional call otherwise, since `useRender` starts with `use`).
      */
-    const effectiveRender =
-        render ?? <ScrollArea data-slot="dialog-body" className={cn('quill-dialog__body', className)} />
+    const effectiveRender = render ?? (
+        <ScrollArea
+            data-slot="dialog-body"
+            className={cn('quill-dialog__body', className)}
+            viewportClassName={viewportClassName}
+        />
+    )
     return useRender({
         defaultTagName: 'div',
         props: mergeProps<'div'>(

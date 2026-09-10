@@ -1,17 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import {
-    LemonCalendarSelectInput,
-    LemonDialog,
+    LemonButton,
     LemonInput,
-    LemonSelect,
+    LemonSegmentedButton,
+    LemonSkeleton,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 
@@ -19,8 +18,11 @@ import {
     COOLDOWN_HOURS_MAX,
     COOLDOWN_HOURS_MIN,
     evaluationReportLogic,
-    TRIGGER_THRESHOLD_DEFAULT,
+    TRIGGER_THRESHOLD_MAX,
+    TRIGGER_THRESHOLD_MIN,
+    WEEKDAY_OPTIONS,
 } from '../evaluationReportLogic'
+import type { ReportScheduleCadence, ReportScheduleWeekday } from '../evaluationReportLogic'
 
 const GUIDANCE_PLACEHOLDER =
     "Optional guidance for the report agent. e.g. 'Focus on cost regressions across models', 'Compare latency between gpt-4o-mini and claude-sonnet', 'Keep it to 2 sections max'"
@@ -30,63 +32,64 @@ const FREQUENCY_OPTIONS = [
     { value: 'scheduled' as const, label: 'On a schedule' },
 ]
 
-const RRULE_PLACEHOLDER = 'FREQ=DAILY'
-const RRULE_EXAMPLES = 'Examples: FREQ=DAILY · FREQ=WEEKLY;BYDAY=MO,FR · FREQ=HOURLY;INTERVAL=6'
+const SCHEDULE_OPTIONS = [
+    { value: 'daily' as const, label: 'Daily' },
+    { value: 'weekly' as const, label: 'Weekly' },
+]
 
-const TRIGGER_THRESHOLD_MIN = 10
-const TRIGGER_THRESHOLD_MAX = 10_000
-
-/** RRULE + starts_at + timezone inputs shown when frequency is 'scheduled'.
- * Accepts a raw RRULE string (RFC 5545) — matches the HogFlowSchedule contract in
- * products/workflows. A richer picker (RecurringSchedulePicker) can replace this later. */
-function ScheduleConfig({
-    rrule,
-    startsAt,
-    timezoneName,
-    onRruleChange,
-    onStartsAtChange,
-    onTimezoneChange,
+/** Daily/weekly schedule controls shown when frequency is 'scheduled'. */
+export function ScheduleConfig({
+    cadence,
+    weekdays,
+    onCadenceChange,
+    onWeekdayToggle,
 }: {
-    rrule: string
-    startsAt: string | null
-    timezoneName: string
-    onRruleChange: (value: string) => void
-    onStartsAtChange: (value: string | null) => void
-    onTimezoneChange: (value: string) => void
+    cadence: ReportScheduleCadence
+    weekdays: ReportScheduleWeekday[]
+    onCadenceChange: (value: ReportScheduleCadence) => void
+    onWeekdayToggle: (value: ReportScheduleWeekday) => void
 }): JSX.Element {
     return (
         <div className="space-y-3">
             <div>
-                <label className="font-semibold text-sm">Schedule (RRULE)</label>
-                <LemonInput value={rrule} onChange={onRruleChange} placeholder={RRULE_PLACEHOLDER} fullWidth />
-                <p className="text-xs text-muted mt-1">{RRULE_EXAMPLES}</p>
+                <label className="font-semibold text-sm">Schedule</label>
+                <LemonSegmentedButton value={cadence} onChange={onCadenceChange} options={SCHEDULE_OPTIONS} />
             </div>
-            <div>
-                <label className="font-semibold text-sm">Starts at</label>
-                <LemonCalendarSelectInput
-                    buttonProps={{ fullWidth: true }}
-                    format="MMMM D, YYYY h:mm A"
-                    clearable
-                    value={startsAt ? dayjs(startsAt) : null}
-                    onChange={(d) => onStartsAtChange(d ? d.toISOString() : null)}
-                    granularity="minute"
-                    showTimeToggle={false}
-                />
-                <p className="text-xs text-muted mt-1">
-                    Anchor datetime used when expanding the RRULE. Used as the first occurrence for plain frequencies.
-                </p>
-            </div>
-            <div>
-                <label className="font-semibold text-sm">Timezone</label>
-                <LemonInput value={timezoneName} onChange={onTimezoneChange} placeholder="UTC" fullWidth />
-                <p className="text-xs text-muted mt-1">IANA timezone name (e.g. UTC, America/New_York).</p>
-            </div>
+            {cadence === 'weekly' && (
+                <div>
+                    <label className="font-semibold text-sm">Days of the week</label>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                        {WEEKDAY_OPTIONS.map((option) => {
+                            const selected = weekdays.includes(option.value)
+                            return (
+                                <LemonButton
+                                    key={option.value}
+                                    size="small"
+                                    type={selected ? 'primary' : 'secondary'}
+                                    active={selected}
+                                    onClick={() => onWeekdayToggle(option.value)}
+                                >
+                                    {option.label}
+                                </LemonButton>
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
 
 /** Threshold config shown when frequency is 'every_n' */
-function ThresholdConfig({ value, onChange }: { value: number; onChange: (value: number) => void }): JSX.Element {
+function ThresholdConfig({
+    value,
+    error,
+    onChange,
+}: {
+    value: number
+    error?: string
+    onChange: (value: number) => void
+}): JSX.Element {
     return (
         <div>
             <label className="font-semibold text-sm">Evaluation count threshold</label>
@@ -96,8 +99,10 @@ function ThresholdConfig({ value, onChange }: { value: number; onChange: (value:
                 max={TRIGGER_THRESHOLD_MAX}
                 value={value}
                 onChange={(val) => onChange(Number(val))}
+                status={error ? 'danger' : undefined}
                 fullWidth
             />
+            {error && <p className="text-xs text-danger mt-1">{error}</p>}
             <p className="text-xs text-muted mt-1">
                 A report will be generated after this many new evaluation results arrive. Checked every 5 minutes. Min{' '}
                 {TRIGGER_THRESHOLD_MIN}, max {TRIGGER_THRESHOLD_MAX.toLocaleString()}.
@@ -107,7 +112,15 @@ function ThresholdConfig({ value, onChange }: { value: number; onChange: (value:
 }
 
 /** Cooldown config shown when frequency is 'every_n' */
-function CooldownConfig({ value, onChange }: { value: number; onChange: (value: number) => void }): JSX.Element {
+function CooldownConfig({
+    value,
+    error,
+    onChange,
+}: {
+    value: number
+    error?: string
+    onChange: (value: number) => void
+}): JSX.Element {
     return (
         <div>
             <label className="font-semibold text-sm">Minimum hours between reports</label>
@@ -117,8 +130,10 @@ function CooldownConfig({ value, onChange }: { value: number; onChange: (value: 
                 max={COOLDOWN_HOURS_MAX}
                 value={value}
                 onChange={(val) => onChange(Number(val))}
+                status={error ? 'danger' : undefined}
                 fullWidth
             />
+            {error && <p className="text-xs text-danger mt-1">{error}</p>}
             <p className="text-xs text-muted mt-1">
                 After a report is generated, wait this many hours before generating another — even if the threshold is
                 crossed again. Min {COOLDOWN_HOURS_MIN}, max {COOLDOWN_HOURS_MAX}.
@@ -192,12 +207,11 @@ function DeliveryTargetsConfig({
 /** Shared form body used by both the create-evaluation and edit-existing-evaluation paths.
  * All state is backed by `evaluationReportLogic.configDraft` keyed by evaluationId. */
 function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Element {
-    const { configDraft } = useValues(evaluationReportLogic({ evaluationId }))
+    const { configDraft, configErrors } = useValues(evaluationReportLogic({ evaluationId }))
     const {
         setDraftFrequency,
-        setDraftRrule,
-        setDraftStartsAt,
-        setDraftTimezoneName,
+        setDraftScheduleCadence,
+        toggleDraftScheduleWeekday,
         setDraftEmailValue,
         setDraftSlackIntegrationId,
         setDraftSlackChannelValue,
@@ -210,27 +224,33 @@ function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Eleme
         <div className="space-y-4 mt-4">
             <div>
                 <label className="font-semibold text-sm">Frequency</label>
-                <LemonSelect
+                <LemonSegmentedButton
                     value={configDraft.frequency}
-                    onChange={(val) => val && setDraftFrequency(val)}
+                    onChange={setDraftFrequency}
                     options={FREQUENCY_OPTIONS}
                     fullWidth
                 />
             </div>
             {configDraft.frequency === 'every_n' && (
                 <>
-                    <ThresholdConfig value={configDraft.triggerThreshold} onChange={setDraftTriggerThreshold} />
-                    <CooldownConfig value={configDraft.cooldownHours} onChange={setDraftCooldownHours} />
+                    <ThresholdConfig
+                        value={configDraft.triggerThreshold}
+                        error={configErrors.triggerThreshold}
+                        onChange={setDraftTriggerThreshold}
+                    />
+                    <CooldownConfig
+                        value={configDraft.cooldownHours}
+                        error={configErrors.cooldownHours}
+                        onChange={setDraftCooldownHours}
+                    />
                 </>
             )}
             {configDraft.frequency === 'scheduled' && (
                 <ScheduleConfig
-                    rrule={configDraft.rrule}
-                    startsAt={configDraft.startsAt}
-                    timezoneName={configDraft.timezoneName}
-                    onRruleChange={setDraftRrule}
-                    onStartsAtChange={setDraftStartsAt}
-                    onTimezoneChange={setDraftTimezoneName}
+                    cadence={configDraft.scheduleCadence}
+                    weekdays={configDraft.scheduleWeekdays}
+                    onCadenceChange={setDraftScheduleCadence}
+                    onWeekdayToggle={toggleDraftScheduleWeekday}
                 />
             )}
             <DeliveryTargetsConfig
@@ -279,7 +299,7 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
                     label={configDraft.enabled ? 'Enabled' : 'Disabled'}
                 />
             </div>
-            {configDraft.enabled && <ReportFormFields evaluationId={evaluationId} />}
+            <ReportFormFields evaluationId={evaluationId} />
         </div>
     )
 }
@@ -287,34 +307,14 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
 /** Toggle-based report management for existing evaluations.
  * The "Save changes" button at the top of the evaluation page persists any
  * draft updates — see llmEvaluationLogic.saveEvaluation, which forwards
- * the draft to persistReportDraft. Disabling the toggle with a saved report
- * is still an immediate destructive action (handled via the dialog) rather
- * than a staged save. */
+ * the draft to persistReportDraft. Disabling the toggle is a staged config
+ * update that sets enabled=false, preserving the report config row. */
 function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.Element {
     const logic = evaluationReportLogic({ evaluationId })
     const { activeReport, reportsLoading, configDraft, isConfigDirty } = useValues(logic)
-    const { deleteReport, setDraftEnabled } = useActions(logic)
+    const { setDraftEnabled } = useActions(logic)
 
-    const isEnabled = !!activeReport || configDraft.enabled
-
-    const handleToggle = (checked: boolean): void => {
-        if (checked) {
-            setDraftEnabled(true)
-        } else if (activeReport) {
-            LemonDialog.open({
-                title: 'Disable scheduled reports?',
-                description: 'This will stop all future report deliveries. Past reports will be preserved.',
-                primaryButton: {
-                    children: 'Disable',
-                    status: 'danger',
-                    onClick: () => deleteReport(activeReport.id),
-                },
-                secondaryButton: { children: 'Cancel' },
-            })
-        } else {
-            setDraftEnabled(false)
-        }
-    }
+    const isEnabled = configDraft.enabled
 
     return (
         <div className="bg-bg-light border rounded p-6">
@@ -331,25 +331,31 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                 </div>
                 <LemonSwitch
                     checked={isEnabled}
-                    onChange={handleToggle}
+                    onChange={setDraftEnabled}
                     bordered
                     loading={reportsLoading}
                     label={isEnabled ? 'Enabled' : 'Disabled'}
                 />
             </div>
 
-            {activeReport ? (
+            {reportsLoading && !activeReport ? (
+                <div className="space-y-3 mt-4">
+                    <LemonSkeleton className="h-9 w-full" />
+                    <LemonSkeleton className="h-9 w-full" />
+                    <LemonSkeleton className="h-20 w-full" />
+                </div>
+            ) : activeReport ? (
                 <>
                     <ReportFormFields evaluationId={evaluationId} />
                     {configDraft.frequency === 'every_n'
                         ? (() => {
-                              const cooldownHours = Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))
+                              const cooldownHours = configDraft.cooldownHours
                               return (
                                   <div className="text-sm text-muted mt-4">
-                                      A report will be generated when{' '}
-                                      {activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT} new evaluation
-                                      results arrive, at most once every {cooldownHours}{' '}
-                                      {cooldownHours === 1 ? 'hour' : 'hours'}. Checked every 5 minutes.
+                                      {configDraft.enabled ? 'A report' : 'When enabled, a report'} will be generated
+                                      when {configDraft.triggerThreshold} new evaluation results arrive, at most once
+                                      every {cooldownHours} {cooldownHours === 1 ? 'hour' : 'hours'}. Checked every 5
+                                      minutes.
                                   </div>
                               )
                           })()
@@ -361,7 +367,7 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                     <p className="text-xs text-muted m-0 mt-2">Generated reports appear in the Reports tab.</p>
                 </>
             ) : (
-                configDraft.enabled && <ReportFormFields evaluationId={evaluationId} />
+                <ReportFormFields evaluationId={evaluationId} />
             )}
         </div>
     )

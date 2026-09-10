@@ -10,9 +10,12 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    skip_clickhouse_query_snapshots,
     snapshot_clickhouse_queries,
 )
 from unittest.mock import patch
+
+from django.test import override_settings
 
 import numpy as np
 from parameterized import parameterized
@@ -31,9 +34,13 @@ from posthog.schema import (
     SessionTableVersion,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsSampling,
     WebStatsBreakdown,
     WebStatsTableQuery,
 )
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.models import Element
 from posthog.models.utils import uuid7
@@ -41,6 +48,10 @@ from posthog.models.utils import uuid7
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.test.first_pageview_attribution_test_base import (
+    FirstPageviewAttributionTestMixin,
+)
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import can_use_lazy_precompute
 
 nan_value = float("nan")
 
@@ -79,17 +90,10 @@ class FloatAwareTestCase(unittest.TestCase):
 
 
 @snapshot_clickhouse_queries
-class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareTestCase):
+class TestWebStatsTableQueryRunner(
+    FirstPageviewAttributionTestMixin, ClickhouseTestMixin, APIBaseTest, FloatAwareTestCase
+):
     QUERY_TIMESTAMP = "2025-01-29"
-
-    def setUp(self):
-        super().setUp()
-        patcher = patch(
-            "products.web_analytics.backend.hogql_queries.stats_table.is_web_analytics_events_prefilter_team",
-            return_value=False,
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def _calculate_pageview_statistics(self, groups_of_pageviews: list[list[PageViewProperties]]):
         per_path_durations: defaultdict[Any, list] = defaultdict(list)
@@ -569,6 +573,38 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             ["/other/123/path", (1.0, None), (1.0, None), 1 / 4, ""],
         ] == results
 
+    def test_path_cleaning_filters_with_capture_group_backreference(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-11"))
+        s4 = str(uuid7("2023-12-12"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/item/123/detail/456")]),
+                ("p2", [("2023-12-10", s2, "/item/123/detail/789")]),  # same item, different detail
+                ("p3", [("2023-12-11", s3, "/item/999/detail/111")]),
+                ("p4", [("2023-12-12", s4, "/other/1/path")]),  # Should not match
+            ]
+        )
+
+        # The alias reuses capture group 1 with re2 `\1` syntax, keeping the item id and dropping the
+        # detail segment. This is passed straight to ClickHouse `replaceRegexpAll`, so it guards that
+        # the alias is never re-escaped or treated as a literal on its way to the query.
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/item\\/(\\d+)\\/detail\\/\\d+", "alias": "/item/\\1"},
+            ],
+        ).results
+
+        assert [
+            ["/item/123", (2.0, None), (2.0, None), 2 / 4, ""],
+            ["/item/999", (1.0, None), (1.0, None), 1 / 4, ""],
+            ["/other/1/path", (1.0, None), (1.0, None), 1 / 4, ""],
+        ] == results
+
     def test_path_cleaning_filters_applied_in_order(self):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-10"))
@@ -992,6 +1028,283 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         ).results
 
         assert [["google", (1, None), (1, None), 1 / 2, ""], [None, (1, None), (1, None), 1 / 2, ""]] == results
+
+    def _seed_first_pageview_session(self, properties, distinct_id="d1", day="2024-06-26"):
+        session_id = str(uuid7(day))
+        _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties={"name": distinct_id})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            timestamp=f"{day}T10:00:00",
+            properties={"$session_id": session_id, **properties},
+        )
+        return session_id
+
+    def _breakdown_values(self, breakdown):
+        return [row[0] for row in self._run_web_stats_table_query("all", "2024-06-27", breakdown_by=breakdown).results]
+
+    def test_first_pageview_attribution_ignores_non_pageview_first_event(self):
+        self._seed_ssr_poisoned_session()
+
+        assert self._breakdown_values(WebStatsBreakdown.INITIAL_UTM_SOURCE) == [None]
+        assert self._breakdown_values(WebStatsBreakdown.INITIAL_CHANNEL_TYPE) == ["Direct"]
+
+        assert self._breakdown_values(WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE) == ["google"]
+        assert self._breakdown_values(WebStatsBreakdown.FIRST_PAGEVIEW_CHANNEL_TYPE) == ["Paid Search"]
+
+    @parameterized.expand(
+        [
+            ("referral_unknown_domain", {"$referring_domain": "someblog.example"}, "Referral"),
+            ("gad_source_only", {"$referring_domain": "$direct", "gad_source": "1"}, "Paid Search"),
+            ("bare_direct", {"$referring_domain": "$direct"}, "Direct"),
+        ]
+    )
+    def test_first_pageview_channel_type_buckets(self, _name, properties, expected):
+        # These buckets all depend on the IS [NOT] NULL branches of the channel
+        # type expression, which silently die (print as comparisons against a
+        # NULL literal) if the argMin aggregate leaks into the comparisons.
+        self._seed_first_pageview_session(properties)
+
+        assert self._breakdown_values(WebStatsBreakdown.FIRST_PAGEVIEW_CHANNEL_TYPE) == [expected]
+
+    def test_first_pageview_attribution_ignores_conversion_goal_events(self):
+        d1, day = "d1", "2024-06-26"
+        s1 = str(uuid7(day))
+        _create_person(team_id=self.team.pk, distinct_ids=[d1], properties={"name": d1})
+        _create_event(
+            team=self.team,
+            event="custom_event",
+            distinct_id=d1,
+            timestamp=f"{day}T10:00:00",
+            properties={"$session_id": s1, "$referring_domain": "$direct"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp=f"{day}T10:00:05",
+            properties={"$session_id": s1, "utm_source": "google"},
+        )
+
+        response = self._run_web_stats_table_query(
+            "all",
+            "2024-06-27",
+            breakdown_by=WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE,
+            custom_event="custom_event",
+        )
+
+        # The conversion event precedes the first pageview (the SSR pattern this
+        # feature fixes) but must not win the attribution argMin — while still
+        # being counted as a conversion.
+        assert [["google", (1, None), (1, None), (1, None), (1, None), 1, ""]] == response.results
+
+    def test_first_pageview_attribution_excludes_sessionless_events(self):
+        self._seed_first_pageview_session({"utm_source": "google"})
+        _create_person(team_id=self.team.pk, distinct_ids=["d2"], properties={"name": "d2"})
+        for second in range(2):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="d2",
+                timestamp=f"2024-06-26T11:00:0{second}",
+                properties={"utm_source": "facebook"},
+            )
+
+        # Events without a session id can't be attributed to a session's first
+        # pageview and must not collapse into a merged catch-all group.
+        assert self._breakdown_values(WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE) == ["google"]
+
+    def test_first_pageview_attribution_anchors_all_properties_to_one_event(self):
+        d1, day = "d1", "2024-06-26"
+        s1 = str(uuid7(day))
+        _create_person(team_id=self.team.pk, distinct_ids=[d1], properties={"name": d1})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp=f"{day}T10:00:00",
+            properties={"$session_id": s1, "$referring_domain": "someblog.example"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp=f"{day}T10:00:10",
+            properties={
+                "$session_id": s1,
+                "$referring_domain": "someblog.example",
+                "gclid": "abc",
+                "utm_source": "google",
+            },
+        )
+
+        # Every property must come from the first pageview alone: the later
+        # gclid/utm_source must not stitch a paid channel onto referral traffic.
+        assert self._breakdown_values(WebStatsBreakdown.FIRST_PAGEVIEW_CHANNEL_TYPE) == ["Referral"]
+        assert self._breakdown_values(WebStatsBreakdown.FIRST_PAGEVIEW_UTM_SOURCE) == [None]
+
+    def test_first_pageview_attribution_flag_flips_initial_breakdowns(self):
+        self._seed_ssr_poisoned_session()
+
+        assert self._breakdown_values(WebStatsBreakdown.INITIAL_UTM_SOURCE) == [None]
+        assert self._breakdown_values(WebStatsBreakdown.INITIAL_CHANNEL_TYPE) == ["Direct"]
+
+        with self._patch_first_pageview_flag():
+            assert self._breakdown_values(WebStatsBreakdown.INITIAL_UTM_SOURCE) == ["google"]
+            assert self._breakdown_values(WebStatsBreakdown.INITIAL_CHANNEL_TYPE) == ["Paid Search"]
+
+    def test_first_pageview_attribution_flag_changes_cache_key(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-06-01", date_to="2024-06-30"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        )
+
+        def cache_key(flag_on):
+            with self._patch_first_pageview_flag(enabled=flag_on):
+                return WebStatsTableQueryRunner(team=self.team, query=query).get_cache_key()
+
+        assert cache_key(flag_on=False) != cache_key(flag_on=True)
+
+    def test_first_pageview_attribution_bypasses_lazy_precompute(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-06-01", date_to="2024-06-30"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        )
+
+        def lazy_eligible(flag_on):
+            with (
+                patch(
+                    "products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute._can_use_lazy_precompute_shared",
+                    return_value=True,
+                ),
+                self._patch_first_pageview_flag(enabled=flag_on),
+            ):
+                return can_use_lazy_precompute(WebStatsTableQueryRunner(team=self.team, query=query))
+
+        assert lazy_eligible(flag_on=False) is True
+        assert lazy_eligible(flag_on=True) is False
+
+    @parameterized.expand(
+        [
+            ("channel_type", "$channel_type", WebStatsBreakdown.INITIAL_CHANNEL_TYPE, "Paid Search"),
+            ("utm_source", "$entry_utm_source", WebStatsBreakdown.INITIAL_UTM_SOURCE, "google"),
+            ("referring_domain", "$entry_referring_domain", WebStatsBreakdown.INITIAL_REFERRING_DOMAIN, "google.com"),
+        ]
+    )
+    def test_first_pageview_attribution_rewrites_drill_down_filters(self, _name, property_key, breakdown, row_value):
+        # Clicking a breakdown row filters on the stored session property, which
+        # still carries the poisoned entry attribution, so the tile only returns
+        # the clicked row when the filter is rewritten too.
+        self._seed_ssr_poisoned_session()
+
+        def drilled_down_values(flag_on):
+            with self._patch_first_pageview_flag(enabled=flag_on):
+                return [
+                    row[0]
+                    for row in self._run_web_stats_table_query(
+                        "all",
+                        "2024-06-27",
+                        breakdown_by=breakdown,
+                        properties=[
+                            SessionPropertyFilter(key=property_key, value=row_value, operator=PropertyOperator.EXACT)
+                        ],
+                    ).results
+                ]
+
+        assert drilled_down_values(flag_on=True) == [row_value]
+        assert drilled_down_values(flag_on=False) == []
+
+    @parameterized.expand(
+        [
+            (
+                "multi_value_exact",
+                ["paid", "cpc", "ppc", "paidsearch", "paidSocial", "paid_social"],
+                PropertyOperator.EXACT,
+                ["cpc"],
+            ),
+            ("multi_value_exact_matching_both", ["cpc", "email"], PropertyOperator.EXACT, ["cpc", "email"]),
+            ("single_element_list", ["cpc"], PropertyOperator.EXACT, ["cpc"]),
+            ("empty_list", [], PropertyOperator.EXACT, ["cpc", "email"]),
+            ("multi_value_is_not", ["cpc", "paid"], PropertyOperator.IS_NOT, ["email"]),
+        ]
+    )
+    def test_first_pageview_attribution_rewrites_list_valued_filters(self, _name, filter_value, operator, expected):
+        self._seed_ssr_poisoned_session()
+        self._seed_first_pageview_session({"utm_medium": "email"}, distinct_id="d2")
+
+        with self._patch_first_pageview_flag(enabled=True):
+            results = self._run_web_stats_table_query(
+                "all",
+                "2024-06-27",
+                breakdown_by=WebStatsBreakdown.INITIAL_UTM_MEDIUM,
+                properties=[SessionPropertyFilter(key="$entry_utm_medium", value=filter_value, operator=operator)],
+            ).results
+
+        assert sorted(row[0] for row in results) == expected
+
+    @parameterized.expand([("bounce_rate", False), ("bounce_rate_and_avg_time", True)])
+    @skip_clickhouse_query_snapshots
+    def test_first_pageview_attribution_rewrites_drill_down_on_paths_tile(self, _name, include_avg_time_on_page):
+        # The Paths tile splits user filters across three separate events scans
+        # instead of the single `all_properties` clause the Sources tiles use, so
+        # it needs the rewrite wired into each of them.
+        self._seed_ssr_poisoned_session()
+
+        def drilled_down_paths(flag_on):
+            with self._patch_first_pageview_flag(enabled=flag_on):
+                return self._run_web_stats_table_query(
+                    "all",
+                    "2024-06-27",
+                    breakdown_by=WebStatsBreakdown.PAGE,
+                    include_bounce_rate=True,
+                    include_avg_time_on_page=include_avg_time_on_page,
+                    properties=[
+                        SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+                    ],
+                ).results
+
+        expected = (
+            [["/landing", (1, 0), (1, 0), (0.0, 0.0), (0.0, 0.0), 1.0, ""]]
+            if include_avg_time_on_page
+            else [["/landing", (1, 0), (1, 0), (None, None), 1.0, ""]]
+        )
+        assert drilled_down_paths(flag_on=True) == expected
+        assert drilled_down_paths(flag_on=False) == []
+
+    def test_first_pageview_attribution_filter_changes_cache_key(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-06-01", date_to="2024-06-30"),
+            properties=[
+                SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+            ],
+            breakdownBy=WebStatsBreakdown.PAGE,
+        )
+
+        def cache_key(flag_on):
+            with self._patch_first_pageview_flag(enabled=flag_on):
+                return WebStatsTableQueryRunner(team=self.team, query=query).get_cache_key()
+
+        assert cache_key(flag_on=False) != cache_key(flag_on=True)
+
+    def test_first_pageview_attribution_filter_bypasses_preaggregated_tables(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-06-01", date_to="2024-06-30"),
+            properties=[
+                SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+            ],
+            breakdownBy=WebStatsBreakdown.PAGE,
+        )
+
+        def preagg_eligible(flag_on):
+            with self._patch_first_pageview_flag(enabled=flag_on):
+                runner = WebStatsTableQueryRunner(team=self.team, query=query)
+                return runner.preaggregated_query_builder.can_use_preaggregated_tables()
+
+        assert preagg_eligible(flag_on=False) is True
+        assert preagg_eligible(flag_on=True) is False
 
     def test_is_not_set_filter(self):
         d1 = "d1"
@@ -2509,3 +2822,337 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         assert results_dict["example.com/features"][0] == 2
         assert results_dict["subdomain.example.com/features"][0] == 1
+
+
+class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+
+    def _create_pageviews(self):
+        s1, s2, s3 = str(uuid7("2025-01-10")), str(uuid7("2025-01-11")), str(uuid7("2025-01-12"))
+        for distinct_id, session_id, path_timestamps in [
+            ("user_a", s1, [("/", "2025-01-10T10:00:00Z"), ("/pricing", "2025-01-10T10:05:00Z")]),
+            ("user_a", s2, [("/pricing", "2025-01-11T09:00:00Z")]),
+            ("user_b", s3, [("/", "2025-01-12T12:00:00Z"), ("/", "2025-01-12T12:00:30Z")]),
+        ]:
+            with freeze_time(path_timestamps[0][1]):
+                _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            for pathname, ts in path_timestamps:
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=ts,
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": pathname,
+                        "$current_url": f"https://example.com{pathname}",
+                    },
+                )
+        # A server-side pageview with no session: the join path drops it (NULL session
+        # start), so the no-join counts side must exclude it too.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_b",
+            timestamp="2025-01-12T13:00:00Z",
+            properties={"$pathname": "/", "$current_url": "https://example.com/"},
+        )
+        flush_persons_and_events()
+
+    def _make_runner(self, **query_kwargs) -> WebStatsTableQueryRunner:
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+            breakdownBy=query_kwargs.pop("breakdownBy", WebStatsBreakdown.PAGE),
+            includeBounceRate=query_kwargs.pop("includeBounceRate", True),
+            properties=query_kwargs.pop("properties", []),
+            **query_kwargs,
+        )
+        return WebStatsTableQueryRunner(team=self.team, query=query)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_no_join_paths_results_match_join_path(self, include_avg_time: bool):
+        self._create_pageviews()
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
+                fast_runner = self._make_runner(includeAvgTimeOnPage=include_avg_time)
+                assert fast_runner.query_strategy().startswith("stats_table_no_join_path_bounce")
+                fast_results = fast_runner.calculate().results
+
+            join_runner = self._make_runner(includeAvgTimeOnPage=include_avg_time)
+            assert not join_runner.query_strategy().startswith("stats_table_no_join")
+            join_results = join_runner.calculate().results
+
+        assert sorted(r[0] for r in fast_results) == sorted(r[0] for r in join_results)
+        fast_by_path = {r[0]: r[1:] for r in fast_results}
+        join_by_path = {r[0]: r[1:] for r in join_results}
+        for path, join_row in join_by_path.items():
+            assert fast_by_path[path] == join_row, f"{path}: {fast_by_path[path]} != {join_row}"
+
+    @parameterized.expand(
+        [
+            ("clean_page_query", {}, True),
+            (
+                "event_property_filter",
+                {"properties": [EventPropertyFilter(key="$host", operator=PropertyOperator.EXACT, value="a.com")]},
+                False,
+            ),
+            ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
+            ("non_page_breakdown", {"breakdownBy": WebStatsBreakdown.INITIAL_CHANNEL_TYPE}, False),
+            # PAGE without bounce displays no session-derived column, so it now
+            # takes the simple-breakdown no-join path (single events scan).
+            ("no_bounce_rate", {"includeBounceRate": False}, True),
+        ]
+    )
+    def test_no_join_paths_strategy_selection(self, _name: str, query_kwargs: dict, expect_no_join: bool):
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
+            runner = self._make_runner(**query_kwargs)
+            assert runner.query_strategy().startswith("stats_table_no_join") == expect_no_join
+
+    def test_no_join_paths_requires_team_allowlist(self):
+        runner = self._make_runner()
+        assert not runner.query_strategy().startswith("stats_table_no_join")
+
+    @parameterized.expand(
+        [
+            ("device_type", WebStatsBreakdown.DEVICE_TYPE, [], True),
+            (
+                "device_type_filtered",
+                WebStatsBreakdown.DEVICE_TYPE,
+                [EventPropertyFilter(key="$host", operator=PropertyOperator.EXACT, value="a.com")],
+                True,
+            ),
+            ("country", WebStatsBreakdown.COUNTRY, [], True),
+            # Breakdown value reads session-entry fields -> needs the join.
+            ("initial_utm_source", WebStatsBreakdown.INITIAL_UTM_SOURCE, [], False),
+            ("initial_channel_type", WebStatsBreakdown.INITIAL_CHANNEL_TYPE, [], False),
+            # Session-property FILTERS also need the join (the predicate reads
+            # session fields; routing to no-join would silently re-add the join).
+            (
+                "session_property_filter",
+                WebStatsBreakdown.DEVICE_TYPE,
+                [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+                False,
+            ),
+        ]
+    )
+    def test_simple_breakdown_no_join_selection(self, _name, breakdown_by, properties, expect_no_join):
+        # No allowlist: the simple-breakdown no-join path is shape-gated only,
+        # and filtered queries are eligible (single scan, filters inline).
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-29"),
+                properties=properties,
+                breakdownBy=breakdown_by,
+            ),
+        )
+        is_no_join = runner.query_strategy() == "stats_table_no_join_simple_breakdown"
+        assert is_no_join == expect_no_join
+
+
+class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+
+    def _create_pageviews(self):
+        s1, s2, s3 = str(uuid7("2025-01-10")), str(uuid7("2025-01-11")), str(uuid7("2025-01-12"))
+        # One person per distinct_id, created once — a second `_create_person` for
+        # the same distinct_id mints a second person, and events then carry
+        # whichever person id existed at creation time, manufacturing the known
+        # per-event vs per-session visitor-count drift inside a single session.
+        with freeze_time("2025-01-10T09:00:00Z"):
+            _create_person(team_id=self.team.pk, distinct_ids=["user_a"])
+        with freeze_time("2025-01-12T09:00:00Z"):
+            _create_person(team_id=self.team.pk, distinct_ids=["user_b"])
+        for distinct_id, session_id, browser, path_timestamps in [
+            ("user_a", s1, "Chrome", [("/", "2025-01-10T10:00:00Z"), ("/pricing", "2025-01-10T10:05:00Z")]),
+            ("user_a", s2, "Chrome", [("/pricing", "2025-01-11T09:00:00Z")]),
+            ("user_b", s3, "Firefox", [("/", "2025-01-12T12:00:00Z"), ("/", "2025-01-12T12:00:30Z")]),
+        ]:
+            for pathname, ts in path_timestamps:
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=ts,
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": pathname,
+                        "$browser": browser,
+                        "$current_url": f"https://example.com{pathname}",
+                    },
+                )
+        # Time-on-page signal so the avg-time parity assertion is non-vacuous.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_a",
+            timestamp="2025-01-10T10:05:00Z",
+            properties={
+                "$session_id": s1,
+                "$pathname": "/pricing",
+                "$browser": "Chrome",
+                "$prev_pageview_pathname": "/",
+                "$prev_pageview_duration": 300,
+            },
+        )
+        # Matching event with a malformed (non-UUID) session id: the id set must
+        # drop it instead of aborting the whole query on a UUID conversion.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_b",
+            timestamp="2025-01-12T13:00:00Z",
+            properties={"$session_id": "legacy-session", "$pathname": "/", "$browser": "Chrome"},
+        )
+        flush_persons_and_events()
+
+    def _make_runner(self, **query_kwargs) -> WebStatsTableQueryRunner:
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+            breakdownBy=query_kwargs.pop("breakdownBy", WebStatsBreakdown.PAGE),
+            includeBounceRate=query_kwargs.pop("includeBounceRate", True),
+            properties=query_kwargs.pop(
+                "properties",
+                [EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+            ),
+            **query_kwargs,
+        )
+        return WebStatsTableQueryRunner(team=self.team, query=query)
+
+    @parameterized.expand(
+        [
+            ("bounce_browser_filter", False, "$browser", "Chrome"),
+            ("avg_time_browser_filter", True, "$browser", "Chrome"),
+            # Only-$pathname filters leave the bounce side unfiltered (no id set);
+            # counts still filter events-side.
+            ("bounce_pathname_filter", False, "$pathname", "/pricing"),
+        ]
+    )
+    def test_session_id_set_paths_results_match_join_path(
+        self, _name: str, include_avg_time: bool, key: str, value: str
+    ):
+        self._create_pageviews()
+        properties = [EventPropertyFilter(key=key, operator=PropertyOperator.EXACT, value=value)]
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+                fast_runner = self._make_runner(includeAvgTimeOnPage=include_avg_time, properties=properties)
+                assert fast_runner.query_strategy().startswith("stats_table_session_id_set")
+                fast_results = fast_runner.calculate().results
+
+            join_runner = self._make_runner(includeAvgTimeOnPage=include_avg_time, properties=properties)
+            assert join_runner.query_strategy().startswith("stats_table_path_bounce")
+            join_results = join_runner.calculate().results
+
+        assert sorted(r[0] for r in fast_results) == sorted(r[0] for r in join_results)
+        fast_by_path = {r[0]: r[1:] for r in fast_results}
+        join_by_path = {r[0]: r[1:] for r in join_results}
+        for path, join_row in join_by_path.items():
+            assert fast_by_path[path] == join_row, f"{path}: {fast_by_path[path]} != {join_row}"
+
+    @parameterized.expand(
+        [
+            ("event_property_filter", {}, True),
+            ("pathname_only_filter", {"properties": [EventPropertyFilter(key="$pathname", value="/")]}, True),
+            ("no_filters", {"properties": []}, False),
+            (
+                "session_property_filter",
+                {"properties": [SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact")]},
+                False,
+            ),
+            ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
+            ("non_page_breakdown", {"breakdownBy": WebStatsBreakdown.INITIAL_CHANNEL_TYPE}, False),
+            ("no_bounce_rate", {"includeBounceRate": False}, False),
+            # Sampling fields are accepted-but-ignored no-ops across web analytics,
+            # so they must not kick eligible queries off the session-id-set path.
+            ("sampling_enabled_ignored", {"sampling": WebAnalyticsSampling(enabled=True)}, True),
+            ("sampling_factor_ignored", {"samplingFactor": 0.1}, True),
+        ]
+    )
+    def test_session_id_set_paths_strategy_selection(self, _name: str, query_kwargs: dict, expected: bool):
+        with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+            runner = self._make_runner(**query_kwargs)
+            assert runner.query_strategy().startswith("stats_table_session_id_set") == expected
+
+    def test_session_id_set_paths_requires_team_allowlist(self):
+        runner = self._make_runner()
+        assert not runner.query_strategy().startswith("stats_table_session_id_set")
+
+    def test_session_id_set_paths_no_join_precedence(self):
+        # An unfiltered query on a no-join-enrolled team keeps the plain no-join
+        # strategy — the id-set variant is strictly for filtered queries.
+        with override_settings(
+            WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk],
+        ):
+            runner = self._make_runner(properties=[])
+            assert runner.query_strategy().startswith("stats_table_no_join")
+
+    @parameterized.expand(
+        [
+            # Non-pathname filter: bounce side gets the id set, pushed below the
+            # sessions GROUP BY exactly once (moved, not copied).
+            ("browser_filter", "$browser", "Chrome", 1),
+            # Only-$pathname filter: no id set at all — the bounce side must stay
+            # a plain unfiltered sessions scan, not pay an events scan for a
+            # filter that can't constrain it.
+            ("pathname_filter", "$pathname", "/pricing", 0),
+        ]
+    )
+    def test_session_id_set_paths_pushes_id_filter_below_session_aggregation(
+        self, _name: str, key: str, value: str, expected_global_in: int
+    ):
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+                runner = self._make_runner(
+                    properties=[EventPropertyFilter(key=key, operator=PropertyOperator.EXACT, value=value)]
+                )
+                context = HogQLContext(
+                    team_id=self.team.pk,
+                    enable_select_queries=True,
+                    modifiers=HogQLQueryModifiers(sessionIdPushdown=True),
+                )
+                sql, _ = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+
+        assert sql.count("globalIn(raw_sessions.session_id_v7") == expected_global_in, sql
+        assert sql.count("globalIn(") == expected_global_in, sql
+
+    def test_session_id_set_paths_executes_with_pushdown_modifier_and_tag(self):
+        self._create_pageviews()
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+                runner = self._make_runner()
+                original_execute = runner.paginator.execute_hogql_query
+                calls: list[tuple[Optional[str], Optional[HogQLQueryModifiers]]] = []
+
+                def record_calls(*args, **kwargs):
+                    calls.append((kwargs.get("query_type"), kwargs.get("modifiers")))
+                    return original_execute(*args, **kwargs)
+
+                with patch.object(runner.paginator, "execute_hogql_query", side_effect=record_calls):
+                    runner.calculate()
+
+        assert [c[0] for c in calls] == ["stats_table_session_id_set_path_bounce_query"], calls
+        modifiers = calls[0][1]
+        assert modifiers is not None and modifiers.sessionIdPushdown is True
+
+    def test_session_id_set_paths_falls_back_to_join_when_filter_is_unselective(self):
+        self._create_pageviews()
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+                with patch(
+                    "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.SESSION_ID_SET_MAX_MATCHING_SESSIONS",
+                    0,
+                ):
+                    runner = self._make_runner()
+                    gated_results = runner.calculate().results
+                    assert runner._session_id_set_selectivity_ok is False
+                    # Over-cap must observably serve the join strategy.
+                    assert runner.query_strategy() == "stats_table_path_bounce"
+
+            join_results = self._make_runner().calculate().results
+
+        assert gated_results == join_results

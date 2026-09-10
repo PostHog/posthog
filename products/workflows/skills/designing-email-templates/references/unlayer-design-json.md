@@ -4,6 +4,17 @@ Schema for `content.email.design` — the Unlayer design document that is the so
 
 Adapted from [unlayer/unlayer-skills](https://github.com/unlayer/unlayer-skills) (`unlayer-export/references/design-json.md`), MIT License, Copyright (c) Unlayer.
 
+## Contents
+
+- Top-level structure
+- Body values
+- Row structure
+- Column structure
+- Content item structure
+- Content types
+- Validation constants
+- Minimal working example
+
 ## Top-level structure
 
 ```typescript
@@ -111,7 +122,7 @@ interface ContentItem {
     hideable: boolean
     // --- Tool-specific properties vary per type ---
     // text/heading: { text: string }                                  — text is an HTML fragment
-    // image: { src: { url, width, height }, alt, action }
+    // image: { src: { url, width, height }, alt, action }             — url from media-image-upload-complete or media-images-list, see SKILL.md#images
     // button: { text, href, buttonColors, size, borderRadius, ... }
     // html: { html: string }                                          — raw HTML block
   }

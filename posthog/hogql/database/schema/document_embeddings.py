@@ -22,16 +22,40 @@ DOCUMENT_EMBEDDINGS_VIEW = "posthog_document_embeddings_union_view"
 
 DOCUMENT_EMBEDDINGS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-    "product": StringDatabaseField(name="product", nullable=False),
-    "document_type": StringDatabaseField(name="document_type", nullable=False),
-    "model_name": StringDatabaseField(name="model_name", nullable=False),
-    "rendering": StringDatabaseField(name="rendering", nullable=False),
-    "document_id": StringDatabaseField(name="document_id", nullable=False),
-    "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
-    "inserted_at": DateTimeDatabaseField(name="inserted_at", nullable=False),
-    "content": StringDatabaseField(name="content", nullable=False),
-    "metadata": StringJSONDatabaseField(name="metadata", nullable=False),
-    "embedding": FloatArrayDatabaseField(name="embedding", nullable=False),
+    "product": StringDatabaseField(
+        name="product",
+        nullable=False,
+        description="PostHog product the embedded document belongs to, e.g. 'error_tracking'.",
+    ),
+    "document_type": StringDatabaseField(
+        name="document_type", nullable=False, description="Type of document this embedding represents."
+    ),
+    "model_name": StringDatabaseField(
+        name="model_name",
+        nullable=False,
+        description="Embedding model used; queries must filter on this to route to the correct model-specific table.",
+    ),
+    "rendering": StringDatabaseField(
+        name="rendering", nullable=False, description="How the document was rendered to text before embedding."
+    ),
+    "document_id": StringDatabaseField(
+        name="document_id", nullable=False, description="Identifier of the source document that was embedded."
+    ),
+    "timestamp": DateTimeDatabaseField(
+        name="timestamp", nullable=False, description="Timestamp of the source document."
+    ),
+    "inserted_at": DateTimeDatabaseField(
+        name="inserted_at", nullable=False, description="When this embedding row was inserted."
+    ),
+    "content": StringDatabaseField(name="content", nullable=False, description="The text content that was embedded."),
+    "metadata": StringJSONDatabaseField(
+        name="metadata", nullable=False, description="JSON metadata about the document/embedding."
+    ),
+    "embedding": FloatArrayDatabaseField(
+        name="embedding",
+        nullable=False,
+        description="The embedding vector; compare with `cosineDistance`/`L2Distance` for semantic search.",
+    ),
 }
 
 
@@ -89,6 +113,7 @@ def extract_model_name_from_where(node: Optional[ast.Expr]) -> Optional[str]:
 
 
 class ModelSpecificEmbeddingTable(Table):
+    description: str = "Document embeddings for a single embedding model; the `model_name` column is fixed per table."
     model_name: str = ""
     clickhouse_table_name: str = ""
 
@@ -116,6 +141,7 @@ HOGQL_MODEL_TABLES = {table.to_printed_hogql(): table for table in HOGQL_EMBEDDI
 
 
 class DocumentEmbeddingsTable(LazyTable):
+    description: str = "Vector embeddings of PostHog documents for semantic search; queries must filter on `model_name` to route to the right model-specific table."
     fields: dict[str, FieldOrTable] = DOCUMENT_EMBEDDINGS_FIELDS
 
     def lazy_select(
@@ -168,6 +194,9 @@ class DocumentEmbeddingsTable(LazyTable):
 
 
 class RawDocumentEmbeddingsTable(Table):
+    description: str = (
+        "Union view over all model-specific document embedding tables; prefer `document_embeddings` for queries."
+    )
     fields: dict[str, FieldOrTable] = DOCUMENT_EMBEDDINGS_FIELDS
 
     def to_printed_clickhouse(self, context: HogQLContext):

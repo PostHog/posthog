@@ -1,12 +1,18 @@
 from collections.abc import Callable
 from contextlib import suppress
+from datetime import datetime, timedelta
 from functools import wraps
-from typing import Optional
+from typing import Optional, Union
 
 import dagster
 
 from posthog.clickhouse import query_tagging
+from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.query_tagging import DagsterTags
+from posthog.settings import TEST
+
+# What a Dagster schedule function may return.
+ScheduleResult = Union[dagster.SkipReason, dagster.RunRequest, None]
 
 
 def dagster_tags(
@@ -81,6 +87,23 @@ def check_for_concurrent_runs(
     return None
 
 
+def skip_on_kill_switch(
+    fn: Callable[[dagster.ScheduleEvaluationContext], ScheduleResult],
+) -> Callable[[dagster.ScheduleEvaluationContext], ScheduleResult]:
+    """Decorator that skips schedule execution while the ClickHouse kill switch is on."""
+
+    @wraps(fn)
+    def wrapper(context: dagster.ScheduleEvaluationContext) -> ScheduleResult:
+        if not TEST:
+            kill_switch_level = get_kill_switch_level()
+            if kill_switch_level != KillSwitchLevel.OFF:
+                context.log.info(f"Skipping due to ClickHouse kill switch: {kill_switch_level}")
+                return dagster.SkipReason(f"ClickHouse kill switch is enabled ({kill_switch_level})")
+        return fn(context)
+
+    return wrapper
+
+
 def skip_if_already_running(fn: Callable) -> Callable:
     """
     Decorator that skips schedule execution if a previous run is still active.
@@ -100,3 +123,19 @@ def skip_if_already_running(fn: Callable) -> Callable:
         return fn(context)
 
     return wrapper
+
+
+def chunk_ranges(start: datetime, end: datetime, chunk_days: int) -> list[tuple[datetime, datetime]]:
+    """Split [start, end) into <=chunk_days sub-windows, newest first.
+
+    Newest-first so recent data (which carries the shortest TTL and is requested
+    most) is refreshed before older history is backfilled.
+    """
+    chunks = []
+    cur_end = end
+    step = timedelta(days=max(chunk_days, 1))
+    while cur_end > start:
+        cur_start = max(start, cur_end - step)
+        chunks.append((cur_start, cur_end))
+        cur_end = cur_start
+    return chunks

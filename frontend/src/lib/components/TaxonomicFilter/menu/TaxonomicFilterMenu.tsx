@@ -39,6 +39,7 @@ import {
     PopoverTrigger,
 } from '@posthog/quill'
 
+import type { SeriesRename } from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { isDefinitionStale } from 'lib/utils/definitions'
@@ -49,7 +50,13 @@ import { AnyPropertyFilter, EventDefinition } from '~/types'
 import { useTaxonomicFilterContext } from '../headless/context'
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
-import { isQuickFilterItem, META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
+import {
+    isQuickFilterItem,
+    META_GROUP_TYPES,
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+} from '../types'
 import { filterPinnedForContext, filterRecentsForContext } from '../utils/suggestedContextFilters'
 import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
@@ -70,6 +77,8 @@ export interface TaxonomicFilterMenuProps {
     triggerLabel?: string
     /** Currently-selected entry — drives the trigger label. Optional. */
     selected?: MenuFilterEntry | null
+    /** Rename (custom name) carried by the series being edited — applied to the selected row in the combobox. */
+    selectedRename?: SeriesRename | null
     /**
      * Trigger override. Static element or render function receiving
      * trigger state.
@@ -234,6 +243,7 @@ export function resolveInitialMenuState(
 export function TaxonomicFilterMenu({
     triggerLabel,
     selected,
+    selectedRename,
     trigger,
     onCommit,
     placeholder,
@@ -246,8 +256,16 @@ export function TaxonomicFilterMenu({
     triggerVariant = 'button',
     defaultOpenState,
 }: TaxonomicFilterMenuProps): JSX.Element {
-    const { groups, selectItem, inputProps, searchQuery, setSearchQuery, selectingKeyOnly, excludedOperators } =
-        useTaxonomicFilterContext()
+    const {
+        groups,
+        selectItem,
+        inputProps,
+        searchQuery,
+        setSearchQuery,
+        selectingKeyOnly,
+        excludedOperators,
+        excludedProperties,
+    } = useTaxonomicFilterContext()
     const [state, setState] = useState<MenuFilterState>(() =>
         resolveInitialMenuState(defaultOpen, defaultOpenState, selected ?? null)
     )
@@ -347,22 +365,24 @@ export function TaxonomicFilterMenu({
                     recentFilterItems as TaxonomicDefinitionTypes[],
                     taxonomicGroupTypes,
                     excludedOperators,
-                    selectingKeyOnly
+                    selectingKeyOnly,
+                    excludedProperties
                 ) as ShortcutItem[],
                 groups
             ),
-        [recentFilterItems, taxonomicGroupTypes, groups, excludedOperators, selectingKeyOnly]
+        [recentFilterItems, taxonomicGroupTypes, groups, excludedOperators, selectingKeyOnly, excludedProperties]
     )
     const pinnedEntries = useMemo<MenuFilterEntry[]>(
         () =>
             mapShortcutItems(
                 filterPinnedForContext(
                     pinnedFilterItems as TaxonomicDefinitionTypes[],
-                    taxonomicGroupTypes
+                    taxonomicGroupTypes,
+                    excludedProperties
                 ) as ShortcutItem[],
                 groups
             ),
-        [pinnedFilterItems, taxonomicGroupTypes, groups]
+        [pinnedFilterItems, taxonomicGroupTypes, groups, excludedProperties]
     )
 
     const hasDwh = groups.some((g) => g.type === TaxonomicFilterGroupType.DataWarehouse)
@@ -375,7 +395,7 @@ export function TaxonomicFilterMenu({
             const mergedItem = extra
                 ? ({ ...(entry.item as unknown as object), ...extra } as unknown as TaxonomicDefinitionTypes)
                 : entry.item
-            const itemValue = entry.group.getValue?.(mergedItem) ?? null
+            const itemValue = entry.group.getValue?.(mergedItem) ?? entry.canonicalValue ?? null
             hadCommitRef.current = true
             posthog.capture('taxonomic filter menu item selected', {
                 groupType: entry.group.type,
@@ -556,6 +576,11 @@ export function TaxonomicFilterMenu({
             if (target.closest?.('[data-quill-portal]')) {
                 return
             }
+            // Monaco portals suggestion widgets to a shared body-level div; treat clicks there as
+            // inside so picking a SQL autocomplete value doesn't close the filter.
+            if (target.closest?.('[data-attr="monaco-overflow-root"]')) {
+                return
+            }
             if (triggerWrapRef.current?.contains(target)) {
                 return
             }
@@ -646,6 +671,7 @@ export function TaxonomicFilterMenu({
                         <DropdownMenuTrigger render={triggerEl} data-attr="taxonomic-filter-menu-trigger" />
                     )}
                     <PopoverTrigger
+                        nativeButton={false}
                         render={<span aria-hidden tabIndex={-1} className="absolute inset-0 pointer-events-none" />}
                     />
                     {triggerAccessory}
@@ -706,6 +732,7 @@ export function TaxonomicFilterMenu({
                             // already title themselves with the group name.
                             title={state.drillTo === 'all' ? comboboxTitle : undefined}
                             selectedEntry={selected ?? null}
+                            selectedRename={selectedRename}
                             onCommit={handleCommit}
                             onBack={openMenu}
                             inputRef={comboboxInputRef}
@@ -752,7 +779,8 @@ export function TaxonomicFilterMenu({
                 and dismisses both the dialog and the popover). */}
             {state.kind === 'dwh-config' && (
                 <MenuFilterDwhConfig
-                    table={state.table}
+                    // The selected entry receives schema loaded after opening; state.table is only the opening snapshot.
+                    table={state.origin === 'menu' ? (selected?.item ?? state.table) : state.table}
                     group={state.group}
                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                     insightProps={insightProps}
@@ -824,10 +852,10 @@ interface ShortcutItem {
     // this branch was in flight; consumers (this menu) read whichever
     // shape exists. See `taxonomicFilterPinnedPropertiesLogic` /
     // `recentTaxonomicFiltersLogic`.
-    _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType; value?: unknown }
+    _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType; value?: TaxonomicFilterValue }
     _recentContext?: {
         sourceGroupType?: TaxonomicFilterGroupType
-        sourceValue?: unknown
+        sourceValue?: TaxonomicFilterValue
         propertyFilter?: AnyPropertyFilter
     }
 }
@@ -882,8 +910,8 @@ function mapShortcutItems(items: ShortcutItem[], groups: TaxonomicFilterGroup[])
             // Recent stores the value under `sourceValue`, pinned under
             // `value`. Read whichever side exists.
             const sourceValue =
-                (ctx as { sourceValue?: unknown } | undefined)?.sourceValue ??
-                (ctx as { value?: unknown } | undefined)?.value
+                (ctx as { sourceValue?: TaxonomicFilterValue } | undefined)?.sourceValue ??
+                (ctx as { value?: TaxonomicFilterValue } | undefined)?.value
             const group = resolveShortcutGroup(item, sourceType, sourceValue, groups)
             if (!group) {
                 return null
@@ -894,6 +922,7 @@ function mapShortcutItems(items: ShortcutItem[], groups: TaxonomicFilterGroup[])
                 item: item as TaxonomicDefinitionTypes,
                 group,
                 name,
+                ...(sourceValue != null ? { canonicalValue: sourceValue } : {}),
                 friendlyLabel: getCoreFilterDefinition(name, group.type)?.label,
                 ...(recentPropertyFilter
                     ? { recentPropertyFilter, recentLabel: formatPropertyLabel(recentPropertyFilter, {}) }

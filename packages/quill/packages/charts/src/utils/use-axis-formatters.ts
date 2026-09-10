@@ -1,19 +1,21 @@
 import { useMemo } from 'react'
 
-import { DEFAULT_Y_AXIS_ID, type YAxis } from '../core/types'
-import { createXAxisTickCallback, type TimeInterval } from './dates'
+import { DEFAULT_Y_AXIS_ID, type TooltipConfig, type YAxis } from '../core/types'
+import { createTooltipDateFormatter, createXAxisTickCallback, inferTimeInterval, type TimeInterval } from './dates'
 import { buildYTickFormatter, type YFormatterConfig } from './y-formatters'
 
 export interface XAxisConfig {
     label?: string
     /** Explicit tick formatter. When set, it wins over the auto date formatter. */
     tickFormatter?: (value: string, index: number) => string | null
+    /** Fixed tick-label rotation in degrees, clamped to -90..90. Negative values tilt left. */
+    tickLabelRotation?: number
     hide?: boolean
     /** Timezone used when interpreting date labels for the auto date formatter. */
     timezone?: string
-    /** Bucket size for the auto date formatter. */
+    /** Bucket size for the auto date formatter. Inferred from `allDays` or chart labels when omitted. */
     interval?: TimeInterval
-    /** Source dates for the auto date formatter. Falls back to `labels` when omitted. */
+    /** Source dates for the auto date formatter. Falls back to chart labels when omitted. */
     allDays?: string[]
 }
 
@@ -32,8 +34,17 @@ export interface YAxisConfig extends YFormatterConfig {
     showGrid?: boolean
     /** Y-axis baseline behavior. The default (`undefined`/`true`) clamps a non-negative axis down to
      *  0. Set `false` to float the axis to its data range instead (zoom in on the variation). Ignored
-     *  on a log scale, and only honored for the primary axis in the array (multi-axis) form. */
+     *  on a log scale; honored per axis in the array (multi-axis) form, except axes carrying bar
+     *  series, which always draw from 0. */
     startAtZero?: boolean
+    /** Pins the low end of the axis, overriding both the data-derived bound and `startAtZero`. Omit
+     *  for an automatic bound. Honored per axis in the array (multi-axis) form; ignored under a
+     *  percent layout, and dropped when non-positive on a log scale. Read by the line charts only:
+     *  this config is shared, but bar and combo charts ignore it, since a bar encodes magnitude as
+     *  length from zero. */
+    min?: number
+    /** Pins the high end of the axis. Omit for an automatic bound. See {@link YAxisConfig.min}. */
+    max?: number
 }
 
 export function useXTickFormatter(
@@ -48,7 +59,7 @@ export function useXTickFormatter(
         if (xAxis?.tickFormatter) {
             return xAxis.tickFormatter
         }
-        if (xAxis?.timezone && xAxis?.interval) {
+        if (xAxis?.timezone) {
             return createXAxisTickCallback({
                 timezone: xAxis.timezone,
                 interval: xAxis.interval,
@@ -57,6 +68,35 @@ export function useXTickFormatter(
         }
         return undefined
     }, [xAxis?.tickFormatter, xAxis?.timezone, xAxis?.interval, effectiveAllDays])
+}
+
+/** Tooltip config with the header label defaulted to a full formatted date when the x-axis is
+ *  date-driven. The axis and tooltip infer the same interval, so a raw ISO header does not remain
+ *  after the axis ticks are formatted. An explicit `labelFormatter` wins. */
+export function useTimeSeriesTooltipConfig(
+    tooltip: TooltipConfig | undefined,
+    xAxis: XAxisConfig | undefined,
+    labels: string[]
+): TooltipConfig | undefined {
+    const { timezone, interval } = xAxis ?? {}
+    const effectiveAllDays = xAxis?.allDays ?? labels
+    return useMemo(() => {
+        if (tooltip?.labelFormatter || !timezone) {
+            return tooltip
+        }
+        const resolvedInterval = interval ?? inferTimeInterval(effectiveAllDays, timezone)
+        if (!resolvedInterval) {
+            return tooltip
+        }
+        return {
+            ...tooltip,
+            labelFormatter: createTooltipDateFormatter({
+                interval: resolvedInterval,
+                timezone,
+                allDays: effectiveAllDays,
+            }),
+        }
+    }, [tooltip, timezone, interval, effectiveAllDays])
 }
 
 /** Non-hook resolution of a {@link YAxisConfig} into a tick formatter. An explicit `tickFormatter`
@@ -110,12 +150,21 @@ export function normalizeYAxisList(yAxis: YAxisConfig | YAxisConfig[] | undefine
 /** Resolve a normalized axis list into the {@link YAxis}es the base chart consumes —
  *  each axis's id, side, scale, label, and resolved tick formatter. */
 export function buildYAxes(axisList: NormalizedYAxis[]): YAxis[] {
+    // The primary axis's bounds reach it as the chart-level `valueDomain`, already merged with the
+    // goal-line stretch; carrying them here too would override that merge and drop the goal lines.
+    const primary = primaryYAxisConfig(axisList)
     return axisList.map(({ id, position, config }) => ({
         id,
         position,
         scaleType: config.scale,
         tickFormatter: resolveYTickFormatter(config),
         label: config.label,
+        hide: config.hide,
+        startAtZero: config.startAtZero,
+        valueDomain:
+            config !== primary && (config.min != null || config.max != null)
+                ? { min: config.min, max: config.max }
+                : undefined,
     }))
 }
 

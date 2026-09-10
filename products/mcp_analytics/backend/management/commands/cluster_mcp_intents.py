@@ -1,19 +1,26 @@
 """Manual end-to-end validation for the intent clustering pipeline.
 
-Runs the same Celery task that powers the API, synchronously, against a
-real team's ClickHouse data, and pretty-prints the resulting snapshot.
+Starts a one-off ``DailyIntentClusteringWorkflow`` execution and waits for
+it, then pretty-prints the resulting snapshot. Requires a running Temporal
+worker on ``settings.MCPA_TASK_QUEUE`` (provided locally by ``hogli start``).
 """
 
 import json
+import time
+import uuid
+import asyncio
 from typing import Any
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.mcp_analytics.intent_clustering.constants import CHILD_WORKFLOW_ID_PREFIX, WORKFLOW_NAME
+from posthog.temporal.mcp_analytics.intent_clustering.models import IntentClusteringWorkflowInputs
 
 from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
-from products.mcp_analytics.backend.tasks.tasks import compute_intent_clusters
 
 
 class Command(BaseCommand):
@@ -45,8 +52,30 @@ class Command(BaseCommand):
             return
 
         window_label = f"{lookback_days} day(s)" if lookback_days is not None else "default window"
-        self.stdout.write(f"Running intent clustering for team {team_id} ({window_label})...")
-        compute_intent_clusters.apply(args=[team_id, None, lookback_days]).get()
+        self.stdout.write(
+            f"Running intent clustering for team {team_id} ({window_label}) via Temporal "
+            f"on {settings.MCPA_TASK_QUEUE}..."
+        )
+
+        workflow_inputs = IntentClusteringWorkflowInputs(
+            team_id=team_id,
+            **({"lookback_days": lookback_days} if lookback_days is not None else {}),
+        )
+        workflow_id = f"{CHILD_WORKFLOW_ID_PREFIX}-{team_id}-cli-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+
+        async def _run() -> None:
+            # async_connect() must be used here — we're already inside
+            # an event loop via asyncio.run(_run()), and sync_connect()
+            # wraps async_to_sync which can't nest event loops.
+            client = await async_connect()
+            await client.execute_workflow(
+                WORKFLOW_NAME,
+                workflow_inputs,
+                id=workflow_id,
+                task_queue=settings.MCPA_TASK_QUEUE,
+            )
+
+        asyncio.run(_run())
 
         with team_scope(team_id):
             snapshot = MCPIntentClusterSnapshot.objects.filter(team_id=team_id).first()

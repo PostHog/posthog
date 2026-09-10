@@ -32,7 +32,7 @@ DROP_CHANNEL_DEFINITION_TABLE_SQL = (
 
 
 TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {CHANNEL_DEFINITION_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    f"TRUNCATE TABLE IF EXISTS {CHANNEL_DEFINITION_TABLE_NAME} {ON_CLUSTER_CLAUSE()}"
 )
 
 with open(os.path.join(os.path.dirname(__file__), "channel_definitions.json")) as f:
@@ -59,7 +59,9 @@ INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if
 """
 )
 
-CLICKHOUSE_DICT_READER_USER, CLICKHOUSE_DICT_READER_PASSWORD = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+_dict_reader_creds = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+CLICKHOUSE_DICT_READER_USER = _dict_reader_creds.user
+CLICKHOUSE_DICT_READER_PASSWORD = _dict_reader_creds.password
 
 # Use COMPLEX_KEY_HASHED, as we have a composite key
 CHANNEL_DEFINITION_DICTIONARY_SQL = lambda on_cluster=True: (

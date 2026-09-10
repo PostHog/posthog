@@ -1,4 +1,4 @@
-import { PostgresRouter } from '~/utils/db/postgres'
+import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { TeamService } from './team-service'
 
@@ -13,8 +13,8 @@ describe('TeamService', () => {
 
         fetchSpy = jest.spyOn(teamService as any, 'fetchTeamTokensWithRecordings').mockResolvedValue({
             tokenMap: {
-                'valid-token': { teamId: 1, consoleLogIngestionEnabled: true },
-                'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false },
+                'valid-token': { teamId: 1, consoleLogIngestionEnabled: true, aiTrainingOptedIn: true },
+                'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false, aiTrainingOptedIn: false },
             },
             retentionMap: { 1: '30d', 2: '1y' },
         })
@@ -30,6 +30,7 @@ describe('TeamService', () => {
             expect(team).toEqual({
                 teamId: 1,
                 consoleLogIngestionEnabled: true,
+                aiTrainingOptedIn: true,
             })
         })
 
@@ -41,7 +42,7 @@ describe('TeamService', () => {
         it('should return null if teamId is missing', async () => {
             fetchSpy.mockResolvedValue({
                 tokenMap: {
-                    token: { teamId: null as any, consoleLogIngestionEnabled: true },
+                    token: { teamId: null as any, consoleLogIngestionEnabled: true, aiTrainingOptedIn: true },
                 },
                 retentionMap: { 1: '30d', 2: '1y' },
             })
@@ -90,6 +91,7 @@ describe('TeamService', () => {
             expect(team).toEqual({
                 teamId: 1,
                 consoleLogIngestionEnabled: true,
+                aiTrainingOptedIn: true,
             })
         })
 
@@ -101,7 +103,7 @@ describe('TeamService', () => {
             // Update mock data and capture the promise
             const mockFetchPromise = Promise.resolve({
                 tokenMap: {
-                    'valid-token': { teamId: 1, consoleLogIngestionEnabled: false },
+                    'valid-token': { teamId: 1, consoleLogIngestionEnabled: false, aiTrainingOptedIn: true },
                 },
                 retentionMap: { 1: '30d', 2: '1y' },
             })
@@ -127,7 +129,7 @@ describe('TeamService', () => {
             // Update mock data to remove the team
             const mockFetchPromise = Promise.resolve({
                 tokenMap: {
-                    'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false }, // Remove valid-token
+                    'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false, aiTrainingOptedIn: false }, // Remove valid-token
                 },
                 retentionMap: { 2: '1y' },
             })
@@ -162,6 +164,16 @@ describe('TeamService', () => {
         it('should return null for unknown team', async () => {
             const retention = await teamService.getRetentionPeriodByTeamId(999)
             expect(retention).toBeNull()
+        })
+
+        it('should throw when the stored retention value is not a valid period', async () => {
+            fetchSpy.mockResolvedValue({
+                tokenMap: {},
+                retentionMap: { 7: 'forever' },
+            })
+            await expect(teamService.getRetentionPeriodByTeamId(7)).rejects.toThrow(
+                "Invalid session_recording_retention_period 'forever' for team 7"
+            )
         })
     })
 })

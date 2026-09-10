@@ -1,53 +1,28 @@
 import { useActions, useValues } from 'kea'
 import { RE2JS } from 're2js'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInputSelect, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInputSelect, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
+import { GuidedWizardStepLayout } from 'lib/components/GuidedWizard/GuidedWizardStepLayout'
 import { ANY_VARIANT, variantOptions } from 'lib/components/IngestionControls/triggers/FlagTrigger/VariantSelector'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { formatRE2Error } from 'lib/utils/regexp'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import type { HogQLQueryString } from '~/queries/utils'
-import {
-    PropertyDefinitionType,
-    PropertyFilterType,
-    PropertyOperator,
-    SurveyDisplayConditions,
-    SurveyMatchType,
-} from '~/types'
+import { PropertyDefinitionType, SurveyDisplayConditions, SurveyMatchType } from '~/types'
 
+import { SurveyUrlAudienceEstimate } from '../../components/SurveyUrlAudienceEstimate'
 import { surveyLogic } from '../../surveyLogic'
 import { SurveyAudienceFilters } from '../SurveyAudienceFilters'
-import { WizardSection, WizardStepLayout } from '../WizardLayout'
 
 const DEVICE_OPTIONS = ['Desktop', 'Mobile', 'Tablet']
-const URL_AUDIENCE_ESTIMATE_DAYS = 30
-const URL_AUDIENCE_ESTIMATE_TAGS = {
-    scene: 'Survey' as const,
-    productKey: 'surveys' as const,
-    name: 'survey_url_audience_estimate' as const,
-}
 
 type UrlMatchMode = SurveyMatchType.Contains | SurveyMatchType.Exact | SurveyMatchType.Regex
-type UrlAudienceEstimate =
-    | { status: 'idle' }
-    | { status: 'loading' }
-    | { status: 'loaded'; count: number }
-    | { status: 'error' }
-
-const URL_MATCH_MODE_PROPERTY_OPERATORS: Record<UrlMatchMode, PropertyOperator> = {
-    [SurveyMatchType.Contains]: PropertyOperator.IContains,
-    [SurveyMatchType.Exact]: PropertyOperator.Exact,
-    [SurveyMatchType.Regex]: PropertyOperator.Regex,
-}
 
 function getRegexValidationError(pattern: string, matchType: UrlMatchMode): string | null {
     if (matchType !== SurveyMatchType.Regex || !pattern) {
@@ -67,12 +42,10 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
     const { survey } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
     const { featureFlag } = useValues(featureFlagLogic({ id: survey.linked_flag_id || 'link' }))
-    const { currentTeamId } = useValues(teamLogic)
 
     const { options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
     const urlOptions = options['$current_url']
-    const [urlAudienceEstimate, setUrlAudienceEstimate] = useState<UrlAudienceEstimate>({ status: 'idle' })
 
     const conditions: Partial<SurveyDisplayConditions> = survey.conditions || {}
     const targetingMode = conditions.urlMatchType ? 'specific' : 'all'
@@ -145,64 +118,6 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
         }
     }, [targetingMode, urlMatchMode, urlOptions?.status, loadPropertyValues])
 
-    useEffect(() => {
-        const trimmedPattern = urlPattern.trim()
-
-        if (
-            targetingMode !== 'specific' ||
-            !currentTeamId ||
-            !trimmedPattern ||
-            isPathInputInExactMode ||
-            regexValidationError
-        ) {
-            setUrlAudienceEstimate({ status: 'idle' })
-            return
-        }
-
-        const abortController = new AbortController()
-        const timeout = window.setTimeout(async () => {
-            setUrlAudienceEstimate({ status: 'loading' })
-
-            try {
-                const query = `
-                    SELECT uniq(person_id)
-                    FROM events
-                    WHERE team_id = ${currentTeamId}
-                        AND event = '$pageview'
-                        AND timestamp >= now() - INTERVAL ${URL_AUDIENCE_ESTIMATE_DAYS} DAY
-                        AND {filters}
-                ` as HogQLQueryString
-
-                const response = await api.queryHogQL<[[number]]>(query, URL_AUDIENCE_ESTIMATE_TAGS, {
-                    requestOptions: { signal: abortController.signal },
-                    queryParams: {
-                        filters: {
-                            properties: [
-                                {
-                                    key: '$current_url',
-                                    operator: URL_MATCH_MODE_PROPERTY_OPERATORS[urlMatchMode],
-                                    type: PropertyFilterType.Event,
-                                    value: trimmedPattern,
-                                },
-                            ],
-                        },
-                    },
-                })
-
-                setUrlAudienceEstimate({ status: 'loaded', count: response.results?.[0]?.[0] ?? 0 })
-            } catch (error) {
-                if ((error as { name?: string }).name !== 'AbortError') {
-                    setUrlAudienceEstimate({ status: 'error' })
-                }
-            }
-        }, 500)
-
-        return () => {
-            window.clearTimeout(timeout)
-            abortController.abort()
-        }
-    }, [currentTeamId, isPathInputInExactMode, regexValidationError, targetingMode, urlMatchMode, urlPattern])
-
     const setTargetingMode = (mode: 'all' | 'specific'): void => {
         if (mode === 'all') {
             setSurveyValue('conditions', { ...conditions, url: '', urlMatchType: undefined })
@@ -242,8 +157,11 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
     }
 
     return (
-        <WizardStepLayout className="space-y-6">
-            <WizardSection title="Where should this appear?" description="Choose which pages will show this survey">
+        <GuidedWizardStepLayout className="space-y-6">
+            <GuidedWizardSection
+                title="Where should this appear?"
+                description="Choose which pages will show this survey"
+            >
                 <LemonRadio
                     value={targetingMode}
                     onChange={setTargetingMode}
@@ -315,30 +233,16 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                                       : 'Select from your most visited pages or type a path like /pricing.'}
                             </p>
                         )}
-                        {urlAudienceEstimate.status === 'loading' && (
-                            <p className="text-xs text-muted mt-1.5 flex items-center gap-1">
-                                <Spinner className="text-xs" /> Estimating matching users...
-                            </p>
-                        )}
-                        {urlAudienceEstimate.status === 'loaded' && (
-                            <p className="text-xs text-muted mt-1.5">
-                                About {humanFriendlyNumber(urlAudienceEstimate.count)} unique{' '}
-                                {urlAudienceEstimate.count === 1 ? 'user' : 'users'} viewed matching URLs in the last{' '}
-                                {URL_AUDIENCE_ESTIMATE_DAYS} days.
-                            </p>
-                        )}
-                        {urlAudienceEstimate.status === 'error' && (
-                            <p className="text-xs text-muted mt-1.5">
-                                Unable to estimate matching users for this URL condition.
-                            </p>
+                        {!isPathInputInExactMode && !regexValidationError && (
+                            <SurveyUrlAudienceEstimate className="mt-1.5" />
                         )}
                     </div>
                 )}
-            </WizardSection>
+            </GuidedWizardSection>
 
             <SurveyAudienceFilters onOpenFullEditor={onOpenFullEditor} />
 
-            <WizardSection
+            <GuidedWizardSection
                 title="Which devices should this appear on?"
                 description="Choose whether this survey should show on desktop, mobile, tablet, or any combination."
             >
@@ -361,9 +265,9 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                 <p className="text-xs text-muted mt-1.5">
                     Leave all unselected to show the survey on every device type.
                 </p>
-            </WizardSection>
+            </GuidedWizardSection>
 
-            <WizardSection
+            <GuidedWizardSection
                 title="Feature flag targeting"
                 description="Optionally limit this survey to users who have a specific feature flag enabled."
             >
@@ -407,7 +311,7 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                         </div>
                     )}
                 </div>
-            </WizardSection>
-        </WizardStepLayout>
+            </GuidedWizardSection>
+        </GuidedWizardStepLayout>
     )
 }

@@ -5,6 +5,7 @@ import {
     areDatesValidForInterval,
     dateFilterToText,
     dateMapping,
+    formatRelativeDateValue,
     dateStringToDayJs,
     getDefaultInterval,
     is12HoursOrLess,
@@ -12,6 +13,22 @@ import {
 } from 'lib/utils/dateFilters'
 
 describe('dateFilters utils', () => {
+    describe('formatRelativeDateValue()', () => {
+        it.each([
+            ['-14d', '14 days ago'],
+            ['14d', '14 days from now'],
+            ['+1w', '1 week from now'],
+            ['-1h', '1 hour ago'],
+            ['0d', 'now'],
+        ])('formats %s as %s', (value, expected) => {
+            expect(formatRelativeDateValue(value)).toBe(expected)
+        })
+
+        it('returns null for absolute dates', () => {
+            expect(formatRelativeDateValue('2026-08-20')).toBeNull()
+        })
+    })
+
     describe('dateFilterToText()', () => {
         beforeEach(() => {
             tk.freeze(new Date('2026-06-15T12:00:00.000Z'))
@@ -210,6 +227,16 @@ describe('dateFilters utils', () => {
         it('handles various dates', () => {
             expect(dateStringToDayJs('2022-02-22')?.utc(true).toISOString()).toEqual('2022-02-22T00:00:00.000Z')
             expect(dateStringToDayJs('1999-12-31')?.utc(true).toISOString()).toEqual('1999-12-31T00:00:00.000Z')
+        })
+
+        it('anchors sub-day units at now, not start of day', () => {
+            // frozen: 2012-03-02T11:38:49.321Z. A "-30M" range must mean 30
+            // minutes ago — day-anchoring would yield yesterday 23:30 and the
+            // metrics/logs "last N minutes" pickers would show a ~24h window.
+            expect(dateStringToDayJs('-30M')?.toISOString()).toEqual('2012-03-02T11:08:49.321Z')
+            expect(dateStringToDayJs('-5M')?.toISOString()).toEqual('2012-03-02T11:33:49.321Z')
+            expect(dateStringToDayJs('-1h')?.toISOString()).toEqual('2012-03-02T10:38:49.321Z')
+            expect(dateStringToDayJs('-45s')?.toISOString()).toEqual('2012-03-02T11:38:04.321Z')
         })
 
         it('handles various units', () => {

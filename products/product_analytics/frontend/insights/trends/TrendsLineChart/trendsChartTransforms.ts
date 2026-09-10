@@ -10,6 +10,8 @@ import type {
 } from '@posthog/quill-charts'
 
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
+import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
+import { computeMagnitudeAxisIds } from '../shared/magnitudeAxisIds'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { CiRangesFn, GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
@@ -29,6 +31,7 @@ export interface TrendsResultLike {
 export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> {
     /** Area fill under each series (web maps `display === ActionsAreaGraph`). */
     isArea?: boolean
+    /** Give series of different orders of magnitude their own y-axes (similar ones share). */
     showMultipleYAxes?: boolean
     // Negative number — index from the end where the in-progress tail begins. Omit to skip.
     incompletenessOffsetFromEnd?: number
@@ -36,6 +39,9 @@ export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> 
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
+    // Resolves the legend/series label (custom name + breakdown formatting). Hosts that lack the
+    // breakdown/cohort deps (e.g. MCP) omit it and fall back to the raw humanized event name.
+    getLabel?: (r: R) => string
 }
 
 // Shared between buildMainTrendsSeries (stroke.partial.fromIndex) and buildDerivedConfigs
@@ -56,15 +62,15 @@ export function computeDashedFromIndex(
 export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     r: R,
     index: number,
-    opts: BuildTrendsSeriesOpts<R, M>
+    opts: BuildTrendsSeriesOpts<R, M>,
+    yAxisId: string = DEFAULT_Y_AXIS_ID
 ): Series<M> {
     const dashedFromIndex = computeDashedFromIndex(r, opts)
-    const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
     const excluded = opts.getHidden ? opts.getHidden(r, index) : false
     const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
     return {
         key: String(r.id),
-        label: r.label ?? '',
+        label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
         data: r.data,
         color: opts.getColor(r, index),
         yAxisId,
@@ -79,7 +85,8 @@ export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsSeriesOpts<R, M>
 ): Series<M>[] {
-    return results.map((r, index) => buildMainTrendsSeries(r, index, opts))
+    const yAxisIds = opts.showMultipleYAxes ? computeMagnitudeAxisIds(results.map((r) => r.data)) : undefined
+    return results.map((r, index) => buildMainTrendsSeries(r, index, opts, yAxisIds?.[index]))
 }
 
 export interface BuildDerivedConfigsOpts<R extends TrendsResultLike> {
@@ -93,6 +100,7 @@ export interface BuildDerivedConfigsOpts<R extends TrendsResultLike> {
     isStickiness?: boolean
     incompletenessOffsetFromEnd?: number
     getHidden?: (r: R) => boolean
+    getLabel?: (r: R) => string
 }
 
 export interface DerivedConfigs {
@@ -141,7 +149,7 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
                 trendLines.push({
                     seriesKey: movingAverageKey(String(r.id)),
                     kind: 'linear',
-                    label: `${r.label ?? ''} (Moving avg)`,
+                    label: `${opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label)} (Moving avg)`,
                 })
             }
         }
@@ -176,6 +184,10 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     isPercentStackView: boolean
     isStickiness?: boolean
     yAxisScaleType?: string | null
+    /** Y-axis range controls. See `buildTrendsYAxisConfig` for when each is honored. */
+    yAxisStartAtZero?: boolean | null
+    yAxisMin?: number | null
+    yAxisMax?: number | null
     interval?: TimeInterval | null
     timezone?: string
     allDays?: string[]
@@ -185,6 +197,7 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     goalLines?: GoalLineLike[] | null
     incompletenessOffsetFromEnd?: number
     getHidden?: (r: R) => boolean
+    getLabel?: (r: R) => string
 
     showConfidenceIntervals?: boolean
     confidenceLevel?: number
@@ -194,6 +207,9 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     showTrendLines?: boolean
 
     valueLabels?: TimeSeriesLineChartConfig['valueLabels']
+
+    /** Line interpolation override (per-insight chart style). Leave undefined for app defaults. */
+    curve?: 'linear' | 'monotone'
 
     showCrosshair?: boolean
     tooltip?: TooltipConfig
@@ -206,6 +222,9 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,
+        startAtZero: opts.yAxisStartAtZero,
+        min: opts.yAxisMin,
+        max: opts.yAxisMax,
     })
     const goalLineConfigs = schemaGoalLinesToConfigs(opts.goalLines)
     const derivedConfigs = buildDerivedConfigs(opts.results, {
@@ -218,6 +237,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         isStickiness: opts.isStickiness,
         incompletenessOffsetFromEnd: opts.incompletenessOffsetFromEnd,
         getHidden: opts.getHidden,
+        getLabel: opts.getLabel,
     })
     return {
         xAxis: {
@@ -235,6 +255,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         goalLines: goalLineConfigs,
         ...derivedConfigs,
         percentStackView: opts.isPercentStackView,
+        curve: opts.curve,
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
         legend: opts.legend,

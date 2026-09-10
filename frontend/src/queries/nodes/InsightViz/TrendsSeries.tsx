@@ -7,7 +7,7 @@ import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { alphabet } from 'lib/utils/strings'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -62,9 +62,7 @@ export function TrendsSeries(): JSX.Element | null {
               ? MathAvailability.BoxPlotOnly
               : MathAvailability.All
     const supportsDataWarehouse =
-        (isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot) ||
-        isLifecycle ||
-        isStickiness
+        (isTrends && display !== ChartDisplayType.CalendarHeatmap) || isLifecycle || isStickiness
 
     const showFormulaOption =
         isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot
@@ -89,6 +87,7 @@ export function TrendsSeries(): JSX.Element | null {
         <>
             {isLifecycle && <LifecycleSeriesHeader />}
             <ActionFilter
+                allowBehavioralPropertyFilter
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => {
                     if (isLifecycle) {

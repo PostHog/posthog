@@ -3,7 +3,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { SessionBatchMetrics } from './metrics'
 import {

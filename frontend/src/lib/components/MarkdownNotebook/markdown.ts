@@ -1,5 +1,7 @@
 import {
     NotebookBlockNode,
+    NotebookCodeBlockNode,
+    NotebookCodeRefMark,
     NotebookComponentBlockNode,
     NotebookComponentProps,
     NotebookDocument,
@@ -21,6 +23,7 @@ import {
     isNotebookPropValue,
     normalizeInlineMarks,
     normalizeInlineNodes,
+    seedNodeFingerprint,
 } from './utils'
 
 type BlockParseResult = {
@@ -34,7 +37,24 @@ type PropParseResult = {
     errors: string[]
 }
 
+type ComponentScanResult = {
+    raw: string
+    nextLineIndex: number
+    foundTerminator: boolean
+}
+
+type ComponentScanState = {
+    quote: string | null
+    expressionDepth: number
+    escapeNext: boolean
+    awaitingPropValue: boolean
+    openingTagClosed: boolean
+}
+
 const COMPONENT_START_REGEX = /^<[A-Z][A-Za-z0-9]*(\s|>|\/)/
+const ESCAPED_COMPONENT_START_REGEX = /^\\<[A-Z][A-Za-z0-9]*(\s|>|\/)/
+const MAX_COMPONENT_BLOCK_LINES = 1_000
+const MAX_COMPONENT_BLOCK_CHARACTERS = 256 * 1024
 const ORDERED_LIST_REGEX = /^\s*\d+[.)](?:\s+|$)/
 const BULLET_LIST_REGEX = /^\s*[-*+•](?:\s+|$)/
 const LIST_ITEM_REGEX = /^(\s*)(\d+[.)]|[-*+•])(?:\s+(.*))?$/
@@ -55,6 +75,11 @@ export function isDiscussionCommentProps(props: NotebookComponentProps): boolean
 }
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 const EMPTY_PARAGRAPH_MARKDOWN = ' '
+/** One blank line separates two blocks of the same card; a second one starts a new card
+ * (`startsGroup` in `types.ts`). Programmatic writers append blocks with this separator so each
+ * one lands as its own node. */
+export const NOTEBOOK_BLOCK_SEPARATOR = '\n\n\n'
+const NOTEBOOK_BLOCK_JOINER = '\n\n'
 // Every character the serializer may backslash-escape; the inline parser turns `\X` back into
 // the literal character for exactly this set, so the two must stay in sync.
 const INLINE_ESCAPABLE_CHARS = new Set([
@@ -96,6 +121,7 @@ const INLINE_TAG_NAMES = ['ref', 'mention'] as const
 type InlineTagName = (typeof INLINE_TAG_NAMES)[number]
 const INLINE_TAG_OPEN_REGEX = /^<(ref|mention)\s+id=(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')\s*>/
 let generatedNodeIdCounter = 0
+const serializedNodeCache = new WeakMap<NotebookBlockNode, string>()
 
 export function parseMarkdownNotebook(markdown: string | null | undefined): NotebookDocument {
     const lines = (markdown ?? '').replace(/\r\n?/g, '\n').split('\n')
@@ -111,6 +137,7 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
     }
 
     let lineIndex = 0
+    let blankLinesBeforeBlock = 0
     while (lineIndex < lines.length) {
         const line = lines[lineIndex]
 
@@ -119,12 +146,15 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
                 id: '',
                 type: 'paragraph',
                 children: [],
+                startsGroup: nodes.length > 0 && blankLinesBeforeBlock > 1 ? true : undefined,
             })
+            blankLinesBeforeBlock = 0
             lineIndex += 1
             continue
         }
 
         if (!line.trim()) {
+            blankLinesBeforeBlock += 1
             lineIndex += 1
             continue
         }
@@ -134,8 +164,12 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
             errors.push(result.error)
         }
         if (result.node) {
+            if (nodes.length > 0 && blankLinesBeforeBlock > 1) {
+                result.node.startsGroup = true
+            }
             pushParsedNode(result.node)
         }
+        blankLinesBeforeBlock = 0
         lineIndex = Math.max(result.nextLineIndex, lineIndex + 1)
     }
 
@@ -149,8 +183,14 @@ export function serializeMarkdownNotebook(document: NotebookDocument): string {
 
     const shouldPreserveEmptyParagraphs = document.nodes.length > 1
     const serialized = document.nodes
-        .map((node) => serializeDocumentNode(node, shouldPreserveEmptyParagraphs))
-        .join('\n\n')
+        .map((node, index) => {
+            const block = serializeDocumentNode(node, shouldPreserveEmptyParagraphs)
+            if (index === 0) {
+                return block
+            }
+            return `${node.startsGroup ? NOTEBOOK_BLOCK_SEPARATOR : NOTEBOOK_BLOCK_JOINER}${block}`
+        })
+        .join('')
     const lastNode = document.nodes[document.nodes.length - 1]
     const previousNode = document.nodes[document.nodes.length - 2]
     const shouldPreserveTrailingEmptyParagraph =
@@ -164,11 +204,24 @@ function isEmptyNotebookTitleNode(node: NotebookBlockNode | undefined): boolean 
 }
 
 export function serializeNode(node: NotebookBlockNode): string {
+    const cachedValue = serializedNodeCache.get(node)
+    if (cachedValue !== undefined) {
+        return cachedValue
+    }
+
+    const serialized = serializeNodeUncached(node)
+    serializedNodeCache.set(node, serialized)
+    return serialized
+}
+
+function serializeNodeUncached(node: NotebookBlockNode): string {
     if (node.type === 'heading') {
         const [firstLine, ...followingLines] = serializeInlineNodes(node.children).split('\n')
-        return [`${'#'.repeat(node.level ?? 1)} ${firstLine}`, ...followingLines.map(escapeMarkdownLineStart)].join(
-            '\n'
-        )
+        const linePrefix = node.blockquote ? '> ' : ''
+        return [
+            `${linePrefix}${'#'.repeat(node.level ?? 1)} ${firstLine}`,
+            ...followingLines.map((followingLine) => `${linePrefix}${escapeMarkdownLineStart(followingLine)}`),
+        ].join('\n')
     }
     if (node.type === 'paragraph') {
         return escapeMarkdownBlockLines(serializeInlineNodes(node.children))
@@ -216,7 +269,7 @@ export function serializeNode(node: NotebookBlockNode): string {
     if (node.type === 'code') {
         // The fence must be longer than any backtick run in the content, so the content can't close it
         const fence = getCodeBlockFence(node.text)
-        return `${fence}${node.language ?? ''}\n${node.text}\n${fence}`
+        return `${fence}${serializeCodeBlockInfo(node)}\n${node.text}\n${fence}`
     }
     if (node.type === 'component' && node.errors?.length && node.raw) {
         // Props that failed to parse exist only in `raw` — re-emitting from `props` would
@@ -233,6 +286,10 @@ export function serializeNode(node: NotebookBlockNode): string {
         return serializeImageNode(node)
     }
     if (node.type === 'component') {
+        const multilineSource = getUnchangedMultilineComponentSource(node)
+        if (multilineSource) {
+            return multilineSource
+        }
         return `<${node.tagName}${serializeComponentProps(node.props)} />`
     }
     return ''
@@ -566,7 +623,19 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
     }
 
     if (COMPONENT_START_REGEX.test(trimmed)) {
-        return parseComponentBlock(lines, lineIndex)
+        const parsedComponent = parseComponentBlock(lines, lineIndex)
+        const parsedNode = parsedComponent.node
+        if (parsedNode?.type === 'component' && !parsedNode.errors?.length) {
+            return parsedComponent
+        }
+        return parseRecoveredMultilineComponentBlock(lines, lineIndex) ?? parsedComponent
+    }
+
+    if (ESCAPED_COMPONENT_START_REGEX.test(trimmed)) {
+        const recoveredComponent = parseRecoveredMultilineComponentBlock(lines, lineIndex)
+        if (recoveredComponent) {
+            return recoveredComponent
+        }
     }
 
     const headingMatch = line.match(HEADING_REGEX)
@@ -594,13 +663,33 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
         if (isListLine(stripBlockquoteMarker(line))) {
             return parseBlockquotedListBlock(lines, lineIndex)
         }
+        if (COMPONENT_START_REGEX.test(stripAllBlockquoteMarkers(line))) {
+            return parseBlockquotedComponentBlock(lines, lineIndex)
+        }
+
+        // The heading marker needs its trailing space (`> ## `), which stripBlockquoteMarker trims.
+        const quotedHeadingMatch = line.replace(/^\s*>\s?/, '').match(HEADING_REGEX)
+        if (quotedHeadingMatch) {
+            return {
+                node: {
+                    id: '',
+                    type: 'heading',
+                    level: quotedHeadingMatch[1].length as NotebookTextBlockNode['level'],
+                    blockquote: true,
+                    children: parseInlineMarkdown(quotedHeadingMatch[2]),
+                },
+                nextLineIndex: lineIndex + 1,
+            }
+        }
 
         const quoteLines: string[] = []
         let nextLineIndex = lineIndex
         while (
             nextLineIndex < lines.length &&
             lines[nextLineIndex].trim().startsWith('>') &&
-            !isListLine(stripBlockquoteMarker(lines[nextLineIndex]))
+            !isListLine(stripBlockquoteMarker(lines[nextLineIndex])) &&
+            !HEADING_REGEX.test(lines[nextLineIndex].replace(/^\s*>\s?/, '')) &&
+            !COMPONENT_START_REGEX.test(stripAllBlockquoteMarkers(lines[nextLineIndex]))
         ) {
             quoteLines.push(stripBlockquoteMarker(lines[nextLineIndex]))
             nextLineIndex += 1
@@ -616,6 +705,16 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
     }
 
     return parseParagraphBlock(lines, lineIndex)
+}
+
+function parseRecoveredMultilineComponentBlock(lines: string[], lineIndex: number): BlockParseResult | null {
+    const recoveredComponent = parseComponentBlock(lines, lineIndex, true)
+    const recoveredNode = recoveredComponent.node
+    return recoveredNode?.type === 'component' &&
+        recoveredComponent.nextLineIndex > lineIndex + 1 &&
+        !recoveredNode.errors?.length
+        ? recoveredComponent
+        : null
 }
 
 function parseParagraphBlock(lines: string[], lineIndex: number): BlockParseResult {
@@ -660,6 +759,34 @@ function isListLine(line: string): boolean {
 
 function stripBlockquoteMarker(line: string): string {
     return line.trim().replace(/^>\s?/, '')
+}
+
+function stripAllBlockquoteMarkers(line: string): string {
+    let stripped = stripBlockquoteMarker(line)
+    while (stripped.trim().startsWith('>')) {
+        stripped = stripBlockquoteMarker(stripped)
+    }
+    return stripped
+}
+
+// Component tags have no blockquote representation in this model, so a quoted tag line (as
+// produced by older legacy-notebook conversions, e.g. `> <Query … />`) is parsed as the
+// component itself, broken out of the quote. Treating it as quote text would degrade the tag
+// to escaped literal text on the next save, permanently destroying the node.
+function parseBlockquotedComponentBlock(lines: string[], lineIndex: number): BlockParseResult {
+    const strippedLines: string[] = []
+    let end = lineIndex
+    while (end < lines.length && lines[end].trim().startsWith('>')) {
+        strippedLines.push(stripAllBlockquoteMarkers(lines[end]))
+        end += 1
+    }
+
+    const result = parseComponentBlock(strippedLines, 0)
+    return {
+        ...result,
+        nextLineIndex: lineIndex + result.nextLineIndex,
+        error: result.error ? { ...result.error, line: lineIndex + result.error.line } : undefined,
+    }
 }
 
 function parseBlockquotedListBlock(lines: string[], lineIndex: number): BlockParseResult {
@@ -879,13 +1006,42 @@ function serializeTableSeparatorCell(alignment: NotebookTableAlignment | undefin
     return '---'
 }
 
+/** A comment anchor in a fence info string: `ref=<id>:<start>-<end>`. */
+const CODE_BLOCK_REF_TOKEN_REGEX = /^ref=([A-Za-z0-9_-]+):(\d+)-(\d+)$/
+
+function serializeCodeBlockInfo(node: NotebookCodeBlockNode): string {
+    const refTokens = (node.refs ?? [])
+        .filter((ref) => ref.start >= 0 && ref.start < node.text.length && ref.end > ref.start)
+        .map((ref) => `ref=${ref.id}:${ref.start}-${Math.min(ref.end, node.text.length)}`)
+    return [node.language ?? '', ...refTokens].filter(Boolean).join(' ')
+}
+
+function parseCodeBlockInfo(info: string): { language?: string; refs: NotebookCodeRefMark[] } {
+    if (!info) {
+        return { language: undefined, refs: [] }
+    }
+
+    const refs: NotebookCodeRefMark[] = []
+    const languageTokens: string[] = []
+    for (const token of info.split(/\s+/)) {
+        const refMatch = token.match(CODE_BLOCK_REF_TOKEN_REGEX)
+        if (refMatch) {
+            refs.push({ id: refMatch[1], start: Number(refMatch[2]), end: Number(refMatch[3]) })
+            continue
+        }
+        languageTokens.push(token)
+    }
+
+    return { language: languageTokens.join(' ') || undefined, refs }
+}
+
 function parseCodeBlock(lines: string[], lineIndex: number): BlockParseResult {
     const startLine = lines[lineIndex].trim()
     const fenceLength = startLine.match(/^`+/)?.[0].length ?? 3
     // Only a bare fence at least as long as the opener closes the block, so shorter
     // fences (or fences with info strings) inside the code stay part of the content
     const closingFenceRegex = new RegExp(`^\`{${fenceLength},}$`)
-    const language = startLine.slice(fenceLength).trim() || undefined
+    const { language, refs } = parseCodeBlockInfo(startLine.slice(fenceLength).trim())
     const codeLines: string[] = []
     let nextLineIndex = lineIndex + 1
 
@@ -894,12 +1050,18 @@ function parseCodeBlock(lines: string[], lineIndex: number): BlockParseResult {
         nextLineIndex += 1
     }
 
+    const text = codeLines.join('\n')
+    const validRefs = refs
+        .map((ref) => ({ ...ref, end: Math.min(ref.end, text.length) }))
+        .filter((ref) => ref.start >= 0 && ref.start < text.length && ref.end > ref.start)
+
     return {
         node: {
             id: '',
             type: 'code',
             language,
-            text: codeLines.join('\n'),
+            text,
+            ...(validRefs.length ? { refs: validRefs } : {}),
         },
         nextLineIndex: nextLineIndex < lines.length ? nextLineIndex + 1 : nextLineIndex,
         error:
@@ -966,41 +1128,237 @@ function parseImageBlock(lines: string[], lineIndex: number): BlockParseResult {
     }
 }
 
-function parseComponentBlock(lines: string[], lineIndex: number): BlockParseResult {
-    const rawLines: string[] = []
-    const firstLine = lines[lineIndex].trim()
+function parseComponentBlock(
+    lines: string[],
+    lineIndex: number,
+    recoverEscapedSource: boolean = false
+): BlockParseResult {
+    const firstLine = getComponentSourceLine(lines[lineIndex], recoverEscapedSource).trim()
     const tagName = firstLine.match(/^<([A-Z][A-Za-z0-9]*)/)?.[1]
-    let nextLineIndex = lineIndex
-    let foundTerminator = false
 
-    // Components are block-level: a blank line ends the scan so an unterminated tag can
-    // never swallow the rest of the document
-    while (nextLineIndex < lines.length && (nextLineIndex === lineIndex || lines[nextLineIndex].trim())) {
-        rawLines.push(lines[nextLineIndex])
-        const raw = rawLines.join('\n').trim()
-        if (raw.endsWith('/>') || (tagName && raw.includes(`</${tagName}>`))) {
-            foundTerminator = true
-            break
-        }
-        nextLineIndex += 1
-    }
-
-    const raw = rawLines.join('\n').trim()
-    if (!foundTerminator) {
+    if (!tagName) {
+        const raw = firstLine
         return {
             node: makeComponentFallbackParagraph(raw),
-            nextLineIndex,
+            nextLineIndex: lineIndex + 1,
             error: { message: 'Unclosed component tag', raw, line: lineIndex + 1 },
         }
     }
 
-    const parsed = parseComponentTag(raw)
+    const scan = scanComponentBlock(lines, lineIndex, tagName, recoverEscapedSource)
+    if (!scan.foundTerminator) {
+        const singleLineComponent = parseComponentTag(firstLine)
+        if (singleLineComponent.node) {
+            return {
+                node: singleLineComponent.node,
+                nextLineIndex: lineIndex + 1,
+            }
+        }
+
+        return {
+            node: makeComponentFallbackParagraph(scan.raw),
+            nextLineIndex: scan.nextLineIndex,
+            error: { message: 'Unclosed component tag', raw: scan.raw, line: lineIndex + 1 },
+        }
+    }
+
+    const parsed = parseComponentTag(scan.raw)
     return {
         // A malformed tag degrades to a paragraph holding the raw source — source text must
         // never be dropped from the node tree, or the next save destroys it
-        node: parsed.node ?? makeComponentFallbackParagraph(raw),
-        nextLineIndex: nextLineIndex + 1,
+        node: parsed.node ?? makeComponentFallbackParagraph(scan.raw),
+        nextLineIndex: scan.nextLineIndex,
         error: parsed.error ? { ...parsed.error, line: lineIndex + 1 } : undefined,
+    }
+}
+
+function scanComponentBlock(
+    lines: string[],
+    lineIndex: number,
+    tagName: string,
+    recoverEscapedSource: boolean
+): ComponentScanResult {
+    const rawLines: string[] = []
+    const state: ComponentScanState = {
+        quote: null,
+        expressionDepth: 0,
+        escapeNext: false,
+        awaitingPropValue: false,
+        openingTagClosed: false,
+    }
+    let characterCount = 0
+    let nextLineIndex = lineIndex
+    let fallbackRawLineCount: number | null = null
+    let fallbackNextLineIndex: number | null = null
+    const lineLimit = Math.min(lines.length, lineIndex + MAX_COMPONENT_BLOCK_LINES)
+
+    while (nextLineIndex < lineLimit) {
+        const line = getComponentSourceLine(lines[nextLineIndex], recoverEscapedSource)
+        if (nextLineIndex > lineIndex && !line.trim() && fallbackNextLineIndex === null) {
+            fallbackRawLineCount = rawLines.length
+            fallbackNextLineIndex = nextLineIndex
+        }
+        if (isComponentBlankLineBoundary(line, nextLineIndex, lineIndex, state)) {
+            break
+        }
+
+        const separatorLength = rawLines.length ? 1 : 0
+        if (isComponentCharacterLimitReached(rawLines, characterCount, separatorLength, line)) {
+            break
+        }
+        characterCount += separatorLength + line.length
+        rawLines.push(line)
+
+        let characterIndex = 0
+        while (characterIndex < line.length) {
+            const character = line[characterIndex]
+
+            if (state.openingTagClosed) {
+                if (isComponentClosingTag(line, characterIndex, tagName)) {
+                    return {
+                        raw: rawLines.join('\n').trim(),
+                        nextLineIndex: nextLineIndex + 1,
+                        foundTerminator: true,
+                    }
+                }
+                characterIndex += 1
+                continue
+            }
+
+            if (isComponentSelfClosingTag(line, characterIndex, state)) {
+                return {
+                    raw: rawLines.join('\n').trim(),
+                    nextLineIndex: nextLineIndex + 1,
+                    foundTerminator: true,
+                }
+            }
+            advanceComponentScan(state, character)
+            characterIndex += 1
+        }
+
+        // Joined source contains a newline here. It consumes a pending escape without closing
+        // the quoted value, matching the prop parser's treatment of backslash-newline.
+        consumeComponentScanLineBreak(state)
+        nextLineIndex += 1
+    }
+
+    const fallbackRawLines = fallbackRawLineCount === null ? rawLines : rawLines.slice(0, fallbackRawLineCount)
+    return {
+        raw: fallbackRawLines.join('\n').trim(),
+        nextLineIndex: fallbackNextLineIndex ?? nextLineIndex,
+        foundTerminator: false,
+    }
+}
+
+function getComponentSourceLine(line: string, recoverEscapedSource: boolean): string {
+    if (!recoverEscapedSource) {
+        return line
+    }
+
+    let source = ''
+    let index = 0
+    while (index < line.length) {
+        const character = line[index]
+        const nextCharacter = line[index + 1]
+        if (character === '\\' && nextCharacter !== undefined && INLINE_ESCAPABLE_CHARS.has(nextCharacter)) {
+            source += nextCharacter
+            index += 2
+        } else {
+            source += character
+            index += 1
+        }
+    }
+    return source
+}
+
+function isComponentBlankLineBoundary(
+    line: string,
+    nextLineIndex: number,
+    lineIndex: number,
+    state: ComponentScanState
+): boolean {
+    return nextLineIndex > lineIndex && !line.trim() && state.quote === null && state.expressionDepth === 0
+}
+
+function isComponentCharacterLimitReached(
+    rawLines: string[],
+    characterCount: number,
+    separatorLength: number,
+    line: string
+): boolean {
+    return rawLines.length > 0 && characterCount + separatorLength + line.length > MAX_COMPONENT_BLOCK_CHARACTERS
+}
+
+function isComponentClosingTag(line: string, characterIndex: number, tagName: string): boolean {
+    const closingTag = `</${tagName}>`
+    return line.startsWith(closingTag, characterIndex) && !line.slice(characterIndex + closingTag.length).trim()
+}
+
+function isComponentSelfClosingTag(line: string, characterIndex: number, state: ComponentScanState): boolean {
+    return (
+        state.quote === null &&
+        state.expressionDepth === 0 &&
+        line.startsWith('/>', characterIndex) &&
+        !line.slice(characterIndex + 2).trim()
+    )
+}
+
+function advanceComponentScan(state: ComponentScanState, character: string): void {
+    if (state.quote !== null) {
+        advanceComponentQuote(state, character)
+        return
+    }
+
+    if (state.expressionDepth > 0) {
+        advanceComponentExpression(state, character)
+        return
+    }
+
+    if (state.awaitingPropValue) {
+        if (/\s/.test(character)) {
+            return
+        }
+        state.awaitingPropValue = false
+        if (character === '"' || character === "'") {
+            state.quote = character
+            return
+        }
+        if (character === '{') {
+            state.expressionDepth = 1
+            return
+        }
+    }
+
+    if (character === '=') {
+        state.awaitingPropValue = true
+    } else if (character === '>') {
+        state.openingTagClosed = true
+    }
+}
+
+function advanceComponentQuote(state: ComponentScanState, character: string): void {
+    if (state.escapeNext) {
+        state.escapeNext = false
+    } else if (character === '\\') {
+        state.escapeNext = true
+    } else if (character === state.quote) {
+        state.quote = null
+    }
+}
+
+function advanceComponentExpression(state: ComponentScanState, character: string): void {
+    if (character === '"' || character === "'") {
+        state.quote = character
+    } else if (character === '{') {
+        state.expressionDepth += 1
+    } else if (character === '}') {
+        state.expressionDepth -= 1
+    }
+}
+
+function consumeComponentScanLineBreak(state: ComponentScanState): void {
+    if (state.quote !== null && state.escapeNext) {
+        state.escapeNext = false
     }
 }
 
@@ -1022,7 +1380,29 @@ function makeComponentFallbackParagraph(raw: string): NotebookTextBlockNode {
     }
 }
 
+// Parsing a component tag JSON-decodes its props and fingerprinting re-encodes them, so for a
+// cell that stores a result envelope both costs track the stored result, not the code. Every
+// document parse re-reads every tag, so an unchanged tag (identical raw source) reuses the
+// previously parsed node and its fingerprint. Prop objects are shared between the copies; that
+// is safe because parsed props are never mutated in place (edits build new props objects).
+// Evicted oldest-first under a total size budget, since one tag can carry large cached results.
+const COMPONENT_TAG_CACHE_MAX_ENTRIES = 512
+const COMPONENT_TAG_CACHE_MAX_TOTAL_CHARS = 16_000_000
+const componentTagCache = new Map<string, { node: NotebookComponentBlockNode; fingerprint: string }>()
+let componentTagCacheTotalChars = 0
+
 function parseComponentTag(raw: string): { node: NotebookComponentBlockNode | null; error?: NotebookParseError } {
+    const cached = componentTagCache.get(raw)
+    if (cached) {
+        componentTagCache.delete(raw)
+        componentTagCache.set(raw, cached)
+        // A shallow copy per use: the parse assigns each occurrence its own id, and the cached
+        // template must not see that (or any later startsGroup flag).
+        const node = { ...cached.node }
+        seedNodeFingerprint(node, cached.fingerprint)
+        return { node }
+    }
+
     const match = raw.match(/^<([A-Z][A-Za-z0-9]*)([\s\S]*?)(?:\/>|>[\s\S]*<\/\1>)$/)
     if (!match) {
         return {
@@ -1036,16 +1416,28 @@ function parseComponentTag(raw: string): { node: NotebookComponentBlockNode | nu
     }
 
     const propParseResult = parseComponentProps(match[2] ?? '')
-    return {
-        node: {
-            id: '',
-            type: 'component',
-            tagName: match[1],
-            props: propParseResult.props,
-            raw,
-            errors: propParseResult.errors.length ? propParseResult.errors : undefined,
-        },
+    const node: NotebookComponentBlockNode = {
+        id: '',
+        type: 'component',
+        tagName: match[1],
+        props: propParseResult.props,
+        raw,
+        errors: propParseResult.errors.length ? propParseResult.errors : undefined,
     }
+    componentTagCache.set(raw, { node: { ...node }, fingerprint: getNodeFingerprint(node) })
+    componentTagCacheTotalChars += raw.length
+    while (
+        componentTagCache.size > COMPONENT_TAG_CACHE_MAX_ENTRIES ||
+        componentTagCacheTotalChars > COMPONENT_TAG_CACHE_MAX_TOTAL_CHARS
+    ) {
+        const oldestRaw = componentTagCache.keys().next().value
+        if (oldestRaw === undefined) {
+            break
+        }
+        componentTagCache.delete(oldestRaw)
+        componentTagCacheTotalChars -= oldestRaw.length
+    }
+    return { node }
 }
 
 function parseComponentProps(source: string): PropParseResult {
@@ -1226,22 +1618,46 @@ function serializeComponentProps(props: NotebookComponentProps): string {
     return serialized
 }
 
+function getUnchangedMultilineComponentSource(node: NotebookComponentBlockNode): string | null {
+    if (!node.raw?.includes('\n')) {
+        return null
+    }
+
+    const parsed = parseComponentTag(node.raw)
+    if (!parsed.node || parsed.node.errors?.length) {
+        return null
+    }
+
+    return getNodeFingerprint(parsed.node) === getNodeFingerprint(node) ? node.raw : null
+}
+
 function getSerializableComponentProps(props: NotebookComponentProps): NotebookComponentProps {
     const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
-        if (key !== 'view' && key !== 'edit' && key !== 'hideFilters' && key !== 'hideResults') {
+        if (
+            (key !== 'view' || typeof value !== 'boolean') &&
+            key !== 'edit' &&
+            key !== 'hideFilters' &&
+            key !== 'hideResults' &&
+            key !== 'showFilters' &&
+            key !== 'showResults'
+        ) {
             accumulator[key] = value
         }
         return accumulator
     }, {})
     const legacyViewPanelVisible = typeof props.view === 'boolean' ? props.view : undefined
-    const legacyEditPanelVisible = typeof props.edit === 'boolean' ? props.edit : undefined
-    const hideFilters = typeof props.hideFilters === 'boolean' ? props.hideFilters : legacyEditPanelVisible === false
-    const hideResults = typeof props.hideResults === 'boolean' ? props.hideResults : legacyViewPanelVisible === false
+    const showFilters = props.showFilters === true
+    const showResults =
+        typeof props.showResults === 'boolean'
+            ? props.showResults
+            : props.hideResults === true
+              ? false
+              : (legacyViewPanelVisible ?? true)
 
-    if (hideFilters) {
-        nextProps.hideFilters = true
+    if (showFilters) {
+        nextProps.showFilters = true
     }
-    if (hideResults) {
+    if (!showResults) {
         nextProps.hideResults = true
     }
 
@@ -1250,7 +1666,7 @@ function getSerializableComponentProps(props: NotebookComponentProps): NotebookC
 
 function getOrderedComponentPropEntries(props: NotebookComponentProps): [string, NotebookPropValue][] {
     const entries = Object.entries(props)
-    const orderedKeys = ['hideFilters', 'hideResults']
+    const orderedKeys = ['showFilters', 'hideResults']
     return [
         ...orderedKeys.flatMap((key): [string, NotebookPropValue][] =>
             Object.prototype.hasOwnProperty.call(props, key) ? [[key, props[key]]] : []
@@ -1259,6 +1675,11 @@ function getOrderedComponentPropEntries(props: NotebookComponentProps): [string,
     ]
 }
 
+// The whole tag re-serializes when any prop changes, so a big unchanged value (the result
+// envelope of a cell whose code is being typed into) would re-encode on every keystroke.
+// Keyed by object identity, which is safe because prop values are never mutated in place.
+const serializedPropObjectCache = new WeakMap<object, string>()
+
 function serializePropValue(value: NotebookPropValue): string {
     if (typeof value === 'string') {
         return JSON.stringify(value)
@@ -1266,7 +1687,13 @@ function serializePropValue(value: NotebookPropValue): string {
     if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
         return `{${String(value)}}`
     }
-    return `{${JSON.stringify(value)}}`
+    const cachedValue = serializedPropObjectCache.get(value)
+    if (cachedValue !== undefined) {
+        return cachedValue
+    }
+    const serialized = `{${JSON.stringify(value)}}`
+    serializedPropObjectCache.set(value, serialized)
+    return serialized
 }
 
 function serializeImageNode(node: NotebookComponentBlockNode): string {
@@ -1520,11 +1947,7 @@ export function escapeMarkdownLineStart(line: string): string {
 }
 
 function getCodeBlockFence(text: string): string {
-    let longestRun = 0
-    for (const line of text.split('\n')) {
-        const run = line.trim().match(/^`+/)?.[0].length ?? 0
-        longestRun = Math.max(longestRun, run)
-    }
+    const longestRun = Math.max(0, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length))
     return '`'.repeat(Math.max(3, longestRun + 1))
 }
 

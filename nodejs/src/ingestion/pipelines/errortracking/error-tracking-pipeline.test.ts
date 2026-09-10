@@ -2,23 +2,24 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { EventIngestionRestrictionManager, RestrictionType } from '~/common/utils/event-ingestion-restrictions'
+import { parseJSON } from '~/common/utils/json-parse'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { TeamManager } from '~/common/utils/team-manager'
+import { UUIDT } from '~/common/utils/utils'
 import { COOKIELESS_SENTINEL_VALUE, CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
 import { TopHog } from '~/ingestion/framework/tophog'
-import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson } from '~/types'
-import { EventIngestionRestrictionManager, RestrictionType } from '~/utils/event-ingestion-restrictions'
-import { parseJSON } from '~/utils/json-parse'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
-import { UUIDT } from '~/utils/utils'
 
 import { CymbalClient } from './cymbal/client'
 import { CymbalResponse } from './cymbal/types'
@@ -30,13 +31,13 @@ import {
 } from './error-tracking-pipeline'
 
 // Skip retry sleeps so tests run instantly
-jest.mock('~/utils/utils', () => ({
-    ...jest.requireActual('~/utils/utils'),
+jest.mock('~/common/utils/utils', () => ({
+    ...jest.requireActual('~/common/utils/utils'),
     sleep: jest.fn().mockResolvedValue(undefined),
 }))
 
 // Suppress logger output during tests
-jest.mock('~/utils/logger', () => ({
+jest.mock('~/common/utils/logger', () => ({
     logger: {
         debug: jest.fn(),
         info: jest.fn(),
@@ -142,7 +143,7 @@ describe('ErrorTrackingPipeline', () => {
             partition: 0,
             offset: 0,
             size: 0,
-            key: Buffer.from(distinctId),
+            key: Buffer.from(`${token}:${distinctId}`),
         } as Message
     }
 
@@ -241,9 +242,6 @@ describe('ErrorTrackingPipeline', () => {
             updatePersonsBatch: jest.fn(),
             deletePerson: jest.fn(),
             addDistinctId: jest.fn(),
-            addPersonlessDistinctId: jest.fn(),
-            addPersonlessDistinctIdForMerge: jest.fn(),
-            addPersonlessDistinctIdsBatch: jest.fn(),
             personPropertiesSize: jest.fn(),
             updateCohortsAndFeatureFlagsForMerge: jest.fn(),
             inTransaction: jest.fn(),
@@ -320,9 +318,10 @@ describe('ErrorTrackingPipeline', () => {
             groupTypeManager: mockGroupTypeManager,
             cookielessManager: mockCookielessManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
-            overflowEnabled: false,
+            overflowMode: 'disabled',
             preservePartitionLocality: false,
             topHog: mockTopHog,
+            createEventUsageBatch: () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
         }
     })
 
@@ -590,7 +589,7 @@ describe('ErrorTrackingPipeline', () => {
             // Enable overflow for this test
             const configWithOverflow: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
             }
 
             const pipeline = createErrorTrackingPipeline(configWithOverflow)
@@ -989,53 +988,13 @@ describe('ErrorTrackingPipeline', () => {
             expect(producedEvents[0].distinct_id).toBe('hashed-distinct-id')
         })
 
-        it('passes cookieless events through skip-cookieless rate limit even when service flags the sentinel', async () => {
-            // The skip-cookieless step keys on headers.distinct_id. For cookieless events
-            // the header is the sentinel, and the step explicitly passes them through —
-            // they are handled by the only-cookieless step post-rewrite. This test proves
-            // the sentinel-keyed flag does not redirect.
-            const person = createTestPerson({ distinct_id: 'hashed-distinct-id' })
-            mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
-
-            mockCookielessManager.doBatch.mockImplementationOnce((events: any[]) =>
-                Promise.resolve(
-                    events.map((e) => ok({ ...e, event: { ...e.event, distinct_id: 'hashed-distinct-id' } }))
-                )
-            )
-
+        it('redirects cookieless events to overflow when their message key is flagged', async () => {
+            // The rate limit step keys on the Kafka message key, so a flagged
+            // cookieless event goes to overflow before Cymbal runs.
             const flagging = createMockOverflowRedirectService(new Set([`test-token-123:${COOKIELESS_SENTINEL_VALUE}`]))
             const configWithOverflow: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
-                overflowEnabled: true,
-                overflowRedirectService: flagging,
-            }
-
-            const message = createKafkaMessage({ distinctId: COOKIELESS_SENTINEL_VALUE })
-            const pipeline = createErrorTrackingPipeline(configWithOverflow)
-            await runErrorTrackingPipeline(pipeline, [message])
-
-            expect(getOverflowMessages()).toHaveLength(0)
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(1)
-            const producedEvents = getProducedEvents()
-            expect(producedEvents).toHaveLength(1)
-            expect(producedEvents[0].distinct_id).toBe('hashed-distinct-id')
-        })
-
-        it('redirects cookieless events to overflow via only-cookieless rate limit on the hashed distinct_id', async () => {
-            // The only-cookieless step keys on event.distinct_id (the value after the
-            // cookieless step rewrites it). This test proves a flag on the hashed key
-            // sends the cookieless event to overflow rather than Cymbal.
-            mockCookielessManager.doBatch.mockImplementationOnce((events: any[]) =>
-                Promise.resolve(
-                    events.map((e) => ok({ ...e, event: { ...e.event, distinct_id: 'hashed-distinct-id' } }))
-                )
-            )
-
-            const flagging = createMockOverflowRedirectService(new Set(['test-token-123:hashed-distinct-id']))
-            const configWithOverflow: ErrorTrackingPipelineConfig = {
-                ...pipelineConfig,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 overflowRedirectService: flagging,
             }
 
@@ -1072,7 +1031,7 @@ describe('ErrorTrackingPipeline', () => {
             )
         }
 
-        it('records resolved_teams metric when team is resolved', async () => {
+        it('records messages_by_token metric for parsed messages', async () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
             mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
@@ -1090,11 +1049,11 @@ describe('ErrorTrackingPipeline', () => {
             expect(mockHogTransformer.transformEventAndProduceMessages).toHaveBeenCalledTimes(1)
 
             const messages = getTopHogMessages()
-            const resolvedTeamsMetric = messages.find((m) => m.metric === 'resolved_teams')
-            expect(resolvedTeamsMetric).toBeDefined()
-            expect(resolvedTeamsMetric.type).toBe('sum')
-            expect(resolvedTeamsMetric.key.team_id).toBe('123')
-            expect(resolvedTeamsMetric.value).toBe(1)
+            const messagesByToken = messages.find((m) => m.metric === 'messages_by_token')
+            expect(messagesByToken).toBeDefined()
+            expect(messagesByToken.type).toBe('sum')
+            expect(messagesByToken.key.token).toBe('test-token-123')
+            expect(messagesByToken.value).toBe(1)
         })
 
         it('records emitted_events metric when events are emitted', async () => {
@@ -1200,9 +1159,9 @@ describe('ErrorTrackingPipeline', () => {
 
             const topHogMessages = getTopHogMessages()
 
-            // resolved_teams should have count=3 (one per event)
-            const resolvedTeamsMetric = topHogMessages.find((m) => m.metric === 'resolved_teams')
-            expect(resolvedTeamsMetric.value).toBe(3)
+            // messages_by_token should have count=3 (one per parsed message)
+            const messagesByToken = topHogMessages.find((m) => m.metric === 'messages_by_token')
+            expect(messagesByToken.value).toBe(3)
 
             // emitted_events should have value=3
             const emittedEventsMetric = topHogMessages.find((m) => m.metric === 'emitted_events')

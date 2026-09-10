@@ -3,7 +3,7 @@ import pickle
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 import redis as redis_lib
 import zstandard as zstd
@@ -14,8 +14,22 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.storage.auth_token_cache_verifier import verify_and_fix_auth_token_cache
+from posthog.storage.auth_token_cache_verifier import _deserialize_cache_value, verify_and_fix_auth_token_cache
 from posthog.storage.team_access_cache import TOKEN_CACHE_PREFIX
+
+# Module-level so the malicious payload can be pickled by qualified name (local objects aren't picklable).
+_pickle_execution_marker: list[bool] = []
+
+
+def _record_pickle_execution() -> str:
+    _pickle_execution_marker.append(True)
+    return "executed"
+
+
+class _MaliciousPayload:
+    def __reduce__(self):
+        # A stock unpickler runs this callable during load — the classic pickle RCE vector.
+        return (_record_pickle_execution, ())
 
 
 class TestAuthTokenCacheVerifier(TestCase):
@@ -892,3 +906,19 @@ class TestAuthTokenCacheVerifier(TestCase):
         assert self.redis.exists(key)
         assert result.valid >= 1
         assert result.parse_errors == 0
+
+
+class TestAuthTokenCacheDeserializationHardening(SimpleTestCase):
+    def test_malicious_pickle_is_rejected_without_executing_code(self):
+        payload = pickle.dumps(_MaliciousPayload())
+
+        # Guard: this payload really is a live execution vector under a stock unpickler.
+        _pickle_execution_marker.clear()
+        # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (test asserting the exploit is live, so we can prove the deserializer blocks it)
+        pickle.loads(payload)  # noqa: S301
+        assert _pickle_execution_marker == [True]
+
+        # The cache deserializer must reject the payload and run none of its code.
+        _pickle_execution_marker.clear()
+        assert _deserialize_cache_value(payload) is None
+        assert _pickle_execution_marker == []

@@ -2,6 +2,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
+import { delay } from 'msw'
 import { useEffect } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
@@ -14,7 +15,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { actionsModel } from '~/models/actionsModel'
-import { type AnyPropertyFilter, AvailableFeature, PropertyFilterType, PropertyOperator } from '~/types'
+import { type AnyPropertyFilter, AvailableFeature, EntityTypes, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
@@ -162,6 +163,39 @@ export const Properties: Story = {
         docs: {
             description: {
                 story: 'TaxonomicFilter showing Event Properties and Person Properties tabs.',
+            },
+        },
+    },
+}
+
+export const SlowExpansionCount: Story = {
+    render: Properties.render,
+    args: {
+        taxonomicFilterLogicKey: 'slow-expansion-count',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+        eventNames: ['page_opened'],
+        initialSearchQuery: 'name',
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/property_definitions': async ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const scoped = params.has('filter_by_event_names')
+                    const results = [{ id: 'page_name', name: 'page_name' }].filter((item) =>
+                        item.name.includes(params.get('search') ?? '')
+                    )
+                    await delay(scoped ? 100 : 8000)
+                    return { results, count: scoped ? results.length : 9 }
+                },
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="prop-filter-event_properties-0"]' },
+        docs: {
+            description: {
+                story: 'Scoped results appear while the full count is still loading. The expansion option arrives below them after eight seconds.',
             },
         },
     },
@@ -442,6 +476,36 @@ export const AutocaptureContextPromotesElements: Story = {
     },
 }
 
+export const MCPToolCallContextLeadsWithMCPProperties: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <SeedRecents count={0} />
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'mcp-tool-call-context',
+        eventNames: ['$mcp_tool_call'],
+        taxonomicGroupTypes: [
+            TaxonomicFilterGroupType.SuggestedFilters,
+            TaxonomicFilterGroupType.MCPProperties,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+        ],
+    },
+    parameters: {
+        ...SUGGESTED_FILTERS_PARAMETERS,
+        docs: {
+            description: {
+                story: 'When the picker is scoped to $mcp_tool_call, the known @posthog/mcp schema is separated into a leading "MCP properties" group, and SuggestedFilters leads with the tool name (the event\'s primary property) and error state. Without an $mcp_* event in scope the group disappears entirely.',
+            },
+        },
+    },
+}
+
 function CategoryDropdownStoryRender({
     variant,
     ...args
@@ -498,6 +562,112 @@ export const CategoryDropdownPill: Story = {
         docs: {
             description: {
                 story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown as a pill in the right-hand suffix of the search input.',
+            },
+        },
+    },
+}
+
+// The committed selection of a renamed series ('signed up', renamed "Completed sign-up")
+// is promoted to the top of the list, labelled with the rename and revealing the
+// underlying event as secondary text (tooltip on hover).
+const RENAMED_SERIES_ARGS: TaxonomicFilterProps = {
+    groupType: TaxonomicFilterGroupType.Events,
+    value: 'signed up',
+    filter: {
+        type: EntityTypes.EVENTS,
+        id: 'signed up',
+        name: 'signed up',
+        custom_name: 'Completed sign-up',
+        order: 0,
+    },
+    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+}
+
+const RENAMED_SERIES_PARAMETERS = {
+    // Wait on the promoted renamed row itself: the picker also mounts hidden, empty
+    // Recent/Pinned lists ahead of the active Events list, and the test runner waits on
+    // the FIRST `.taxonomic-infinite-list` match — which never becomes visible.
+    testOptions: { waitForSelector: '.taxonomic-list-row .EntityFilterInfo' },
+}
+
+export const RenamedSeriesSelected: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        ...RENAMED_SERIES_ARGS,
+        taxonomicFilterLogicKey: 'renamed-series-selected',
+    },
+    parameters: {
+        ...RENAMED_SERIES_PARAMETERS,
+        docs: {
+            description: {
+                story: 'Reopening the picker on a renamed series: the committed selection leads the Events list, labelled "Completed sign-up" with the underlying `signed up` event shown alongside (and in a tooltip on hover), so the row connects to the series the user clicked.',
+            },
+        },
+    },
+}
+
+export const RenamedSeriesSelectedPill: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        ...RENAMED_SERIES_ARGS,
+        taxonomicFilterLogicKey: 'renamed-series-selected-pill',
+    },
+    parameters: {
+        ...RENAMED_SERIES_PARAMETERS,
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
+        docs: {
+            description: {
+                story: "Same renamed-series selection in the pill category-dropdown variant: the Categories column is folded into the search input's pill, and the promoted committed row still shows the rename with the underlying event.",
+            },
+        },
+    },
+}
+
+export const FailedFetchOffersRetry: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const { setSearchQuery } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+
+        useOnMountEffect(() => setSearchQuery('user_signed_up'))
+
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'events-failed-fetch',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': () => [500, { detail: 'server error' }],
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="taxonomic-retry-remote-items"]' },
+        docs: {
+            description: {
+                story: 'When the search request fails, the list says so and offers a retry, rather than showing the same "No results" as a genuine empty search.',
             },
         },
     },

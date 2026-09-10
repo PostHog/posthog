@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight, IconCopy, IconGear, IconGithub, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSearchableSelect, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -24,6 +25,8 @@ export const scene: SceneExport = {
 }
 
 function GitHubConnectPrompt(): JSX.Element {
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+
     return (
         <div className="border rounded-lg p-6 text-center">
             <div className="space-y-4 flex flex-col items-center">
@@ -42,6 +45,7 @@ function GitHubConnectPrompt(): JSX.Element {
                         kind: 'github',
                         next: window.location.pathname,
                     })}
+                    onClick={() => reportIntegrationConnectClicked('github', 'github', 'visual_review_settings')}
                 >
                     Connect GitHub
                 </LemonButton>
@@ -260,8 +264,10 @@ function AddRepoDropdown(): JSX.Element {
     const manageAccessUrl = githubManageAccessUrl ?? urls.settings('environment-integrations')
 
     return (
-        <LemonSelect
+        <LemonSearchableSelect
             placeholder="Add a repository..."
+            searchPlaceholder="Search repositories"
+            noResultsMessage="No repositories found"
             loading={saving}
             options={[
                 {

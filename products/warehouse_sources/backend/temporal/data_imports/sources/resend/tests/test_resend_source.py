@@ -1,0 +1,204 @@
+from unittest import mock
+
+from parameterized import parameterized
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.resend import (
+    ResendAuthMethodConfig,
+    ResendSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.resend.oauth import ResendIntegrationAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.resend.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.resend.source import ResendSource
+
+
+def _api_key_config(api_key: str = "re_test_key") -> ResendSourceConfig:
+    return ResendSourceConfig(auth_method=ResendAuthMethodConfig(selection="api_key", api_key=api_key))
+
+
+def _oauth_config(integration_id: int = 42) -> ResendSourceConfig:
+    return ResendSourceConfig(
+        auth_method=ResendAuthMethodConfig(selection="oauth", resend_integration_id=integration_id)
+    )
+
+
+class TestResendSource:
+    def setup_method(self):
+        self.source = ResendSource()
+        self.team_id = 123
+        self.config = _api_key_config()
+
+    @parameterized.expand(
+        [
+            ("audiences", "https://api.resend.com/audiences", "Audiences"),
+            ("broadcasts", "https://api.resend.com/broadcasts", "Broadcasts"),
+            ("domains", "https://api.resend.com/domains", "Domains"),
+            # The real List Emails failure carries the paginator's ?limit=100 suffix, so the scoped
+            # key must still match it as a prefix.
+            ("emails", "https://api.resend.com/emails?limit=100", "Emails"),
+        ]
+    )
+    def test_scoped_bad_request_is_non_retryable(self, _name: str, url: str, expected_word: str):
+        errors = self.source.get_non_retryable_errors()
+        raised = f"400 Client Error: Bad Request for url: {url}"
+
+        matched = [message for key, message in errors.items() if key in raised]
+
+        assert len(matched) == 1
+        assert matched[0] is not None and expected_word in matched[0]
+
+    def test_unclassified_bad_request_stays_retryable(self):
+        # A 400 on an endpoint we haven't scoped a message for could be our own bug, so it must stay
+        # retryable and visible instead of silently disabling the sync.
+        errors = self.source.get_non_retryable_errors()
+        raised = "400 Client Error: Bad Request for url: https://api.resend.com/api-keys"
+
+        assert not [message for key, message in errors.items() if key in raised]
+
+    def test_get_schemas(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
+
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
+        for schema in schemas:
+            assert schema.supports_incremental is False
+            assert schema.supports_append is False
+            assert schema.incremental_fields == []
+
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["emails"])
+
+        assert len(schemas) == 1
+        assert schemas[0].name == "emails"
+
+    def test_get_schemas_filtered_unknown_name_returns_empty(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["nonexistent"])
+
+        assert schemas == []
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.validate_resend_credentials"
+    )
+    def test_validate_credentials_api_key_success(self, mock_validate):
+        mock_validate.return_value = True
+
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is True
+        assert error_message is None
+        mock_validate.assert_called_once_with("re_test_key")
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.validate_resend_credentials"
+    )
+    def test_validate_credentials_api_key_failure(self, mock_validate):
+        mock_validate.return_value = False
+
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is False
+        assert error_message == "Invalid Resend API key"
+
+    def test_validate_credentials_api_key_missing(self):
+        config = ResendSourceConfig(auth_method=ResendAuthMethodConfig(selection="api_key", api_key=None))
+
+        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error_message is not None and "Missing Resend API key" in error_message
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.validate_resend_credentials"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resolve_resend_oauth_token"
+    )
+    @mock.patch.object(ResendSource, "get_oauth_integration")
+    def test_validate_credentials_oauth_success(self, mock_get_integration, mock_resolve, mock_validate):
+        mock_resolve.return_value = "oauth_access_token"
+        mock_validate.return_value = True
+
+        is_valid, error_message = self.source.validate_credentials(_oauth_config(), self.team_id)
+
+        assert is_valid is True
+        assert error_message is None
+        mock_get_integration.assert_called_once_with(42, self.team_id)
+        mock_resolve.assert_called_once_with(42, self.team_id)
+        mock_validate.assert_called_once_with("oauth_access_token")
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.validate_resend_credentials"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resolve_resend_oauth_token"
+    )
+    @mock.patch.object(ResendSource, "get_oauth_integration")
+    def test_validate_credentials_oauth_failure(self, mock_get_integration, mock_resolve, mock_validate):
+        mock_resolve.return_value = "oauth_access_token"
+        mock_validate.return_value = False
+
+        is_valid, error_message = self.source.validate_credentials(_oauth_config(), self.team_id)
+
+        assert is_valid is False
+        assert error_message is not None and "reconnect" in error_message.lower()
+
+    @mock.patch.object(ResendSource, "get_oauth_integration", side_effect=ValueError("Integration not found: 42"))
+    def test_validate_credentials_oauth_deleted_integration(self, _mock_get_integration):
+        is_valid, error_message = self.source.validate_credentials(_oauth_config(), self.team_id)
+
+        assert is_valid is False
+        # The raw "Integration not found: <id>" must be mapped to curated wording so the wizard
+        # never leaks the internal string or the volatile integration ID.
+        assert error_message == "The linked Resend integration no longer exists. Please reconnect your Resend account."
+        assert "42" not in (error_message or "")
+
+    def test_validate_credentials_oauth_missing_integration_id(self):
+        config = ResendSourceConfig(auth_method=ResendAuthMethodConfig(selection="oauth", resend_integration_id=None))
+
+        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error_message == "Resend integration is not configured. Please reconnect your Resend account."
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resend_source")
+    def test_source_for_pipeline_api_key_passes_bearer_auth(self, mock_resend_source):
+        mock_resend_source.return_value = mock.MagicMock()
+
+        inputs = mock.MagicMock()
+        inputs.schema_name = "audiences"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(self.config, manager, inputs)
+
+        kwargs = mock_resend_source.call_args.kwargs
+        assert kwargs["endpoint"] == "audiences"
+        assert kwargs["team_id"] == 123
+        assert kwargs["job_id"] == "job-1"
+        assert kwargs["resumable_source_manager"] is manager
+        assert isinstance(kwargs["auth"], BearerTokenAuth)
+        assert kwargs["auth"].token == "re_test_key"
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resend_source")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.resend.source.resolve_resend_oauth_token"
+    )
+    @mock.patch.object(ResendSource, "get_oauth_integration")
+    def test_source_for_pipeline_oauth_passes_integration_auth(
+        self, mock_get_integration, mock_resolve, mock_resend_source
+    ):
+        mock_resolve.return_value = "oauth_access_token"
+        mock_resend_source.return_value = mock.MagicMock()
+
+        inputs = mock.MagicMock()
+        inputs.schema_name = "emails"
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(_oauth_config(), manager, inputs)
+
+        auth = mock_resend_source.call_args.kwargs["auth"]
+        assert isinstance(auth, ResendIntegrationAuth)
+        assert auth.token == "oauth_access_token"
+        mock_resolve.assert_called_once_with(42, 123)

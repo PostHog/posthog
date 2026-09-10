@@ -4,6 +4,21 @@ Use `kea-loaders` for any state whose value comes from an async source (an HTTP 
 a query helper, anything that returns a promise). Don't roll your own
 `isLoadingFoo` reducer.
 
+## API imports
+
+Import generated endpoint modules as a namespace and call functions through `api`:
+
+```ts
+import * as api from 'products/foo/frontend/generated/api'
+
+const foo = await api.foosRetrieve(fooId)
+```
+
+This keeps API calls recognizable at the call site and avoids a growing list of
+named endpoint imports. Use the appropriate generated module for the endpoint:
+`~/generated/core/api` for core endpoints or
+`products/<product>/frontend/generated/api` for product endpoints.
+
 ## Why a loader and not a reducer + listener
 
 A loader on a key `foo` generates:
@@ -22,12 +37,14 @@ no cancellation. Don't.
 ```ts
 import { loaders } from 'kea-loaders'
 
+import * as api from 'products/foo/frontend/generated/api'
+
 loaders(({ values, props }) => ({
     foo: [
         null as Foo | null,
         {
             loadFoo: async () => {
-                return await api.foos.get(props.fooId)
+                return await api.foosRetrieve(props.fooId)
             },
         },
     ],
@@ -46,7 +63,7 @@ loaders(({ values }) => ({
         [] as Result[],
         {
             search: async ({ query }: { query: string }) => {
-                return await api.search.list({ query })
+                return await api.searchList({ query })
             },
         },
     ],
@@ -65,7 +82,7 @@ loaders(({ values }) => ({
         {
             search: async ({ query }: { query: string }, breakpoint) => {
                 await breakpoint(300)                     // debounce
-                const results = await api.search.list({ query })
+                const results = await api.searchList({ query })
                 breakpoint()                              // discard if superseded
                 return results
             },

@@ -1,13 +1,18 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+import { router } from 'kea-router'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { TicketListFilters } from '../../components/TicketListFilters/TicketListFilters'
 import { Ticket } from '../../types'
+import { ticketListBackTo } from '../ticket/SupportTicketScene'
 import { SupportTicketsTable } from './SupportTicketsScene'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
@@ -18,6 +23,7 @@ const TICKET: Ticket = {
     status: 'open',
     channel_source: 'email',
     anonymous_traits: {},
+    identity_verified: false,
     ai_resolved: false,
     created_at: '2026-06-12T00:00:00Z',
     updated_at: '2026-06-12T00:00:00Z',
@@ -95,5 +101,162 @@ describe('SupportTicketsTable selection', () => {
 
         await waitFor(() => expect(getRowCheckbox()).not.toBeChecked())
         expect(logic.values.selectedTicketIds).toEqual([])
+    })
+
+    // Regression: opening a ticket from a filtered list dropped the filters, so the ticket's
+    // back arrow returned to the unfiltered "all tickets" list instead of the view the user
+    // was on. The row now carries the list's query string onto the ticket URL so the back
+    // arrow can restore it.
+    it('carries the active filters onto the ticket URL when a row is opened', async () => {
+        act(() => {
+            logic.actions.setStatusFilter(['open'])
+        })
+        // The filter is reflected in the list URL first.
+        await waitFor(() => expect(router.values.searchParams.status).not.toBeUndefined())
+
+        render(
+            <Provider>
+                <SupportTicketsTable />
+            </Provider>
+        )
+
+        // Click the ticket row itself (not the selection checkbox). The router pathname is
+        // project-scoped (e.g. /project/997/...), so match on the ticket path suffix.
+        const rows = screen.getAllByRole('row')
+        await userEvent.click(rows[rows.length - 1])
+
+        await waitFor(() =>
+            expect(router.values.location.pathname).toContain(urls.supportTicketDetail(TICKET.ticket_number))
+        )
+        // Filters ride along on the ticket URL so the back arrow returns to this view.
+        expect(router.values.searchParams.status).not.toBeUndefined()
+    })
+
+    // Regression (the back half): the ticket's back arrow rebuilds the list URL from the
+    // filters carried in the ticket page's query string via `ticketListBackTo`. If that
+    // construction drops the filters, the arrow lands on the unfiltered "all tickets" list
+    // — the actual bug. This follows the round trip: open a filtered ticket, then the back
+    // arrow, and confirm it lands back on the filtered list.
+    it('sends the ticket back arrow to the filtered list', async () => {
+        act(() => {
+            logic.actions.setStatusFilter(['open'])
+        })
+        await waitFor(() => expect(router.values.searchParams.status).not.toBeUndefined())
+
+        render(
+            <Provider>
+                <SupportTicketsTable />
+            </Provider>
+        )
+
+        // Open the ticket from the filtered list; the row carries the filters onto its URL.
+        // (Router pathnames are project-scoped, so match on the path suffix.)
+        const rows = screen.getAllByRole('row')
+        await userEvent.click(rows[rows.length - 1])
+        await waitFor(() =>
+            expect(router.values.location.pathname).toContain(urls.supportTicketDetail(TICKET.ticket_number))
+        )
+
+        // The back arrow's target is built from the ticket page's live query string. It must
+        // point back at the ticket list and keep the status filter.
+        const backPath = ticketListBackTo(router.values.searchParams).path ?? ''
+        expect(backPath.split('?')[0]).toBe(urls.supportTickets())
+        expect(backPath).toContain('status')
+
+        // Follow the back arrow: it lands on the filtered ticket list, not the unfiltered
+        // "all tickets" view.
+        act(() => {
+            router.actions.push(backPath)
+        })
+        await waitFor(() => expect(router.values.location.pathname).toContain(urls.supportTickets()))
+        expect(router.values.searchParams.status).not.toBeUndefined()
+    })
+})
+
+describe('TicketListFilters count', () => {
+    let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+    let mockCount = 0
+
+    beforeEach(() => {
+        mockCount = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/tickets/': () => [200, { results: [TICKET], count: mockCount }],
+                '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
+                '/api/projects/:team_id/tags': () => [200, []],
+            },
+        })
+        initKeaTests()
+        logic = supportTicketsSceneLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        cleanup()
+    })
+
+    // Set the count directly so the assertion doesn't race the debounced loadTickets; keep the
+    // mock in sync so a background reload can't reset the value out from under the assertion.
+    function setCount(count: number): void {
+        mockCount = count
+        act(() => {
+            logic.actions.setTotalCount(count)
+        })
+    }
+
+    it.each([
+        ['pluralizes the count of tickets matching the current query', 42, '42 tickets'],
+        ['uses the singular noun for a single ticket', 1, '1 ticket'],
+    ])('%s', async (_name, count, expected) => {
+        setCount(count)
+
+        render(
+            <Provider>
+                <TicketListFilters />
+            </Provider>
+        )
+
+        expect(await screen.findByText(expected)).toBeInTheDocument()
+    })
+
+    it('opens filter controls from the Filters button', async () => {
+        render(
+            <Provider>
+                <TicketListFilters />
+            </Provider>
+        )
+
+        expect(screen.getByText('Last 7 days')).toBeInTheDocument()
+
+        const filtersButton = document.querySelector('[data-attr="ticket-filters-button"]')
+        expect(filtersButton).toBeInstanceOf(HTMLElement)
+        await userEvent.click(filtersButton as HTMLElement)
+
+        expect(await screen.findByText('Status')).toBeInTheDocument()
+        expect(screen.getByText('Priority')).toBeInTheDocument()
+        expect(screen.getByText('Assignee')).toBeInTheDocument()
+        expect(screen.queryByText('Date')).not.toBeInTheDocument()
+    })
+
+    it('shows a chip for an applied filter and the chip x clears it', async () => {
+        act(() => {
+            logic.actions.setStatusFilter(['open'])
+        })
+
+        render(
+            <Provider>
+                <TicketListFilters />
+            </Provider>
+        )
+
+        expect(await screen.findByText('Status: Open')).toBeInTheDocument()
+
+        const chip = screen.getByText('Status: Open').closest('[data-attr="ticket-applied-filter"]')
+        expect(chip).not.toBeNull()
+        await userEvent.click(within(chip as HTMLElement).getByRole('button'))
+
+        await waitFor(() => expect(logic.values.statusFilter).toEqual([]))
+        expect(screen.queryByText('Status: Open')).not.toBeInTheDocument()
     })
 })

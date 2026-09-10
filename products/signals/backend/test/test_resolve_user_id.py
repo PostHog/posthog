@@ -1,11 +1,13 @@
 import pytest
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.temporal.agentic import resolve_user_id_for_team
+from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.temporal.agentic import resolve_acting_user_id_for_team, resolve_user_id_for_team
 
 
 @pytest.fixture
@@ -20,9 +22,15 @@ def team(organization):
     return Team.objects.create(organization=organization, name="test-resolve-user-team")
 
 
-def _create_user(email: str, organization: Organization, *, is_active: bool = True) -> User:
+def _create_user(
+    email: str,
+    organization: Organization,
+    *,
+    is_active: bool = True,
+    level: OrganizationMembership.Level = OrganizationMembership.Level.OWNER,
+) -> User:
     user = User.objects.create(email=email, is_active=is_active)
-    OrganizationMembership.objects.create(user=user, organization=organization)
+    OrganizationMembership.objects.create(user=user, organization=organization, level=level)
     return user
 
 
@@ -131,3 +139,61 @@ def test_raises_when_team_has_no_github_source_at_all(organization, team):
 
     with pytest.raises(RuntimeError, match="No GitHub integration"):
         resolve_user_id_for_team(team.id)
+
+
+@pytest.mark.django_db
+def test_acting_user_falls_back_to_active_member_without_github(organization, team):
+    # The scout path has no repo to clone, so it must NOT require GitHub: a team with an active
+    # org member but no integration resolves that member instead of failing. This is the fix for
+    # the teams that were crashing every scheduled run on the GitHub precondition.
+    member = _create_user("member@example.com", organization)
+
+    assert resolve_acting_user_id_for_team(team.id) == member.id
+
+
+@pytest.mark.django_db
+def test_acting_user_returns_none_when_no_active_member(organization, team):
+    # The only genuine "can't run" case — no active user to act as. Returning None (not raising)
+    # is what lets the scheduled caller short-circuit to a skip instead of a bogus failed run.
+    _create_user("inactive@example.com", organization, is_active=False)
+
+    assert resolve_acting_user_id_for_team(team.id) is None
+
+
+@pytest.mark.django_db
+def test_acting_user_prefers_github_creator_when_present(organization, team):
+    # When GitHub IS connected, keep the existing attribution: act as the integration creator,
+    # not an arbitrary member — so the decoupling doesn't change behavior for set-up teams.
+    _create_user("member@example.com", organization)
+    creator = _create_user("creator@example.com", organization)
+    _create_github_integration(team, created_by=creator)
+
+    assert resolve_acting_user_id_for_team(team.id) == creator.id
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("denial", ["private_project", "per_member_rule"])
+@pytest.mark.parametrize("with_github_integration", [False, True])
+def test_acting_user_skips_member_without_project_access(organization, team, with_github_integration, denial):
+    organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+    ]
+    organization.save()
+    denied_member = _create_user("denied@example.com", organization, level=OrganizationMembership.Level.MEMBER)
+    admin = _create_user("admin@example.com", organization, level=OrganizationMembership.Level.ADMIN)
+    denied_by_member = (
+        OrganizationMembership.objects.get(user=denied_member, organization=organization)
+        if denial == "per_member_rule"
+        else None
+    )
+    AccessControl.objects.create(
+        team=team,
+        resource="project",
+        resource_id=str(team.id),
+        organization_member=denied_by_member,
+        access_level="none",
+    )
+    if with_github_integration:
+        _create_github_integration(team, created_by=denied_member)
+
+    assert resolve_acting_user_id_for_team(team.id) == admin.id

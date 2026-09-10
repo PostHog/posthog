@@ -413,6 +413,119 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
+    def test_matured_user_value_stable_across_re_exposure(self, name, use_precomputation):
+        from datetime import datetime
+
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 15, 0, 0, 0),
+        )
+        experiment.stats_config = {"method": "frequentist"}
+
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            denominator=EventsNode(
+                event="pageview",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            conversion_window=1,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.only_count_matured_users = True
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        ff_property = f"$feature/{feature_flag.key}"
+        distinct_id = "user_re_exposed"
+        _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+
+        def _flag_call(timestamp: str) -> None:
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={
+                    ff_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+
+        # First exposure Jan 2 with one purchase + one pageview inside the window.
+        _flag_call("2020-01-02T00:00:00Z")
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=distinct_id,
+            timestamp="2020-01-02T12:00:00Z",
+            properties={ff_property: "control", "amount": 25},
+        )
+        _create_event(
+            team=self.team,
+            event="pageview",
+            distinct_id=distinct_id,
+            timestamp="2020-01-02T12:00:00Z",
+            properties={ff_property: "control"},
+        )
+        # Backend flag re-evaluated Jan 5, with more events in its wake.
+        _flag_call("2020-01-05T00:00:00Z")
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=distinct_id,
+            timestamp="2020-01-05T12:00:00Z",
+            properties={ff_property: "control", "amount": 100},
+        )
+        _create_event(
+            team=self.team,
+            event="pageview",
+            distinct_id=distinct_id,
+            timestamp="2020-01-05T12:00:00Z",
+            properties={ff_property: "control"},
+        )
+
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-04T00:00:00Z"):
+            early = cast(
+                ExperimentQueryResponse,
+                ExperimentQueryRunner(query=experiment_query, team=self.team).calculate(),
+            )
+        with freeze_time("2020-01-07T00:00:00Z"):
+            late = cast(
+                ExperimentQueryResponse,
+                ExperimentQueryRunner(query=experiment_query, team=self.team).calculate(),
+            )
+
+        assert early.baseline is not None
+        assert late.baseline is not None
+        self.assertEqual(early.baseline.sum, 25)
+        self.assertEqual(early.baseline.denominator_sum, 1)
+        self.assertEqual(late.baseline.sum, 25)
+        self.assertEqual(late.baseline.denominator_sum, 1)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_ratio_metric_zero_denominator(self, name, use_precomputation):

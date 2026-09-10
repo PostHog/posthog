@@ -1,10 +1,10 @@
-import equal from 'fast-deep-equal'
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { deepEqual as equal } from 'fast-equals'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
-import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { parseTagsFilter } from 'lib/utils/url'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -13,25 +13,38 @@ import { Params } from 'scenes/sceneTypes'
 
 import {
     DEFAULT_ORDER_BY,
+    DEFAULT_VIEW_MODE,
     logsViewerConfigLogic,
+    LogsViewerGroupBy,
+    LogsViewerViewMode,
+    MAX_GROUP_BY_DIMENSIONS,
 } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import {
     DEFAULT_INITIAL_LOGS_LIMIT,
     logsViewerDataLogic,
 } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import {
+    FacetFilterTarget,
+    SERVICE_NAME_FILTER,
+    SEVERITY_LEVEL_FILTER,
+    facetSelection,
+} from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
+import { facetRailLogic } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetRailLogic'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import {
     DEFAULT_DATE_RANGE,
-    DEFAULT_SERVICE_NAMES,
-    DEFAULT_SEVERITY_LEVELS,
     isValidSeverityLevel,
     logsViewerFiltersLogic,
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { GROUPABLE_COLUMN_KEYS } from 'products/logs/frontend/components/LogsViewer/groupBySource'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import { LogsGroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { DEFAULT_ANOMALIES_DATE_RANGE, logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
 
-import type { logsSceneLogicType } from './logsSceneLogicType'
+import type { DateRange, LogMessage } from '../../../frontend/src/queries/schema/schema-general'
+import type { LogsOrderBy } from './types'
 
 export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${id}`
 
@@ -39,9 +52,96 @@ export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${
 // A static id would persist across projects in the same browser, leaking one project's pinned log payloads into another.
 export const LOGS_SCENE_VIEWER_ID = `logs-scene-${window.POSTHOG_APP_CONTEXT?.current_team?.id ?? 'unknown'}`
 
-export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'sql' | 'configuration'
-const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts', 'sql', 'configuration']
+const VALID_VIEW_MODES: LogsViewerViewMode[] = ['logs', 'patterns', 'group']
+
+const VALID_GROUP_BY_SOURCES = Object.values(LogsGroupBySourceEnumApi)
+
+// A groupBys URL param is a JSON array of { key, source }. Returns null on any malformed shape so
+// a bad link leaves the live grouping alone rather than clearing it. Caps at the API's dimension
+// limit — the same guard the picker enforces — so a hand-edited URL can't build a combination the
+// endpoint would reject.
+const parseGroupBysParam = (raw: unknown): LogsViewerGroupBy[] | null => {
+    let value: unknown = raw
+    if (typeof value === 'string') {
+        try {
+            value = JSON.parse(value)
+        } catch {
+            return null
+        }
+    }
+    if (!Array.isArray(value)) {
+        return null
+    }
+    const parsed: LogsViewerGroupBy[] = []
+    for (const entry of value) {
+        if (typeof entry !== 'object' || entry === null) {
+            return null
+        }
+        const { key, source } = entry as LogsViewerGroupBy
+        if (typeof key !== 'string' || key === '' || !VALID_GROUP_BY_SOURCES.includes(source)) {
+            return null
+        }
+        // A "column" dimension only groups by a top-level log field, so a link naming anything
+        // else there is a combination the endpoint rejects.
+        if (source === 'column' && !GROUPABLE_COLUMN_KEYS.has(key)) {
+            return null
+        }
+        // Duplicates are dropped rather than rejected, matching what addGroupBy does with a
+        // dimension already in the list.
+        if (parsed.some((d) => d.key === key && d.source === source)) {
+            continue
+        }
+        parsed.push({ key, source })
+    }
+    return parsed.slice(0, MAX_GROUP_BY_DIMENSIONS)
+}
+
+export type LogsSceneActiveTab =
+    | 'viewer'
+    | 'services'
+    | 'alerts'
+    | 'anomalies'
+    | 'sql'
+    | 'transformations'
+    | 'configuration'
+const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = [
+    'viewer',
+    'services',
+    'alerts',
+    'anomalies',
+    'sql',
+    'transformations',
+    'configuration',
+]
 export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
+
+// The Anomalies tab needs its own two params. `dateRange` below is written from the viewer's
+// filters and `serviceNames` is deleted outright, so a shared name would let one tab reframe
+// the other tab's logs.
+const ANOMALIES_SERVICE_PARAM = 'anomaliesService'
+const ANOMALIES_DATE_RANGE_PARAM = 'anomaliesDateRange'
+
+const isDateRangeBound = (value: unknown): boolean => value === undefined || value === null || typeof value === 'string'
+
+// kea-router hands the param back as an object, but a hand-written link can carry the JSON string.
+// Anything that is not a pair of date bounds is dropped, so a stale or edited URL falls back to
+// the default window instead of reaching the picker and the series-bands request.
+const parseDateRangeParam = (raw: unknown): DateRange | null => {
+    let candidate: unknown = raw
+    if (typeof raw === 'string') {
+        try {
+            candidate = JSON.parse(raw)
+        } catch {
+            // Ignore malformed dateRange JSON in URL
+            return null
+        }
+    }
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+        return null
+    }
+    const { date_from, date_to } = candidate as Record<string, unknown>
+    return isDateRangeBound(date_from) && isDateRangeBound(date_to) ? (candidate as DateRange) : null
+}
 
 const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null => {
     if (typeof params.alertId === 'string' && params.alertId.length > 0) {
@@ -53,6 +153,118 @@ const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null =
     return null
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface logsSceneLogicValues {
+    facetNameSearch: string // facetRailLogic
+    anomaliesDateRange: DateRange // logsAnomaliesLogic
+    anomaliesService: string | null // logsAnomaliesLogic
+    groupBys: LogsViewerGroupBy[] // logsViewerConfigLogic
+    orderBy: LogsOrderBy // logsViewerConfigLogic
+    viewMode: LogsViewerViewMode // logsViewerConfigLogic
+    initialLogsLimit: number | null // logsViewerDataLogic
+    filters: LogsViewerFilters // logsViewerFiltersLogic
+    utcDateRange: {
+        date_from: string | null | undefined
+        date_to: string | null | undefined
+        explicitDate: boolean | null | undefined
+    } // logsViewerFiltersLogic
+    linkToLogId: string | null // logsViewerLogic
+    activeTab: LogsSceneActiveTab
+    expandedAttributeBreaksdowns: string[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface logsSceneLogicActions {
+    setFacetNameSearch: (search: string) => {
+        search: string
+    } // facetRailLogic
+    closeLogDetails: () => {
+        value: true
+    } // logDetailsModalLogic
+    setAnomaliesDateRange: (dateRange: DateRange) => {
+        dateRange: DateRange
+    } // logsAnomaliesLogic
+    setAnomaliesService: (serviceName: string | null) => {
+        serviceName: string | null
+    } // logsAnomaliesLogic
+    pushToFilterHistory: (filters: LogsViewerFilters) => {
+        filters: LogsViewerFilters
+    } // logsFilterHistoryLogic
+    addGroupBy: (groupBy: LogsViewerGroupBy) => {
+        groupBy: LogsViewerGroupBy
+    } // logsViewerConfigLogic
+    removeGroupByAt: (index: number) => {
+        index: number
+    } // logsViewerConfigLogic
+    replaceGroupByAt: (
+        index: number,
+        groupBy: LogsViewerGroupBy
+    ) => {
+        groupBy: LogsViewerGroupBy
+        index: number
+    } // logsViewerConfigLogic
+    setGroupBys: (groupBys: LogsViewerGroupBy[]) => {
+        groupBys: LogsViewerGroupBy[]
+    } // logsViewerConfigLogic
+    setOrderBy: (
+        orderBy: LogsOrderBy,
+        source?: 'header' | 'toolbar' | undefined
+    ) => {
+        orderBy: LogsOrderBy
+        source: 'header' | 'toolbar'
+    } // logsViewerConfigLogic
+    setViewMode: (viewMode: LogsViewerViewMode) => {
+        viewMode: LogsViewerViewMode
+    } // logsViewerConfigLogic
+    fetchLogsSuccess: (
+        logs: LogMessage[],
+        payload?: any
+    ) => {
+        logs: LogMessage[]
+        payload?: any
+    } // logsViewerDataLogic
+    handleQueryChange: (
+        filterType: string,
+        extraProps?: Record<string, unknown> | undefined
+    ) => {
+        extraProps: Record<string, unknown> | undefined
+        filterType: string
+    } // logsViewerDataLogic
+    setInitialLogsLimit: (initialLogsLimit: number | null) => {
+        initialLogsLimit: number | null
+    } // logsViewerDataLogic
+    setFilters: (
+        filters: Partial<LogsViewerFilters>,
+        pushToHistory?: boolean | undefined
+    ) => {
+        filters: Partial<LogsViewerFilters>
+        pushToHistory: boolean
+    } // logsViewerFiltersLogic
+    clearLinkToLogId: () => {
+        value: true
+    } // logsViewerLogic
+    setLinkToLogId: (linkToLogId: string | null) => {
+        linkToLogId: string | null
+    } // logsViewerLogic
+    keepSqlEditorMounted: (editorTabId: string) => {
+        editorTabId: string
+    }
+    setActiveTab: (activeTab: LogsSceneActiveTab) => {
+        activeTab: LogsSceneActiveTab
+    }
+    setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => {
+        expandedAttributeBreaksdowns: string[]
+    }
+    syncUrl: () => {
+        value: true
+    }
+    toggleAttributeBreakdown: (key: string) => {
+        key: string
+    }
+}
+
+export type logsSceneLogicType = MakeLogicType<logsSceneLogicValues, logsSceneLogicActions>
+
 export const logsSceneLogic = kea<logsSceneLogicType>([
     path(['products', 'logs', 'frontend', 'logsSceneLogic']),
     connect(() => ({
@@ -62,23 +274,31 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             logsFilterHistoryLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['pushToFilterHistory'],
             logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
-            ['setOrderBy'],
+            ['setOrderBy', 'setViewMode', 'setGroupBys', 'addGroupBy', 'removeGroupByAt', 'replaceGroupByAt'],
             logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setInitialLogsLimit', 'fetchLogsSuccess', 'handleQueryChange'],
             logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setLinkToLogId', 'clearLinkToLogId'],
             logDetailsModalLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['closeLogDetails'],
+            facetRailLogic({ id: LOGS_SCENE_VIEWER_ID }),
+            ['setFacetNameSearch'],
+            logsAnomaliesLogic,
+            ['setServiceName as setAnomaliesService', 'setDateRange as setAnomaliesDateRange'],
         ],
         values: [
             logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['filters', 'utcDateRange'],
             logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
-            ['orderBy'],
+            ['orderBy', 'viewMode', 'groupBys'],
             logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['initialLogsLimit'],
             logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['linkToLogId'],
+            facetRailLogic({ id: LOGS_SCENE_VIEWER_ID }),
+            ['facetNameSearch'],
+            logsAnomaliesLogic,
+            ['serviceName as anomaliesService', 'dateRange as anomaliesDateRange'],
         ],
     })),
     urlToAction(({ actions, values, cache }) => {
@@ -107,9 +327,15 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 }
             }
             if (params.filterGroup) {
-                if (!equal(params.filterGroup, values.filters.filterGroup)) {
-                    filtersFromUrl.filterGroup = params.filterGroup
-                    hasFilterChanges = true
+                try {
+                    const filterGroup =
+                        typeof params.filterGroup === 'string' ? JSON.parse(params.filterGroup) : params.filterGroup
+                    if (!equal(filterGroup, values.filters.filterGroup)) {
+                        filtersFromUrl.filterGroup = filterGroup
+                        hasFilterChanges = true
+                    }
+                } catch {
+                    // Ignore malformed filterGroup JSON in URL
                 }
             } else if (!equal(DEFAULT_UNIVERSAL_GROUP_FILTER, values.filters.filterGroup)) {
                 filtersFromUrl.filterGroup = DEFAULT_UNIVERSAL_GROUP_FILTER
@@ -124,28 +350,47 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 filtersFromUrl.searchTerm = ''
                 hasFilterChanges = true
             }
+            // `filterGroup` holds the level and service selections, so these two params are read but
+            // never written: reading them keeps legacy links working, along with hand-written ones
+            // like the services table's deep link, and `setFilters` folds a param into the group.
+            // Their absent-param case needs no reset branch: clearing `filterGroup` already clears
+            // these selections with it.
+            //
+            // A `filterGroup` in the same URL is the whole selection, so a param naming a facet that
+            // group already selects is residue from a link minted in the dedicated-field shape, and
+            // folding it would narrow the group's selection to the param's values. Without a group in
+            // the URL there is nothing to defer to, so the param is compared against the live
+            // selection, which also stops it re-applying on every URL change.
+            const legacyFacetParam = <T extends string>(
+                raw: T[] | null | undefined,
+                target: FacetFilterTarget
+            ): T[] | undefined => {
+                if (!raw?.length) {
+                    return undefined
+                }
+                const selected = facetSelection(
+                    filtersFromUrl.filterGroup ?? values.filters.filterGroup,
+                    target
+                ).included
+                if (filtersFromUrl.filterGroup !== undefined && selected.length > 0) {
+                    return undefined
+                }
+                return equal(raw, selected) ? undefined : raw
+            }
             if (params.severityLevels) {
                 const parsed = parseTagsFilter(params.severityLevels)
-                if (parsed) {
-                    const levels = parsed.filter(isValidSeverityLevel)
-                    if (levels.length > 0 && !equal(levels, values.filters.severityLevels)) {
-                        filtersFromUrl.severityLevels = levels
-                        hasFilterChanges = true
-                    }
+                const levels = parsed && legacyFacetParam(parsed.filter(isValidSeverityLevel), SEVERITY_LEVEL_FILTER)
+                if (levels) {
+                    filtersFromUrl.severityLevels = levels
+                    hasFilterChanges = true
                 }
-            } else if (!equal(DEFAULT_SEVERITY_LEVELS, values.filters.severityLevels)) {
-                filtersFromUrl.severityLevels = DEFAULT_SEVERITY_LEVELS
-                hasFilterChanges = true
             }
             if (params.serviceNames) {
-                const names = parseTagsFilter(params.serviceNames)
-                if (names && !equal(names, values.filters.serviceNames)) {
+                const names = legacyFacetParam(parseTagsFilter(params.serviceNames), SERVICE_NAME_FILTER)
+                if (names) {
                     filtersFromUrl.serviceNames = names
                     hasFilterChanges = true
                 }
-            } else if (!equal(DEFAULT_SERVICE_NAMES, values.filters.serviceNames)) {
-                filtersFromUrl.serviceNames = DEFAULT_SERVICE_NAMES
-                hasFilterChanges = true
             }
 
             if (hasFilterChanges) {
@@ -156,6 +401,22 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
             }
+            // The Logs⇄Patterns⇄Group lens. Absent or unrecognised param means the default —
+            // a shared link with a flag-gated lens stays safe because the viewer double-gates
+            // rendering on the flag, so an unreachable mode just shows the Logs table.
+            const viewMode: LogsViewerViewMode = VALID_VIEW_MODES.includes(params.viewMode as LogsViewerViewMode)
+                ? (params.viewMode as LogsViewerViewMode)
+                : DEFAULT_VIEW_MODE
+            if (viewMode !== values.viewMode) {
+                actions.setViewMode(viewMode)
+            }
+            // Grouping dimensions travel in the URL so a Group-lens link opens on the same
+            // grouping. Absent param means no grouping (reset); a malformed one is left alone so
+            // a broken link can't silently drop a live grouping.
+            const groupBys = params.groupBys != null ? parseGroupBysParam(params.groupBys) : []
+            if (groupBys && !equal(groupBys, values.groupBys)) {
+                actions.setGroupBys(groupBys)
+            }
             if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
             }
@@ -163,6 +424,31 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             const linkToLogId = params.linkToLogId as string | undefined
             if (linkToLogId && linkToLogId !== values.linkToLogId) {
                 actions.setLinkToLogId(linkToLogId)
+            }
+
+            // Facet-name search: a plain string param. Absent param resets the field to empty.
+            const facetNameSearch = typeof params.facetNameSearch === 'string' ? params.facetNameSearch : ''
+            if (facetNameSearch !== values.facetNameSearch) {
+                actions.setFacetNameSearch(facetNameSearch)
+            }
+
+            // The Anomalies params are read only while that tab is the one shown. Picking a
+            // service fetches its band charts, so an ungated read would fire that request from
+            // any URL change made on the viewer or the SQL tab. The tab resolved above is
+            // already applied, so this reads the tab the URL asked for.
+            if (values.activeTab === 'anomalies') {
+                // An absent window param means the default, not "leave the picker alone", so
+                // stepping back past the change that wrote it returns to the default week.
+                const anomaliesDateRange =
+                    parseDateRangeParam(params[ANOMALIES_DATE_RANGE_PARAM]) ?? DEFAULT_ANOMALIES_DATE_RANGE
+                if (!equal(anomaliesDateRange, values.anomaliesDateRange)) {
+                    actions.setAnomaliesDateRange(anomaliesDateRange)
+                }
+                const serviceParam = params[ANOMALIES_SERVICE_PARAM]
+                const anomaliesService = typeof serviceParam === 'string' && serviceParam ? serviceParam : null
+                if (anomaliesService !== values.anomaliesService) {
+                    actions.setAnomaliesService(anomaliesService)
+                }
             }
         }
         return {
@@ -202,9 +488,14 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                         DEFAULT_UNIVERSAL_GROUP_FILTER
                     )
                     updateSearchParams(params, 'dateRange', values.filters.dateRange, DEFAULT_DATE_RANGE)
-                    updateSearchParams(params, 'severityLevels', values.filters.severityLevels, DEFAULT_SEVERITY_LEVELS)
-                    updateSearchParams(params, 'serviceNames', values.filters.serviceNames, DEFAULT_SERVICE_NAMES)
+                    // No writer sets these two, so they have to be deleted rather than left alone:
+                    // syncSearchParams only removes keys it is told about, and a param still in the
+                    // URL is read again on the next URL change, folding a selection back in on top of
+                    // whatever the rail did to it since.
+                    delete params.severityLevels
+                    delete params.serviceNames
                     updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
+                    updateSearchParams(params, 'facetNameSearch', values.facetNameSearch, '')
                     return params
                 })
             )
@@ -235,10 +526,54 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             )
         }
 
+        // The two params belong to the Anomalies tab, so they leave the URL with it. Written on
+        // the tab switch as well, because a bucket deep link drops them on the way to the viewer
+        // and the selection they describe is still there when the user comes back.
+        const writeAnomaliesParams = (params: Params): void => {
+            const onAnomaliesTab = values.activeTab === 'anomalies'
+            updateSearchParams(params, ANOMALIES_SERVICE_PARAM, onAnomaliesTab ? values.anomaliesService : null, null)
+            updateSearchParams(
+                params,
+                ANOMALIES_DATE_RANGE_PARAM,
+                onAnomaliesTab ? values.anomaliesDateRange : DEFAULT_ANOMALIES_DATE_RANGE,
+                DEFAULT_ANOMALIES_DATE_RANGE
+            )
+        }
+
+        const syncAnomalies = (): ReturnType<typeof syncSearchParams> => {
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    writeAnomaliesParams(params)
+                    return params
+                })
+            )
+        }
+
         const syncActiveTab = (): ReturnType<typeof syncSearchParams> => {
             return withUrlSyncGuard(() =>
                 syncSearchParams(router, (params: Params) => {
                     updateSearchParams(params, 'activeTab', values.activeTab, DEFAULT_ACTIVE_TAB)
+                    writeAnomaliesParams(params)
+                    return params
+                })
+            )
+        }
+
+        const syncViewMode = (): ReturnType<typeof syncSearchParams> => {
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    updateSearchParams(params, 'viewMode', values.viewMode, DEFAULT_VIEW_MODE)
+                    return params
+                })
+            )
+        }
+
+        const syncGroupBys = (): ReturnType<typeof syncSearchParams> => {
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    // Empty grouping is the default, so it drops the param instead of pinning an
+                    // empty array into every copied URL.
+                    updateSearchParams(params, 'groupBys', values.groupBys, [])
                     return params
                 })
             )
@@ -253,6 +588,13 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             clearLinkToLogId: () => clearLinkToLogId(),
             syncUrl: () => syncUrl(),
             setActiveTab: () => syncActiveTab(),
+            setViewMode: () => syncViewMode(),
+            setAnomaliesService: () => syncAnomalies(),
+            setAnomaliesDateRange: () => syncAnomalies(),
+            setGroupBys: () => syncGroupBys(),
+            addGroupBy: () => syncGroupBys(),
+            removeGroupByAt: () => syncGroupBys(),
+            replaceGroupByAt: () => syncGroupBys(),
         }
     }),
 
@@ -291,6 +633,9 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             actions.syncUrl()
         },
         setOrderBy: () => {
+            actions.syncUrl()
+        },
+        setFacetNameSearch: () => {
             actions.syncUrl()
         },
         keepSqlEditorMounted: ({ editorTabId }) => {

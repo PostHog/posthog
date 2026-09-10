@@ -1,7 +1,7 @@
+import { logger } from '~/common/utils/logger'
 import { Properties } from '~/plugin-scaffold'
-import { logger } from '~/utils/logger'
 
-import { resolveModelCostForProvider } from './provider-matching'
+import { resolveModelCostForProvider, resolveProviderAliases } from './provider-matching'
 import { manualCostsByModel, openRouterCostsByModel } from './providers'
 import type { ModelCostRow, ResolvedModelCost } from './providers/types'
 
@@ -38,15 +38,64 @@ const findManualCost = (model: string): ModelCostRow | undefined => {
     return undefined
 }
 
-export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
-    const providerProperty: unknown = properties['$ai_provider']
+const resolveBedrockInferenceProfileProvider = (
+    model: string,
+    providerCosts: ModelCostRow['cost'],
+    provider: string | undefined
+): string | undefined => {
+    if (!provider || resolveProviderAliases(provider) !== 'amazon-bedrock') {
+        return provider
+    }
 
-    const provider: string | undefined = providerProperty ? String(providerProperty).toLowerCase() : undefined
+    const lowerCaseModel = model.toLowerCase()
+    const inferenceProfileArn =
+        /^arn:(?:aws|aws-cn|aws-us-gov):bedrock:([a-z0-9-]+):\d{12}:inference-profile\/[^/]+$/.exec(lowerCaseModel)
+    const arnProvider = inferenceProfileArn ? `amazon-bedrock-${inferenceProfileArn[1]}` : undefined
+
+    if (arnProvider && providerCosts[arnProvider]) {
+        return arnProvider
+    }
+
+    const modelId: string = lowerCaseModel.split('/').pop() ?? lowerCaseModel
+    const profilePrefix: string = modelId.split('.')[0]
+    const profileProviderPrefix = `amazon-bedrock-${profilePrefix}`
+
+    if (providerCosts[profileProviderPrefix]) {
+        return profileProviderPrefix
+    }
+
+    const regionalProviders = Object.keys(providerCosts).filter(
+        (providerKey) => providerKey.startsWith(`${profileProviderPrefix}-`) && providerCosts[providerKey]
+    )
+
+    return regionalProviders.length === 1 ? regionalProviders[0] : provider
+}
+
+const getAiProvider = (properties: Properties): string | undefined => {
+    const provider: unknown = properties['$ai_provider']
+
+    return provider ? String(provider).toLowerCase() : undefined
+}
+
+// $ai_service_tier is the explicit served-tier signal: its writers (the ai-gateway, SDK
+// versions that adopted it) assert the tier the provider reported serving, on success and
+// error events alike. $ai_model_parameters.service_tier never prices: released SDKs wrote
+// the requested tier there, and a request can be refused.
+const getServedServiceTier = (properties: Properties): unknown => properties['$ai_service_tier']
+
+export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
+    const provider = getAiProvider(properties)
+    const serviceTier = getServedServiceTier(properties)
 
     const manualMatch: ModelCostRow | undefined = findManualCost(model)
 
     const resolvedManualMatch: ResolvedModelCost | undefined = manualMatch
-        ? resolveModelCostForProvider(manualMatch.cost, provider, manualMatch.model)
+        ? resolveModelCostForProvider(
+              manualMatch.cost,
+              resolveBedrockInferenceProfileProvider(model, manualMatch.cost, provider),
+              manualMatch.model,
+              serviceTier
+          )
         : undefined
 
     if (resolvedManualMatch) {
@@ -56,7 +105,12 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
     const openRouterMatch: ModelCostRow | undefined = searchModelInCosts(model, openRouterCostsByModel)
 
     const resolvedOpenRouterMatch: ResolvedModelCost | undefined = openRouterMatch
-        ? resolveModelCostForProvider(openRouterMatch.cost, provider, openRouterMatch.model)
+        ? resolveModelCostForProvider(
+              openRouterMatch.cost,
+              resolveBedrockInferenceProfileProvider(model, openRouterMatch.cost, provider),
+              openRouterMatch.model,
+              serviceTier
+          )
         : undefined
 
     if (resolvedOpenRouterMatch) {

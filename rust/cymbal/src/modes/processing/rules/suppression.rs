@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use chrono::{DateTime, Utc};
 use common_types::TeamId;
 use hogvm::{ExecutionContext, Program, StepOutcome, VmError};
@@ -103,10 +101,10 @@ impl SuppressionRule {
             }
         };
 
-        let mut globals = HashMap::new();
-        globals.insert("properties".to_string(), props.clone());
-        let globals: Value = serde_json::to_value(globals)
-            .expect("Can construct a json object from a hashmap of String:JsonValue");
+        let globals = Value::Object(serde_json::Map::from_iter([(
+            "properties".to_string(),
+            props.clone(),
+        )]));
         let program = Program::new(rule_bytecode.clone())?;
         let context = ExecutionContext::with_defaults(program).with_globals(globals);
         let mut vm = context.to_vm()?;

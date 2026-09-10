@@ -2,9 +2,9 @@ import { useState } from 'react'
 
 import { IconRevert, IconX } from '@posthog/icons'
 
+import { SettingsBar, SettingsButton } from 'lib/components/PanelSettings/PanelSettings'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { SettingsBar, SettingsButton } from 'scenes/session-recordings/components/PanelSettings'
 import { Timestamp } from 'scenes/session-recordings/player/controller/PlayerControllerTime'
 
 export type SessionRecordingPlayerExplorerProps = {

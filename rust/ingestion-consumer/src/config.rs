@@ -1,10 +1,11 @@
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
 use crate::discovery::DiscoveryMode;
-use crate::kafka_config::ConsumerConfigBuilder;
 use crate::routing::RoutingStrategy;
+use common_kafka_consumer::config::ConsumerConfigBuilder;
 
 /// Configuration for the ingestion consumer.
 ///
@@ -95,10 +96,30 @@ pub struct Config {
     #[envconfig(default = "102400")]
     pub kafka_consumer_queued_max_messages_kbytes: u32,
 
+    /// How often librdkafka emits its internal statistics snapshot to the
+    /// consumer's `stats` callback (milliseconds), which exports the
+    /// `kafka_consumer_*` gauges. `0` disables the callback entirely. The
+    /// callback runs on a librdkafka thread and only walks the assigned
+    /// partitions and connected brokers, so 15s is cheap; lower it only when
+    /// actively debugging queue growth.
+    #[envconfig(default = "15000")]
+    pub kafka_consumer_statistics_interval_ms: u32,
+
     /// Pod hostname from K8s, used as client.id and group.instance.id
     /// for sticky partition assignment (same as Node.js hostname())
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
+
+    /// Enable Kafka static membership (pins `group.instance.id` to the pod
+    /// hostname). Off by default: this runs as a Deployment, so pod names — and
+    /// thus instance IDs — already change on every rollout, meaning static
+    /// membership never avoids a deploy rebalance, yet it makes an in-place
+    /// container restart fail fatally with `UnreleasedInstanceId` (the broker
+    /// still holds the previous incarnation's slot until its session expires).
+    /// Dynamic membership rejoins cleanly on restart. Only enable for pods with
+    /// stable names (e.g. a StatefulSet).
+    #[envconfig(from = "KAFKA_CONSUMER_STATIC_MEMBERSHIP", default = "false")]
+    pub kafka_consumer_static_membership: bool,
 
     // ---- Batching ----
     /// Maximum number of messages to collect before dispatching a batch.
@@ -106,43 +127,116 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_size: usize,
 
+    /// Maximum payload bytes to collect before dispatching a batch, in KiB.
+    /// `0` (default) disables the bound, leaving collection count-only.
+    ///
+    /// Resident memory is `CONSUMER_MAX_BACKGROUND_TASKS x batch x event size`,
+    /// doubled while a sub-batch is in flight, so a count-only cap only bounds
+    /// memory if every lane's event size is known and stable. It is not: measured
+    /// mean payloads across analytics lanes span ~1KB to ~43KB, a 45x spread, and
+    /// the same `CONSUMER_BATCH_SIZE` therefore means 45x the memory on one lane
+    /// versus another. This bound restates the limit in the unit that actually
+    /// constrains the pod, so one value is safe everywhere.
+    ///
+    /// Whichever bound is reached first ends collection. The count cap stays
+    /// useful as a downstream-shape guard (worker request size, per-batch
+    /// overhead); this one is the memory guard. Checked before appending, so a
+    /// batch always carries at least one message and overshoot is bounded by a
+    /// single message (itself capped by `fetch.message.max.bytes`).
+    ///
+    /// Default is off so that rolling this image out changes no lane's batch
+    /// composition; lanes opt in where their memory arithmetic is already
+    /// written down.
+    #[envconfig(from = "CONSUMER_BATCH_SIZE_KB", default = "0")]
+    pub consumer_batch_size_kb: usize,
+
     /// Maximum time to wait while collecting a batch (milliseconds)
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
+
+    /// No-progress bound on flushing a batch's deferred messages
+    /// (milliseconds): the deadline resets whenever any of the batch's
+    /// messages are accepted, so a slow drain keeps going and the batch only
+    /// fails (exiting the process) after a full window with nothing landed —
+    /// e.g. no worker routable at all. Bounds how long a genuine wedge holds
+    /// offsets before the process exits and restarts.
+    #[envconfig(default = "60000")]
+    pub consumer_deferred_flush_timeout_ms: u64,
 
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
 
+    // ---- Debug API ----
+    /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
+    /// `/debug/events` SSE) on the health server, recording structured events
+    /// (batch lifecycle, deferrals, retries, worker health) into a bounded
+    /// in-memory buffer. Consumed by the ingestion control plane UI. A pure
+    /// observer for dev and incident debugging; off by default. Requires
+    /// DEBUG_API_SECRET — enabling without a secret mounts nothing.
+    #[envconfig(from = "DEBUG_API_ENABLED", default = "false")]
+    pub debug_api_enabled: bool,
+
+    /// Shared secret callers must present as `X-Debug-Api-Secret` on every
+    /// `/debug/*` request. Dedicated to this one control-plane→consumer hop
+    /// (deliberately not `INTERNAL_API_SECRET` — see .agents/security.md).
+    /// Empty fails closed: the debug API is not mounted without it.
+    #[envconfig(from = "DEBUG_API_SECRET", default = "")]
+    pub debug_api_secret: String,
+
+    // ---- Ordering sentinels ----
+    /// Kill switch for the ordering sentinels (per-partition commit
+    /// contiguity/monotonicity checks and per-key send-order checks). They are
+    /// pure observers with per-batch lock/state overhead bounded by in-flight
+    /// work; disable only if that overhead is ever implicated. The commit-result
+    /// and rebalance metrics from the consumer context stay on regardless. The
+    /// worker-side feed-order sentinel has its own flag
+    /// (INGESTION_API_FEED_ORDER_SENTINEL_ENABLED on the Node.js side).
+    #[envconfig(from = "CONSUMER_ORDER_SENTINEL_ENABLED", default = "true")]
+    pub consumer_order_sentinel_enabled: bool,
+
     // ---- Worker transport ----
-    /// Comma-separated list of worker HTTP URLs
+    /// Comma-separated list of worker HTTP URLs. Readiness probes hit these
+    /// directly; each worker's gRPC stream address is derived from its URL's
+    /// host plus the gRPC port settings below.
     #[envconfig(default = "http://localhost:9001")]
     pub worker_addresses: String,
 
-    /// HTTP request timeout for worker calls (milliseconds)
-    #[envconfig(default = "30000")]
-    pub http_timeout_ms: u64,
-
-    /// Maximum number of retries for a failed worker call
-    #[envconfig(default = "3")]
-    pub max_retries: u32,
-
-    /// Soft cap on in-flight batches per worker, enforced by a per-worker
-    /// `Semaphore`. Ideally aligned with the worker's
-    /// `BatchingPipeline.concurrentBatches` (`INGESTION_WORKER_CONCURRENT_BATCHES`
-    /// on the Node.js side) so the happy path backpressures by waiting for a
-    /// permit before the worker fills up. It need not match exactly: if the
-    /// worker still responds 503, the transport treats it as retriable
-    /// backpressure and retries with a longer, jittered backoff. Divergence
-    /// remains observable via `ingestion_api_batch_capacity_rejections_total`.
-    /// (A future adaptive-concurrency controller will replace this static cap.)
+    /// Cap on un-acked sub-batches per worker stream. Ideally aligned with the
+    /// worker's `BatchingPipeline.concurrentBatches`
+    /// (`INGESTION_WORKER_CONCURRENT_BATCHES` on the Node.js side) so the
+    /// stream backpressures before the worker stalls its reads.
     #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
     pub ingestion_worker_concurrent_batches: usize,
 
-    /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
-    #[envconfig(default = "")]
-    pub internal_api_secret: String,
+    /// Cap on the estimated serialized size of one sub-batch frame (bytes).
+    /// Sub-batches above it ride the worker stream as consecutive chunks. Must
+    /// stay under the worker's gRPC message limit with headroom for the size
+    /// estimate. Default 10 MiB.
+    #[envconfig(from = "INGESTION_TRANSPORT_MAX_BODY_BYTES", default = "10485760")]
+    pub transport_max_body_bytes: usize,
+
+    /// The worker pods' gRPC port (`INGESTION_API_GRPC_PORT` on the Node.js
+    /// side). Worker streams derive each worker's stream address from its HTTP URL's
+    /// host plus this port.
+    #[envconfig(from = "INGESTION_WORKER_GRPC_PORT", default = "6739")]
+    pub ingestion_worker_grpc_port: u16,
+
+    /// When non-zero, override the fixed gRPC port: each worker's stream
+    /// address becomes its HTTP port plus this offset. For single-host setups
+    /// (local dev) where workers share an IP and differ only by port.
+    #[envconfig(from = "INGESTION_WORKER_GRPC_PORT_OFFSET", default = "0")]
+    pub ingestion_worker_grpc_port_offset: u16,
+
+    /// Fence a worker stream (fail its un-acked and queued sub-batches into the
+    /// deferral path, reconnect, re-route) when un-acked work sees no ack for
+    /// this long (milliseconds). The stream has no per-send timeout, so this
+    /// watchdog is what turns a worker that stops acking into a re-route
+    /// instead of a silent forever-wait. Sized above the worst-case batch
+    /// processing time, like the HTTP timeout it replaces.
+    #[envconfig(from = "INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS", default = "60000")]
+    pub ingestion_worker_stream_ack_timeout_ms: u64,
 
     // ---- Worker discovery ----
     /// How the worker pool is discovered: `static` (use WORKER_ADDRESSES — the
@@ -178,6 +272,29 @@ pub struct Config {
     /// (power-of-two-choices — herd-resistant for a shared worker pool).
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
+
+    /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
+    /// many workers this dispatcher's ring slice spans. The effective width
+    /// is floored at `ceil(pool / dispatchers)` so the fleet's slices always
+    /// cover the whole pool, no matter the pool/dispatcher ratio. Small
+    /// values maximize sub-batch consolidation; the width becomes
+    /// feedback-driven in a later stage.
+    #[envconfig(from = "INGESTION_MIN_APERTURE", default = "3")]
+    pub min_aperture: usize,
+
+    // ---- Peer awareness ----
+    /// Kubernetes Service whose EndpointSlices list this consumer's own peer
+    /// pods. Enables coordination-free peer awareness (each pod's stable index
+    /// among its replicas), the basis for deterministic aperture routing.
+    /// Empty (default) disables it. The Service is looked up in the pod's own
+    /// namespace (`POD_NAMESPACE`).
+    #[envconfig(from = "PEER_SERVICE_NAME", default = "")]
+    pub peer_service_name: String,
+
+    /// This pod's IP from the downward API, used to locate self in the peer
+    /// Service's EndpointSlices. Required when PEER_SERVICE_NAME is set.
+    #[envconfig(from = "POD_IP")]
+    pub pod_ip: Option<String>,
 
     // ---- Worker health / registry ----
     /// How often to probe each worker's /_ready endpoint (milliseconds).
@@ -226,6 +343,23 @@ pub struct Config {
 
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
+
+    // ---- Metric labels (match Node.js global default labels) ----
+    /// Ingestion pipeline this consumer serves (e.g. `analytics`). Emitted as a
+    /// global `ingestion_pipeline` label on every metric, mirroring the Node.js
+    /// `initializePrometheusLabels` default labels so dashboards, alerts, and
+    /// KEDA lag triggers select this consumer's series the same way.
+    #[envconfig(from = "INGESTION_PIPELINE")]
+    pub ingestion_pipeline: Option<String>,
+
+    /// Ingestion lane this consumer serves (e.g. `main`, `overflow`). Emitted as
+    /// a global `ingestion_lane` label on every metric, matching the Node.js
+    /// default labels. The lag-based KEDA autoscaler selects on this label.
+    #[envconfig(from = "INGESTION_LANE")]
+    pub ingestion_lane: Option<String>,
+
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
 }
 
 /// Parse `KAFKA_CONSUMER_*` env vars into rdkafka config key-value pairs.
@@ -288,7 +422,10 @@ impl Config {
         .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
         .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
         .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
-        .with_sticky_partition_assignment(self.pod_hostname.as_deref())
+        .with_sticky_partition_assignment(
+            self.pod_hostname.as_deref(),
+            self.kafka_consumer_static_membership,
+        )
         .set("security.protocol", &self.kafka_security_protocol)
         .set(
             "socket.timeout.ms",
@@ -301,6 +438,12 @@ impl Config {
         .set(
             "fetch.message.max.bytes",
             &self.kafka_consumer_fetch_message_max_bytes.to_string(),
+        )
+        // Set before the env-override loop below so
+        // KAFKA_CONSUMER_STATISTICS_INTERVAL_MS stays authoritative.
+        .set(
+            "statistics.interval.ms",
+            &self.kafka_consumer_statistics_interval_ms.to_string(),
         );
 
         if !self.kafka_client_rack.is_empty() {

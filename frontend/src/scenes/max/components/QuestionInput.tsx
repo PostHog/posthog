@@ -9,24 +9,32 @@ import { useDebouncedCallback } from 'use-debounce'
 import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { ConversationQueueMessage } from '~/types'
 
 import { ContextDisplay } from '../Context'
 import { handsFreeLogic } from '../handsFreeLogic'
+import { MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, messageLength } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
+import { FillInHint } from './FillInHint'
 import { HandsFreeButton } from './HandsFreeButton'
 import { HandsFreeSurface } from './HandsFreeSurface'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
+
+/**
+ * Show the character counter only once the message gets close to the limit. A permanent counter
+ * under every composer would be noise: almost every message is a couple of hundred characters.
+ */
+const LENGTH_COUNTER_THRESHOLD = MAX_MESSAGE_LENGTH * 0.9
 
 interface QuestionInputProps {
     isSticky?: boolean
@@ -145,8 +153,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     ref
 ) {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { question, panelId: maxPanelId } = useValues(maxLogic)
-    const { setQuestion } = useActions(maxLogic)
+    const { question, panelId: maxPanelId, fillInHint, typingSuggestion } = useValues(maxLogic)
+    const { setQuestion, setFillInHint, cancelSuggestionTyping } = useActions(maxLogic)
     const { user } = useValues(userLogic)
     const {
         conversation,
@@ -214,6 +222,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
     const handleQuestionChange = (value: string): void => {
         setInputValue(value)
+        // The user typing their own text ends the fill-in cue.
+        if (fillInHint) {
+            setFillInHint(null)
+        }
         if (value.startsWith('/')) {
             // Slash commands drive the autocomplete off kea's `question`, so sync immediately.
             debouncedSetQuestion.cancel()
@@ -227,10 +239,30 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         // askMax reads the prompt arg directly and clears `question` afterwards, so drop any
         // pending debounce to stop it from re-populating the just-sent text.
         debouncedSetQuestion.cancel()
-        askMax(prompt)
+        // A suggestion is still typing itself in. The user picked that suggestion, so send all of
+        // it rather than the prefix that happens to be on screen, and stop the animation writing
+        // the rest into the composer after the message has gone.
+        const content = typingSuggestion ?? prompt
+        if (typingSuggestion) {
+            cancelSuggestionTyping()
+        }
+        if (fillInHint) {
+            setFillInHint(null)
+        }
+        askMax(content)
     }
 
+    // Counting code points is O(n), so only pay for it near the limit. A string's UTF-16 length is
+    // never below its code point count, so a shorter one can't be over the limit.
+    const promptLength = useMemo(
+        () => (inputValue.length >= LENGTH_COUNTER_THRESHOLD ? messageLength(inputValue) : null),
+        [inputValue]
+    )
+    const isOverLengthLimit = promptLength !== null && promptLength > MAX_MESSAGE_LENGTH
+
     const hasQuestion = inputValue.trim().length > 0
+    // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
+    const showFillInHint = !!fillInHint
     const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
     const showStopButton = threadLoading && !isQueueingSubmission && !cancelLoading
 
@@ -240,7 +272,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         ? contextDisabledReason
         : !inputValue
           ? 'I need some input first'
-          : queueDisabledReason
+          : isOverLengthLimit
+            ? MESSAGE_TOO_LONG
+            : queueDisabledReason
 
     // Update autocomplete visibility when the input changes
     useEffect(() => {
@@ -372,6 +406,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             )}
                                         </div>
                                     )}
+                                    {/* Postfix cue after a fill-in suggestion's typed-in prefix. */}
+                                    {showFillInHint && (
+                                        <div className="absolute top-4 left-4 right-4 overflow-hidden pointer-events-none">
+                                            <FillInHint text={inputValue} hint={fillInHint} />
+                                        </div>
+                                    )}
                                     <LemonTextArea
                                         aria-describedby={!inputValue ? 'textarea-hint' : undefined}
                                         id="question-input"
@@ -432,7 +472,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         maxRows={10}
                                         className={cn(
                                             '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none',
-                                            handsFreeFlagEnabled ? 'pr-20' : 'pr-12'
+                                            handsFreeFlagEnabled ? 'pr-20' : 'pr-12',
+                                            // Hide the native caret so only the enlarged fill-in caret shows.
+                                            showFillInHint && 'caret-transparent'
                                         )}
                                         hideFocus
                                     />
@@ -440,37 +482,48 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             </SlashCommandAutocomplete>
                         )}
 
-                        {!isSharedThread && !handsFreeActive && (
-                            // When the hands-free flag is on, reserve ~80px (pr-20) so the chip
-                            // row doesn't wrap under the absolutely-positioned mic + send pair.
-                            // Without the flag the row only has send and the legacy pr-12 is
-                            // enough — keep it so non-flagged users see the original layout.
-                            <div className={cn('pb-2', handsFreeFlagEnabled ? 'pr-20' : 'pr-12')}>
-                                {!isThreadVisible ? (
-                                    <div
-                                        className={cn(
-                                            'flex justify-between',
-                                            handsFreeFlagEnabled ? 'items-end flex-wrap gap-1' : 'items-start'
-                                        )}
-                                    >
-                                        <ContextDisplay size={contextDisplaySize} />
-
+                        {!isSharedThread &&
+                            !handsFreeActive && (
+                                // When the hands-free flag is on, reserve ~80px (pr-20) so the chip
+                                // row doesn't wrap under the absolutely-positioned mic + send pair.
+                                // Without the flag the row only has send and the legacy pr-12 is
+                                // enough — keep it so non-flagged users see the original layout.
+                                <div className={cn('pb-2', handsFreeFlagEnabled ? 'pr-20' : 'pr-12')}>
+                                    {!isThreadVisible ? (
                                         <div
                                             className={cn(
-                                                'flex mr-1',
-                                                handsFreeFlagEnabled
-                                                    ? 'items-end gap-1'
-                                                    : 'items-start gap-1 h-full mt-1'
+                                                'flex justify-between',
+                                                handsFreeFlagEnabled ? 'items-end flex-wrap gap-1' : 'items-start'
                                             )}
                                         >
-                                            {topActions}
+                                            <ContextDisplay size={contextDisplaySize} />
+
+                                            <div
+                                                className={cn(
+                                                    'flex mr-1',
+                                                    handsFreeFlagEnabled
+                                                        ? 'items-end gap-1'
+                                                        : 'items-start gap-1 h-full mt-1'
+                                                )}
+                                            >
+                                                {topActions}
+                                            </div>
                                         </div>
-                                    </div>
-                                ) : (
-                                    <ContextDisplay size={contextDisplaySize} />
-                                )}
-                            </div>
-                        )}
+                                    ) : (
+                                        <ContextDisplay size={contextDisplaySize} />
+                                    )}
+                                    {promptLength !== null && (
+                                        <div
+                                            className={cn(
+                                                'text-xs text-right pr-1 pt-1',
+                                                isOverLengthLimit ? 'text-error' : 'text-secondary'
+                                            )}
+                                        >
+                                            {promptLength.toLocaleString()} / {MAX_MESSAGE_LENGTH.toLocaleString()}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                     </label>
                     <div
                         className={cn(

@@ -1,5 +1,6 @@
 import { getBackendHost } from 'lib/oauth/oauthClient'
 
+import { inStorybook, inStorybookTestRunner } from './dom'
 import { getAppContext } from './getAppContext'
 
 /**
@@ -36,7 +37,7 @@ export function liveEventsHostOrigin(): string | null {
         return 'https://live.eu.posthog.com'
     } else if (appOrigin === 'https://app.dev.posthog.dev') {
         return 'https://live.dev.posthog.dev'
-    } else if (process.env.STORYBOOK) {
+    } else if (inStorybook() || inStorybookTestRunner()) {
         return 'http://localhost:6006'
     }
 

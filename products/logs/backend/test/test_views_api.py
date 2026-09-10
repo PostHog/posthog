@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -8,6 +10,7 @@ from rest_framework.test import APIClient
 from posthog.models.team.team import Team
 
 from products.logs.backend.models import LogsView
+from products.logs.backend.presentation.views.views_api import LogsViewColumnSerializer
 
 
 class TestLogsViewAPI(APIBaseTest):
@@ -16,9 +19,6 @@ class TestLogsViewAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.base_url = f"/api/environments/{self.team.pk}/logs/views/"
-        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
-        self._ff_patcher.start()
-        self.addCleanup(self._ff_patcher.stop)
 
     def _valid_payload(self, **overrides) -> dict:
         defaults = {
@@ -120,6 +120,63 @@ class TestLogsViewAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["filters"] == {}
 
+    def test_columns_round_trip(self):
+        columns = [
+            {"id": "ts", "type": "timestamp"},
+            {
+                "id": "c1",
+                "type": "custom",
+                "name": "Pod",
+                "expression": "resource_attributes.k8s.pod.name",
+                "width": 240,
+            },
+            {"id": "msg", "type": "message"},
+        ]
+        data = self._create_via_api(columns=columns)
+        assert data["columns"] == columns
+
+        # Update replaces the whole list; other fields untouched
+        response = self.client.patch(f"{self.base_url}{data['short_id']}/", {"columns": columns[:2]}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["columns"] == columns[:2]
+        assert response.json()["filters"] == {"severityLevels": ["error", "fatal"]}
+
+    def test_update_omitting_columns_preserves_saved_layout(self):
+        columns = [{"id": "ts", "type": "timestamp", "width": 200}]
+        created = self._create_via_api(columns=columns)
+
+        # A full PUT that omits columns must leave the saved layout untouched
+        response = self.client.put(
+            f"{self.base_url}{created['short_id']}/",
+            {"name": "Renamed"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["columns"] == columns
+
+        # Sending null explicitly clears the layout
+        response = self.client.patch(
+            f"{self.base_url}{created['short_id']}/",
+            {"columns": None},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["columns"] is None
+
+    def test_columns_default_to_null_and_reject_bad_type(self):
+        # Pre-columns views (and views saved without a column preference) round-trip null
+        data = self._create_via_api()
+        assert data["columns"] is None
+        response = self.client.get(f"{self.base_url}{data['short_id']}/")
+        assert response.json()["columns"] is None
+
+        bad = self.client.post(
+            self.base_url,
+            self._valid_payload(columns=[{"id": "x", "type": "not_a_type"}]),
+            format="json",
+        )
+        assert bad.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_create_with_complex_filters(self):
         filters = {
             "severityLevels": ["error"],
@@ -217,13 +274,6 @@ class TestLogsViewAPI(APIBaseTest):
         response = client.get(self.base_url)
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    # --- Feature flag ---
-
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_returns_403_when_feature_flag_disabled(self, _mock_feature_enabled):
-        response = self.client.get(self.base_url)
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
     # --- Pinned ---
 
     def test_pin_view(self):
@@ -236,3 +286,24 @@ class TestLogsViewAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["pinned"] is True
+
+
+class TestLogsViewColumnSerializer(SimpleTestCase):
+    # Field-level validation runs without a DB; the endpoint test above is the wiring guard.
+
+    @parameterized.expand(
+        [
+            ("custom_without_expression", {"id": "c", "type": "custom"}),
+            ("width_zero", {"id": "c", "type": "message", "width": 0}),
+            ("width_negative", {"id": "c", "type": "message", "width": -10}),
+            ("width_too_large", {"id": "c", "type": "message", "width": 5000}),
+        ]
+    )
+    def test_rejects_invalid_column(self, _label, column):
+        assert not LogsViewColumnSerializer(data=column).is_valid()
+
+    def test_accepts_custom_with_expression(self):
+        serializer = LogsViewColumnSerializer(
+            data={"id": "c", "type": "custom", "expression": "attributes.foo", "width": 240}
+        )
+        assert serializer.is_valid(), serializer.errors

@@ -1,11 +1,11 @@
 import { Message } from 'node-rdkafka'
 
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
-import { KafkaProducerRegistryComponent } from '~/ingestion/common/producer-registry'
+import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/producers'
+} from '~/ingestion/common/outputs/producers'
 import { Component, newScope } from '~/ingestion/common/scopes'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import {
@@ -20,10 +20,8 @@ import {
     IngesterLike,
     createKafkaMessages,
     createTestWithTeamIngester,
-    waitForClickHouseKafkaConsumer,
+    ensureIngestionE2EInfraReady,
 } from '~/tests/helpers/ingestion-e2e'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { resetTestDatabase } from '~/tests/helpers/sql'
 
 type CapturedBatchHandler = (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>
 
@@ -33,8 +31,8 @@ type CapturedBatchHandler = (messages: Message[]) => Promise<{ backgroundTask?: 
 // is allowed to reference it.
 let mockCapturedHandler: CapturedBatchHandler | undefined
 
-jest.mock('~/kafka/consumer', () => {
-    const actual = jest.requireActual('~/kafka/consumer')
+jest.mock('~/common/kafka/consumer', () => {
+    const actual = jest.requireActual('~/common/kafka/consumer')
     const { HealthCheckResultOk } = jest.requireActual('~/types')
     return {
         ...actual,
@@ -50,7 +48,7 @@ jest.mock('~/kafka/consumer', () => {
     }
 })
 
-jest.mock('~/utils/logger')
+jest.mock('~/common/utils/logger')
 
 function constComponent<T extends object>(value: T): Component<T> {
     return { start: () => Promise.resolve({ value, stop: () => Promise.resolve() }) }
@@ -120,15 +118,10 @@ describe('Heatmaps consumer E2E', () => {
 
     beforeAll(async () => {
         clickhouse = Clickhouse.create()
-        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
-        await waitForClickHouseKafkaConsumer(clickhouse)
+        await ensureIngestionE2EInfraReady()
     })
 
-    afterAll(async () => {
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
+    afterAll(() => {
         clickhouse.close()
     })
 

@@ -4,30 +4,47 @@ jest.mock('~/queries/query', () => ({
     performQuery: jest.fn().mockResolvedValue({ result: [] }),
 }))
 
-import { expectLogic } from 'kea-test-utils'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay } from 'lib/utils/async'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
+import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
 import {
+    DataVisualizationNode,
     FunnelsQuery,
     InsightVizNode,
+    Node,
     NodeKind,
     ResultCustomizationBy,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { FunnelVizType, InsightShortId, InsightType } from '~/types'
+import { ChartDisplayType, FunnelVizType, InsightShortId, InsightType } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 
 const mockedPerformQuery = performQuery as jest.MockedFunction<typeof performQuery>
 
 const Insight123 = '123' as InsightShortId
+
+function capturesOf(event: string): any[][] {
+    return (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event)
+}
 
 describe('insightDataLogic', () => {
     let theInsightDataLogic: ReturnType<typeof insightDataLogic.build>
@@ -38,6 +55,14 @@ describe('insightDataLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/trend': [],
+                // insightLogic mounts alongside and fetches its insight by short_id; without
+                // a match it errors with "Insight ... not found"
+                '/api/environments/:team_id/insights/': ({ request }: { request: Request }) => [
+                    200,
+                    {
+                        results: [{ id: 1, short_id: new URL(request.url).searchParams.get('short_id'), query: null }],
+                    },
+                ],
             },
         })
         initKeaTests()
@@ -234,6 +259,88 @@ describe('insightDataLogic', () => {
                 }).mount()
             }).toMatchValues({ query: updatedCachedQuery })
         })
+
+        // On a dashboard tile, `setQuery` is shared with insightVizDataLogic, whose listener calls
+        // props.setQuery (persistDisplayOptions). If a tile re-render re-syncs the incoming cached
+        // query via setQuery, it loops back into a PATCH of that (stale) query, reverting a display
+        // option the user just saved. propsChanged must use syncQueryFromProps on dashboard tiles.
+        it('syncs a changed cached query via syncQueryFromProps, not setQuery, on a dashboard tile', async () => {
+            const localUpdatedQuery = buildLocalUpdatedQuery()
+            const staleCachedQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    dateRange: {
+                        ...baseQuery.source.dateRange,
+                        date_from: '-14d',
+                    },
+                },
+            }
+
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                dashboardId: 99,
+                cachedInsight: { short_id: Insight123, query: baseQuery } as any,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(localUpdatedQuery)
+            }).toMatchValues({ query: localUpdatedQuery })
+
+            await expectLogic(logic, () => {
+                insightDataLogic({
+                    dashboardItemId: Insight123,
+                    dashboardId: 99,
+                    cachedInsight: { short_id: Insight123, query: staleCachedQuery } as any,
+                    loadPriority: 1,
+                }).mount()
+            })
+                .toDispatchActions(['syncQueryFromProps'])
+                .toNotHaveDispatchedActions(['setQuery'])
+                .toMatchValues({ query: staleCachedQuery })
+        })
+    })
+
+    describe('a query carried in the URL', () => {
+        it('is not overwritten when the saved insight loads', async () => {
+            const savedQuery = setLatestVersionsOnQuery({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    dateRange: { date_from: '-7d' },
+                    interval: 'day',
+                },
+            }) as InsightVizNode
+            const sharedQuery = setLatestVersionsOnQuery({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    dateRange: { date_from: '-30d' },
+                    interval: 'week',
+                },
+            }) as InsightVizNode
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': {
+                        results: [{ id: 1, short_id: Insight123, query: savedQuery }],
+                    },
+                },
+            })
+
+            theInsightDataLogic.actions.setQuery(sharedQuery, true)
+
+            await expectLogic(theInsightDataLogic, () => {
+                theInsightLogic.actions.loadInsight(Insight123)
+            })
+                .toDispatchActions(theInsightLogic, ['loadInsightSuccess'])
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['syncQueryFromProps'])
+                .toMatchValues({ query: sharedQuery })
+        })
     })
 
     describe('reacts when the insight changes', () => {
@@ -245,7 +352,7 @@ describe('insightDataLogic', () => {
             })
                 .toDispatchActions(['setQuery'])
                 .toMatchValues({
-                    query: {
+                    query: setLatestVersionsOnQuery({
                         kind: NodeKind.InsightVizNode,
                         source: {
                             breakdownFilter: {
@@ -305,9 +412,8 @@ describe('insightDataLogic', () => {
                             trendsFilter: {
                                 display: 'ActionsAreaGraph',
                             },
-                            version: 2,
                         },
-                    },
+                    }),
                 })
         })
         it('does not set query override is not set', async () => {
@@ -415,5 +521,615 @@ describe('insightDataLogic', () => {
             expect(mockedPerformQuery).not.toHaveBeenCalled()
             logic.unmount()
         })
+    })
+
+    describe('persistDisplayOptions', () => {
+        const insightId = 42
+        const Insight42 = '42' as InsightShortId
+        const baseQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [] },
+        }
+        const updatedQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [], trendsFilter: { showLegend: true } as any },
+        }
+
+        let logic: ReturnType<typeof insightDataLogic.build>
+        let patchSpy: jest.Mock
+        let refreshAfterDisplayOptionsChange: jest.Mock
+
+        beforeEach(() => {
+            patchSpy = jest.fn(async ({ request }: { request: Request }) => {
+                const body = (await request.json()) as Record<string, any>
+                return [200, { id: insightId, short_id: Insight42, ...body }]
+            })
+            useMocks({
+                patch: { '/api/environments/:team_id/insights/:id': patchSpy },
+            })
+
+            refreshAfterDisplayOptionsChange = jest.fn()
+            const props = {
+                dashboardItemId: Insight42,
+                cachedInsight: { id: insightId, short_id: Insight42, query: baseQuery } as any,
+                refreshAfterDisplayOptionsChange,
+            }
+            insightsModel.mount()
+            insightLogic(props).mount()
+            logic = insightDataLogic(props)
+            logic.mount()
+        })
+
+        it('debounces and fires renameInsightSuccess on success', async () => {
+            const expectation = expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(updatedQuery)
+            })
+
+            expect(logic.values.savingDisplayOptions).toBe(true)
+
+            await expectation.toFinishAllListeners().toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchSpy).toHaveBeenCalledTimes(1)
+            expect(refreshAfterDisplayOptionsChange).not.toHaveBeenCalled()
+            expect(logic.values.savingDisplayOptions).toBe(false)
+        })
+
+        it('refreshes dashboard data when the chart needs a different result shape', async () => {
+            const cumulativeQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    trendsFilter: { display: ChartDisplayType.ActionsLineGraphCumulative },
+                } as TrendsQuery,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(cumulativeQuery)
+            }).toFinishAllListeners()
+
+            expect(refreshAfterDisplayOptionsChange).toHaveBeenCalledWith(
+                expect.objectContaining({ query: cumulativeQuery })
+            )
+        })
+
+        it('collapses multiple rapid dispatches into a single PATCH', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(updatedQuery)
+                logic.actions.persistDisplayOptions(updatedQuery)
+                logic.actions.persistDisplayOptions(updatedQuery)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('skips the PATCH when the query is unchanged from the saved insight', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(baseQuery)
+            }).toFinishAllListeners()
+
+            expect(patchSpy).not.toHaveBeenCalled()
+        })
+
+        it('skips the PATCH while this insight is being edited in the insight scene', async () => {
+            // Editing an insight opened from a dashboard reuses the tile's keyed logic, which wired
+            // persistDisplayOptions as props.setQuery. The scene must persist only via explicit save.
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
+                values: { insightLogicRef: { logic: { key: Insight42 } } },
+            } as any)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.persistDisplayOptions(updatedQuery)
+                }).toFinishAllListeners()
+
+                expect(patchSpy).not.toHaveBeenCalled()
+            } finally {
+                findMountedSpy.mockRestore()
+                sceneLogic.unmount()
+            }
+        })
+
+        it('sends overlapping saves one at a time, so the newest query is written last', async () => {
+            const laterQuery: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { showLegend: true, showValuesOnSeries: true } as any,
+                },
+            }
+            const patchedQueries: Node[] = []
+            let markFirstPatchSent: () => void = () => {}
+            let releaseFirstPatch: () => void = () => {}
+            const firstPatchSent = new Promise<void>((resolve) => {
+                markFirstPatchSent = resolve
+            })
+            const firstPatchHeld = new Promise<void>((resolve) => {
+                releaseFirstPatch = resolve
+            })
+            const recordPatch = async (request: Request): Promise<Record<string, any>> => {
+                const body = (await request.json()) as Record<string, any>
+                patchedQueries.push(body.query)
+                return body
+            }
+            patchSpy.mockImplementationOnce(async ({ request }: { request: Request }) => {
+                const body = await recordPatch(request)
+                markFirstPatchSent()
+                await firstPatchHeld
+                return [200, { id: insightId, short_id: Insight42, ...body }]
+            })
+            patchSpy.mockImplementationOnce(async ({ request }: { request: Request }) => {
+                const body = await recordPatch(request)
+                return [200, { id: insightId, short_id: Insight42, ...body }]
+            })
+
+            logic.actions.persistDisplayOptions(updatedQuery)
+            await firstPatchSent
+
+            const secondSave = expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(laterQuery)
+            })
+            // Past the 700ms debounce, so the second PATCH would run next to the first one if the
+            // saves were not serialized.
+            await delay(800)
+            expect(patchedQueries).toEqual([updatedQuery])
+
+            releaseFirstPatch()
+            await secondSave.toFinishAllListeners().toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchedQueries).toEqual([updatedQuery, laterQuery])
+        })
+
+        it('restores the saved query when the current save fails', async () => {
+            patchSpy.mockResolvedValueOnce([500, { detail: 'Save failed' }])
+            logic.actions.setQuery(updatedQuery)
+
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(updatedQuery)
+            }).toFinishAllListeners()
+
+            expect(logic.values.query).toEqual(baseQuery)
+            expect(logic.values.savingDisplayOptions).toBe(false)
+        })
+
+        it('does not roll back a newer edit when the previous save fails', async () => {
+            const laterQuery: InsightVizNode = {
+                ...updatedQuery,
+                source: {
+                    ...updatedQuery.source,
+                    trendsFilter: { showLegend: true, showValuesOnSeries: true } as any,
+                } as TrendsQuery,
+            }
+            let failFirstPatch: () => void = () => {}
+            let markFirstPatchSent: () => void = () => {}
+            let markSecondPatchSent: () => void = () => {}
+            let releaseSecondPatch: () => void = () => {}
+            const firstPatchSent = new Promise<void>((resolve) => {
+                markFirstPatchSent = resolve
+            })
+            const firstPatchHeld = new Promise<[number, { detail: string }]>((resolve) => {
+                failFirstPatch = () => resolve([500, { detail: 'Save failed' }])
+            })
+            const secondPatchSent = new Promise<void>((resolve) => {
+                markSecondPatchSent = resolve
+            })
+            const secondPatchHeld = new Promise<void>((resolve) => {
+                releaseSecondPatch = resolve
+            })
+
+            patchSpy.mockImplementationOnce(async () => {
+                markFirstPatchSent()
+                return await firstPatchHeld
+            })
+            patchSpy.mockImplementationOnce(async ({ request }: { request: Request }) => {
+                const body = (await request.json()) as Record<string, any>
+                markSecondPatchSent()
+                await secondPatchHeld
+                return [200, { id: insightId, short_id: Insight42, ...body }]
+            })
+
+            logic.actions.setQuery(updatedQuery)
+            logic.actions.persistDisplayOptions(updatedQuery)
+            await firstPatchSent
+
+            logic.actions.setQuery(laterQuery)
+            logic.actions.persistDisplayOptions(laterQuery)
+            failFirstPatch()
+            await secondPatchSent
+
+            expect(logic.values.query).toEqual(laterQuery)
+            expect(logic.values.savingDisplayOptions).toBe(true)
+
+            releaseSecondPatch()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('keeps the optimistic query when a save times out', async () => {
+            jest.useFakeTimers()
+            const warningToast = jest.spyOn(lemonToast, 'warning').mockReturnValue('toast-id')
+            const updateSpy = jest.spyOn(insightsApi, 'update').mockImplementationOnce(
+                async (_id: number, _update: Record<string, any>, options?: { signal?: AbortSignal }): Promise<never> =>
+                    await new Promise((_, reject) => {
+                        options?.signal?.addEventListener('abort', () => reject(new Error('Request aborted')))
+                    })
+            )
+
+            try {
+                logic.actions.setQuery(updatedQuery)
+                logic.actions.persistDisplayOptions(updatedQuery)
+                await jest.advanceTimersByTimeAsync(700)
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+
+                await jest.advanceTimersByTimeAsync(15_000)
+                await jest.advanceTimersByTimeAsync(0)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.query).toEqual(updatedQuery)
+                expect(logic.values.savingDisplayOptions).toBe(false)
+                expect(warningToast).toHaveBeenCalledWith(
+                    "Couldn't confirm whether the insight was updated. Refresh the dashboard to check."
+                )
+            } finally {
+                warningToast.mockRestore()
+                updateSpy.mockRestore()
+                jest.useRealTimers()
+            }
+        })
+
+        it('lets the latest save proceed when the previous request hangs', async () => {
+            jest.useFakeTimers()
+            const laterQuery: InsightVizNode = {
+                ...updatedQuery,
+                source: {
+                    ...updatedQuery.source,
+                    trendsFilter: { showLegend: true, showValuesOnSeries: true } as any,
+                } as TrendsQuery,
+            }
+            const updateSpy = jest.spyOn(insightsApi, 'update') as jest.Mock
+            updateSpy
+                .mockImplementationOnce(
+                    async (
+                        _id: number,
+                        _update: Record<string, any>,
+                        options?: { signal?: AbortSignal }
+                    ): Promise<never> =>
+                        await new Promise((_, reject) => {
+                            options?.signal?.addEventListener('abort', () => reject(new Error('Request aborted')))
+                        })
+                )
+                .mockResolvedValueOnce({ id: insightId, short_id: Insight42, query: laterQuery })
+
+            try {
+                logic.actions.persistDisplayOptions(updatedQuery)
+                await jest.advanceTimersByTimeAsync(700)
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+
+                logic.actions.persistDisplayOptions(laterQuery)
+                await jest.advanceTimersByTimeAsync(700)
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+
+                await jest.advanceTimersByTimeAsync(15_000)
+                await jest.advanceTimersByTimeAsync(0)
+
+                expect(updateSpy).toHaveBeenCalledTimes(2)
+                expect(logic.values.query).toEqual(laterQuery)
+            } finally {
+                updateSpy.mockRestore()
+                jest.useRealTimers()
+            }
+        })
+    })
+
+    describe('persistSqlVisualization', () => {
+        const insightId = 43
+        const Insight43 = '43' as InsightShortId
+        const cachedQuery = {
+            kind: NodeKind.DataVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'select day, total from events' },
+            display: ChartDisplayType.ActionsTable,
+        } as DataVisualizationNode
+        const latestQuery = {
+            kind: NodeKind.DataVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'select day, total from events' },
+            display: ChartDisplayType.ActionsTable,
+            chartSettings: {
+                xAxis: { column: 'day' },
+                yAxis: [{ column: 'total' }],
+                showLegend: false,
+            },
+        } as DataVisualizationNode
+
+        let logic: ReturnType<typeof insightDataLogic.build>
+        let patchBodies: Record<string, any>[]
+        let savedQuery: Node
+        let patchFails: boolean
+
+        beforeEach(() => {
+            ;(posthog.capture as jest.Mock).mockClear()
+            patchBodies = []
+            savedQuery = latestQuery
+            patchFails = false
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [
+                        200,
+                        { results: [{ id: insightId, short_id: Insight43, query: savedQuery }] },
+                    ],
+                },
+                patch: {
+                    '/api/environments/:team_id/insights/:id': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patchBodies.push(body)
+                        if (patchFails) {
+                            return [500, { detail: 'Save failed' }]
+                        }
+                        return [200, { id: insightId, short_id: Insight43, ...body }]
+                    },
+                },
+            })
+
+            const props = {
+                dashboardItemId: Insight43,
+                cachedInsight: { id: insightId, short_id: Insight43, query: cachedQuery } as any,
+            }
+            insightsModel.mount()
+            insightLogic(props).mount()
+            logic = insightDataLogic(props)
+            logic.mount()
+            logic.actions.setInsightData({
+                columns: ['day', 'total'],
+                types: [
+                    ['day', 'DateTime'],
+                    ['total', 'UInt64'],
+                ],
+                results: [
+                    ['2026-08-27', 12],
+                    ['2026-08-28', 15],
+                ],
+            })
+        })
+
+        it('derives the picked chart from the latest clean query and loaded tile schema', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.persistSqlVisualization({
+                    type: 'chart-type',
+                    display: ChartDisplayType.ActionsLineGraph,
+                })
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchBodies).toHaveLength(1)
+            expect(patchBodies[0].query).toMatchObject({
+                source: latestQuery.source,
+                display: ChartDisplayType.ActionsLineGraph,
+                chartSettings: {
+                    xAxis: { column: 'day' },
+                    yAxis: [{ column: 'total' }],
+                    showLegend: false,
+                },
+            })
+            expect(capturesOf('dashboard_sql_visualization_changed')).toEqual([
+                [
+                    'dashboard_sql_visualization_changed',
+                    { insight_id: insightId, type: 'chart-type', display: 'ActionsLineGraph' },
+                ],
+            ])
+        })
+
+        it.each([
+            ['has no columns', { columns: [], types: [], results: [] }, 'no_columns'],
+            [
+                'no longer supports the picked chart',
+                { columns: ['country'], types: [['country', 'String']], results: [['NL']] },
+                'unsupported',
+            ],
+        ])('does not save when the latest SQL result %s', async (_condition, response, reason) => {
+            logic.actions.setInsightData(response)
+
+            await expectLogic(logic, () => {
+                logic.actions.persistSqlVisualization({
+                    type: 'chart-type',
+                    display: ChartDisplayType.ActionsLineGraph,
+                })
+            }).toFinishAllListeners()
+
+            expect(patchBodies).toHaveLength(0)
+            expect(logic.values.savingSqlVisualization).toBeNull()
+            expect(capturesOf('dashboard_sql_visualization_failed')).toEqual([
+                ['dashboard_sql_visualization_failed', { insight_id: insightId, type: 'chart-type', reason }],
+            ])
+        })
+
+        it('does not combine a changed saved query with the loaded tile schema', async () => {
+            savedQuery = {
+                ...latestQuery,
+                source: { kind: NodeKind.HogQLQuery, query: 'select country from events' },
+            } as DataVisualizationNode
+
+            await expectLogic(logic, () => {
+                logic.actions.persistSqlVisualization({
+                    type: 'chart-type',
+                    display: ChartDisplayType.ActionsLineGraph,
+                })
+            }).toFinishAllListeners()
+
+            expect(patchBodies).toHaveLength(0)
+            expect(logic.values.savingSqlVisualization).toBeNull()
+            expect(capturesOf('dashboard_sql_visualization_failed')).toEqual([
+                [
+                    'dashboard_sql_visualization_failed',
+                    { insight_id: insightId, type: 'chart-type', reason: 'mismatch' },
+                ],
+            ])
+        })
+
+        it('does not overwrite an insight that changed away from SQL', async () => {
+            savedQuery = { kind: NodeKind.EventsQuery }
+
+            await expectLogic(logic, () => {
+                logic.actions.persistSqlVisualization({
+                    type: 'chart-type',
+                    display: ChartDisplayType.ActionsLineGraph,
+                })
+            }).toFinishAllListeners()
+
+            expect(patchBodies).toHaveLength(0)
+            expect(logic.values.savingSqlVisualization).toBeNull()
+        })
+
+        it('persists only the last display edit against the latest clean SQL query', async () => {
+            savedQuery = {
+                ...latestQuery,
+                source: { ...latestQuery.source, variables: {} },
+            } as DataVisualizationNode
+            const dashboardQuery = {
+                ...cachedQuery,
+                source: {
+                    ...cachedQuery.source,
+                    filters: { dateRange: { date_from: '-7d' } },
+                },
+            } as DataVisualizationNode
+            logic.actions.syncQueryFromProps(dashboardQuery)
+
+            logic.actions.persistSqlVisualization({
+                type: 'display-options',
+                query: {
+                    ...dashboardQuery,
+                    chartSettings: { ...latestQuery.chartSettings, showLegend: true },
+                },
+            })
+            logic.actions.persistSqlVisualization({
+                type: 'display-options',
+                query: {
+                    ...dashboardQuery,
+                    chartSettings: { ...latestQuery.chartSettings, showLegend: false, xAxisLabel: 'Day' },
+                },
+            })
+            expect(logic.values.savingSqlVisualization).toBe('display-options')
+
+            await expectLogic(logic).toFinishAllListeners().toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchBodies).toHaveLength(1)
+            expect(patchBodies[0].query).toEqual({
+                ...savedQuery,
+                chartSettings: { ...latestQuery.chartSettings, showLegend: false, xAxisLabel: 'Day' },
+            })
+            expect(logic.values.savingSqlVisualization).toBeNull()
+            expect(capturesOf('dashboard_sql_visualization_changed')).toEqual([
+                [
+                    'dashboard_sql_visualization_changed',
+                    { insight_id: insightId, type: 'display-options', display: 'ActionsTable' },
+                ],
+            ])
+        })
+
+        it('does not persist display settings from a stale chart type', async () => {
+            savedQuery = {
+                ...latestQuery,
+                display: ChartDisplayType.ActionsPie,
+            } as DataVisualizationNode
+
+            await expectLogic(logic, () => {
+                logic.actions.persistSqlVisualization({
+                    type: 'display-options',
+                    query: {
+                        ...cachedQuery,
+                        chartSettings: { showLegend: true },
+                    },
+                })
+            }).toFinishAllListeners()
+
+            expect(patchBodies).toHaveLength(0)
+        })
+
+        it('invalidates optimistic display controls when their save fails', async () => {
+            patchFails = true
+
+            await expectLogic(logic, () => {
+                logic.actions.persistSqlVisualization({
+                    type: 'display-options',
+                    query: {
+                        ...cachedQuery,
+                        chartSettings: { showLegend: true },
+                    },
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.sqlVisualizationVersion).toBe(1)
+            expect(logic.values.savingSqlVisualization).toBeNull()
+            expect(capturesOf('dashboard_sql_visualization_failed')).toEqual([
+                [
+                    'dashboard_sql_visualization_failed',
+                    { insight_id: insightId, type: 'display-options', reason: 'error' },
+                ],
+            ])
+        })
+    })
+
+    describe('draft query persistence', () => {
+        const draftKey = `draft-query-${MOCK_TEAM_ID}`
+        const newInsightQuery = (mutate?: (query: any) => void): Node => {
+            const query = JSON.parse(JSON.stringify(getDefaultQuery(InsightType.TRENDS, false)))
+            mutate?.(query)
+            return query
+        }
+
+        let logic: ReturnType<typeof insightDataLogic.build>
+
+        beforeEach(() => {
+            localStorage.removeItem(draftKey)
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            logic = insightDataLogic({ dashboardItemId: 'new' })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            sceneLogic.unmount()
+            localStorage.removeItem(draftKey)
+        })
+
+        const cosmeticOnlyEdit = (q: any): void => {
+            q.source.dateRange = { date_from: '-90d' }
+        }
+        const tooLargeEdit = (q: any): void => {
+            q.source.series[0].event = 'x'.repeat(1024 * 1024 + 1)
+        }
+
+        it.each([
+            ['reverts to a cosmetic-only diff', cosmeticOnlyEdit],
+            ['grows too large to store', tooLargeEdit],
+        ])('clears the draft it persisted when the query %s', async (_, mutate) => {
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(newInsightQuery((q) => (q.source.series[0].event = 'purchase')))
+            }).toFinishAllListeners()
+            expect(localStorage.getItem(draftKey)).not.toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(newInsightQuery(mutate))
+            }).toFinishAllListeners()
+            expect(localStorage.getItem(draftKey)).toBeNull()
+        })
+
+        it.each([
+            ['a cosmetic-only query', cosmeticOnlyEdit],
+            ['a too-large query', tooLargeEdit],
+        ])(
+            "does not clear another session's draft when it has not persisted one itself and sets %s",
+            async (_, mutate) => {
+                localStorage.setItem(draftKey, JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 1 }))
+
+                await expectLogic(logic, () => {
+                    logic.actions.setQuery(newInsightQuery(mutate))
+                }).toFinishAllListeners()
+                expect(localStorage.getItem(draftKey)).not.toBeNull()
+            }
+        )
     })
 })

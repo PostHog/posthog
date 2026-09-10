@@ -46,6 +46,18 @@ pub struct ProcessingConfig {
     #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_TLS")]
     pub cyclotron_kafka_tls: Option<bool>,
 
+    // Optional override for the brokers used to produce `clickhouse_app_metrics2`. When set,
+    // cymbal opens a dedicated producer pointed at this host list (the warpstream-ingestion VC,
+    // where ClickHouse consumes app_metrics2). When unset, app metrics go through the primary
+    // `kafka` producer — which only carries that topic where the cluster has it (e.g. local dev).
+    #[envconfig(from = "CYMBAL_APP_METRICS_KAFKA_HOSTS")]
+    pub app_metrics_kafka_hosts: Option<String>,
+
+    // Optional TLS override for the app-metrics producer. When unset, it inherits `KAFKA_TLS`
+    // from the primary kafka config.
+    #[envconfig(from = "CYMBAL_APP_METRICS_KAFKA_TLS")]
+    pub app_metrics_kafka_tls: Option<bool>,
+
     #[envconfig(default = "cdp_internal_events")]
     pub internal_events_topic: String,
 
@@ -55,8 +67,30 @@ pub struct ProcessingConfig {
     #[envconfig(default = "document_embeddings_input")]
     pub embedding_worker_topic: String,
 
+    #[envconfig(default = "error_tracking_ingestion_notifications")]
+    pub ingestion_notifications_topic: String,
+
     #[envconfig(default = "600")]
     pub issue_cache_ttl_seconds: u64,
+
+    // Sized generously on purpose: entries are ~100 bytes, and versioned fingerprinting
+    // probes this cache once per registered fingerprint version per event, so the working
+    // set is several multiples of the distinct-issue count at current event volume.
+    #[envconfig(default = "100000")]
+    pub issue_cache_capacity: u64,
+
+    // Event-level release resolution runs once per exception event. A release row is immutable
+    // once the CLI creates it, so a positive hit never goes stale; the TTL exists to let a
+    // negative result (app metadata that matches no release yet) expire after a dSYM upload
+    // creates the release, without re-querying Postgres on every event in the meantime.
+    #[envconfig(default = "300")]
+    pub release_cache_ttl_seconds: u64,
+
+    // An entry-count bound is a real memory bound: cached records clamp metadata to
+    // MAX_RELEASE_METADATA_BYTES at fetch, so a full cache tops out around
+    // max_entries * 8 KiB per lookup kind.
+    #[envconfig(default = "10000")]
+    pub release_cache_max_entries: u64,
 
     // Maximum number of in-flight futures for a single `Batch::apply_func` call.
     // This is a per-call-site limit, not a global pipeline-wide concurrency cap.
@@ -85,6 +119,12 @@ pub struct ProcessingConfig {
     pub max_assignment_rule_cache_size: u64,
 
     #[envconfig(default = "300")]
+    pub severity_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    pub max_severity_rule_cache_size: u64,
+
+    #[envconfig(default = "300")]
     pub grouping_rule_cache_ttl_secs: u64,
 
     #[envconfig(default = "100000")]
@@ -98,8 +138,27 @@ pub struct ProcessingConfig {
     // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
     pub max_suppression_rule_cache_size: u64,
 
+    #[envconfig(default = "300")]
+    pub bypass_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_bypass_rule_cache_size: u64,
+
     #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
     pub issue_buckets_redis_url: String,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_EVENT_PROPERTIES_TTL_SECONDS",
+        default = "172800"
+    )]
+    pub event_properties_ttl_seconds: u64,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_EVENT_PROPERTIES_MAX_BYTES",
+        default = "1048576"
+    )]
+    pub event_properties_max_bytes: usize,
 
     #[envconfig(default = "100")]
     pub redis_response_timeout_ms: u64,
@@ -107,28 +166,43 @@ pub struct ProcessingConfig {
     #[envconfig(default = "5000")]
     pub redis_connection_timeout_ms: u64,
 
+    #[envconfig(from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_ENABLED", default = "false")]
+    pub error_tracking_rate_limiter_enabled: bool,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_REDIS_URL",
+        default = "redis://localhost:6379/"
+    )]
+    pub error_tracking_rate_limiter_redis_url: String,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_KEY_PREFIX",
+        default = "@posthog/error-tracking-cymbal-rate-limiter"
+    )]
+    pub error_tracking_rate_limiter_key_prefix: String,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_BUCKET_TTL_SECONDS",
+        default = "86400"
+    )]
+    pub error_tracking_rate_limiter_bucket_ttl_seconds: u64,
+
+    // Comma separated list of team IDs the error-tracking rate limiter applies to.
+    // If empty, it applies to all teams (that have limits configured).
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_ENABLED_TEAM_IDS",
+        default = ""
+    )]
+    pub error_tracking_rate_limiter_enabled_team_ids: String,
+
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
 
-    // Internal API for signal emission
-    #[envconfig(default = "")]
-    pub signals_api_base_url: String,
-
     // ----------------------------------------------------------------------
-    // Remote resolution (cymbal.resolution.v1) — Batch 3 client integration.
-    //
-    // When `remote_resolution_enabled` is true, cymbal routes exception-level
-    // symbol resolution through the configured `cymbal-resolution` service
-    // pool instead of running the local resolver inline. There is no silent
-    // local fallback: if the pool can't satisfy the request, the stage
-    // surfaces the failure to its caller. Local mode (the default) is
-    // unchanged.
+    // Remote resolution (cymbal.resolution.v1).
     // ----------------------------------------------------------------------
-    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_ENABLED", default = "false")]
-    pub remote_resolution_enabled: bool,
-
     /// Hostname of the cymbal-resolution service. Resolved via DNS, then each
     /// returned address gets its own gRPC channel in the endpoint pool.
     #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_HOST", default = "")]
@@ -196,15 +270,6 @@ pub struct ProcessingConfig {
         default = "30000"
     )]
     pub remote_resolution_overload_ejection_decay_ms: u64,
-
-    /// Deterministic event-level rollout sample for remote resolution.
-    /// Defaults to `0.0` so flipping `CYMBAL_REMOTE_RESOLUTION_ENABLED=true`
-    /// alone does not start sending traffic — the rollout has to be ramped
-    /// explicitly. Values outside 0.0..=1.0 are clamped by
-    /// `RemoteResolutionConfig`, matching the defensive normalization used
-    /// by adjacent duration knobs.
-    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE", default = "0.0")]
-    pub remote_resolution_sample_rate: f64,
 
     /// Flattens remote resolution routing across the rendezvous-ranked candidate
     /// list. `0.0` sends all traffic to the top-ranked endpoint, `1.0` is

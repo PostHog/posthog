@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -17,6 +19,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
+    GroupMathType,
     PropertyMathType,
 )
 
@@ -25,7 +28,6 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
-from posthog.hogql_queries.insights.trends.aggregation_operations import ALLOWED_SESSION_MATH_PROPERTIES
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
@@ -33,9 +35,11 @@ from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     aggregation_needs_numeric_input,
     build_aggregation_call,
+    contains_aggregation,
     extract_aggregation_and_inner_expr,
 )
 from products.experiments.backend.models.experiment import Experiment
+from products.product_analytics.backend.facade.queries import ALLOWED_SESSION_MATH_PROPERTIES
 
 
 def is_session_property_metric(source: Union[EventsNode, ActionsNode]) -> bool:
@@ -90,7 +94,7 @@ def is_continuous(
     | CountPerActorMathType
     | ExperimentMetricMathType
     | CalendarHeatmapMathType
-    | Literal["unique_group"]
+    | GroupMathType
     | Literal["hogql"]
     | None,
 ) -> bool:
@@ -147,12 +151,28 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             if math_hogql:
                 tag_contains_user_hogql()
                 _, inner_expr, _, _ = extract_aggregation_and_inner_expr(math_hogql)
+                # The inner expression is evaluated per event row, so any aggregate call
+                # left in it (a compound expression like sum(a) / count(), or a nested
+                # aggregate) would generate invalid SQL and fail in ClickHouse with
+                # NOT_AN_AGGREGATE. Reject it with an actionable error instead.
+                if contains_aggregation(inner_expr):
+                    raise ValidationError(
+                        "HogQL metric expressions must be a single aggregation, e.g. sum(properties.revenue). "
+                        "Compound expressions like sum(a) / count() are not supported."
+                    )
                 return inner_expr
     elif isinstance(source, ExperimentDataWarehouseNode):
         metric_property = getattr(source, "math_property", None)
         if metric_property:
             tag_contains_user_hogql()
-            return parse_expr(metric_property)
+            parsed = parse_expr(metric_property)
+            # Same constraint as math_hogql above: this is a per-row value expression.
+            if contains_aggregation(parsed):
+                raise ValidationError(
+                    "Data warehouse metric properties cannot contain aggregate functions; "
+                    "reference a column or a per-row expression instead."
+                )
+            return parsed
 
     # Default to count - emit 1 so we can easily sum it up
     return ast.Constant(value=1)
@@ -238,37 +258,71 @@ def conversion_window_to_seconds(conversion_window: int, conversion_window_unit:
     return conversion_window * multipliers[conversion_window_unit]
 
 
-def get_experiment_date_range(
-    experiment: Experiment, team: Team, override_end_date: Optional[datetime] = None
-) -> DateRange:
-    """
-    Returns an DateRange object based on the experiment's start and end dates,
-    adjusted for the team's timezone if applicable.
+def analysis_window_end(end_date: Optional[datetime], as_of: datetime) -> datetime:
+    """Upper edge of an experiment's analysis window, evaluated at ``as_of``.
 
-    Args:
-        experiment: The experiment to get date range for
-        team: The team to get timezone settings from
-        override_end_date: Optional datetime to use as end date instead of experiment.end_date, used for calculating timeseries results
+    The window can't extend past the evaluation point ``as_of`` nor past the experiment's
+    ``end_date``, so the edge is the earlier of the two (``end_date`` acts as +infinity when unset):
+
+    - running (``end_date is None``)   -> ``as_of``
+    - ``as_of`` at/after ``end_date``  -> ``end_date`` (stopped; the common "view it later" case)
+    - ``as_of`` before ``end_date``    -> ``as_of`` (a timeseries point taken mid-experiment)
+
+    For an ordinary "current results" query the caller passes ``as_of = end_date or now``, so a stopped
+    experiment resolves to ``end_date`` and a running one to ``now``. A recalc passes its frozen run
+    snapshot; a timeseries backfill passes each historical day — which is why an ``as_of`` *below*
+    ``end_date`` must win, so per-day points stay distinct instead of all collapsing onto ``end_date``.
+
+    The historical "results keep growing after end_date" bug: the run snapshot (``now``, always at or
+    after a stopped experiment's ``end_date``) was used as the edge *instead of* ``end_date``, so the
+    window kept extending to now. Capping at ``end_date`` fixes it while preserving the sub-window.
+
+    Value-based on purpose. A caller holding a serialized query whose result is cached under a key
+    hashed from that query (the exposure runner) must pass the query's ``end_date`` here, not live
+    model state — otherwise the key can describe a window the result wasn't computed for. Callers that
+    hold the model use the :func:`experiment_window_end` wrapper.
+
+    ``as_of`` (and ``end_date`` when set) must be timezone-aware.
     """
+    if end_date is None:
+        return as_of
+    return min(as_of, end_date)
+
+
+def analysis_window(
+    start_date: Optional[datetime], end_date: Optional[datetime], team: Team, as_of: datetime
+) -> DateRange:
+    """Single source of truth for an experiment's analysis ``DateRange``, from raw start/end dates.
+
+    Replaces the scattered ``override_end_date or end_date or now`` derivations. The upper edge always
+    comes from :func:`analysis_window_end` (earlier of ``as_of`` and ``end_date``), so no call site can
+    extend the window past ``end_date``. A draft experiment (no ``start_date``) has no window.
+    """
+    if start_date is None:
+        return DateRange(date_from=None, date_to=None, explicitDate=True)
+
+    resolved_end = analysis_window_end(end_date, as_of)
+
     if team.timezone:
         tz = ZoneInfo(team.timezone)
-        start_date: Optional[datetime] = experiment.start_date.astimezone(tz) if experiment.start_date else None
-        if override_end_date:
-            end_date: Optional[datetime] = override_end_date.astimezone(tz)
-        else:
-            end_date = experiment.end_date.astimezone(tz) if experiment.end_date else None
-    else:
-        start_date = experiment.start_date
-        if override_end_date:
-            end_date = override_end_date
-        else:
-            end_date = experiment.end_date
+        start_date = start_date.astimezone(tz)
+        resolved_end = resolved_end.astimezone(tz)
 
     return DateRange(
-        date_from=start_date.isoformat() if start_date else None,
-        date_to=end_date.isoformat() if end_date else None,
+        date_from=start_date.isoformat(),
+        date_to=resolved_end.isoformat(),
         explicitDate=True,
     )
+
+
+def experiment_window_end(experiment: Experiment, as_of: datetime) -> datetime:
+    """:func:`analysis_window_end` for a caller that holds the experiment model."""
+    return analysis_window_end(experiment.end_date, as_of)
+
+
+def experiment_window(experiment: Experiment, team: Team, as_of: datetime) -> DateRange:
+    """:func:`analysis_window` for a caller that holds the experiment model."""
+    return analysis_window(experiment.start_date, experiment.end_date, team, as_of)
 
 
 def get_source_time_window(

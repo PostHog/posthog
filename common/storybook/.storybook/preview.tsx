@@ -1,7 +1,8 @@
 import '~/styles'
 
-import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/blocks'
+import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/addon-docs/blocks'
 import type { Meta, Parameters, Preview } from '@storybook/react'
+import { configure as configureTestingLibrary } from '@testing-library/dom'
 
 import { apiHostOrigin } from 'lib/utils/apiHost'
 
@@ -16,6 +17,12 @@ import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
 import { withPageUrl } from './decorators/withPageUrl'
 import { withTheme } from './decorators/withTheme'
+
+// Play functions start as soon as React commits the first render, but scene-based stories keep
+// loading data for several seconds after that — longer on a busy CI runner. testing-library's
+// default 1s findBy*/waitFor timeout loses that race and fails plays spuriously, so give every
+// story a load-tolerant default budget instead of making each play pass its own timeout.
+configureTestingLibrary({ asyncUtilTimeout: 15000 })
 
 const setupMsw = (): void => {
     // Make sure the msw worker is started
@@ -47,6 +54,22 @@ const setupPosthogJs = (): void => {
     loadPostHogJS()
 }
 setupPosthogJs()
+
+// Canvas charts measure text at paint time and never repaint when fonts finish loading, so hold
+// every story's render until the app fonts (the set the visual-regression runner preloads) are in.
+export const loaders: Preview['loaders'] = [
+    async () => {
+        await Promise.all(
+            ['400', '500', '700', '800'].flatMap((weight) => [
+                document.fonts.load(`${weight} 16px Inter`),
+                document.fonts.load(`${weight} 16px RoundHog`),
+            ])
+        )
+            .then(() => document.fonts.ready)
+            .catch(() => undefined)
+        return {}
+    },
+]
 
 /** Storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters */
 export const parameters: Parameters = {
@@ -103,6 +126,8 @@ export const decorators: Meta['decorators'] = [
 const preview: Preview = {
     parameters: {
         actions: { argTypesRegex: '^on[A-Z].*' },
+        // We don't want axe-core tests in visual review
+        a11y: { test: 'off' },
         controls: {
             matchers: {
                 color: /(background|color)$/i,

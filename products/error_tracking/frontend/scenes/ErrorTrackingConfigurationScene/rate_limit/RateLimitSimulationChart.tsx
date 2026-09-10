@@ -1,11 +1,16 @@
 import { useMemo } from 'react'
 
+import {
+    type Series,
+    type TimeInterval,
+    TimeSeriesBarChart,
+    type TimeSeriesBarChartConfig,
+} from '@posthog/quill-charts'
+
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
-
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { ChartDisplayType } from '~/types'
 
 import { ExceptionVolumeBucket, getBucketOption } from './rateLimitConfigLogic'
 
@@ -45,12 +50,38 @@ function fillBuckets(volume: ExceptionVolumeBucket[], bucketMinutes: number): Ex
     }))
 }
 
-export function formatBucketLabel(iso: string, bucketMinutes: number): string {
-    const ts = dayjs(iso)
+function bucketInterval(bucketMinutes: number): TimeInterval {
     if (bucketMinutes >= 1440) {
-        return ts.format('MMM D')
+        return 'day'
     }
-    return ts.format('MMM D, HH:mm')
+    if (bucketMinutes >= 60) {
+        return 'hour'
+    }
+    return 'minute'
+}
+
+/** Shared config for the rate limit bar charts: hidden bucket ticks, stacked bars, default tooltip
+ *  with a total row. */
+export function buildRateLimitBarChartConfig(
+    barLayout: NonNullable<TimeSeriesBarChartConfig['barLayout']>,
+    bucketMinutes: number
+): TimeSeriesBarChartConfig {
+    return {
+        xAxis: {
+            hide: true,
+            timezone: dayjs.tz.guess(),
+            interval: bucketInterval(bucketMinutes),
+        },
+        showAxisLines: { x: false, y: true },
+        barLayout,
+        legend: { show: false },
+        tooltip: {
+            placement: 'cursor',
+            pinnable: true,
+            sortedByValue: true,
+            showTotal: true,
+        },
+    }
 }
 
 export function RateLimitSimulationChart({
@@ -64,91 +95,55 @@ export function RateLimitSimulationChart({
 }): JSX.Element {
     const hasLimit = !!rateLimit && rateLimit > 0
 
-    const { xData, yData } = useMemo(() => {
+    const { labels, series } = useMemo(() => {
         const filled = fillBuckets(volume, bucketMinutes)
-        const labels = filled.map((b) => formatBucketLabel(b.bucket, bucketMinutes))
+        const labels = filled.map((b) => b.bucket)
         const counts = filled.map((b) => b.count)
-        const xAxis = {
-            column: {
-                name: 'bucket',
-                type: { name: 'STRING' as const, isNumerical: false },
-                label: 'Bucket',
-                dataIndex: 0,
-            },
-            data: labels,
-        }
 
         if (!hasLimit || rateLimit === null) {
             return {
-                xData: xAxis,
-                yData: [
-                    {
-                        column: {
-                            name: 'count',
-                            type: { name: 'INTEGER' as const, isNumerical: true },
-                            label: 'Exceptions',
-                            dataIndex: 0,
-                        },
-                        data: counts,
-                        settings: { display: { displayType: 'bar' as const } },
-                    },
-                ],
+                labels,
+                series: [{ key: 'count', label: 'Exceptions', data: counts }] as Series[],
             }
         }
 
-        const within = counts.map((c) => Math.min(c, rateLimit))
-        const above = counts.map((c) => Math.max(c - rateLimit, 0))
         return {
-            xData: xAxis,
-            yData: [
+            labels,
+            series: [
+                { key: 'within', label: 'Within limit', data: counts.map((c) => Math.min(c, rateLimit)) },
                 {
-                    column: {
-                        name: 'within',
-                        type: { name: 'INTEGER' as const, isNumerical: true },
-                        label: 'Within limit',
-                        dataIndex: 0,
-                    },
-                    data: within,
-                    settings: { display: { displayType: 'bar' as const } },
+                    key: 'above',
+                    label: 'Would be dropped',
+                    data: counts.map((c) => Math.max(c - rateLimit, 0)),
+                    color: getColorVar('danger'),
                 },
-                {
-                    column: {
-                        name: 'above',
-                        type: { name: 'INTEGER' as const, isNumerical: true },
-                        label: 'Would be dropped',
-                        dataIndex: 0,
-                    },
-                    data: above,
-                    settings: { display: { displayType: 'bar' as const, color: getColorVar('danger') } },
-                },
-            ],
+            ] as Series[],
         }
     }, [volume, bucketMinutes, hasLimit, rateLimit])
 
-    const goalLines = useMemo(() => {
+    const theme = useChartTheme()
+    const config = useChartConfig<TimeSeriesBarChartConfig>(() => {
+        const base = buildRateLimitBarChartConfig(hasLimit ? 'stacked' : 'grouped', bucketMinutes)
         if (!hasLimit || rateLimit === null) {
-            return []
+            return base
         }
         const option = getBucketOption(bucketMinutes)
-        return [
-            {
-                label: `Limit: ${rateLimit} per ${option.label}`,
-                value: rateLimit,
-                displayLabel: true,
-            },
-        ]
+        return {
+            ...base,
+            goalLines: [
+                {
+                    label: `Limit: ${rateLimit} per ${option.label}`,
+                    value: rateLimit,
+                    displayLabel: true,
+                },
+            ],
+        }
     }, [hasLimit, rateLimit, bucketMinutes])
 
     return (
-        <div className="h-80 border rounded">
-            <LineGraph
-                className="h-full p-4"
-                xData={xData}
-                yData={yData}
-                visualizationType={hasLimit ? ChartDisplayType.ActionsStackedBar : ChartDisplayType.ActionsBar}
-                chartSettings={{ showXAxisTicks: false, showXAxisBorder: false }}
-                goalLines={goalLines}
-            />
+        // Quill charts fill a *flex* parent (their root is flex-1), so the sized container must be a flex column.
+        <div className="h-80 border rounded p-4 flex flex-col">
+            <TimeSeriesBarChart series={series} labels={labels} theme={theme} config={config} />
         </div>
     )
 }

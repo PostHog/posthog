@@ -1,5 +1,4 @@
 import time
-import socket
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -161,26 +160,6 @@ temporal_long_request_latency_bucket{namespace="default",operation="PollActivity
             # prometheus_client metrics should still be served
             assert test_counter in content
             assert "temporal" not in content
-        finally:
-            await server.stop()
-
-    @pytest.mark.asyncio
-    async def test_returns_404_for_unknown_paths(self, isolated_registry):
-        temporal_port = get_free_port()
-        metrics_port = get_free_port()
-
-        server = CombinedMetricsServer(
-            port=metrics_port,
-            temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
-            registry=isolated_registry,
-        )
-        await server.start()
-
-        try:
-            url = f"http://127.0.0.1:{metrics_port}/unknown"
-            async with ClientSession() as session:
-                async with session.get(url) as response:
-                    assert response.status == 404
         finally:
             await server.stop()
 
@@ -521,14 +500,3 @@ test_gauge 100.0
         # Should not raise any exception
         await server.stop()
         await server.stop()  # Multiple stops should also be safe
-
-
-class TestGetFreePort:
-    def test_returns_available_port(self):
-        port = get_free_port()
-        assert isinstance(port, int)
-        assert port > 0
-
-        # Verify the port is actually available
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", port))

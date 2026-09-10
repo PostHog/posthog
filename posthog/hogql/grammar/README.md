@@ -1,6 +1,6 @@
 ## How to generate source code files from grammar
 
-Grammar is located inside `HogQLLexer.g4` and `HogQLParser.g4` files.
+The grammar lives in `HogQLParser.g4` plus a split lexer: `HogQLLexer.common.g4` (shared rules) is concatenated with the target-specific `HogQLLexer.cpp.g4` at build time to form the lexer fed to ANTLR. The C++ parser is the only ANTLR target — the Rust parser is hand-written and does not consume these files (it mirrors them by hand).
 
 To generate source code you need to install locally the `antlr` binary. Run this on macOS:
 
@@ -27,19 +27,13 @@ export CLASSPATH=".:$PWD/antlr.jar:$CLASSPATH"
 export PATH="$PWD:$PATH"
 ```
 
-Then either run
+Then run
 
 ```bash
 pnpm run grammar:build
 ```
 
-Or mess around with:
-
-```bash
-cd posthog/hogql/grammar
-antlr -Dlanguage=Python3 HogQLLexer.g4
-antlr -visitor -Dlanguage=Python3 HogQLParser.g4
-```
+This regenerates the C++ parser into `common/hogql_parser/`. See the `grammar:build:cpp` script in the repo `package.json` for the exact ANTLR invocation it wraps.
 
 Original ClickHouse ANTLR grammar from: https://github.com/ClickHouse/ClickHouse/blob/master/utils/antlr/ClickHouseParser.g4
 

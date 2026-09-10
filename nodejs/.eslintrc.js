@@ -12,13 +12,21 @@ module.exports = {
         'plugin:@eslint-community/eslint-comments/recommended',
         'prettier',
     ],
-    ignorePatterns: ['bin', 'dist', 'node_modules', 'src/config/idl'],
+    ignorePatterns: [
+        'bin',
+        'dist',
+        'node_modules',
+        'src/common/config/idl',
+        // Standalone package with its own oxlint config; not part of the plugin-server eslint pass.
+        'src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar',
+        '**/dev/**',
+    ],
     rules: {
         'no-restricted-syntax': [
             'error',
             {
                 selector: 'CallExpression[callee.object.name="JSON"][callee.property.name="parse"]',
-                message: 'Use parseJSON from src/utils/json-parse instead of JSON.parse for better performance',
+                message: 'Use parseJSON from src/common/utils/json-parse instead of JSON.parse for better performance',
             },
         ],
         'no-only-tests/no-only-tests': 'error',
@@ -48,7 +56,7 @@ module.exports = {
             'error',
             {
                 name: 'fetch',
-                message: 'Use the request util from ~/utils/request instead of the global fetch',
+                message: 'Use the request util from ~/common/utils/request instead of the global fetch',
             },
         ],
         'no-restricted-imports': [
@@ -57,17 +65,17 @@ module.exports = {
                 paths: [
                     {
                         name: 'node-fetch',
-                        message: 'Use the request util from ~/utils/request instead of node-fetch',
+                        message: 'Use the request util from ~/common/utils/request instead of node-fetch',
                     },
                     {
                         name: 'undici',
-                        message: 'Use the request util from ~/utils/request instead of undici',
+                        message: 'Use the request util from ~/common/utils/request instead of undici',
                     },
                 ],
                 patterns: [
                     {
                         group: ['fetch'],
-                        message: 'Use the request util from ~/utils/request instead of importing fetch directly',
+                        message: 'Use the request util from ~/common/utils/request instead of importing fetch directly',
                     },
                 ],
             },
@@ -93,18 +101,18 @@ module.exports = {
                         paths: [
                             {
                                 name: 'node-fetch',
-                                message: 'Use the request util from ~/utils/request instead of node-fetch',
+                                message: 'Use the request util from ~/common/utils/request instead of node-fetch',
                             },
                             {
                                 name: 'undici',
-                                message: 'Use the request util from ~/utils/request instead of undici',
+                                message: 'Use the request util from ~/common/utils/request instead of undici',
                             },
                         ],
                         patterns: [
                             {
                                 group: ['fetch'],
                                 message:
-                                    'Use the request util from ~/utils/request instead of importing fetch directly',
+                                    'Use the request util from ~/common/utils/request instead of importing fetch directly',
                             },
                             {
                                 group: ['../*', '../**'],

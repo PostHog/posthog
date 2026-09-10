@@ -4,15 +4,20 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
+import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { parseDashboardId } from 'scenes/dashboard/Dashboard'
+import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
@@ -27,14 +32,17 @@ import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/
 import { HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
-    DashboardMode,
     DashboardPlacement,
     DashboardTile,
     DashboardType,
     InsightColor,
     InsightShortId,
+    PropertyFilterType,
+    PropertyOperator,
     QueryBasedInsightModel,
 } from '~/types'
+
+import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
 
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
@@ -119,6 +127,7 @@ describe('dashboardLogic', () => {
                     id: '123',
                     team_id: 2,
                     error_message: null,
+                    error_code: null,
                     error: false,
                 },
             },
@@ -167,6 +176,13 @@ describe('dashboardLogic', () => {
             11: {
                 ...dashboardResult(11, [], { date_from: '-24h' }),
             },
+            12: {
+                ...dashboardResult(12, []),
+                persisted_filters: { date_from: '-24h' },
+            },
+            13: {
+                ...dashboardResult(13, []),
+            },
         }
         useMocks({
             get: {
@@ -181,10 +197,18 @@ describe('dashboardLogic', () => {
                 '/api/environments/:team_id/dashboards/5/': { ...dashboards[5] },
                 '/api/environments/:team_id/dashboards/6/': { ...dashboards[6] },
                 '/api/environments/:team_id/dashboards/7/': () => [500, '💣'],
+                '/api/environments/:team_id/dashboards/13/': () => [404, { detail: 'Not found.' }],
+                '/api/environments/:team_id/dashboards/14/': () => [401, { detail: 'Authentication expired.' }],
+                '/api/environments/:team_id/dashboards/15/': () => [
+                    403,
+                    { code: 'permission_denied', detail: 'Access denied.' },
+                ],
+                '/api/environments/:team_id/dashboards/16/': () => [504, { detail: 'Gateway timeout.' }],
                 '/api/environments/:team_id/dashboards/8/': { ...dashboards[8] },
                 '/api/environments/:team_id/dashboards/9/': { ...dashboards[9] },
                 '/api/environments/:team_id/dashboards/10/': { ...dashboards[10] },
                 '/api/environments/:team_id/dashboards/11/': { ...dashboards[11] },
+                '/api/environments/:team_id/dashboards/12/': { ...dashboards[12] },
                 '/api/environments/:team_id/dashboards/': {
                     count: 6,
                     next: null,
@@ -197,6 +221,15 @@ describe('dashboardLogic', () => {
                         { ...dashboards[10] },
                     ],
                 },
+                '/api/environments/:team_id/data_color_themes/': [
+                    {
+                        id: 1,
+                        name: 'Default theme',
+                        colors: Array.from({ length: 15 }, (_, i) => `#0000${String(i).padStart(2, '0')}`),
+                        is_global: true,
+                    },
+                    { id: 123, name: 'Two-color theme', colors: ['#ff0000', '#00ff00'], is_global: false },
+                ],
                 '/api/environments/:team_id/insights/1001/': () => [200, { ...insights['1001'] }],
                 '/api/environments/:team_id/insights/800/': () => [200, { ...insights['800'] }],
                 '/api/environments/:team_id/insights/:id/': ({ request, params }) => {
@@ -286,17 +319,43 @@ describe('dashboardLogic', () => {
         insightsModel.mount()
     })
 
-    describe('key() guard', () => {
+    describe('malformed dashboard id', () => {
         it.each([
             ['NaN', NaN],
             ['undefined', undefined as unknown as number],
             ['Infinity', Infinity],
-        ])('throws when id is %s', (_label, id) => {
-            expect(() => dashboardLogic({ id })).toThrow(/non-finite id/)
+        ])('mounts and reports not found instead of throwing when id is %s', async (_label, id) => {
+            const invalidLogic = dashboardLogic({ id })
+            invalidLogic.mount()
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
         })
 
         it('accepts a finite numeric id', () => {
             expect(() => dashboardLogic({ id: 42 })).not.toThrow()
+        })
+
+        it('reports not found when dashboard data is supplied for an invalid id', async () => {
+            const invalidLogic = dashboardLogic({ id: NaN, dashboard: dashboards[5] })
+            invalidLogic.mount()
+
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
+        })
+
+        it('does not load the zero dashboard sentinel', async () => {
+            const zeroLogic = dashboardLogic({ id: 0 })
+            zeroLogic.mount()
+
+            await expectLogic(zeroLogic)
+                .toNotHaveDispatchedActions(['loadDashboard', 'loadDashboardStreaming', 'dashboardNotFound'])
+                .toMatchValues({ error404: false, hasInvalidDashboardId: false })
+        })
+
+        it.each(['12abc', '12.5', '+12', '-12', '0', '00', '000'])('rejects invalid route id %s', (id) => {
+            expect(parseDashboardId(id)).toBeNaN()
+        })
+
+        it('parses a full numeric route id', () => {
+            expect(parseDashboardId('12')).toBe(12)
         })
     })
 
@@ -306,13 +365,145 @@ describe('dashboardLogic', () => {
             logic.mount()
         })
 
+        it('keeps the layouts reference stable when a tile refresh changes results but not geometry', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const initialLayouts = logic.values.layouts
+            const firstTile = logic.values.dashboard!.tiles[0]
+
+            await expectLogic(logic, () => {
+                // A refresh response: same insight, new object identity and results, untouched layouts.
+                dashboardsModel.actions.updateDashboardInsight({
+                    ...firstTile.insight!,
+                    result: [{ count: 42 }],
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.tiles[0].insight!.result).toEqual([{ count: 42 }])
+            expect(logic.values.layouts).toBe(initialLayouts)
+        })
+
+        it('previews tile spacing immediately and persists only the final choice', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            ;(api.update as jest.Mock).mockClear()
+            const reportTileDensityConfigured = jest.spyOn(
+                eventUsageLogic.actions,
+                'reportDashboardTileDensityConfigured'
+            )
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.setDashboardTileSpacing('tight')
+                logic.actions.saveDashboardTileSpacing('tight')
+                logic.actions.setDashboardTileSpacing('relaxed')
+                logic.actions.saveDashboardTileSpacing('relaxed')
+
+                expect(logic.values.dashboard?.customization?.tile_spacing).toBe('relaxed')
+                expect(api.update).not.toHaveBeenCalled()
+
+                await jest.advanceTimersByTimeAsync(750)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(api.update).toHaveBeenCalledTimes(1)
+                expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                    layout_compaction: DashboardGridCompaction.Vertical,
+                    grid_spacing: 'relaxed',
+                })
+                expect(reportTileDensityConfigured).toHaveBeenCalledWith('relaxed')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('reports the tile density when reset to standard', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const reportTileDensityConfigured = jest.spyOn(
+                eventUsageLogic.actions,
+                'reportDashboardTileDensityConfigured'
+            )
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.saveDashboardTileSpacing('standard')
+
+                await jest.advanceTimersByTimeAsync(750)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(reportTileDensityConfigured).toHaveBeenCalledWith('standard')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('previews layout compaction immediately and persists only the final choice', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            ;(api.update as jest.Mock).mockClear()
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Vertical)
+                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Vertical)
+                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+
+                expect(logic.values.dashboard?.customization?.layout_compaction).toBe(
+                    DashboardGridCompaction.Horizontal
+                )
+                expect(api.update).not.toHaveBeenCalled()
+
+                await jest.advanceTimersByTimeAsync(750)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(api.update).toHaveBeenCalledTimes(1)
+                expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                    layout_compaction: DashboardGridCompaction.Horizontal,
+                    grid_spacing: 'standard',
+                })
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('persists the latest movement mode after a save is already in flight', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            let resolveFirstSave: (dashboard: DashboardType<QueryBasedInsightModel>) => void = () => {
+                throw new Error('First save resolver is unavailable')
+            }
+            const firstSave = new Promise<DashboardType<QueryBasedInsightModel>>((resolve) => {
+                resolveFirstSave = resolve
+            })
+            ;(api.update as jest.Mock).mockImplementationOnce(() => firstSave)
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                await jest.advanceTimersByTimeAsync(750)
+
+                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Stable)
+                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Stable)
+                await jest.advanceTimersByTimeAsync(750)
+
+                resolveFirstSave(logic.values.dashboard!)
+                await jest.advanceTimersByTimeAsync(750)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(api.update).toHaveBeenLastCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                    layout_compaction: DashboardGridCompaction.Stable,
+                    grid_spacing: 'standard',
+                })
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('saving without changes does not call api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveLayoutChanges()
             }).toFinishAllListeners()
 
             expect(api.update).not.toHaveBeenCalled()
@@ -335,12 +526,17 @@ describe('dashboardLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.updateLayouts(modifiedLayouts)
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'x',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                })
             }).toFinishAllListeners()
 
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveLayoutChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledTimes(1)
@@ -350,31 +546,340 @@ describe('dashboardLogic', () => {
                     tiles: expect.any(Array),
                 })
             )
+            const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
+            expect(payload).not.toHaveProperty('breakdown_colors')
+            expect(payload).not.toHaveProperty('data_color_theme_id')
+            expect(logic.values.hasUnsavedColorChanges).toBe(true)
         })
 
-        it('saving after filter change calls api', async () => {
+        it('keeps saved settings when an older layout save finishes later', async () => {
             await expectLogic(logic).toFinishAllListeners()
+
+            const staleLayoutResponse = logic.values.dashboard!
+            let finishLayoutSave: (dashboard: DashboardType<QueryBasedInsightModel>) => void = () => {
+                throw new Error('Layout save resolver is unavailable')
+            }
+            const layoutSave = new Promise<DashboardType<QueryBasedInsightModel>>((resolve) => {
+                finishLayoutSave = resolve
+            })
+            jest.spyOn(api, 'update')
+                .mockReturnValueOnce(layoutSave)
+                .mockImplementationOnce(async () => ({
+                    ...logic.values.dashboard!,
+                    persisted_filters: { date_from: '-7d' },
+                }))
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const modifiedLayouts = {
+                ...logic.values.layouts,
+                sm: logic.values.layouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+            logic.actions.updateLayouts(modifiedLayouts)
+            logic.actions.saveLayoutChanges()
 
             await expectLogic(logic, () => {
                 logic.actions.setDates('-7d', null)
+                logic.actions.saveDashboardChanges()
+            }).toDispatchActions(['saveDashboardChangesSuccess'])
+
+            finishLayoutSave(staleLayoutResponse)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboard?.persisted_filters).toEqual({ date_from: '-7d' })
+        })
+
+        it('saves dashboard settings only when requested', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update').mockResolvedValueOnce({
+                ...logic.values.dashboard!,
+                persisted_filters: logic.values.effectiveEditBarFilters,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                filters: expect.objectContaining({ date_from: '-7d' }),
+                variables: {},
+            })
+            expect(logic.values.dashboard?.persisted_filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(successToast).toHaveBeenCalledWith('Dashboard changes saved')
+        })
+
+        it('counts each added property filter', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setProperties([
+                    {
+                        key: 'browser',
+                        type: PropertyFilterType.Event,
+                        operator: PropertyOperator.Exact,
+                        value: 'Chrome',
+                    },
+                    { key: 'os', type: PropertyFilterType.Event, operator: PropertyOperator.Exact, value: 'macOS' },
+                ])
+            }).toFinishAllListeners()
+
+            expect(logic.values.changedFilterCount).toBe(2)
+        })
+
+        it('clears the unsaved state when a filter returns to inherit', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setInterval('week')
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+
+            await expectLogic(logic, () => {
+                logic.actions.setInterval(null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsState).toBe('saved')
+            expect(logic.values.dashboardSettingsChanges).toEqual([])
+        })
+
+        it('does not treat embedded context filters as unsaved dashboard filters', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            ;(api.update as jest.Mock).mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.setExternalFilters({
+                    properties: [
+                        {
+                            key: '$group_0',
+                            type: PropertyFilterType.EventMetadata,
+                            operator: PropertyOperator.Exact,
+                            value: 'group-1',
+                        },
+                    ],
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.effectiveEditBarFilters.properties).toEqual([
+                expect.objectContaining({ key: '$group_0', value: 'group-1' }),
+            ])
+            expect(logic.values.filtersDirty).toBe(false)
+            expect(logic.values.filterChanges).toEqual([])
+            expect(logic.values.dashboardSettingsState).toBe('saved')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).not.toHaveBeenCalled()
+        })
+
+        it('saving a layout change does not persist temporary filters', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+                logic.actions.updateLayouts(modifiedLayouts)
             }).toFinishAllListeners()
 
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveLayoutChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledTimes(1)
-            expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
-                expect.objectContaining({
-                    filters: expect.objectContaining({ date_from: '-7d' }),
-                })
-            )
+            const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
+            expect(payload).toEqual(expect.objectContaining({ tiles: expect.any(Array) }))
+            expect(payload).not.toHaveProperty('filters')
         })
 
-        it('dashboard save after changing global dates runs tile refresh to repopulate insight results missing from PATCH', async () => {
+        it('saving a layout change keeps unsaved filters in filter edit mode', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+                logic.actions.setDates('-7d', null)
+                logic.actions.saveLayout()
+            }).toFinishAllListeners()
+
+            expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.dashboard?.persisted_filters || {}).toEqual({})
+            expect(logic.values.dashboardEditing).toEqual({ filters: true, layout: false })
+            expect(logic.values.layoutEditMode).toBe(false)
+            expect(logic.values.filtersDirty).toBe(true)
+        })
+
+        it('saving a layout change with no unsaved settings leaves edit mode', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+                logic.actions.saveLayout()
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardMode).toBeNull()
+            expect(logic.values.layoutEditMode).toBe(false)
+            expect(logic.values.filterEditModeActive).toBe(false)
+        })
+
+        const filterEditExitCases: [string, () => void][] = [
+            ['saving them', () => logic.actions.saveDashboardChanges()],
+            ['discarding them', () => logic.actions.discardDashboardChanges()],
+            ['undoing them by hand', () => logic.actions.setInterval(null)],
+        ]
+
+        it.each(filterEditExitCases)('leaves filter edit mode after %s', async (_name, resolveChanges) => {
+            await expectLogic(logic).toFinishAllListeners()
+            const update = jest.spyOn(api, 'update').mockResolvedValue({
+                ...logic.values.dashboard!,
+                persisted_filters: { interval: 'week' },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: false },
+                        DashboardEventSource.DashboardFilters
+                    )
+                    logic.actions.setInterval('week')
+                }).toFinishAllListeners()
+
+                expect(logic.values.dashboardEditing).toEqual({ filters: true, layout: false })
+
+                await expectLogic(logic, resolveChanges).toFinishAllListeners()
+
+                expect(logic.values.dashboardSettingsState).toBe('saved')
+                expect(logic.values.dashboardMode).toBeNull()
+            } finally {
+                update.mockRestore()
+            }
+        })
+
+        it('stays in layout editing when a filter change is saved', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const update = jest.spyOn(api, 'update').mockResolvedValue({
+                ...logic.values.dashboard!,
+                persisted_filters: { interval: 'week' },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
+                    logic.actions.setInterval('week')
+                    logic.actions.saveDashboardChanges()
+                }).toFinishAllListeners()
+
+                expect(logic.values.dashboardSettingsState).toBe('saved')
+                expect(logic.values.dashboardEditing).toEqual({ filters: true, layout: true })
+                expect(logic.values.layoutEditMode).toBe(true)
+            } finally {
+                update.mockRestore()
+            }
+        })
+
+        it('keeps layout editing after a filter change', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardEditing).toEqual({ filters: true, layout: true })
+            expect(logic.values.layoutEditMode).toBe(true)
+        })
+
+        it('cancelling layout editing keeps auto-previewed filter changes', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: false },
+                    DashboardEventSource.DashboardFilters
+                )
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+
+            await expectLogic(logic, () => {
+                logic.actions.cancelLayoutEdit()
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardMode).toBeNull()
+            expect(logic.values.dashboardSettingsDraft?.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.filtersDirty).toBe(true)
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+        })
+
+        it('cancelling layout editing keeps unapplied filter changes', async () => {
+            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(1)
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.canAutoPreview).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsDraft?.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+
+            await expectLogic(logic, () => {
+                logic.actions.cancelLayoutEdit()
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardMode).toBeNull()
+            expect(logic.values.dashboardSettingsDraft?.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.filtersDirty).toBe(true)
+
+            payloadSpy.mockRestore()
+        })
+
+        it('saving current filters does not refresh tiles again', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
@@ -382,30 +887,558 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveDashboardChanges()
             })
-                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
+                .toDispatchActions(['saveDashboardChanges', 'saveDashboardChangesSuccess'])
                 .toFinishAllListeners()
+        })
+
+        it('saving unapplied dashboard settings refreshes tiles above the auto-preview limit', async () => {
+            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(1)
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.canAutoPreview).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardChanges()
+            })
+                .toDispatchActions(['saveDashboardChanges', 'saveDashboardChangesSuccess', 'refreshDashboardItems'])
+                .toFinishAllListeners()
+
+            payloadSpy.mockRestore()
+        })
+
+        it('keeps combined auto-preview filters after a page reload, then clears and saves them', async () => {
+            const sevenTileDashboard = {
+                ...dashboards[5],
+                tiles: Array.from({ length: 7 }, (_, index) => ({
+                    ...dashboards[5].tiles[0],
+                    id: index + 100,
+                    layouts: {},
+                })),
+            }
+            logic.unmount()
+            logic = dashboardLogic({ id: 5, dashboard: sevenTileDashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.canAutoPreview).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setProperties([
+                    {
+                        key: 'browser',
+                        type: PropertyFilterType.Event,
+                        operator: PropertyOperator.Exact,
+                        value: 'Chrome',
+                    },
+                ])
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setBreakdownFilter({ breakdown: '$browser', breakdown_type: 'event' })
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setInterval('week')
+            }).toFinishAllListeners()
+
+            const filters = {
+                date_from: '-7d',
+                properties: [
+                    {
+                        key: 'browser',
+                        type: PropertyFilterType.Event,
+                        operator: PropertyOperator.Exact,
+                        value: 'Chrome',
+                    },
+                ],
+                breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+                interval: 'week',
+            }
+
+            expect(logic.values.urlFilters).toEqual(expect.objectContaining(filters))
+
+            logic.unmount()
+            logic = dashboardLogic({ id: 5, dashboard: sevenTileDashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.effectiveEditBarFilters).toEqual(expect.objectContaining(filters))
+
+            await expectLogic(logic, () => {
+                logic.actions.discardDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(logic.values.urlFilters).toEqual({})
+            expect(logic.values.filtersDirty).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-1d', null)
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update').mockResolvedValueOnce({
+                ...sevenTileDashboard,
+                persisted_filters: { date_from: '-1d' },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboard?.persisted_filters).toEqual({ date_from: '-1d' })
+            expect(logic.values.urlFilters).toEqual({})
+        })
+
+        it('keeps unapplied filters separate from layout cancellation and layout saving', async () => {
+            const autoPreviewLimitSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(8)
+            const nineTileDashboard: DashboardType<QueryBasedInsightModel> = {
+                ...dashboards[5],
+                tiles: Array.from({ length: 9 }, (_, index) => ({
+                    ...dashboards[5].tiles[0],
+                    id: index + 200,
+                    layouts: {
+                        sm: { i: String(index + 200), x: index, y: 0, w: 1, h: 1 },
+                        xs: { i: String(index + 200), x: 0, y: index, w: 1, h: 1 },
+                    },
+                })),
+            }
+            logic.unmount()
+            logic = dashboardLogic({ id: 5, dashboard: nineTileDashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.canAutoPreview).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setProperties([
+                    {
+                        key: 'browser',
+                        type: PropertyFilterType.Event,
+                        operator: PropertyOperator.Exact,
+                        value: 'Chrome',
+                    },
+                ])
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setBreakdownFilter({ breakdown: '$browser', breakdown_type: 'event' })
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setInterval('week')
+                logic.actions.setFilterTestAccounts(true)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsDraft?.filters).toEqual(
+                expect.objectContaining({
+                    date_from: '-7d',
+                    properties: [expect.objectContaining({ key: 'browser', value: 'Chrome' })],
+                    breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+                    interval: 'week',
+                    filterTestAccounts: true,
+                })
+            )
+            expect(logic.values.urlFilters).toEqual(
+                expect.objectContaining({
+                    date_from: '-7d',
+                    properties: [expect.objectContaining({ key: 'browser', value: 'Chrome' })],
+                    breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+                    interval: 'week',
+                    filterTestAccounts: true,
+                })
+            )
+
+            logic.unmount()
+            logic = dashboardLogic({ id: 5, dashboard: nineTileDashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.currentDashboardSettings.filters).toEqual(
+                expect.objectContaining({
+                    date_from: '-7d',
+                    properties: [expect.objectContaining({ key: 'browser', value: 'Chrome' })],
+                    breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+                    interval: 'week',
+                    filterTestAccounts: true,
+                })
+            )
+            expect(logic.values.previewedDashboardSettings?.filters).toEqual(
+                expect.objectContaining({
+                    date_from: '-7d',
+                    properties: [expect.objectContaining({ key: 'browser', value: 'Chrome' })],
+                    breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+                    interval: 'week',
+                    filterTestAccounts: true,
+                })
+            )
+            expect(logic.values.loadingPreview).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.previewDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentDashboardSettings.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+            }).toFinishAllListeners()
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const changedLayouts = {
+                ...logic.values.layouts,
+                sm: logic.values.layouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(changedLayouts)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.cancelLayoutEdit()
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentDashboardSettings.filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(changedLayouts)
+            }).toFinishAllListeners()
+
+            ;(api.update as jest.Mock).mockClear()
+            ;(api.update as jest.Mock).mockResolvedValueOnce({
+                ...nineTileDashboard,
+                persisted_filters: logic.values.effectiveEditBarFilters,
+            })
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+            expect(logic.values.dashboard?.tiles[0].layouts).toEqual(
+                changedLayouts.sm?.[0] ? { sm: changedLayouts.sm[0] } : {}
+            )
+
+            ;(api.update as jest.Mock).mockResolvedValueOnce({
+                ...nineTileDashboard,
+                persisted_filters: { date_from: '-7d' },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.saveLayoutChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenLastCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.not.objectContaining({ filters: expect.anything() })
+            )
+            expect(logic.values.dashboard?.persisted_filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+            expect(logic.values.urlFilters).toEqual({})
+            expect(logic.values.dashboardSettingsDraft).toBeNull()
+
+            autoPreviewLimitSpy.mockRestore()
         })
 
         it('saving after breakdown color change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
             await expectLogic(logic, () => {
-                logic.actions.setBreakdownColorConfig({ breakdownValue: 'x', color: 'red' } as any)
+                logic.actions.updateLayouts(modifiedLayouts)
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'x',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                })
             }).toFinishAllListeners()
 
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveDashboardColorChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledTimes(1)
             expect(api.update).toHaveBeenCalledWith(
                 `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.objectContaining({
-                    breakdown_colors: expect.any(Array),
+                    breakdown_colors: expect.arrayContaining([
+                        expect.objectContaining({ breakdownValue: 'x', colorToken: 'preset-1' }),
+                    ]),
+                })
+            )
+            const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
+            expect(payload).not.toHaveProperty('tiles')
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+        })
+
+        it('discarding edit mode reverts unsaved color edits', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'x',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                })
+                logic.actions.setDataColorThemeId(123)
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.effectiveBreakdownColors.some((c: { breakdownValue: string }) => c.breakdownValue === 'x')
+            ).toBe(true)
+            expect(logic.values.dataColorThemeId).toBe(123)
+            expect(logic.values.hasUnsavedColorChanges).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.effectiveBreakdownColors.some((c: { breakdownValue: string }) => c.breakdownValue === 'x')
+            ).toBe(false)
+            expect(logic.values.dataColorThemeId).toBe(logic.values.dashboard?.data_color_theme_id ?? null)
+            expect(logic.values.hasUnsavedColorChanges).toBe(false)
+        })
+
+        it('exiting edit mode via the colors modal save source persists color changes', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: false },
+                    DashboardEventSource.DashboardInsightColorsModal
+                )
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'x',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                })
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardInsightColorsModal)
+            })
+                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess'])
+                .toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    breakdown_colors: expect.arrayContaining([
+                        expect.objectContaining({ breakdownValue: 'x', colorToken: 'preset-1' }),
+                    ]),
+                })
+            )
+        })
+
+        it('auto-assigns colors to multi-tile breakdown values only behind the dashboard colors flag', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const [firstInsight, secondInsight] = logic.values
+                .dashboard!.tiles.filter((t) => !!t.insight)
+                .map((t) => t.insight!)
+            const withBreakdowns = (insight: typeof firstInsight, breakdownValues: string[]): typeof firstInsight => ({
+                ...insight,
+                dashboards: [5],
+                dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
+                result: breakdownValues.map((breakdown_value) => ({
+                    action: { order: 0 },
+                    breakdown_value: [breakdown_value],
+                })),
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: { kind: NodeKind.TrendsQuery, series: [] },
+                } as InsightVizNode<TrendsQuery>,
+            })
+
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboardInsight(withBreakdowns(firstInsight, ['Chrome', 'Firefox']))
+                dashboardsModel.actions.updateDashboardInsight(withBreakdowns(secondInsight, ['Chrome']))
+            }).toFinishAllListeners()
+
+            expect(logic.values.effectiveBreakdownColors).toEqual([])
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
+            })
+
+            // Chrome appears on both tiles; Firefox is unique to one tile and keeps
+            // position-based colors, so it gets no dashboard-wide entry
+            expect(logic.values.effectiveBreakdownColors).toEqual([
+                expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' }),
+            ])
+        })
+
+        it('wraps auto-assigned colors at the active theme palette size', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
+            })
+
+            const tileInsights = logic.values.dashboard!.tiles.filter((t) => !!t.insight).map((t) => t.insight!)
+            await expectLogic(logic, () => {
+                for (const tileInsight of tileInsights) {
+                    dashboardsModel.actions.updateDashboardInsight({
+                        ...tileInsight,
+                        dashboards: [5],
+                        dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
+                        result: [
+                            { action: { order: 0 }, breakdown_value: ['Chrome'] },
+                            { action: { order: 0 }, breakdown_value: ['Firefox'] },
+                            { action: { order: 0 }, breakdown_value: ['Safari'] },
+                        ],
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: { kind: NodeKind.TrendsQuery, series: [] },
+                        } as InsightVizNode<TrendsQuery>,
+                    })
+                }
+                logic.actions.setDataColorThemeId(123)
+            }).toFinishAllListeners()
+
+            expect(logic.values.effectiveBreakdownColors).toEqual([
+                expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1' }),
+                expect.objectContaining({ breakdownValue: 'Firefox', colorToken: 'preset-2' }),
+                // wraps at the two-color theme's palette size, not at the default 15
+                expect.objectContaining({ breakdownValue: 'Safari', colorToken: 'preset-1' }),
+            ])
+        })
+
+        it('saving while tiles load persists unsaved pins but neither materializes nor prunes auto colors', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
+            })
+
+            const tileInsight = logic.values.dashboard!.tiles.find((t) => !!t.insight)!.insight!
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboardInsight({
+                    ...tileInsight,
+                    dashboards: [5],
+                    dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
+                    result: [{ action: { order: 0 }, breakdown_value: ['Chrome'] }],
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: { kind: NodeKind.TrendsQuery, series: [] },
+                    } as InsightVizNode<TrendsQuery>,
+                })
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'pinned',
+                    breakdownType: 'event',
+                    colorToken: 'preset-5',
+                })
+            }).toFinishAllListeners()
+
+            // hold a tile in a loading state, so the visible breakdown values are incomplete
+            logic.actions.setRefreshStatus(tileInsight.short_id, true)
+            expect(logic.values.itemsLoading).toBe(true)
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardColorChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    // only the pin — no auto entry materialized from the partially loaded tiles
+                    breakdown_colors: [expect.objectContaining({ breakdownValue: 'pinned', colorToken: 'preset-5' })],
+                })
+            )
+        })
+
+        it('keeps shared auto colors when a failed refresh leaves a tile without results', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
+            })
+
+            const [firstInsight, secondInsight] = logic.values
+                .dashboard!.tiles.filter((t) => !!t.insight)
+                .map((t) => t.insight!)
+            const withBreakdownQuery = (
+                insight: typeof firstInsight,
+                breakdownValues: string[] | null
+            ): typeof firstInsight => ({
+                ...insight,
+                dashboards: [5],
+                dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
+                result: breakdownValues
+                    ? breakdownValues.map((breakdown_value) => ({ action: { order: 0 }, breakdown_value }))
+                    : null,
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [],
+                        breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                    },
+                } as InsightVizNode<TrendsQuery>,
+            })
+
+            await expectLogic(logic, () => {
+                // one loaded tile showing the value, one in the state a failed refresh leaves
+                // behind: a breakdown query whose insight never got results, while itemsLoading
+                // settles back to false
+                dashboardsModel.actions.updateDashboardInsight(withBreakdownQuery(firstInsight, ['Chrome', 'Firefox']))
+                dashboardsModel.actions.updateDashboardInsight(withBreakdownQuery(secondInsight, null))
+                // the auto entry an earlier save materialized while both tiles shared 'Chrome'
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'Chrome',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                    source: 'auto',
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.itemsLoading).toBe(false)
+            // Chrome only looks single-tile because the failed tile's values are unknown
+            expect(logic.values.effectiveBreakdownColors).toContainEqual(
+                expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' })
+            )
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardColorChanges()
+            }).toFinishAllListeners()
+
+            // the entry survives the save instead of being pruned from the partial tile set
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    breakdown_colors: [
+                        expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' }),
+                    ],
                 })
             )
         })
@@ -420,7 +1453,7 @@ describe('dashboardLogic', () => {
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.saveDashboardColorChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledTimes(1)
@@ -430,6 +1463,43 @@ describe('dashboardLogic', () => {
                     data_color_theme_id: 123,
                 })
             )
+        })
+
+        it('confirms a real save with a success toast', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveLayoutChanges()
+            }).toFinishAllListeners()
+
+            expect(successToast).toHaveBeenCalledWith('Dashboard saved')
+        })
+
+        it('does not show a success toast when exiting edit mode with no changes', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveLayoutChanges()
+            }).toFinishAllListeners()
+
+            expect(successToast).not.toHaveBeenCalled()
         })
 
         it('discarding edit mode restores original layouts', async () => {
@@ -459,7 +1529,7 @@ describe('dashboardLogic', () => {
             expect(editedTileLayouts).not.toEqual(originalLayouts)
 
             await expectLogic(logic, () => {
-                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
             }).toFinishAllListeners()
 
             const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
@@ -471,11 +1541,14 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: false },
+                        DashboardEventSource.DashboardFilters
+                    )
                 })
                     .toFinishAllListeners()
                     .toMatchValues({
-                        dashboardMode: DashboardMode.Edit,
+                        dashboardEditing: { filters: true, layout: false },
                         layoutEditMode: false,
                     })
             })
@@ -484,11 +1557,14 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
                 })
                     .toFinishAllListeners()
                     .toMatchValues({
-                        dashboardMode: DashboardMode.Edit,
+                        dashboardEditing: { filters: true, layout: true },
                         layoutEditMode: true,
                     })
             })
@@ -497,15 +1573,18 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
                 }).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                    logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
                 })
                     .toFinishAllListeners()
                     .toMatchValues({
-                        dashboardMode: null,
+                        dashboardEditing: null,
                         layoutEditMode: false,
                     })
             })
@@ -521,7 +1600,10 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: false },
+                        DashboardEventSource.DashboardFilters
+                    )
                 }).toFinishAllListeners()
 
                 expect(reportLayoutEditEntered).not.toHaveBeenCalled()
@@ -542,7 +1624,10 @@ describe('dashboardLogic', () => {
                 reportModeToggled.mockClear()
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
                 }).toFinishAllListeners()
 
                 expect(reportLayoutEditEntered).toHaveBeenCalledWith(
@@ -550,13 +1635,7 @@ describe('dashboardLogic', () => {
                     DashboardEventSource.SceneCommonButtons,
                     1
                 )
-                expect(reportModeToggled).toHaveBeenCalledWith(
-                    expect.objectContaining({ id: 5 }),
-                    DashboardMode.Edit,
-                    DashboardEventSource.SceneCommonButtons,
-                    1,
-                    true
-                )
+                expect(reportModeToggled).not.toHaveBeenCalled()
                 expect(reportFiltersChanged).not.toHaveBeenCalled()
 
                 reportFiltersChanged.mockRestore()
@@ -564,78 +1643,14 @@ describe('dashboardLogic', () => {
                 reportModeToggled.mockRestore()
             })
 
-            it('restoreUrlStateAtEditModeEntry applies snapshot payload to url', async () => {
-                const editedFilters = JSON.stringify({ date_from: '-14d', date_to: null })
-                const originalFilters = JSON.stringify({ date_from: '-7d', date_to: null })
-
-                logic.unmount()
-                router.actions.push('/dashboard/5', {
-                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: editedFilters,
-                })
-                logic = dashboardLogic({ id: 5 })
-                logic.mount()
+            it('filter edits preserve layout editing', async () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.restoreUrlStateAtEditModeEntry({
-                        filters: originalFilters,
-                        variables: undefined,
-                    })
-                }).toFinishAllListeners()
-
-                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBe(originalFilters)
-            })
-
-            it('discarding filter edit passes url snapshot into restore action', async () => {
-                const originalFilters = JSON.stringify({ date_from: '-7d', date_to: null })
-
-                logic.unmount()
-                router.actions.push('/dashboard/5', {
-                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: originalFilters,
-                })
-                logic = dashboardLogic({ id: 5 })
-                logic.mount()
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
-                expect(logic.values.urlSearchParamsAtEditModeEntry).toBeNull()
-
-                const restoreSpy = jest.spyOn(logic.actions, 'restoreUrlStateAtEditModeEntry')
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
-                })
-                    .toFinishAllListeners()
-                    .toMatchValues({
-                        urlSearchParamsAtEditModeEntry: {
-                            filters: originalFilters,
-                            variables: undefined,
-                        },
-                    })
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDates('-14d', null)
-                }).toFinishAllListeners()
-
-                restoreSpy.mockClear()
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-                }).toFinishAllListeners()
-
-                expect(restoreSpy).toHaveBeenCalledWith({
-                    filters: originalFilters,
-                    variables: undefined,
-                })
-
-                restoreSpy.mockRestore()
-            })
-
-            it('filter edit source clears layout edit mode', async () => {
-                await expectLogic(logic).toFinishAllListeners()
-
-                await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
                 })
                     .toFinishAllListeners()
                     .toMatchValues({
@@ -643,12 +1658,109 @@ describe('dashboardLogic', () => {
                     })
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.DashboardFilters
+                    )
                 })
                     .toFinishAllListeners()
                     .toMatchValues({
-                        layoutEditMode: false,
+                        layoutEditMode: true,
                     })
+            })
+        })
+
+        describe('url filter overrides', () => {
+            const PROPERTY_OVERRIDE = [{ key: '$browser', value: 'Chrome', type: 'event' }]
+
+            // Dashboard 12 saves `date_from: '-24h'`; dashboard 5 saves no filters.
+            const openWithUrlFilters = async (urlFilters: Record<string, any>, dashboardId = 5): Promise<void> => {
+                logic.unmount()
+                router.actions.push(`/dashboard/${dashboardId}`, {
+                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify(urlFilters),
+                })
+                logic = dashboardLogic({ id: dashboardId })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+            }
+
+            it('drops the url param when the last filter is cleared', async () => {
+                await openWithUrlFilters({ properties: PROPERTY_OVERRIDE })
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).not.toBeUndefined()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setProperties([])
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
+            })
+
+            const historyRefreshCases: [string, Record<string, any>, boolean][] = [
+                [
+                    'refreshes the tiles when browser history changes the filters',
+                    { [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }) },
+                    true,
+                ],
+                ['leaves the tiles alone when browser history changes nothing', {}, false],
+            ]
+
+            it.each(historyRefreshCases)('%s', async (_name, searchParams, expectedRefresh) => {
+                await openWithUrlFilters({})
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => insight)
+
+                try {
+                    await expectLogic(logic, () => {
+                        router.actions.locationChanged({
+                            method: 'POP',
+                            pathname: '/dashboard/5',
+                            search: '',
+                            searchParams,
+                            hash: '',
+                            hashParams: {},
+                            url: '/dashboard/5',
+                        })
+                    }).toFinishAllListeners()
+
+                    if (expectedRefresh) {
+                        expect(getInsightWithRetrySpy).toHaveBeenCalled()
+                    } else {
+                        expect(getInsightWithRetrySpy).not.toHaveBeenCalled()
+                    }
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                }
+            })
+
+            it('restores filters when browser history changes the URL', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDates('-30d', null)
+                }).toFinishAllListeners()
+
+                const searchParams = {
+                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }),
+                }
+                await expectLogic(logic, () => {
+                    router.actions.locationChanged({
+                        method: 'POP',
+                        pathname: '/dashboard/5',
+                        search: '',
+                        searchParams,
+                        hash: '',
+                        hashParams: {},
+                        url: '/dashboard/5',
+                    })
+                }).toFinishAllListeners()
+
+                expect(logic.values.currentDashboardSettings.filters).toEqual(
+                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                )
+                expect(logic.values.filtersOverrideForLoad).toEqual(
+                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                )
             })
         })
 
@@ -696,14 +1808,84 @@ describe('dashboardLogic', () => {
                     .toMatchValues({ hasUnsavedLayoutChanges: true })
 
                 await expectLogic(logic, () => {
-                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                    logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
                 })
                     .toFinishAllListeners()
                     .toMatchValues({ hasUnsavedLayoutChanges: false })
             })
         })
 
-        describe('cancelEditMode action', () => {
+        describe('changeDashboardGridCompaction action', () => {
+            let dialogOpenSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            })
+
+            afterEach(() => {
+                dialogOpenSpy.mockRestore()
+            })
+
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const currentLayouts = logic.values.layouts
+                logic.actions.updateLayouts({
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                })
+            }
+
+            it('changes the movement mode without a prompt when the layout is saved', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                }).toDispatchActions([
+                    logic.actionCreators.setDashboardGridCompaction(DashboardGridCompaction.Horizontal),
+                    logic.actionCreators.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal),
+                ])
+
+                expect(dialogOpenSpy).not.toHaveBeenCalled()
+            })
+
+            it('prompts before changing the movement mode when the layout is unsaved', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                }).toNotHaveDispatchedActions([
+                    logic.actionCreators.setDashboardGridCompaction(DashboardGridCompaction.Horizontal),
+                    logic.actionCreators.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal),
+                ])
+
+                expect(dialogOpenSpy).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        title: 'Change tile movement?',
+                        description: 'Changing this setting discards your unsaved tile layout changes.',
+                    })
+                )
+
+                const dialogProps = dialogOpenSpy.mock.calls.at(-1)?.[0]
+                dialogProps?.primaryButton?.onClick?.({} as React.MouseEvent<HTMLButtonElement>)
+
+                await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasUnsavedLayoutChanges: false })
+            })
+        })
+
+        describe('cancelLayoutEdit action', () => {
+            // The discard prompt renders a real dialog into its own React root, whose async
+            // updates land outside act(); these tests only assert dispatched actions
+            let dialogOpenSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            })
+
+            afterEach(() => {
+                dialogOpenSpy.mockRestore()
+            })
+
             const moveFirstTile = (): void => {
                 const firstTile = logic.values.dashboard!.tiles[0]
                 const currentLayouts = logic.values.layouts
@@ -726,9 +1908,9 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.cancelEditMode()
+                    logic.actions.cancelLayoutEdit()
                 }).toDispatchActions([
-                    logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                    logic.actionCreators.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])
             })
 
@@ -739,9 +1921,9 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, moveFirstTile).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.cancelEditMode()
+                    logic.actions.cancelLayoutEdit()
                 }).toNotHaveDispatchedActions([
-                    logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                    logic.actionCreators.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])
             })
 
@@ -752,9 +1934,150 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, moveFirstTile).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
-                    logic.actions.cancelEditMode()
+                    logic.actions.cancelLayoutEdit()
                 }).toDispatchActions([
-                    logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                    logic.actionCreators.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                ])
+            })
+        })
+
+        describe('openAddInsightModal action', () => {
+            let confirmSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
+            })
+
+            afterEach(() => {
+                confirmSpy.mockRestore()
+            })
+
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const currentLayouts = logic.values.layouts
+                const modifiedLayouts: any = {
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout: any) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                }
+                logic.actions.updateLayouts(modifiedLayouts)
+            }
+
+            it('opens the modal without confirming when there are no unsaved layout changes', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.openAddInsightModal()
+                }).toFinishAllListeners()
+
+                expect(confirmSpy).not.toHaveBeenCalled()
+                expect(addInsightToDashboardLogic.values.addInsightToDashboardModalVisible).toBe(true)
+            })
+
+            it.each([
+                { accepted: true, expectedVisible: true, expectedUnsaved: false },
+                { accepted: false, expectedVisible: false, expectedUnsaved: true },
+            ])(
+                'gates the add-insight modal on the browser confirm (accepted=$accepted)',
+                async ({ accepted, expectedVisible, expectedUnsaved }) => {
+                    confirmSpy.mockReturnValue(accepted)
+                    await expectLogic(logic).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        logic.actions.setDashboardEditing(
+                            { filters: true, layout: true },
+                            DashboardEventSource.SceneCommonButtons
+                        )
+                    }).toFinishAllListeners()
+                    await expectLogic(logic, moveFirstTile)
+                        .toFinishAllListeners()
+                        .toMatchValues({ hasUnsavedLayoutChanges: true })
+
+                    await expectLogic(logic, () => {
+                        logic.actions.openAddInsightModal()
+                    }).toFinishAllListeners()
+
+                    expect(confirmSpy).toHaveBeenCalledTimes(1)
+                    expect(addInsightToDashboardLogic.values.addInsightToDashboardModalVisible).toBe(expectedVisible)
+                    expect(logic.values.hasUnsavedLayoutChanges).toBe(expectedUnsaved)
+                }
+            )
+        })
+
+        describe('colors modal cancel', () => {
+            beforeEach(() => {
+                dashboardInsightColorsModalLogic.mount()
+            })
+
+            it('discards color edits and exits edit mode when the modal was opened from view mode', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    dashboardInsightColorsModalLogic.actions.showInsightColorsModal(5)
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: false },
+                        DashboardEventSource.DashboardInsightColorsModal
+                    )
+                    logic.actions.setBreakdownColorConfig({
+                        breakdownValue: 'x',
+                        breakdownType: 'event',
+                        colorToken: 'preset-1',
+                    })
+                    logic.actions.setDataColorThemeId(123)
+                }).toFinishAllListeners()
+
+                expect(logic.values.hasUnsavedColorChanges).toBe(true)
+
+                await expectLogic(logic, () => {
+                    dashboardInsightColorsModalLogic.actions.cancelColorChanges()
+                }).toFinishAllListeners()
+
+                expect(dashboardInsightColorsModalLogic.values.isOpen).toBe(false)
+                expect(logic.values.dashboardMode).toBeNull()
+                expect(logic.values.hasUnsavedColorChanges).toBe(false)
+                expect(logic.values.dataColorThemeId).toBe(logic.values.dashboard?.data_color_theme_id ?? null)
+            })
+
+            it('reverts only the modal color edits and stays in edit mode when edit mode predates the modal', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: false },
+                        DashboardEventSource.DashboardFilters
+                    )
+                    logic.actions.setDates('-7d', null)
+                    logic.actions.setBreakdownColorConfig({
+                        breakdownValue: 'x',
+                        breakdownType: 'event',
+                        colorToken: 'preset-1',
+                    })
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    dashboardInsightColorsModalLogic.actions.showInsightColorsModal(5)
+                    logic.actions.setBreakdownColorConfig({
+                        breakdownValue: 'y',
+                        breakdownType: 'event',
+                        colorToken: 'preset-2',
+                    })
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    dashboardInsightColorsModalLogic.actions.cancelColorChanges()
+                }).toFinishAllListeners()
+
+                expect(dashboardInsightColorsModalLogic.values.isOpen).toBe(false)
+                expect(logic.values.dashboardEditing).toEqual({ filters: true, layout: false })
+                expect(logic.values.effectiveEditBarFilters.date_from).toBe('-7d')
+                expect(logic.values.temporaryBreakdownColors).toEqual([
+                    expect.objectContaining({ breakdownValue: 'x', colorToken: 'preset-1' }),
                 ])
             })
         })
@@ -869,6 +2192,223 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
                 dashboardFailedToLoad: true,
             })
+        })
+
+        it.each([
+            { id: 14, accessDenied: false },
+            { id: 15, accessDenied: true },
+            { id: 16, accessDenied: false },
+        ])('classifies dashboard HTTP failures for dashboard $id', async ({ id, accessDenied }) => {
+            logic = dashboardLogic({ id })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accessDeniedToDashboard).toBe(accessDenied)
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+            expect(logic.values.error404).toBe(false)
+        })
+
+        it('treats an invalid successful response as a load failure', async () => {
+            jest.spyOn(api, 'getResponse').mockResolvedValueOnce(
+                new Response('<html>Bad gateway</html>', { status: 200 })
+            )
+            logic = dashboardLogic({ id: 17 })
+            logic.mount()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+            expect(logic.values.error404).toBe(false)
+        })
+
+        describe('when the dashboard GET returns 404', () => {
+            beforeEach(() => {
+                logic = dashboardLogic({ id: 13 })
+                logic.mount()
+            })
+
+            // The NotFound scene is gated on error404, so the loader must set it once the fetch
+            // settles as a 404 — and must NOT set it before the request has been made.
+            it('sets error404 after a settled 404 and not before', async () => {
+                expect(logic.values.error404).toBe(false)
+
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.dashboard).toBeNull()
+                expect(logic.values.dashboardFailedToLoad).toBe(false)
+                expect(logic.values.error404).toBe(true)
+            })
+        })
+    })
+
+    describe('tile streaming failure classification', () => {
+        let lemonToastErrorSpy: jest.SpiedFunction<typeof lemonToast.error>
+
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        beforeEach(() => {
+            lemonToastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            lemonToastErrorSpy.mockRestore()
+        })
+
+        // A genuine 404 from the stream's initial response is the only signal that flips the scene to
+        // "Dashboard not found". A stream error whose message merely mentions 404 (e.g. a tile query that
+        // failed upstream) carries no status and must stay a toast — string-matching '404' used to turn
+        // these blips into a hard NotFound on valid, loaded dashboards.
+        it('only marks NotFound on a real 404 status, not a message that mentions 404', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(false)
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(lemonToastErrorSpy).toHaveBeenCalled()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(true)
+        })
+
+        it('makes a definitive 404 authoritative over an earlier stream failure and stale dashboard', async () => {
+            logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+
+            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            expect(logic.values.dashboard).not.toBeNull()
+
+            logic.actions.setDashboardStreamFailed()
+            logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+
+            expect(logic.values.error404).toBe(true)
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(logic.values.accessDeniedToDashboard).toBe(false)
+            expect(logic.values.dashboard).toBeNull()
+        })
+
+        it('fails a completed stream without metadata and disposes it on unmount', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.dashboardNotFound()
+
+            const disposeStream = jest.fn()
+            jest.spyOn(api.dashboards, 'streamTiles').mockImplementation(
+                async (_id, _params, _onMessage, onComplete) => {
+                    onComplete()
+                    return disposeStream
+                }
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+            expect(logic.values.error404).toBe(false)
+
+            logic.unmount()
+            expect(disposeStream).toHaveBeenCalledTimes(1)
+        })
+
+        it('clears NotFound when a streaming retry starts or delivers metadata', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            }).toFinishAllListeners()
+            expect(logic.values.error404).toBe(false)
+
+            logic.actions.tileStreamingFailure({ message: 'gone', status: 404 })
+            expect(logic.values.error404).toBe(true)
+
+            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            expect(logic.values.error404).toBe(false)
+        })
+
+        it('clears access denied when a streaming retry starts or delivers metadata', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.tileStreamingFailure({
+                message: 'forbidden',
+                status: 403,
+                code: 'permission_denied',
+            })
+            expect(logic.values.accessDeniedToDashboard).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            }).toFinishAllListeners()
+            expect(logic.values.accessDeniedToDashboard).toBe(false)
+
+            logic.actions.tileStreamingFailure({
+                message: 'forbidden',
+                status: 403,
+                code: 'permission_denied',
+            })
+            expect(logic.values.accessDeniedToDashboard).toBe(true)
+
+            logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            expect(logic.values.accessDeniedToDashboard).toBe(false)
+        })
+
+        it('routes a 403 status to access denied and other errors to a toast', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({
+                    message: 'forbidden',
+                    status: 403,
+                    code: 'permission_denied',
+                })
+            }).toFinishAllListeners()
+            expect(logic.values.accessDeniedToDashboard).toBe(true)
+            expect(logic.values.error404).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'HTTP 500: something broke', status: 500 })
+            }).toFinishAllListeners()
+            expect(lemonToastErrorSpy).toHaveBeenCalledWith(expect.stringContaining('something broke'))
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+        })
+
+        it('marks the load failed (not NotFound) when a transient error leaves no dashboard', async () => {
+            expect(logic.values.dashboard).toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+            }).toDispatchActions(['setDashboardStreamFailed'])
+
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+            expect(logic.values.error404).toBe(false)
+        })
+
+        // fetchEventSource auto-retries transient failures, so the stream can recover on its own:
+        // metadata arriving after a failure must clear the load-error state, not leave it latched
+        // over a fully loaded dashboard.
+        it('clears the failed state when a stream retry delivers metadata', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+            }).toDispatchActions(['setDashboardStreamFailed'])
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(logic.values.dashboard).not.toBeNull()
         })
     })
 
@@ -997,6 +2537,31 @@ describe('dashboardLogic', () => {
                 expect(logic.values.oldestRefreshed?.toISOString()).toEqual(dayjs(staleIso).toISOString())
                 expect(logic.values.effectiveLastRefresh?.toISOString()).toEqual(dayjs(staleIso).toISOString())
             })
+
+            it('persisting the last refresh keeps refreshed results instead of an earlier snapshot', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const snapshot = logic.values.dashboard!
+                dashboardsModel.actions.updateDashboardSuccess(snapshot)
+
+                const insight = snapshot.tiles.find((tile) => !!tile.insight)!.insight!
+                const freshResult = [{ count: 42 }]
+
+                await expectLogic(logic, () => {
+                    dashboardsModel.actions.updateDashboardInsight(
+                        { ...insight, result: freshResult, query: insight.query ?? null },
+                        undefined,
+                        5
+                    )
+                }).toFinishAllListeners()
+
+                await expectLogic(dashboardsModel, () => {
+                    logic.actions.updateDashboardLastRefresh(now())
+                }).toDispatchActions(['updateDashboard', 'updateDashboardSuccess'])
+
+                const refreshedTile = logic.values.tiles.find((tile) => tile.insight?.short_id === insight.short_id)
+                expect(refreshedTile?.insight?.result).toEqual(freshResult)
+            })
         })
 
         describe('insight refresh', () => {
@@ -1028,6 +2593,9 @@ describe('dashboardLogic', () => {
                                 timer: null,
                             },
                         },
+                        // Y is captured up front when the batch is enrolled, so it stays fixed
+                        // for the whole cycle rather than tracking the still-populating map.
+                        refreshTilesTotal: 2,
                         refreshMetrics: {
                             completed: 0,
                             total: 2,
@@ -1063,6 +2631,123 @@ describe('dashboardLogic', () => {
                     })
             })
 
+            it('keeps tile data and marks the tile errored when a refresh terminates in a rejection stub', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+                const resultsBeforeRefresh = logic.values.insightTiles.map((t) => t.insight!.result)
+                expect(resultsBeforeRefresh.every((r) => r != null)).toBe(true)
+
+                // What getInsightWithRetry resolves to when the app-level concurrency limiter (or a
+                // server-side calculation error) rejects every attempt: an insight-shaped payload with
+                // no result and an errored query_status
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => ({
+                        ...insight,
+                        result: null,
+                        query_status: {
+                            id: 'rejected-query',
+                            team_id: 2,
+                            query_async: true,
+                            complete: false,
+                            error: true,
+                            error_code: null,
+                            error_message: 'concurrency_limit_exceeded',
+                        },
+                    }))
+
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.triggerDashboardRefresh()
+                    }).toFinishAllListeners()
+
+                    // The stub must not be committed as a successful refresh: tiles keep their data
+                    expect(logic.values.insightTiles.map((t) => t.insight!.result)).toEqual(resultsBeforeRefresh)
+                    // and surface an error state instead of rendering the null result as an empty insight
+                    expect(logic.values.refreshStatus[insight1.short_id]).toEqual(
+                        expect.objectContaining({ errored: true })
+                    )
+                    expect(logic.values.refreshStatus[insight2.short_id]).toEqual(
+                        expect.objectContaining({ errored: true })
+                    )
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                }
+            })
+
+            it('pins the "X out of Y" denominator when a tile aborts mid-cycle and keeps siblings tracked', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+
+                // Hold both insight fetches in flight so we can observe a mid-cycle abort while the batch is live.
+                const gates: Record<string, { barrier: Promise<void>; release: () => void }> = {}
+                for (const shortId of [insight1.short_id, insight2.short_id]) {
+                    let release!: () => void
+                    const barrier = new Promise<void>((resolve): void => {
+                        release = resolve
+                    })
+                    gates[shortId] = { barrier, release }
+                }
+
+                const realGetInsightWithRetry =
+                    jest.requireActual<typeof dashboardUtils>('./dashboardUtils').getInsightWithRetry
+
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(
+                        async (
+                            ...args: Parameters<typeof realGetInsightWithRetry>
+                        ): ReturnType<typeof realGetInsightWithRetry> => {
+                            await gates[args[1].short_id].barrier
+                            return realGetInsightWithRetry(...args)
+                        }
+                    )
+                const cancelQuerySpy = jest.spyOn(api.insights, 'cancelQuery').mockResolvedValue(undefined as any)
+
+                const poll = async (cond: () => boolean, message: string): Promise<void> => {
+                    const deadline = Date.now() + 5000
+                    while (!cond()) {
+                        if (Date.now() > deadline) {
+                            throw new Error(message)
+                        }
+                        await new Promise((r) => setTimeout(r, 0))
+                    }
+                }
+
+                try {
+                    // forceRefresh: true so both tiles enter the refresh loop
+                    const refreshDone = expectLogic(logic, () => {
+                        logic.actions.triggerDashboardRefresh()
+                    }).toFinishAllListeners()
+
+                    // Both tiles enrolled up front and in flight: Y is the fixed batch size, X is 0.
+                    await poll(
+                        () => getInsightWithRetrySpy.mock.calls.length >= 2,
+                        'Timed out waiting for insight fetches to start'
+                    )
+                    expect(logic.values.refreshMetrics).toEqual({ completed: 0, total: 2 })
+
+                    // One tile's query aborts mid-cycle (e.g. a 504). Y must stay pinned at 2 — the pre-fix
+                    // selector derived Y from the live map, so it collapsed as the map shrank — and only the
+                    // aborted tile leaves the status map, so the sibling still in flight keeps being counted
+                    // (a whole-map wipe would drop it and overstate X as "done").
+                    logic.actions.abortQuery({ queryId: 'q1', queryStartTime: 0, shortId: insight1.short_id })
+                    expect(logic.values.refreshStatus).not.toHaveProperty(insight1.short_id)
+                    expect(logic.values.refreshStatus[insight2.short_id]?.loading).toBe(true)
+                    expect(logic.values.refreshMetrics).toEqual({ completed: 1, total: 2 })
+
+                    gates[insight1.short_id].release()
+                    gates[insight2.short_id].release()
+                    await refreshDone
+                } finally {
+                    Object.values(gates).forEach(({ release }) => release())
+                    getInsightWithRetrySpy.mockRestore()
+                    cancelQuerySpy.mockRestore()
+                }
+            })
+
             it('save during in-flight dashboard refresh does not abort insight fetches', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
@@ -1090,7 +2775,7 @@ describe('dashboardLogic', () => {
                 try {
                     ;(api.update as jest.Mock).mockClear()
 
-                    // forceRefresh: true so every insight tile hits getInsightWithRetry (applyFilters/preview can skip fresh tiles)
+                    // forceRefresh: true so every insight tile hits getInsightWithRetry because preview can skip fresh tiles
                     const refreshDone = expectLogic(logic, () => {
                         logic.actions.triggerDashboardRefresh()
                     }).toFinishAllListeners()
@@ -1113,7 +2798,7 @@ describe('dashboardLogic', () => {
                     }
 
                     logic.actions.updateLayouts(modifiedLayouts)
-                    logic.actions.saveEditModeChanges()
+                    logic.actions.saveLayoutChanges()
 
                     // Do not use toFinishAllListeners here: it would wait for refreshDashboardItems too,
                     // while refresh is intentionally blocked on `barrier`.
@@ -1160,6 +2845,40 @@ describe('dashboardLogic', () => {
                 expect(logic.values.lastDashboardRefresh).toBeNull()
                 expect(logic.values.blockRefresh).toBe(false)
                 expect(api.update).not.toHaveBeenCalled()
+
+                getInsightWithRetrySpy.mockRestore()
+            })
+
+            it('shows query status errors returned in serialized insights', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+                const getInsightWithRetrySpy = jest.spyOn(dashboardUtils, 'getInsightWithRetry').mockResolvedValue({
+                    ...insight1,
+                    query_status: {
+                        id: 'failed-query-id',
+                        query_async: true,
+                        team_id: MOCK_TEAM_ID,
+                        error: true,
+                        complete: true,
+                        error_message: 'This query ran out of memory before it could finish',
+                        error_code: 'query_memory_limit',
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerDashboardRefresh()
+                }).toFinishAllListeners()
+
+                for (const insight of [insight1, insight2]) {
+                    expect(logic.values.refreshStatus[insight.short_id]).toMatchObject({
+                        errored: true,
+                        error: expect.objectContaining({
+                            detail: 'This query ran out of memory before it could finish',
+                            code: 'query_memory_limit',
+                        }),
+                    })
+                }
 
                 getInsightWithRetrySpy.mockRestore()
             })
@@ -1324,6 +3043,15 @@ describe('dashboardLogic', () => {
                     : undefined,
             }
 
+            // The logic re-fetches the dashboard on mount; without this the unhandled-request
+            // floor returns a shape without tiles
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/12/': () => [200, dashboardWithVariableOverride],
+                },
+            })
+
             variableDataLogic.mount()
             logic = dashboardLogic({ id: 12, dashboard: dashboardWithVariableOverride })
             logic.mount()
@@ -1348,6 +3076,20 @@ describe('dashboardLogic', () => {
                     }),
                 ],
             })
+        }
+
+        const popToSearchParams = async (searchParams: Record<string, string>): Promise<void> => {
+            await expectLogic(logic, () => {
+                router.actions.locationChanged({
+                    method: 'POP',
+                    pathname: '/dashboard/12',
+                    search: '',
+                    searchParams,
+                    hash: '',
+                    hashParams: {},
+                    url: '/dashboard/12',
+                })
+            }).toFinishAllListeners()
         }
 
         it.each([
@@ -1383,17 +3125,276 @@ describe('dashboardLogic', () => {
             }
         )
 
-        it('dashboard save after variable-only edits runs tile refresh to repopulate insight results missing from PATCH', async () => {
+        it('shows and saves a URL variable override as unsaved settings', async () => {
+            await mountDashboardWithVariable({ urlValue: 'url-val' })
+            const update = jest.spyOn(api, 'update').mockResolvedValue({
+                ...logic.values.dashboard!,
+                persisted_variables: {
+                    [variableId]: { ...baseVariable, value: 'url-val', isNull: false },
+                },
+            })
+
+            expect(logic.values.urlVariables).toEqual({
+                [variableId]: expect.objectContaining({ code_name: 'organization', value: 'url-val' }),
+            })
+            expect(logic.values.filtersDirty).toBe(false)
+            expect(logic.values.filterChanges).toEqual([])
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(update).toHaveBeenCalledWith(expect.any(String), {
+                filters: {},
+                variables: {
+                    [variableId]: expect.objectContaining({ value: 'url-val' }),
+                },
+            })
+            expect(router.values.searchParams).toEqual({})
+            expect(logic.values.dashboardSettingsState).toBe('saved')
+        })
+
+        it('shows filter edits as unsaved when a URL variable override exists', async () => {
+            await mountDashboardWithVariable({ urlValue: 'url-val' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: false },
+                    DashboardEventSource.DashboardFilters
+                )
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.filtersDirty).toBe(true)
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+        })
+
+        it('treats selecting the SQL variable default as saved', async () => {
+            await mountDashboardWithVariable({})
+
+            await expectLogic(logic, () => {
+                logic.actions.overrideVariableValue(variableId, 'Default org', false)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsState).toBe('saved')
+            expect(logic.values.dashboardSettingsChanges).toEqual([])
+            expect(router.values.searchParams).toEqual({})
+        })
+
+        const historyCases: [string, Record<string, string>, string][] = [
+            [
+                'restores the override the URL carries',
+                { [dashboardUtils.SEARCH_PARAM_QUERY_VARIABLES_KEY]: JSON.stringify({ organization: 'url-val' }) },
+                'url-val',
+            ],
+            ['restores the saved value when the URL drops the override', {}, 'persisted'],
+        ]
+
+        it.each(historyCases)('browser history moves SQL variables: %s', async (_name, searchParams, expectedValue) => {
             await mountDashboardWithVariable({
-                urlValue: 'url-override',
+                urlValue: 'url-val',
                 dashboardOverride: { value: 'persisted', isNull: false },
             })
 
             await expectLogic(logic, () => {
-                logic.actions.saveEditModeChanges()
+                logic.actions.overrideVariableValue(variableId, 'edited', false)
+            }).toFinishAllListeners()
+
+            await popToSearchParams(searchParams)
+
+            expect(logic.values.currentDashboardSettings.variables[variableId]).toEqual(
+                expect.objectContaining({ value: expectedValue })
+            )
+        })
+
+        it('keeps the chosen default in the URL when the dashboard saved another value', async () => {
+            await mountDashboardWithVariable({ dashboardOverride: { value: 'persisted', isNull: false } })
+
+            await expectLogic(logic, () => {
+                logic.actions.overrideVariableValue(variableId, 'Default org', false)
+            }).toFinishAllListeners()
+
+            expect(dashboardUtils.parseURLVariables(router.values.searchParams)).toEqual({
+                organization: 'Default org',
             })
-                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
-                .toFinishAllListeners()
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+        })
+
+        it('discards filter and SQL variable changes and restores the saved settings', async () => {
+            await mountDashboardWithVariable({ urlValue: 'url-val' })
+            router.actions.push('/', {
+                [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d' }),
+                [dashboardUtils.SEARCH_PARAM_QUERY_VARIABLES_KEY]: JSON.stringify({ organization: 'url-val' }),
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-30d', null)
+                logic.actions.overrideVariableValue(variableId, 'edited', false)
+                logic.actions.discardDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams).toEqual({})
+            expect(logic.values.currentDashboardSettings).toEqual({ filters: {}, variables: {} })
+        })
+
+        it('saves filter and SQL variable edits in one dashboard update', async () => {
+            await mountDashboardWithVariable({
+                urlValue: 'url-override',
+                dashboardOverride: { value: 'persisted', isNull: false },
+            })
+            const updatedDashboard = {
+                ...logic.values.dashboard!,
+                persisted_filters: { date_from: '-7d', date_to: null },
+                persisted_variables: {
+                    [variableId]: { ...baseVariable, value: 'edited', isNull: false },
+                },
+            }
+            const update = jest.spyOn(api, 'update').mockResolvedValue(updatedDashboard)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+                logic.actions.overrideVariableValue(variableId, 'edited', false)
+                logic.actions.saveDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(update).toHaveBeenCalledWith(expect.any(String), {
+                filters: { date_from: '-7d', date_to: null },
+                variables: {
+                    [variableId]: expect.objectContaining({ value: 'edited' }),
+                },
+            })
+            expect(router.values.searchParams).toEqual({})
+            expect(logic.values.dashboardSettingsState).toBe('saved')
+        })
+
+        it('keeps edits made while dashboard changes save', async () => {
+            await mountDashboardWithVariable({})
+            let finishSave: (dashboard: DashboardType<QueryBasedInsightModel>) => void = () => {
+                throw new Error('Save resolver is unavailable')
+            }
+            const save = new Promise<DashboardType<QueryBasedInsightModel>>((resolve) => {
+                finishSave = resolve
+            })
+            jest.spyOn(api, 'update').mockReturnValueOnce(save)
+
+            logic.actions.overrideVariableValue(variableId, 'submitted', false)
+            logic.actions.saveDashboardChanges()
+            await expectLogic(logic).toMatchValues({ dashboardFiltersSaving: true })
+
+            logic.actions.overrideVariableValue(variableId, 'newer edit', false)
+            finishSave({
+                ...logic.values.dashboard!,
+                persisted_variables: {
+                    [variableId]: { ...baseVariable, value: 'submitted', isNull: false },
+                },
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+            expect(logic.values.currentDashboardSettings.variables[variableId]).toEqual(
+                expect.objectContaining({ value: 'newer edit' })
+            )
+        })
+
+        it('waits for Preview before refreshing SQL variable changes on a large dashboard', async () => {
+            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+            await mountDashboardWithVariable({})
+            const getInsightWithRetrySpy = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight) => insight)
+
+            await expectLogic(logic, () => {
+                logic.actions.overrideVariableValue(variableId, 'edited', false)
+            }).toFinishAllListeners()
+
+            expect(logic.values.canAutoPreview).toBe(false)
+            expect(getInsightWithRetrySpy).not.toHaveBeenCalled()
+            expect(dashboardUtils.parseURLVariables(router.values.searchParams)).toEqual({ organization: 'edited' })
+
+            await expectLogic(logic, () => {
+                logic.actions.previewDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
+            getInsightWithRetrySpy.mockRestore()
+            payloadSpy.mockRestore()
+        })
+
+        it('uses visible SQL variable values when refreshing one tile before Preview', async () => {
+            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+            await mountDashboardWithVariable({})
+            const getInsightWithRetrySpy = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight) => insight)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.overrideVariableValue(variableId, 'draft value', false)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[0] })
+                }).toFinishAllListeners()
+
+                expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
+                expect(getInsightWithRetrySpy.mock.calls[0][7]).toEqual({})
+            } finally {
+                getInsightWithRetrySpy.mockRestore()
+                payloadSpy.mockRestore()
+            }
+        })
+
+        it('makes Preview available when a SQL variable changes during an older preview', async () => {
+            const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+            await mountDashboardWithVariable({})
+            let finishPreview: (insight: QueryBasedInsightModel) => void = () => {
+                throw new Error('Preview resolver is unavailable')
+            }
+            const preview = new Promise<QueryBasedInsightModel>((resolve) => {
+                finishPreview = resolve
+            })
+            const getInsightWithRetrySpy = jest.spyOn(dashboardUtils, 'getInsightWithRetry').mockReturnValue(preview)
+
+            logic.actions.previewDashboardChanges()
+            await expectLogic(logic).toMatchValues({ loadingPreview: true })
+
+            logic.actions.overrideVariableValue(variableId, 'newer value', false)
+            await expectLogic(logic).toMatchValues({ loadingPreview: false })
+
+            finishPreview(logic.values.tiles[0].insight!)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.previewedDashboardSettings?.variables).toEqual({})
+            expect(logic.values.currentDashboardSettings.variables[variableId]).toEqual(
+                expect.objectContaining({ value: 'newer value' })
+            )
+            getInsightWithRetrySpy.mockRestore()
+            payloadSpy.mockRestore()
+        })
+
+        it('applying a variable value refreshes every tile with the new value attached to the request', async () => {
+            await mountDashboardWithVariable({})
+
+            const getInsightWithRetrySpy = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight) => insight)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.overrideVariableValue(variableId, 'applied-value', false)
+                })
+                    .toDispatchActions(['overrideVariableValue', 'refreshDashboardItems'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.effectiveVariablesAndAssociatedInsights[0].variable.value).toBe('applied-value')
+                expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
+                const variablesOverride = getInsightWithRetrySpy.mock.calls[0][7]
+                expect(variablesOverride).toEqual({
+                    [variableId]: expect.objectContaining({ code_name: 'organization', value: 'applied-value' }),
+                })
+            } finally {
+                getInsightWithRetrySpy.mockRestore()
+            }
         })
     })
 
@@ -1490,6 +3491,76 @@ describe('dashboardLogic', () => {
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
         })
 
+        it('preserves cached chart data when a bare PATCH returns null result', async () => {
+            // insight800() has non-null result and last_refresh from the fixture; a bare PATCH
+            // (rename, display-option save) responds with result: null. The tile must keep its
+            // previously-computed chart data rather than blanking to "Chart data didn't load".
+            const originalInsight = logic.values.insightTiles[0].insight!
+            const originalResult = originalInsight.result
+            const originalLastRefresh = originalInsight.last_refresh
+
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'renamed via bare patch',
+                result: null,
+                last_refresh: null,
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+            const updated = logic.values.insightTiles[0].insight!
+            expect(updated.name).toEqual('renamed via bare patch')
+            expect(updated.result).toEqual(originalResult)
+            expect(updated.last_refresh).toEqual(originalLastRefresh)
+        })
+
+        it('preserves cached columns and types when a bare PATCH returns them null', async () => {
+            // SQL tiles draw from columns and types rather than result, and pick their axes from
+            // columns. Blanking those leaves the tile with nothing to draw.
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                columns: ['day', 'total'],
+                types: [
+                    ['day', 'DateTime'],
+                    ['total', 'UInt64'],
+                ],
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'renamed via bare patch',
+                columns: null,
+                types: null,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            const updated = logic.values.insightTiles[0].insight!
+            expect(updated.name).toEqual('renamed via bare patch')
+            expect(updated.columns).toEqual(['day', 'total'])
+            expect(updated.types).toEqual([
+                ['day', 'DateTime'],
+                ['total', 'UInt64'],
+            ])
+        })
+
+        it('replaces cached chart data when a full refresh returns non-null result', async () => {
+            const newResult = [{ data: 'fresh' }]
+            const newLastRefresh = '2024-01-01T00:00:00Z'
+
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'refreshed',
+                result: newResult,
+                last_refresh: newLastRefresh,
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+            const updated = logic.values.insightTiles[0].insight!
+            expect(updated.name).toEqual('refreshed')
+            expect(updated.result).toEqual(newResult)
+            expect(updated.last_refresh).toEqual(newLastRefresh)
+        })
+
         it('can respond to external insight update for an insight tile that is new on this dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight({
@@ -1498,6 +3569,30 @@ describe('dashboardLogic', () => {
             })
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboard'])
+        })
+
+        it('reloads when an external rename lands before the tile is in state', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.renameInsightSuccess({
+                    ...insight800(),
+                    short_id: 'not_already_on_the_dashboard' as InsightShortId,
+                    dashboard_tiles: [{ id: 1, dashboard_id: 9 }],
+                })
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['loadDashboard'])
+        })
+
+        it('does not reload when an external rename targets a different dashboard only', async () => {
+            const loadDashboardSpy = jest.spyOn(logic.actions, 'loadDashboard')
+            await expectLogic(logic, () => {
+                insightsModel.actions.renameInsightSuccess({
+                    ...insight800(),
+                    short_id: 'not_already_on_the_dashboard' as InsightShortId,
+                    dashboard_tiles: [{ id: 1, dashboard_id: 10 }],
+                })
+            }).toFinishAllListeners()
+            expect(loadDashboardSpy).not.toHaveBeenCalled()
         })
     })
 
@@ -1548,13 +3643,16 @@ describe('dashboardLogic', () => {
             expect(container.textContent).toBe('Text card has been removed from the dashboard')
         })
 
-        it('removes the tile from state optimistically before the API call resolves', () => {
+        it('removes the tile from state optimistically before the API call resolves', async () => {
             expect(logic.values.textTiles).toHaveLength(1)
 
             // Dispatch without awaiting listeners — the reducer drops the tile synchronously.
             logic.actions.removeTile(TEXT_TILE)
 
             expect(logic.values.textTiles).toEqual([])
+
+            // Let the in-flight listener settle before teardown unmounts the logic
+            await expectLogic(logic).toFinishAllListeners()
         })
 
         it('restores the tile and suppresses the undo toast when the API call fails', async () => {
@@ -1572,6 +3670,73 @@ describe('dashboardLogic', () => {
 
             updateSpy.mockRestore()
             lemonToastErrorSpy.mockRestore()
+        })
+    })
+
+    describe('insight tiles', () => {
+        let lemonToastInfoSpy: jest.SpiedFunction<typeof lemonToast.info>
+        let lemonToastDismissSpy: jest.SpiedFunction<typeof lemonToast.dismiss>
+        let lemonDialogOpenSpy: jest.SpiedFunction<typeof LemonDialog.open>
+
+        beforeEach(async () => {
+            lemonToastInfoSpy = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
+            lemonToastDismissSpy = jest.spyOn(lemonToast, 'dismiss').mockImplementation(() => undefined)
+            lemonDialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => undefined)
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            lemonToastInfoSpy.mockRestore()
+            lemonToastDismissSpy.mockRestore()
+            lemonDialogOpenSpy.mockRestore()
+        })
+
+        it('offers to delete a removed insight and explains its other dashboard usage', async () => {
+            const { fireEvent, render } = await import('@testing-library/react')
+            const reportDeleteClicked = jest.spyOn(
+                eventUsageLogic.actions,
+                'reportDashboardInsightDeleteAfterRemovalClicked'
+            )
+            const insightTile = logic.values.insightTiles[0]
+            const insight = insightTile.insight!
+
+            await expectLogic(logic, () => {
+                logic.actions.removeTile({
+                    ...insightTile,
+                    insight: {
+                        ...insight,
+                        dashboard_tiles: [
+                            ...(insight.dashboard_tiles || []),
+                            { id: 999, dashboard_id: 8, deleted: true },
+                        ],
+                    },
+                })
+            }).toFinishAllListeners()
+
+            const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
+            const { getByText } = render(toastContent)
+            fireEvent.click(getByText('Delete insight everywhere'))
+            expect(reportDeleteClicked).toHaveBeenCalledWith(1)
+            expect(lemonToastDismissSpy).not.toHaveBeenCalled()
+
+            const dialogProps = lemonDialogOpenSpy.mock.calls.at(-1)?.[0]
+            expect(dialogProps).toEqual(
+                expect.objectContaining({ title: 'Delete insight everywhere?', shouldAwaitSubmit: true })
+            )
+            if (!dialogProps) {
+                throw new Error('Delete dialog did not open')
+            }
+
+            const { container, getByText: getDialogText } = render(dialogProps.description)
+            expect(getDialogText('This insight is also used on:')).not.toBeNull()
+            expect(container.querySelector('a')?.getAttribute('href')).toMatch(/\/dashboard\/6$/)
+            expect(
+                getDialogText('This deletes the insight and removes it from every dashboard. You can undo this action.')
+            ).not.toBeNull()
+
+            reportDeleteClicked.mockRestore()
         })
     })
 
@@ -1643,15 +3808,20 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setLayoutZoom(0.75)
             }).toMatchValues({ layoutZoom: 0.75 })
-        })
-
-        it('resets layoutZoom to 1 when leaving edit mode', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setLayoutZoom(0.5)
-            }).toMatchValues({ layoutZoom: 0.5 })
 
             await expectLogic(logic, () => {
-                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: false },
+                    DashboardEventSource.DashboardFilters
+                )
+            }).toMatchValues({ layoutZoom: 0.75 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+                logic.actions.cancelLayoutEdit()
             }).toMatchValues({ layoutZoom: 1 })
         })
 
@@ -1913,6 +4083,27 @@ describe('dashboardLogic', () => {
                 results: [{ id: 'issue-1' }],
                 hasMore: false,
             })
+        })
+
+        it('surfaces a failed tile duplicate instead of resolving it as a success', async () => {
+            silenceKeaLoadersErrors()
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            jest.spyOn(api, 'update').mockRejectedValueOnce(
+                new ApiError('forbidden', 403, undefined, { detail: 'You do not have permission' })
+            )
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateTile(WIDGET_TILE)
+            })
+                .toDispatchActions(['duplicateTileFailure'])
+                .toFinishAllListeners()
+
+            expect(errorToast).toHaveBeenCalledWith('You do not have permission')
+            resumeKeaLoadersErrors()
         })
 
         it('addWidgetTiles refreshes newly created widget tiles', async () => {

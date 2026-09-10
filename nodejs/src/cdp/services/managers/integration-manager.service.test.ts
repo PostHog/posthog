@@ -1,8 +1,8 @@
 import { IntegrationType } from '~/cdp/types'
-import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
 
 import { insertIntegration } from '../../_tests/fixtures'
 import { IntegrationManagerService } from './integration-manager.service'
@@ -16,18 +16,15 @@ describe('IntegrationManager', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
         manager = new IntegrationManagerService(hub.pubSub, hub.postgres, hub.encryptedFields)
 
-        const team = await getTeam(hub.postgres, 2)
-
-        teamId1 = await createTeam(hub.postgres, team!.organization_id)
+        teamId1 = (await createTestTeamFixture(hub.postgres)).team.id
 
         integrations = []
 
         integrations.push(
             await insertIntegration(hub.postgres, teamId1, {
-                id: 1,
+                id: teamId1,
                 kind: 'slack',
                 config: { team: 'foobar' },
                 sensitive_config: {
@@ -46,11 +43,11 @@ describe('IntegrationManager', () => {
         const items = await manager.getMany([integrations[0].id])
 
         expect(items).toEqual({
-            '1': {
+            [teamId1]: {
                 config: {
                     team: 'foobar',
                 },
-                id: 1,
+                id: teamId1,
                 kind: 'slack',
                 sensitive_config: {
                     access_token: 'token',

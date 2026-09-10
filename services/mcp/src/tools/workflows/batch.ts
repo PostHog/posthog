@@ -2,14 +2,7 @@ import { z } from 'zod'
 
 import type { Context, ToolBase } from '@/tools/types'
 
-/**
- * Mirrors `CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE` in nodejs/src/cdp/config.ts — the cap the batch
- * consumer enforces by silently truncating the fan-out. We reject past it here so MCP callers get an
- * explicit error instead of an under-the-hood partial run. Keep the two values in sync.
- */
-export const BATCH_WORKFLOW_MAX_AUDIENCE_SIZE = 5000
-
-type BlastRadius = { affected: number; total: number }
+type BlastRadius = { affected: number; total: number; limit: number; confirm_token: string }
 
 type WorkflowTrigger = { type?: string; filters?: unknown }
 
@@ -39,18 +32,20 @@ async function sizeAudience(context: Context, projectId: string, filters: unknow
 
 /**
  * Echo-back guard: the caller must have sized the audience with workflows-blast-radius and surfaced the
- * number to the user. We recompute it here and reject on drift or over-cap before any fan-out.
+ * number to the user. We recompute it here and reject on drift or over-cap before any fan-out. The cap is
+ * the per-team `limit` the blast-radius endpoint returns (HOGFLOW_BATCH_TRIGGER_LIMIT), which the batch
+ * consumer also enforces — so the run is rejected here rather than silently truncated downstream.
  */
-function assertAcknowledged(affected: number, acknowledged: number): void {
+function assertAcknowledged(affected: number, acknowledged: number, limit: number): void {
     if (affected !== acknowledged) {
         throw new Error(
             `Audience size is now ${affected} users (you acknowledged ${acknowledged}). Re-check with ` +
                 `workflows-blast-radius and confirm the new count with the user before running.`
         )
     }
-    if (affected > BATCH_WORKFLOW_MAX_AUDIENCE_SIZE) {
+    if (affected > limit) {
         throw new Error(
-            `Audience of ${affected} users exceeds the ${BATCH_WORKFLOW_MAX_AUDIENCE_SIZE}-user cap. Narrow the ` +
+            `Audience of ${affected} users exceeds the ${limit}-user cap for this project. Narrow the ` +
                 `workflow's batch trigger filters to reduce the audience, then try again.`
         )
     }
@@ -80,6 +75,13 @@ const RunBatchSchema = z.object({
                 'confirmed before you called this — never size and fire in one step. Rejected if it no longer ' +
                 'matches the current audience, forcing a re-check.'
         ),
+    confirm_token: z
+        .string()
+        .describe(
+            'The confirm_token from the same workflows-blast-radius preview whose count the user confirmed. ' +
+                'The API rejects dispatch without it, and it goes stale when the audience filters change or ' +
+                'after 15 minutes — re-preview to refresh.'
+        ),
     variables: z
         .record(z.string(), z.unknown())
         .optional()
@@ -108,19 +110,25 @@ export const workflowsRunBatch = (): ToolBase<typeof RunBatchSchema, unknown> =>
         }
 
         const filters = triggerFilters(trigger)
-        const { affected } = await sizeAudience(context, projectId, filters)
-        assertAcknowledged(affected, params.acknowledged_affected_count)
+        const { affected, limit } = await sizeAudience(context, projectId, filters)
+        assertAcknowledged(affected, params.acknowledged_affected_count, limit)
 
         return await context.api.request({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.workflow_id))}/batch_jobs/`,
-            body: { filters, ...(params.variables !== undefined ? { variables: params.variables } : {}) },
+            body: {
+                filters,
+                confirm_token: params.confirm_token,
+                ...(params.variables !== undefined ? { variables: params.variables } : {}),
+            },
         })
     },
 })
 
 const ScheduleCreateSchema = z.object({
-    workflow_id: z.string().describe('ID of the batch workflow to attach the recurring schedule to.'),
+    workflow_id: z
+        .string()
+        .describe('ID of the workflow to attach the recurring schedule to. Its trigger must be batch or schedule.'),
     rrule: z
         .string()
         .describe("iCalendar RRULE (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour."),
@@ -129,10 +137,19 @@ const ScheduleCreateSchema = z.object({
     acknowledged_affected_count: z
         .number()
         .int()
+        .optional()
         .describe(
-            'The affected-user count from workflows-blast-radius that you showed the user AND they explicitly ' +
-                'confirmed before scheduling. Each firing re-broadcasts to the audience at that time; rejected if it ' +
-                'no longer matches.'
+            'Batch triggers only: the affected-user count from workflows-blast-radius that you showed the user ' +
+                'AND they explicitly confirmed before scheduling. Each firing re-broadcasts to the audience at that ' +
+                'time; rejected if it no longer matches. Omit for a schedule trigger, which has no audience.'
+        ),
+    confirm_token: z
+        .string()
+        .optional()
+        .describe(
+            'Batch triggers only: the confirm_token from the same workflows-blast-radius preview whose count the ' +
+                'user confirmed. The API rejects a batch schedule without it, and it goes stale when the audience ' +
+                'filters change or after 15 minutes - re-preview to refresh. Omit for a schedule trigger.'
         ),
     variables: z
         .record(z.string(), z.unknown())
@@ -147,26 +164,37 @@ export const workflowsScheduleCreate = (): ToolBase<typeof ScheduleCreateSchema,
         const projectId = await context.stateManager.getProjectId()
         const { status, trigger } = await fetchWorkflow(context, projectId, params.workflow_id)
 
-        if (trigger.type !== 'batch') {
+        if (trigger.type !== 'batch' && trigger.type !== 'schedule') {
             throw new Error(
-                `workflows-schedule-create only applies to workflows with a 'batch' trigger (this one is ` +
-                    `'${trigger.type ?? 'unknown'}').`
+                `workflows-schedule-create only applies to workflows with a 'batch' or 'schedule' trigger (this ` +
+                    `one is '${trigger.type ?? 'unknown'}').`
             )
         }
 
-        // Require the workflow to be active before scheduling. A draft's trigger can still be edited, so
-        // scheduling a draft would let the audience be broadened after you acknowledged it (the scheduler
-        // uses the trigger's filters at fire time). An active workflow's trigger can't be edited via MCP,
-        // so the acknowledged audience is locked in.
-        if (status !== 'active') {
-            throw new Error(
-                `Workflow is not active (status '${status ?? 'unknown'}') — enable it with workflows-enable before ` +
-                    `scheduling. Scheduling a draft would let the audience change after you sized it.`
-            )
+        // A schedule trigger fires one person-less run per occurrence, so there is no audience to
+        // size or confirm. Only a batch trigger fans out to persons and needs the blast-radius step.
+        let confirmToken: string | undefined
+        if (trigger.type === 'batch') {
+            // Require the workflow to be active before scheduling. A draft's trigger can still be edited in
+            // place, so scheduling a draft would let the audience be broadened after you acknowledged it (the
+            // scheduler uses the trigger's filters at fire time). On an active workflow an MCP trigger edit only
+            // stages a draft, so the acknowledged audience can't change without an explicit publish.
+            if (status !== 'active') {
+                throw new Error(
+                    `Workflow is not active (status '${status ?? 'unknown'}') — enable it with workflows-enable before ` +
+                        `scheduling. Scheduling a draft would let the audience change after you sized it.`
+                )
+            }
+            if (params.acknowledged_affected_count === undefined || params.confirm_token === undefined) {
+                throw new Error(
+                    'A batch trigger schedules a recurring broadcast: preview the audience with workflows-blast-radius, ' +
+                        'confirm the count with the user, then pass acknowledged_affected_count and confirm_token.'
+                )
+            }
+            const { affected, limit } = await sizeAudience(context, projectId, triggerFilters(trigger))
+            assertAcknowledged(affected, params.acknowledged_affected_count, limit)
+            confirmToken = params.confirm_token
         }
-
-        const { affected } = await sizeAudience(context, projectId, triggerFilters(trigger))
-        assertAcknowledged(affected, params.acknowledged_affected_count)
 
         return await context.api.request({
             method: 'POST',
@@ -174,6 +202,7 @@ export const workflowsScheduleCreate = (): ToolBase<typeof ScheduleCreateSchema,
             body: {
                 rrule: params.rrule,
                 starts_at: params.starts_at,
+                ...(confirmToken !== undefined ? { confirm_token: confirmToken } : {}),
                 ...(params.timezone !== undefined ? { timezone: params.timezone } : {}),
                 ...(params.variables !== undefined ? { variables: params.variables } : {}),
             },

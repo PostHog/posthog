@@ -1,13 +1,15 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from django.forms.models import model_to_dict
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureQuery
 
@@ -16,6 +18,11 @@ from posthog.test.test_journeys import journeys_for
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    EXPERIMENT_EXPOSURE_EVENT,
+    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
+    EXPERIMENT_EXPOSURE_EVENT_FLAG,
+)
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.utils import (
     create_standard_group_test_events,
@@ -35,6 +42,49 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 7),
         )
+
+    def _null_multivariate_query(self) -> ExperimentExposureQuery:
+        # Boolean flags serialize filters with "multivariate": null — present but None,
+        # which .get("multivariate", {}) does not guard against.
+        flag_dict = model_to_dict(self.feature_flag)
+        flag_dict["filters"] = {**flag_dict["filters"], "multivariate": None}
+        return ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=flag_dict,
+            holdout=None,
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=None,
+        )
+
+    def test_handles_null_multivariate_in_flag_filters(self):
+        # The setUp experiment is stopped: a flag simplified to boolean after the
+        # experiment ended degrades to an empty variants list, not an error.
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=self._null_multivariate_query())
+
+        self.assertEqual(runner.variants, [])
+
+    def test_null_multivariate_raises_for_running_experiment(self):
+        self.experiment.end_date = None
+        self.experiment.save()
+
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentExposuresQueryRunner(team=self.team, query=self._null_multivariate_query())
+
+        self.assertIn("has no variants", str(ctx.exception))
+
+    def test_missing_experiment_raises_validation_error(self):
+        # Cached exposure queries can outlive their experiment; a stale id must
+        # surface as a validation error, not an uncaught Experiment.DoesNotExist.
+        query = self._null_multivariate_query()
+        query.experiment_id = self.experiment.id + 1000
+
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentExposuresQueryRunner(team=self.team, query=query)
+
+        self.assertIn("not found", str(ctx.exception))
 
     @freeze_time("2024-01-07T12:00:00Z")
     def test_exposure_query_resolves_soft_deleted_feature_flag_key(self):
@@ -101,6 +151,90 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
 
         self.assertEqual(response.total_exposures, {"control": 2, "test": 1})
+
+    @parameterized.expand(
+        [
+            # (name, flag enabled, experiment start/end offsets, query start offset, expected exposures)
+            ("fully_before_cutoff", True, -14, -7, -14, {"control": 2, "test": 1}),
+            ("start_before_end_after_cutoff", True, -7, 7, -7, {"control": 2, "test": 1}),
+            ("fully_after_cutoff", True, 7, 14, 7, {"control": 1, "test": 2}),
+            ("fully_after_cutoff_flag_disabled", False, 7, 14, 7, {"control": 2, "test": 1}),
+            ("query_window_starts_after_cutoff", True, -7, 14, 7, {"control": 2, "test": 1}),
+        ]
+    )
+    @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=30))
+    def test_exposure_event_selected_relative_to_cutoff(
+        self,
+        _name,
+        new_event_enabled,
+        start_offset_days,
+        end_offset_days,
+        query_start_offset_days,
+        expected_exposures,
+    ):
+        cutoff = EXPERIMENT_EXPOSURE_EVENT_CUTOFF.replace(tzinfo=None)
+        start_date = cutoff + timedelta(days=start_offset_days)
+        end_date = cutoff + timedelta(days=end_offset_days)
+        query_start_date = cutoff + timedelta(days=query_start_offset_days)
+        experiment = self.create_experiment(
+            name="cutoff-experiment",
+            feature_flag=self.feature_flag,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        def exposure(event: str, variant: str, timestamp: datetime) -> dict:
+            return {
+                "event": event,
+                "timestamp": timestamp.isoformat(),
+                "properties": {
+                    "$feature_flag_response": variant,
+                    ff_property: variant,
+                    "$feature_flag": self.feature_flag.key,
+                },
+            }
+
+        legacy_ts = query_start_date + timedelta(days=1)
+        new_ts = end_date - timedelta(days=1)
+        # Both events are seeded inside every experiment window, with disjoint user sets and
+        # asymmetric counts, so total_exposures reveals which event the query counted:
+        # $feature_flag_called yields control=2/test=1, $experiment_exposure yields
+        # control=1/test=2, and counting both would yield control=3/test=3.
+        journeys_for(
+            {
+                "user_legacy_control_1": [exposure("$feature_flag_called", "control", legacy_ts)],
+                "user_legacy_control_2": [exposure("$feature_flag_called", "control", legacy_ts)],
+                "user_legacy_test_1": [exposure("$feature_flag_called", "test", legacy_ts)],
+                "user_new_control_1": [exposure(EXPERIMENT_EXPOSURE_EVENT, "control", new_ts)],
+                "user_new_test_1": [exposure(EXPERIMENT_EXPOSURE_EVENT, "test", new_ts)],
+                "user_new_test_2": [exposure(EXPERIMENT_EXPOSURE_EVENT, "test", new_ts)],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=None,
+            start_date=query_start_date.isoformat(),
+            end_date=experiment.end_date.isoformat(),
+            exposure_criteria=experiment.exposure_criteria,
+        )
+
+        # Only answer for the exposure-event flag; returning True for every flag would flip
+        # unrelated HogQL query modifiers on and break the query under test.
+        def fake_feature_enabled(flag_key: str, *args, **kwargs) -> bool:
+            return new_event_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual(response.total_exposures, expected_exposures)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
@@ -1674,28 +1808,49 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         total_exposures = {"control": 800, "test": 200, MULTIPLE_VARIANT_KEY: 20}
 
-        ended_query = ExperimentExposureQuery(
-            kind="ExperimentExposureQuery",
-            experiment_id=experiment.id,
-            experiment_name=experiment.name,
-            feature_flag=model_to_dict(feature_flag),
-            start_date=experiment.start_date.isoformat(),
-            end_date=experiment.end_date.isoformat(),
-            exposure_criteria=experiment.exposure_criteria,
-        )
-        ended_runner = ExperimentExposuresQueryRunner(team=self.team, query=ended_query)
-        self.assertIsNone(ended_runner._evaluate_bias_risk(total_exposures))
+        def _runner(end_date: str | None) -> ExperimentExposuresQueryRunner:
+            query = ExperimentExposureQuery(
+                kind="ExperimentExposureQuery",
+                experiment_id=experiment.id,
+                experiment_name=experiment.name,
+                feature_flag=model_to_dict(feature_flag),
+                start_date=experiment.start_date.isoformat(),
+                end_date=end_date,
+                exposure_criteria=experiment.exposure_criteria,
+            )
+            return ExperimentExposuresQueryRunner(team=self.team, query=query)
 
-        running_query = ExperimentExposureQuery(
-            kind="ExperimentExposureQuery",
-            experiment_id=experiment.id,
-            experiment_name=experiment.name,
-            feature_flag=model_to_dict(feature_flag),
-            start_date=experiment.start_date.isoformat(),
-            end_date=None,
-            exposure_criteria=experiment.exposure_criteria,
-        )
-        running_runner = ExperimentExposuresQueryRunner(team=self.team, query=running_query)
-        risk = running_runner._evaluate_bias_risk(total_exposures)
+        # The running/stopped decision is read from the query, not the model — the experiment row is
+        # left ended throughout. Query end_date set -> reads as stopped, warning skipped.
+        self.assertIsNone(_runner(experiment.end_date.isoformat())._evaluate_bias_risk(total_exposures))
+
+        # Query end_date cleared -> reads as running, warning evaluated.
+        risk = _runner(None)._evaluate_bias_risk(total_exposures)
         assert risk is not None
         self.assertGreater(risk.multiple_variant_percentage, 0)
+
+    def test_date_range_follows_query_not_model(self):
+        # The result is cached under a key hashed from the query (see get_cache_payload), so the window
+        # must come from the query — not live model state. A query whose end_date differs from the
+        # model's must yield the query's window, or the cache key would describe a window the result
+        # wasn't computed for.
+        feature_flag = self.create_feature_flag(key="stateless-window")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 31),
+        )
+        query_end = datetime(2024, 1, 10).replace(tzinfo=ZoneInfo("UTC"))
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(feature_flag),
+            start_date=experiment.start_date.isoformat(),
+            end_date=query_end.isoformat(),
+            exposure_criteria=experiment.exposure_criteria,
+        )
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
+        date_to = runner._get_date_range().date_to
+        assert date_to is not None
+        assert datetime.fromisoformat(date_to) == query_end

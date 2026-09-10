@@ -1,0 +1,112 @@
+import { useActions, useValues } from 'kea'
+
+import { IconExternal, IconGithub, IconPlay } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
+
+import { isPiTaskRuntime } from '../../../types/taskTypes'
+import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
+import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import { TaskHeaderActionsSkeleton } from './taskDetailSkeletons'
+import { TaskRunLog } from './TaskRunLog'
+import { TaskRunSceneShell } from './TaskRunSceneShell'
+
+export interface TaskDetailPageProps {
+    taskId: string
+    /** Mobile shows the single-column layout, where a back button is needed to return to the list. */
+    isMobile: boolean
+}
+
+export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.Element {
+    const sceneLogic = taskDetailSceneLogic({ taskId })
+    const { task, taskNotFound, taskError, latestRun, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
+        useValues(sceneLogic)
+    const { runTask, deleteTask, loadTask } = useActions(sceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const isActiveCreation = activeCreation?.taskId === taskId
+
+    if (taskNotFound && !task) {
+        return <NotFound object="task" />
+    }
+
+    if (!isTaskPending && !task && !taskError) {
+        return <NotFound object="task" />
+    }
+
+    const isLatestRunInProgress = latestRun?.status === 'in_progress' || latestRun?.status === 'queued'
+    const isLatestRunCompleted = latestRun?.status === 'completed'
+    const runButtonText = latestRun ? 'Retry task' : 'Run task'
+
+    const prUrl = selectedRun?.output?.pr_url as string | undefined
+    const titleActions =
+        isHeaderLoading || !task ? (
+            isActiveCreation ? undefined : (
+                <TaskHeaderActionsSkeleton />
+            )
+        ) : (
+            <div className="flex items-center gap-2">
+                {hasDesktopAccess && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconExternal />}
+                        to={urls.codeTaskLink(task.id)}
+                        targetBlank
+                        className="hidden lg:inline-flex"
+                    >
+                        Open in PostHog Desktop
+                    </LemonButton>
+                )}
+                {prUrl && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconGithub />}
+                        onClick={() => window.open(prUrl, '_blank')}
+                    >
+                        View PR
+                    </LemonButton>
+                )}
+                {!isPiTaskRuntime(task.runtime) && !isLatestRunInProgress && !isLatestRunCompleted && (
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<IconPlay />}
+                        onClick={runTask}
+                        loading={runTaskInFlight}
+                        disabledReason={runTaskInFlight ? 'Starting the run' : undefined}
+                    >
+                        {runButtonText}
+                    </LemonButton>
+                )}
+            </div>
+        )
+
+    // When this task was just created optimistically, the seeded run stream lives under the creation's client
+    // `streamKey`. Hand it to the run log so it adopts that instance (and renders the thread immediately)
+    // instead of cold-bootstrapping a fresh, skeleton-flashing one.
+    const optimisticStreamKey = isActiveCreation ? activeCreation?.streamKey : undefined
+    const optimisticRunId = isActiveCreation ? activeCreation?.runId : undefined
+
+    return (
+        <TaskRunSceneShell
+            task={task}
+            selectedRun={selectedRun}
+            isHeaderLoading={isHeaderLoading && !isActiveCreation}
+            titleActions={titleActions}
+            sceneMenuBarEnabled={sceneMenuBarEnabled}
+            onArchive={deleteTask}
+            taskError={taskError}
+            onRetry={loadTask}
+            isMobile={isMobile}
+        >
+            <TaskRunLog taskId={taskId} optimisticStreamKey={optimisticStreamKey} optimisticRunId={optimisticRunId} />
+        </TaskRunSceneShell>
+    )
+}

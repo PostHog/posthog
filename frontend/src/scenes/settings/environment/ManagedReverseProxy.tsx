@@ -29,7 +29,16 @@ import { isKeyOf } from 'lib/utils/guards'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { DiagnosticCheckResult, DiagnosticCheckStatus, DiagnosticReport, ProxyRecord, proxyLogic } from './proxyLogic'
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
+import {
+    DiagnosticCheckResult,
+    DiagnosticCheckStatus,
+    DiagnosticReport,
+    ProxyRecord,
+    canConfigureRootRedirect,
+    proxyLogic,
+} from './proxyLogic'
 import { ProxySDKSetup } from './ProxySDKSetup'
 
 const statusText = {
@@ -87,6 +96,19 @@ export function ManagedReverseProxy(): JSX.Element {
             return proxyRecords.length > 0 ? [`Diagnose ${proxyRecords[0].domain}`] : []
         }, [proxyRecords]),
     })
+
+    useAttachedContext(
+        [
+            {
+                type: 'proxy_records',
+                value: JSON.stringify(
+                    proxyRecords.map((r) => ({ id: r.id, domain: r.domain, status: r.status, message: r.message }))
+                ),
+                label: 'Reverse proxy records',
+            },
+        ],
+        { active: proxyRecords.length > 0 && !restrictionReason }
+    )
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {
@@ -325,11 +347,12 @@ function CloudflareOptInBanner({
 }
 
 const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
-    const { diagnosticReports, recordActiveTabs } = useValues(proxyLogic)
-    const { setRecordActiveTab } = useActions(proxyLogic)
+    const { diagnosticReports, recordActiveTabs, rootRedirectDrafts, proxyRecordsLoading } = useValues(proxyLogic)
+    const { setRecordActiveTab, setRootRedirectDraft, updateRootRedirect } = useActions(proxyLogic)
 
     const report = diagnosticReports[record.id]
     const activeKey = recordActiveTabs[record.id] ?? 'cname'
+    const rootRedirectDraft = rootRedirectDrafts[record.id] ?? record.root_redirect_url ?? ''
 
     const tabs = [
         {
@@ -341,6 +364,45 @@ const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
                 </CodeSnippet>
             ),
         },
+        ...(canConfigureRootRedirect(record)
+            ? [
+                  {
+                      label: 'Root redirect',
+                      key: 'root-redirect',
+                      content: (
+                          <div className="flex flex-col gap-2 max-w-160">
+                              <p className="text-secondary">
+                                  Redirect visits to <code>https://{record.domain}/</code> to another HTTPS URL. This
+                                  does not affect event ingestion or other proxy paths.
+                              </p>
+                              <LemonInput
+                                  type="url"
+                                  value={rootRedirectDraft}
+                                  onChange={(value) => setRootRedirectDraft(record.id, value)}
+                                  placeholder="https://www.example.com/"
+                              />
+                              <div>
+                                  <LemonButton
+                                      type="primary"
+                                      size="small"
+                                      onClick={() =>
+                                          updateRootRedirect({ id: record.id, rootRedirectUrl: rootRedirectDraft })
+                                      }
+                                      loading={proxyRecordsLoading}
+                                      disabledReason={
+                                          rootRedirectDraft === (record.root_redirect_url ?? '')
+                                              ? 'No changes to save'
+                                              : undefined
+                                      }
+                                  >
+                                      Save redirect
+                                  </LemonButton>
+                              </div>
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
         ...(report
             ? [
                   {

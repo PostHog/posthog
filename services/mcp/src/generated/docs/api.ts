@@ -12,15 +12,15 @@ import * as zod from 'zod'
  * Run a hybrid (semantic + full-text) RAG search over the PostHog documentation via Inkeep. Returns a markdown body with title, URL, and excerpt for each match for the agent to cite back to the user.
  * @summary Search PostHog documentation
  */
-export const DocsSearchParams = /* @__PURE__ */ zod.object({
+export const DocsSearchParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const DocsSearchBody = /* @__PURE__ */ zod.object({
+export const DocsSearchBody = () => zod.object({
     query: zod
         .string()
         .describe(

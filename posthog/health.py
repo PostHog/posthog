@@ -39,7 +39,7 @@ from posthog.security.outbound_proxy import internal_requests
 
 logger = get_logger(__name__)
 
-ServiceRole = Literal["events", "web", "worker", "decide", "query", "report"]
+ServiceRole = Literal["events", "web", "worker", "decide", "query", "report", "conversations", "streaming"]
 
 service_dependencies: dict[ServiceRole, list[str]] = {
     "events": ["http"],
@@ -72,6 +72,12 @@ service_dependencies: dict[ServiceRole, list[str]] = {
     "decide": ["http"],
     "query": ["http", "postgres", "cache"],
     "report": ["http"],
+    "conversations": ["http", "postgres", "cache"],
+    # The dedicated SSE tier: streams are Redis-only after their initial read
+    # (sse_streaming_response releases DB connections before streaming), so its
+    # readiness must NOT couple to Postgres — the tier has to keep serving open
+    # streams even while the database is saturated.
+    "streaming": ["http", "cache"],
 }
 
 # if atleast one of the checks is True, then the service is considered healthy

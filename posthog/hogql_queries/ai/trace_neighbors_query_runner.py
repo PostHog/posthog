@@ -13,7 +13,8 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
+from posthog.hogql_queries.ai.utils import filled_property_filters
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -28,11 +29,12 @@ class TraceNeighborsQueryRunner(AnalyticsQueryRunner[TraceNeighborsQueryResponse
     cached_response: CachedTraceNeighborsQueryResponse
 
     def _calculate(self):
-        result = execute_with_ai_events_fallback(
+        result = query_ai_events(
             query=self._build_query(),
             placeholders=self._get_placeholders(),
             team=self.team,
             query_type="TraceNeighborsQuery",
+            fall_back_to_events=True,
             timings=self.timings,
             modifiers=self.modifiers,
         )
@@ -99,12 +101,13 @@ class TraceNeighborsQueryRunner(AnalyticsQueryRunner[TraceNeighborsQueryResponse
 
     def _get_properties_filter(self) -> ast.Expr | None:
         """Build property filters from query properties."""
-        if not self.query.properties:
+        properties = filled_property_filters(self.query.properties)
+        if not properties:
             return None
 
         property_filters: list[ast.Expr] = []
         with self.timings.measure("property_filters"):
-            for prop in self.query.properties:
+            for prop in properties:
                 property_filters.append(property_to_expr(prop, self.team))
 
         if not property_filters:

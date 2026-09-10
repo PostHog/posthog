@@ -1,100 +1,103 @@
-"""State and URL helpers for the personal GitHub linking flow.
+"""Read-only helpers for a user's *personal* GitHub App state.
 
-The personal flow keeps a small JSON blob in the cache, keyed by a random
-``token``, that we look up when GitHub redirects back to us. Some helpers also
-build the off-host GitHub URLs (install page, user OAuth page) the user is
-sent to.
+Distinct from ``team_services.py``, which manages team-scoped ``Integration`` rows: this module
+answers what a user's own OAuth-linked ``UserIntegration`` can see on GitHub, independent of any
+team. Shared by the personal "unlinked installations" check, the org installation picker, and
+orphan-installation adoption.
 """
 
 from typing import Any
-from urllib.parse import parse_qs, urlencode
-
-from django.conf import settings
-from django.core.cache import cache
-from django.http import HttpResponseRedirect
-from django.shortcuts import redirect
-from django.utils.crypto import get_random_string
 
 import requests
-import structlog
-from rest_framework import exceptions
 
-from posthog.api.github_callback.types import (
-    GITHUB_INSTALL_STATE_CACHE_PREFIX,
-    GITHUB_INSTALL_STATE_TTL_SECONDS,
-    github_oauth_redirect_uri,
-)
-from posthog.models.instance_setting import get_instance_settings
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, github_request
 from posthog.models.user import User
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
-logger = structlog.get_logger(__name__)
+_OBSERVABILITY_SOURCE = "integration"
 
 
-def github_state_token(state_raw: str) -> str:
-    """Pull the random token out of ``state``.
+def _newest_personal_github_integration(user: User) -> UserIntegration | None:
+    return (
+        UserIntegration.objects.filter(user=user, kind="github")
+        .exclude(sensitive_config={})
+        .order_by("-created_at")
+        .first()
+    )
 
-    The frontend extracts the raw token from the URL-encoded ``state`` before
-    forwarding here, so ``state_raw`` is normally the 48-char random token.
-    Handle both forms so direct backend calls (e.g. in tests) and any future
-    flow changes work correctly.
+
+def user_has_personal_github_integration(user: User) -> bool:
+    """Whether ``user`` has a usable personal GitHub App link at all."""
+    return _newest_personal_github_integration(user) is not None
+
+
+def personal_github_login(user: User) -> str | None:
+    """The user's own GitHub login from their most recent personal GitHub link, if any."""
+    integration = _newest_personal_github_integration(user)
+    if integration is None:
+        return None
+    return UserGitHubIntegration(integration).github_login
+
+
+def usable_personal_github_token(user: User) -> str | None:
+    """Return a usable user-to-server GitHub token for ``user``, refreshing it if needed.
+
+    Tries every personal GitHub link newest-first, since the newest row can hold stale credentials
+    while an older one still refreshes fine. Returns None when no link yields a token — callers
+    must treat this as "can't verify" rather than raise, since a stale personal link is common and
+    not itself an error.
     """
-    state_params = parse_qs(state_raw)
-    return state_params["token"][0] if "token" in state_params else state_raw
-
-
-def github_user_installation_ids(user_access_token: str) -> list[str]:
-    """List GitHub App installations visible to a user-to-server token."""
-    response = requests.get(
-        "https://api.github.com/user/installations",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {user_access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-        params={"per_page": 100},
-        timeout=10,
+    integrations = (
+        UserIntegration.objects.filter(user=user, kind="github").exclude(sensitive_config={}).order_by("-created_at")
     )
+    for integration in integrations:
+        try:
+            token = UserGitHubIntegration(integration).get_usable_user_access_token()
+        except Exception:
+            continue
+        if token:
+            return token
+    return None
+
+
+def list_user_github_app_installations(user: User) -> list[dict[str, Any]] | None:
+    """List the GitHub App installations visible to ``user``'s personal OAuth token.
+
+    Returns installation dicts as GitHub reports them from ``GET /user/installations`` (``id``,
+    ``account`` with ``login``/``type``, etc.), or None when the check can't be answered — no
+    personal GitHub link, a token refresh failure, a network error, or a non-200 response. Callers
+    must treat None as "unknown" and degrade gracefully rather than fail the request.
+    """
+    token = usable_personal_github_token(user)
+    if token is None:
+        return None
+
+    try:
+        # Identity-blind: user OAuth token, metered against the user's budget, not an installation's.
+        response = github_request(
+            "GET",
+            "https://api.github.com/user/installations",
+            source=_OBSERVABILITY_SOURCE,
+            headers={"Authorization": f"Bearer {token}"},
+            params={"per_page": 100},
+            timeout=10,
+        )
+    except (requests.RequestException, GitHubEgressBudgetExhausted):
+        return None
+
     if response.status_code != 200:
-        logger.warning("github_link: failed to list user installations", status_code=response.status_code)
-        raise requests.RequestException(f"Unexpected status {response.status_code} listing user installations")
+        return None
 
-    installations = response.json().get("installations", [])
-    ids: list[str] = []
-    if isinstance(installations, list):
-        for installation in installations:
-            if isinstance(installation, dict) and installation.get("id") is not None:
-                ids.append(str(installation["id"]))
-    return ids
+    try:
+        installations = response.json().get("installations", [])
+    except ValueError:
+        return None
 
+    if not isinstance(installations, list):
+        return None
 
-def github_app_install_url(state: str) -> str:
-    """Build the GitHub App install URL."""
-    instance_settings = get_instance_settings(["GITHUB_APP_SLUG"])
-    app_slug = instance_settings.get("GITHUB_APP_SLUG")
-    if not app_slug:
-        raise exceptions.ValidationError("GitHub App is not configured on this instance (missing GITHUB_APP_SLUG).")
-    return f"https://github.com/apps/{app_slug}/installations/new?{urlencode({'state': state})}"
-
-
-def github_oauth_authorize_url(state: str) -> str:
-    """Build the GitHub App user authorization URL."""
-    if not settings.GITHUB_APP_CLIENT_ID:
-        raise exceptions.ValidationError("GitHub App client ID is not configured (GITHUB_APP_CLIENT_ID missing).")
-    return "https://github.com/login/oauth/authorize?" + urlencode(
-        {"client_id": settings.GITHUB_APP_CLIENT_ID, "redirect_uri": github_oauth_redirect_uri(), "state": state}
-    )
-
-
-def redirect_to_github_app_install(user: User, connect_from: str | None) -> HttpResponseRedirect:
-    """Continue from user OAuth discovery to app installation when no installation exists yet."""
-    token = get_random_string(48)
-    state = urlencode({"token": token, "source": "user_integration"})
-    install_state_payload: dict[str, Any] = {"user_id": user.id}
-    if connect_from:
-        install_state_payload["connect_from"] = connect_from
-    cache.set(
-        f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-        install_state_payload,
-        timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
-    )
-    return redirect(github_app_install_url(state))
+    return [
+        installation
+        for installation in installations
+        if isinstance(installation, dict) and installation.get("id") is not None
+    ]

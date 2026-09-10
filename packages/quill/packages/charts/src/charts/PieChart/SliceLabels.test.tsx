@@ -46,6 +46,16 @@ describe('SliceLabels', () => {
         expect(labels(container)).toHaveLength(1)
     })
 
+    it('pushes labels further from the center as labelRadiusRatio increases', () => {
+        const layout = computePieLayout({ series: [s('a', 50), s('b', 50)], dimensions: PLOT })
+        const cx = layout.cx
+        const { container: near } = renderWithLayout(layout, <SliceLabels labelRadiusRatio={0.3} />)
+        const nearOffset = Math.abs(parseFloat(labels(near)[0].style.left) - cx)
+        const { container: far } = renderWithLayout(layout, <SliceLabels labelRadiusRatio={0.9} />)
+        const farOffset = Math.abs(parseFloat(labels(far)[0].style.left) - cx)
+        expect(farOffset).toBeGreaterThan(nearOffset)
+    })
+
     it('respects visibility.valueLabel = false', () => {
         const layout = computePieLayout({
             series: [s('a', 25), s('b', 25, { visibility: { valueLabel: false } }), s('c', 25), s('d', 25)],

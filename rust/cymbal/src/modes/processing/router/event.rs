@@ -77,20 +77,9 @@ impl IntoResponse for ProcessEventsError {
 
 impl IntoResponse for Batch<Option<AnyEvent>> {
     fn into_response(self) -> axum::response::Response {
-        match serde_json::to_value(Vec::from(self)) {
-            Ok(value) => (StatusCode::OK, Json(value)).into_response(),
-            Err(e) => {
-                warn!("Failed to serialize response: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({
-                        "error": "Failed to serialize response",
-                        "details": e.to_string()
-                    })),
-                )
-                    .into_response()
-            }
-        }
+        // `Json` serializes straight into the response body, so hand it the events
+        // directly rather than first materializing an intermediate `serde_json::Value`.
+        (StatusCode::OK, Json(Vec::from(self))).into_response()
     }
 }
 

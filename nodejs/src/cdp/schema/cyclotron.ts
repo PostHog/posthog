@@ -1,0 +1,195 @@
+import { z } from 'zod'
+
+import { PushNotificationPayloadSchema } from './pushNotification'
+
+export const CyclotronInputSchema = z.object({
+    value: z.any(),
+    templating: z.enum(['hog', 'liquid']).optional(),
+    secret: z.boolean().optional(),
+    bytecode: z.any().optional(),
+    order: z.number().optional(),
+})
+
+export const CyclotronJobInputSchemaTypeSchema = z.object({
+    type: z.enum([
+        'string',
+        'number',
+        'boolean',
+        'dictionary',
+        'choice',
+        'json',
+        'integration',
+        'integration_multi',
+        'integration_field',
+        'email',
+        'native_email',
+        'posthog_assignee',
+        'posthog_ticket_tags',
+        'posthog_business_hours',
+        'push_subscription',
+        'customer_analytics_account_properties',
+        'customer_analytics_account_relationships',
+        'task_model',
+        'task_repository',
+        'task_mcp_installations',
+        'signals_scout',
+        'task_skills',
+    ]),
+    key: z.string(),
+    label: z.string(),
+    choices: z
+        .array(
+            z.object({
+                value: z.string(),
+                label: z.string(),
+            })
+        )
+        .optional(),
+    required: z.boolean().optional(),
+    default: z.any().optional(),
+    secret: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+    templating: z.boolean().optional(),
+    description: z.string().optional(),
+    integration: z.string().optional(),
+    integration_key: z.string().optional(),
+    integration_field: z.string().optional(),
+    requires_field: z.string().optional(),
+    requiredScopes: z.string().optional(),
+})
+
+export const CyclotronInputMappingSchema = z.object({
+    name: z.string(),
+    disabled: z.boolean().optional(),
+    inputs_schema: z.array(CyclotronJobInputSchemaTypeSchema).optional(),
+    inputs: z.record(z.string(), CyclotronInputSchema).optional().nullable(),
+    filters: z.any().optional().nullable(),
+})
+
+// The invariants the cyclotron-hog worker relies on when it enriches and
+// executes an invocation: `globals.project.{id,url}` and
+// `globals.event.{distinct_id,properties}` are dereferenced unguarded
+// downstream, so an invocation reconstructed without them is a poison pill.
+// Validate these rather than blind-casting a deserialized/rehydrated payload.
+// Everything else stays permissive (`passthrough`) so drift on non-critical
+// fields never rejects an otherwise-valid message.
+export const HogFunctionInvocationGlobalsSchema = z
+    .object({
+        project: z
+            .object({
+                id: z.number(),
+                url: z.string(),
+            })
+            .passthrough(),
+        event: z
+            .object({
+                distinct_id: z.string(),
+                properties: z.record(z.string(), z.unknown()),
+            })
+            .passthrough(),
+    })
+    .passthrough()
+
+export type CyclotronJobInputSchemaType = z.infer<typeof CyclotronJobInputSchemaTypeSchema>
+
+export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>
+
+export type CyclotronInputMappingType = z.infer<typeof CyclotronInputMappingSchema>
+
+// When `aws_sigv4` is present on a fetch queue payload, the cyclotron fetch
+// executor re-signs the request with AWS Signature V4 immediately before each
+// attempt (including retries), overwriting any stale `Authorization` and
+// `X-Amz-Date` headers. This is the only path that keeps a retry within AWS's
+// 5-minute signature window — never embed a pre-signed Authorization header
+// in the queue payload.
+//
+// Credentials are NOT carried on the queue payload — the `*_input` fields are
+// input-key references that the executor resolves against `HogFunction.inputs`
+// at fetch time. The cyclotron `cyclotron_jobs.state` blob is plaintext JSON;
+// embedding credential strings on the queue payload would defeat the at-rest
+// encryption that `EncryptedJSONStringField` provides on
+// `posthog_hogfunction.encrypted_inputs`.
+export const CyclotronInvocationQueueParametersFetchAwsSigV4Schema = z.object({
+    service: z.string(),
+    region: z.string(),
+    access_key_id_input: z.string(),
+    secret_access_key_input: z.string(),
+    session_token_input: z.string().optional(),
+})
+
+// When `standard_webhooks` is present on a fetch queue payload, the cyclotron
+// fetch executor signs the request per the Standard Webhooks spec immediately
+// before each attempt. Like `aws_sigv4` above, `secret_input` is an input-key
+// reference resolved at fetch time, because the queue payload is plaintext JSON.
+// `webhook_id` is minted per fetch call by the fetch async function and lives in
+// the payload so retries of that call reuse it: the spec makes it the receiver's
+// idempotency key, so it must stay constant across attempts of one delivery and
+// differ between two deliveries, including two in the same invocation.
+export const CyclotronInvocationQueueParametersFetchStandardWebhooksSchema = z.object({
+    secret_input: z.string(),
+    webhook_id: z.string(),
+})
+
+export const CyclotronInvocationQueueParametersFetchSchema = z.object({
+    type: z.literal('fetch'),
+    url: z.string(),
+    method: z.string(),
+    body: z.union([z.string(), z.null()]).optional(),
+    max_tries: z.number().optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
+    standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
+})
+
+export const MAX_WORKFLOW_EMAIL_SENDERS = 10
+
+export const CyclotronInvocationQueueParametersEmailSchema = z.object({
+    type: z.literal('email'),
+    to: z.object({
+        email: z.string(),
+        name: z.string().optional(),
+    }),
+    replyTo: z.string().optional(),
+    from: z.object({
+        integrationId: z.number(),
+        integrationIds: z.array(z.number()).max(MAX_WORKFLOW_EMAIL_SENDERS).optional(),
+        // Templated per-invocation sender overrides. EmailService requires the rendered
+        // address to be on the selected integration's verified domain before it reaches the provider.
+        email: z.string().optional(),
+        name: z.string().optional(),
+    }),
+    cc: z.string().optional(),
+    bcc: z.string().optional(),
+    subject: z.string(),
+    preheader: z.string().optional(),
+    text: z.string(),
+    html: z.string(),
+})
+
+export const CyclotronInvocationQueueParametersSendPushNotificationSchema = z.object({
+    type: z.literal('sendPushNotification'),
+    integrationIds: z.array(z.number()),
+    distinctId: z.string(),
+    payload: PushNotificationPayloadSchema,
+    max_tries: z.number().optional(),
+    timeoutMs: z.number().optional(),
+})
+
+export type PushNotificationPayloadType = z.infer<typeof PushNotificationPayloadSchema>
+
+export type CyclotronInvocationQueueParametersFetchAwsSigV4Type = z.infer<
+    typeof CyclotronInvocationQueueParametersFetchAwsSigV4Schema
+>
+export type CyclotronInvocationQueueParametersFetchStandardWebhooksType = z.infer<
+    typeof CyclotronInvocationQueueParametersFetchStandardWebhooksSchema
+>
+export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>
+export type CyclotronInvocationQueueParametersEmailType = z.infer<typeof CyclotronInvocationQueueParametersEmailSchema>
+export type CyclotronInvocationQueueParametersSendPushNotificationType = z.infer<
+    typeof CyclotronInvocationQueueParametersSendPushNotificationSchema
+>
+
+export type CyclotronInvocationQueueParametersType =
+    | CyclotronInvocationQueueParametersFetchType
+    | CyclotronInvocationQueueParametersEmailType
+    | CyclotronInvocationQueueParametersSendPushNotificationType

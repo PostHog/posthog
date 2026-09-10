@@ -12,6 +12,7 @@ import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Literal, cast
 
@@ -29,33 +30,40 @@ def compile_patterns(*patterns: str) -> tuple[re.Pattern[str], ...]:
     return tuple(re.compile(pattern, re.IGNORECASE) for pattern in patterns)
 
 
+def compile_classified(*rules: tuple[str, str]) -> tuple[tuple[re.Pattern[str], str], ...]:
+    return tuple((re.compile(pattern, re.IGNORECASE), failure_class) for pattern, failure_class in rules)
+
+
 # Jobs/steps whose failures a rerun can't fix — excluded from the flake measurement.
-DETERMINISTIC_JOB_PATTERNS = compile_patterns(
-    r"\brepo checks?\b",
-    r"\bopenapi\b",
-    r"\bmigrations?\b",
-    r"\blint\b",
-    r"\btype ?check\b",
-    r"\btypescript\b",
-    r"\bvisual\b",
-    r"\bsnapshot\b",
-    r"\bstorybook\b",
-    r"\btach\b",
-    r"\bimport-linter\b",
+# Each rule carries a stable failure-class key (matching `hogli ci:preflight` check
+# keys where the two overlap) so dashboards can group deterministic failures that
+# reached CI and join them against local preflight interceptions.
+DETERMINISTIC_JOB_RULES = compile_classified(
+    (r"\brepo checks?\b", "repo-checks"),
+    (r"\bopenapi\b", "openapi"),
+    (r"\bmigrations?\b", "migrations"),
+    (r"\blint\b", "lint"),
+    (r"\btype ?check\b", "typecheck"),
+    (r"\btypescript\b", "typecheck"),
+    (r"\bvisual\b", "visual-review"),
+    (r"\bsnapshot\b", "snapshot"),
+    (r"\bstorybook\b", "storybook"),
+    (r"\btach\b", "module-boundaries"),
+    (r"\bimport-linter\b", "module-boundaries"),
 )
 
-DETERMINISTIC_STEP_PATTERNS = compile_patterns(
-    r"\bcheck module boundaries\b",
-    r"\bproduct facade enforcement\b",
-    r"\bopenapi\b",
-    r"\bmigrations?\b",
-    r"\blint\b",
-    r"\btype ?check\b",
-    r"\btypescript\b",
-    r"\bvisual review\b",
-    r"\bsnapshot\b",
-    r"\bverify changed playwright tests are stable\b",
-    r"\bverify new snapshots\b",
+DETERMINISTIC_STEP_RULES = compile_classified(
+    (r"\bcheck module boundaries\b", "module-boundaries"),
+    (r"\bproduct facade enforcement\b", "module-boundaries"),
+    (r"\bopenapi\b", "openapi"),
+    (r"\bmigrations?\b", "migrations"),
+    (r"\blint\b", "lint"),
+    (r"\btype ?check\b", "typecheck"),
+    (r"\btypescript\b", "typecheck"),
+    (r"\bvisual review\b", "visual-review"),
+    (r"\bsnapshot\b", "snapshot"),
+    (r"\bverify changed playwright tests are stable\b", "playwright-stability"),
+    (r"\bverify new snapshots\b", "snapshot"),
 )
 
 TEST_STEP_PATTERNS = compile_patterns(
@@ -91,6 +99,9 @@ class Job:
     conclusion: str | None
     run_attempt: int
     html_url: str
+    # A genuine re-run advances started_at; a carried-over job keeps the prior attempt's value byte-for-byte
+    # (run_attempt reports the latest attempt for every job either way), so started_at is the re-run signal.
+    started_at: str | None = None
     steps: tuple[Step, ...] = ()
 
     def failed_step_names(self) -> tuple[str, ...]:
@@ -106,6 +117,10 @@ class WorkflowRun:
     head_sha: str
     run_attempt: int
     html_url: str
+    head_branch: str = ""
+    event: str = ""
+    # Empty `pull_requests` (e.g. fork PRs) collapses to None; head_branch stays the primary join key.
+    pr_number: int | None = None
 
 
 @dataclass(frozen=True)
@@ -113,6 +128,10 @@ class Decision:
     action: DecisionAction
     reason: str
     job: Job
+    # Which signal classified an `observe`: the job name or a failed step. Surfaces silent allowlist drift.
+    classified_via: str | None = None
+    # Canonical failure-class key for `skip deterministic` decisions (see the rule tables above).
+    failure_class: str | None = None
 
 
 def as_str(value: object) -> str | None:
@@ -158,6 +177,11 @@ def gh_json(repo: str, path: str) -> JsonObject:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def pr_number_from_object(raw: JsonObject) -> int | None:
+    pulls = as_object_list(raw.get("pull_requests"))
+    return as_int(pulls[0].get("number")) if pulls else None
+
+
 def workflow_run_from_object(raw: JsonObject) -> WorkflowRun:
     return WorkflowRun(
         id=as_int(raw.get("id")) or 0,
@@ -167,6 +191,9 @@ def workflow_run_from_object(raw: JsonObject) -> WorkflowRun:
         head_sha=as_str(raw.get("head_sha")) or "",
         run_attempt=as_int(raw.get("run_attempt")) or 1,
         html_url=as_str(raw.get("html_url")) or "",
+        head_branch=as_str(raw.get("head_branch")) or "",
+        event=as_str(raw.get("event")) or "",
+        pr_number=pr_number_from_object(raw),
     )
 
 
@@ -189,6 +216,7 @@ def job_from_object(raw: JsonObject, run_attempt: int) -> Job:
         # Trust the job's own attempt over the requested one — the fallback endpoint returns the latest attempt.
         run_attempt=as_int(raw.get("run_attempt")) or run_attempt,
         html_url=as_str(raw.get("html_url")) or "",
+        started_at=as_str(raw.get("started_at")),
         steps=tuple(
             Step(name=as_str(step.get("name")) or "", conclusion=as_str(step.get("conclusion")))
             for step in as_object_list(raw.get("steps"))
@@ -196,13 +224,18 @@ def job_from_object(raw: JsonObject, run_attempt: int) -> Job:
     )
 
 
-def fetch_jobs(repo: str, run_id: int, run_attempt: int) -> tuple[Job, ...]:
+def fetch_jobs(repo: str, run_id: int, run_attempt: int, *, strict: bool = False) -> tuple[Job, ...]:
     jobs: list[Job] = []
     page = 1
     while True:
         try:
             raw = gh_json(repo, f"actions/runs/{run_id}/attempts/{run_attempt}/jobs?per_page=100&page={page}")
         except ExternalCommandError:
+            # The non-attempt endpoint returns the LATEST attempt, so it can't stand in for an arbitrary
+            # prior attempt. Strict callers need exact rows, so fail closed (drop any partial pages) rather
+            # than return a truncated set or a masquerading attempt.
+            if strict:
+                return ()
             raw = gh_json(repo, f"actions/runs/{run_id}/jobs?per_page=100&page={page}")
         page_jobs = as_object_list(raw.get("jobs"))
         jobs.extend(job_from_object(job, run_attempt) for job in page_jobs)
@@ -211,30 +244,40 @@ def fetch_jobs(repo: str, run_id: int, run_attempt: int) -> tuple[Job, ...]:
         page += 1
 
 
-def deterministic_reason(job: Job) -> str | None:
-    for pattern in DETERMINISTIC_JOB_PATTERNS:
+def deterministic_match(job: Job) -> tuple[str, str] | None:
+    for pattern, failure_class in DETERMINISTIC_JOB_RULES:
         if pattern.search(job.name):
-            return f"job name matches deterministic rule `{pattern.pattern}`"
+            return f"job name matches deterministic rule `{pattern.pattern}`", failure_class
     for step_name in job.failed_step_names():
-        for pattern in DETERMINISTIC_STEP_PATTERNS:
+        for pattern, failure_class in DETERMINISTIC_STEP_RULES:
             if pattern.search(step_name):
-                return f"failed step `{step_name}` matches deterministic rule `{pattern.pattern}`"
+                return f"failed step `{step_name}` matches deterministic rule `{pattern.pattern}`", failure_class
+    return None
+
+
+def test_failure_source(job: Job) -> str | None:
+    if any(pattern.search(job.name) for pattern in TEST_JOB_PATTERNS):
+        return "job_name"
+    if any(pattern.search(step_name) for step_name in job.failed_step_names() for pattern in TEST_STEP_PATTERNS):
+        return "step"
     return None
 
 
 def is_test_job_failure(job: Job) -> bool:
-    if any(pattern.search(job.name) for pattern in TEST_JOB_PATTERNS):
-        return True
-    return any(pattern.search(step_name) for step_name in job.failed_step_names() for pattern in TEST_STEP_PATTERNS)
+    return test_failure_source(job) is not None
 
 
 def classify_job(job: Job) -> Decision:
-    deterministic = deterministic_reason(job)
+    deterministic = deterministic_match(job)
     if deterministic is not None:
-        return Decision(action="skip deterministic", reason=deterministic, job=job)
-    if not is_test_job_failure(job):
+        reason, failure_class = deterministic
+        return Decision(action="skip deterministic", reason=reason, job=job, failure_class=failure_class)
+    source = test_failure_source(job)
+    if source is None:
         return Decision(action="skip non-test", reason="failed job or step is not an allowlisted test runner", job=job)
-    return Decision(action="observe", reason="test job failure tracked for rerun outcome", job=job)
+    return Decision(
+        action="observe", reason="test job failure tracked for rerun outcome", job=job, classified_via=source
+    )
 
 
 def classify_failed_jobs(repo: str, run_id: int, run_attempt: int) -> tuple[Decision, ...]:
@@ -250,6 +293,11 @@ def base_event_properties(repo: str, workflow_run: WorkflowRun) -> JsonObject:
         "run_id": workflow_run.id,
         "run_url": workflow_run.html_url,
         "head_sha": workflow_run.head_sha,
+        "head_branch": workflow_run.head_branch,
+        "pr_number": workflow_run.pr_number,
+        # Master failures block the deploy gate; PR failures only annoy the author — keep them separable.
+        "is_master": workflow_run.head_branch in {"master", "main"},
+        "trigger_event": workflow_run.event,
         # Reuse the project's existing workflow_run group so events roll up per CI run.
         "$groups": {"workflow_run": str(workflow_run.id)},
     }
@@ -264,10 +312,16 @@ def build_decision_events(repo: str, workflow_run: WorkflowRun, decisions: tuple
             {
                 "action": decision.action,
                 "reason": decision.reason,
+                "classified_via": decision.classified_via,
+                "failure_class": decision.failure_class,
                 "job_name": job.name,
                 "job_id": job.id,
                 "job_url": job.html_url,
+                "job_conclusion": job.conclusion,
+                "failed_steps": list(job.failed_step_names()),
                 "run_attempt": job.run_attempt,
+                # Dedupe duplicate workflow_run deliveries so the count panels stay accurate.
+                "$insert_id": f"decision:{workflow_run.id}:{workflow_run.run_attempt}:{job.id}",
             }
         )
         events.append({"event": DECISION_EVENT, "distinct_id": repo, "properties": properties})
@@ -282,33 +336,85 @@ def rerun_outcome_label(conclusion: str | None) -> str:
     return "unknown"
 
 
+def parse_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        # Normalize a trailing `Z` for parsers that don't accept the military-zulu suffix.
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def job_was_reexecuted(prior_job: Job, current_job: Job) -> bool:
+    # A real re-run advances started_at; a carried-over job keeps the prior attempt's value. Compare parsed
+    # instants, not raw strings, so a `+00:00` vs `Z` form can't misorder. Missing/unparseable timestamps
+    # can't prove re-execution, so treat them as not re-run rather than guess.
+    prior = parse_timestamp(prior_job.started_at)
+    current = parse_timestamp(current_job.started_at)
+    if prior is None or current is None:
+        return False
+    return current > prior
+
+
+def rerun_outcome(prior_job: Job, current_job: Job | None) -> str:
+    # `current_job is None` covers a job missing from the current attempt or an ambiguous (duplicated) name.
+    if current_job is None:
+        return "unknown"
+    if not job_was_reexecuted(prior_job, current_job):
+        return "not_rerun"
+    return rerun_outcome_label(current_job.conclusion)
+
+
+def index_unique_jobs_by_name(jobs: tuple[Job, ...]) -> dict[str, Job]:
+    # Job names are unique within an attempt; if one ever repeats, drop it so an ambiguous match becomes
+    # `unknown` instead of silently picking the wrong row.
+    by_name: dict[str, Job] = {}
+    ambiguous: set[str] = set()
+    for job in jobs:
+        if job.name in by_name:
+            ambiguous.add(job.name)
+        by_name[job.name] = job
+    for name in ambiguous:
+        by_name.pop(name, None)
+    return by_name
+
+
 def report_rerun_outcomes(repo: str, workflow_run: WorkflowRun) -> list[JsonObject]:
     # Outcomes only exist once a re-run attempt has completed. Find the test-job failures from the prior
     # attempt, then read how they concluded this attempt — the base-rate signal: do reruns clear flakes?
     if workflow_run.run_attempt <= 1:
         return []
     prior_attempt = workflow_run.run_attempt - 1
-    observed = {
-        decision.job.name
-        for decision in classify_failed_jobs(repo, workflow_run.id, prior_attempt)
-        if decision.action == "observe"
+    # Fetch the prior attempt strict: the non-attempt fallback returns the LATEST attempt, which would alias
+    # as "prior" and collapse the started_at re-execution check. The current attempt IS the latest, so it
+    # keeps the fallback (the non-attempt endpoint returns it correctly). Both sides dedupe ambiguous names.
+    prior_observed = {
+        name: job
+        for name, job in index_unique_jobs_by_name(
+            fetch_jobs(repo, workflow_run.id, prior_attempt, strict=True)
+        ).items()
+        if job.conclusion in {"failure", "timed_out"} and classify_job(job).action == "observe"
     }
-    if not observed:
+    if not prior_observed:
         return []
-    current_conclusions = {
-        job.name: job.conclusion for job in fetch_jobs(repo, workflow_run.id, workflow_run.run_attempt)
-    }
+    current_by_name = index_unique_jobs_by_name(fetch_jobs(repo, workflow_run.id, workflow_run.run_attempt))
     events: list[JsonObject] = []
-    for job_name in sorted(observed):
-        conclusion = current_conclusions.get(job_name)
+    for job_name in sorted(prior_observed):
+        prior_job = prior_observed[job_name]
+        current_job = current_by_name.get(job_name)
         properties = base_event_properties(repo, workflow_run)
         properties.update(
             {
-                "outcome": rerun_outcome_label(conclusion),
-                "current_conclusion": conclusion,
+                "outcome": rerun_outcome(prior_job, current_job),
+                "current_conclusion": current_job.conclusion if current_job else None,
+                "prior_conclusion": prior_job.conclusion,
                 "job_name": job_name,
+                "failed_steps": list(prior_job.failed_step_names()),
                 "prior_attempt": prior_attempt,
                 "attempt": workflow_run.run_attempt,
+                # Dedupe duplicate workflow_run deliveries so the base-rate counts stay accurate.
+                "$insert_id": f"outcome:{workflow_run.id}:{workflow_run.run_attempt}:{job_name}",
             }
         )
         events.append({"event": OUTCOME_EVENT, "distinct_id": repo, "properties": properties})

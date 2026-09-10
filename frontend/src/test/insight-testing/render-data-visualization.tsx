@@ -1,6 +1,5 @@
 import { render } from '@testing-library/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -11,6 +10,7 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { initKeaTests } from '../init'
+import { setupInsightMocks, type SetupMocksOptions } from './mocks'
 
 export const DATA_VIZ_TEST_KEY = 'sql-test-harness'
 
@@ -51,18 +51,18 @@ export interface RenderDataVisualizationProps {
     query?: DataVisualizationNode
     /** Row-major fixture, fed in via `cachedResults` to skip the network. */
     response: DataVizFixture
-    /** Defaults to `{ 'product-analytics-quill-sql-charts': true }`; merge in more or override. */
     featureFlags?: Record<string, string | boolean>
     readOnly?: boolean
     embedded?: boolean
     context?: QueryContext<DataVisualizationNode>
+    mocks?: SetupMocksOptions
 }
 
 /** Mount a SQL insight (`DataVisualizationNode`) the way the real scene does — through
- *  `DataTableVisualization` → `dataVisualizationLogic` → `LineGraph` → the flag-gated quill
- *  chart — with the query result injected via `cachedResults` so nothing hits the network. */
+ *  `DataTableVisualization` → `dataVisualizationLogic` → `SqlChart` → the quill chart — with
+ *  the query result injected via `cachedResults` so nothing hits the network. */
 export function renderDataVisualization(props: RenderDataVisualizationProps): ReturnType<typeof render> {
-    const featureFlags = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]: true, ...props.featureFlags }
+    const featureFlags = props.featureFlags ?? {}
 
     initKeaTests()
     actionsModel.mount()
@@ -71,6 +71,8 @@ export function renderDataVisualization(props: RenderDataVisualizationProps): Re
     const ffLogic = featureFlagLogic()
     ffLogic.mount()
     ffLogic.actions.setFeatureFlags(Object.keys(featureFlags), featureFlags)
+
+    setupInsightMocks(props.mocks)
 
     const cachedResults = buildHogQLResponse(props.response)
 

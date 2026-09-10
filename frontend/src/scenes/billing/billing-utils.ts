@@ -1,10 +1,10 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
-import Papa from 'papaparse'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { compactNumber } from 'lib/utils/numbers'
 import { membershipLevelToName } from 'lib/utils/permissioning'
@@ -13,15 +13,22 @@ import { Params } from 'scenes/sceneTypes'
 
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
-import { USAGE_TYPES } from './constants'
-import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
+import { billingProductDisplayName } from './billingProductDisplayName'
+import { SPEND_TYPES, USAGE_TYPES } from './constants'
+import type { BillingFilters, BillingUsageInteractionProps } from './types'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 export const isProductVariantPrimary = (productType: string): boolean =>
-    ['session_replay', 'realtime_destinations', 'data_warehouse', 'workflows_emails'].includes(productType)
+    ['session_replay', 'realtime_destinations', 'data_warehouse', 'workflows_emails', 'logs'].includes(productType)
 
 export const isProductVariantSecondary = (productType: string): boolean =>
-    ['mobile_replay', 'batch_exports', 'data_warehouse_historical', 'workflows_destinations'].includes(productType)
+    [
+        'mobile_replay',
+        'batch_exports',
+        'data_warehouse_historical',
+        'workflows_destinations',
+        'logs_retention_30d',
+    ].includes(productType)
 
 export const calculateFreeTier = (product: BillingProductV2Type | BillingProductV2AddonType): number => {
     // If subscribed and has tiers, check if the first tier is free
@@ -88,6 +95,14 @@ export const summarizeUsage = (usage: number | null): string => {
         return ''
     }
     return compactNumber(usage)
+}
+
+export const isUsageAtOrOverLimit = (percentageUsage: number | null | undefined): boolean => {
+    return (percentageUsage ?? 0) >= 1
+}
+
+export const isUsageApproachingLimit = (percentageUsage: number | null | undefined, threshold: number): boolean => {
+    return (percentageUsage ?? 0) > threshold && !isUsageAtOrOverLimit(percentageUsage)
 }
 
 /**
@@ -442,6 +457,39 @@ export function canAccessBilling(membershipLevel: number | null | undefined, own
     return membershipLevel >= getMinimumBillingAccessLevel(ownerOnlyBilling)
 }
 
+/** Whether the member-level read grant for usage and spend is in effect. */
+export function isMemberUsageSpendReadAccessEnabled(featureFlags: FeatureFlagsSet): boolean {
+    return !!featureFlags[FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]
+}
+
+/**
+ * Returns the minimum membership level required for read-only access to the billing usage/spend tabs.
+ * The member-billing-usage-spend-read-access feature flag lowers it to Member, but owner-only-billing takes precedence.
+ */
+export function getMinimumUsageSpendReadAccessLevel(
+    memberUsageSpendReadAccess: boolean,
+    ownerOnlyBilling: boolean
+): OrganizationMembershipLevel {
+    if (ownerOnlyBilling) {
+        return OrganizationMembershipLevel.Owner
+    }
+    return memberUsageSpendReadAccess ? OrganizationMembershipLevel.Member : OrganizationMembershipLevel.Admin
+}
+
+/**
+ * Determines if the user can view the read-only billing usage/spend tabs based on their org membership level.
+ */
+export function canViewUsageAndSpend(
+    membershipLevel: number | null | undefined,
+    memberUsageSpendReadAccess: boolean,
+    ownerOnlyBilling: boolean
+): boolean {
+    if (!membershipLevel) {
+        return false
+    }
+    return membershipLevel >= getMinimumUsageSpendReadAccessLevel(memberUsageSpendReadAccess, ownerOnlyBilling)
+}
+
 /**
  * Synchronizes URL search parameters with billing filter state.
  * Returns the appropriate router action format for kea-router.
@@ -479,10 +527,11 @@ export function buildTrackingProperties(
     values: {
         filters: BillingFilters
         dateFrom: string
-        dateTo: string
+        dateTo: string | null
         excludeEmptySeries: boolean
         teamOptions: { key: string; label: string }[]
-    }
+    },
+    usageTypesTotal: number = USAGE_TYPES.length
 ): BillingUsageInteractionProps {
     return {
         action,
@@ -491,13 +540,29 @@ export function buildTrackingProperties(
         date_to: values.dateTo,
         exclude_empty: values.excludeEmptySeries,
         usage_types_count: values.filters.usage_types?.length || 0,
-        usage_types_total: USAGE_TYPES.length,
+        usage_types_total: usageTypesTotal,
         teams_count: values.filters.team_ids?.length || 0,
         teams_total: values.teamOptions.length,
         has_team_breakdown: (values.filters.breakdowns || []).includes('team'),
         interval: values.filters.interval || 'day',
     }
 }
+
+export const buildSpendTrackingProperties = (
+    action: BillingUsageInteractionProps['action'],
+    values: Parameters<typeof buildTrackingProperties>[1]
+): BillingUsageInteractionProps => buildTrackingProperties(action, values, getSpendTypeOptions().length)
+
+export const getUsageTypeOptions = (): { key: string; label: string }[] =>
+    USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))
+
+export const getSpendTypeOptions = (): { key: string; label: string }[] =>
+    SPEND_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))
+
+const SPEND_TYPE_VALUES = new Set<string>(SPEND_TYPES.map((option) => option.value))
+
+export const filterSpendUsageTypes = (usageTypes: string[] | undefined): string[] =>
+    usageTypes?.filter((usageType) => SPEND_TYPE_VALUES.has(usageType)) ?? []
 
 export const isAddonVisible = (
     product: BillingProductV2Type,
@@ -527,21 +592,22 @@ export const isAddonVisible = (
  * Calculate billing period markers for a given date range
  * @param billingPeriodUTC - The billing period with UTC dates (start, end, interval)
  * @param dateFrom - Start date string (can be relative like '30d' or absolute)
- * @param dateTo - End date string
+ * @param dateTo - End date string, or null for a range that has no end yet
  * @returns Array of billing period markers
  */
 export function calculateBillingPeriodMarkers(
     billingPeriodUTC: BillingPeriod,
     dateFrom: string,
-    dateTo: string
+    dateTo: string | null
 ): Array<{ date: dayjs.Dayjs }> {
     if (!billingPeriodUTC?.start || !billingPeriodUTC?.interval) {
         return []
     }
 
-    // Convert user dates to UTC for comparison with billingPeriodUTC
+    // Convert user dates to UTC for comparison with billingPeriodUTC. An open-ended range runs
+    // to today.
     const from = dateStringToDayJs(dateFrom)?.utc() || dayjs(dateFrom).utc()
-    const to = dateStringToDayJs(dateTo)?.utc() || dayjs(dateTo).utc()
+    const to = dateTo ? dateStringToDayJs(dateTo)?.utc() || dayjs(dateTo).utc() : dayjs().utc()
     const interval = billingPeriodUTC.interval
 
     // Find the first period start that could be visible
@@ -564,8 +630,6 @@ export function calculateBillingPeriodMarkers(
     return markers
 }
 
-const sumSeries = (values: number[]): number => values.reduce((sum, v) => sum + v, 0)
-
 /**
  * Keep up to N decimals without trailing zeros.
  * Falls back to 10 decimals for very small numbers if not specified.
@@ -582,34 +646,6 @@ export const formatWithDecimals = (value: number, decimals?: number): string => 
 }
 
 /**
- * Build CSV from the billing usage and spend data:
- * - columns are [Series, Total, ...dates]
- * - rows are visible series (products and/or projects)
- * - sorted by total desc
- * Values can be clamped to N decimals via options.decimals.
- */
-export function buildBillingCsv(params: {
-    series: BillingSeriesForCsv[]
-    dates: string[]
-    hiddenSeries?: number[]
-    options?: BuildBillingCsvOptions
-}): string {
-    const { series, dates, hiddenSeries = [], options } = params
-
-    const visible = series.filter((s) => !hiddenSeries.includes(s.id))
-    const withTotalSorted = visible.map((s) => ({ ...s, total: sumSeries(s.data) })).sort((a, b) => b.total - a.total)
-
-    const header = ['Series', 'Total', ...dates]
-    const rows = withTotalSorted.map((s) => [
-        s.label,
-        formatWithDecimals(s.total, options?.decimals),
-        ...s.data.map((v) => formatWithDecimals(v, options?.decimals)),
-    ])
-
-    return Papa.unparse([header, ...rows])
-}
-
-/**
  * Build a human-readable list of product names (e.g., "A, B and C")
  */
 export function formatProductNames(names: string[]): string {
@@ -623,7 +659,7 @@ export function formatProductNames(names: string[]): string {
 }
 
 /**
- * Get the consequence message for a product when it exceeds its usage limit
+ * Get the consequence message for a product when it reaches its usage limit
  */
 export function getUsageLimitConsequence(productName: string): string {
     if (productName === 'Data warehouse') {
@@ -635,14 +671,17 @@ export function getUsageLimitConsequence(productName: string): string {
     if (productName === 'PostHog AI') {
         return 'PostHog AI will be unavailable'
     }
+    if (productName === 'Self-driving inbox') {
+        return 'self-driving agents will be paused'
+    }
     return 'data loss may occur'
 }
 
 /**
- * Build a consolidated message for products that have exceeded their usage limits
+ * Build a consolidated message for products that have reached their usage limits
  */
-export function buildUsageLimitExceededMessage(
-    products: Array<{ name: string; subscribed: boolean | null }>,
+export function buildUsageLimitReachedMessage(
+    products: Array<{ type?: string | null; name: string; subscribed: boolean | null }>,
     hasBillingAccess: boolean = true,
     minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
 ): {
@@ -653,11 +692,11 @@ export function buildUsageLimitExceededMessage(
         return { title: '', message: '' }
     }
 
-    const productNames = products.map((p) => p.name)
+    const productNames = products.map(billingProductDisplayName)
     const allSubscribed = products.every((p) => p.subscribed === true)
 
     // Build consequence message, deduplicating common consequences
-    const consequences = [...new Set(products.map((p) => getUsageLimitConsequence(p.name)))]
+    const consequences = [...new Set(productNames.map(getUsageLimitConsequence))]
 
     const productListText = formatProductNames(productNames)
     const consequenceText = consequences.join(' and ')
@@ -673,8 +712,8 @@ export function buildUsageLimitExceededMessage(
     }
 
     return {
-        title: products.length === 1 ? 'Usage limit exceeded' : 'Usage limits exceeded',
-        message: `You have exceeded the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
+        title: products.length === 1 ? 'Usage limit reached' : 'Usage limits reached',
+        message: `You have reached the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
     }
 }
 
@@ -683,6 +722,7 @@ export function buildUsageLimitExceededMessage(
  */
 export function buildUsageLimitApproachingMessage(
     products: Array<{
+        type?: string | null
         name: string
         percentage_usage: number
         usage_key?: string | null
@@ -696,8 +736,8 @@ export function buildUsageLimitApproachingMessage(
 
     const usageDetails = products.map((p) => {
         const percentage = parseFloat((p.percentage_usage * 100).toFixed(2))
-        const usageKey = p.usage_key?.toLowerCase() || 'usage'
-        return `${percentage}% of your ${usageKey} allocation`
+        const productName = (p.name && billingProductDisplayName(p)) || p.usage_key?.toLowerCase() || 'usage'
+        return `${percentage}% of your ${productName} allocation`
     })
 
     const roleName = membershipLevelToName.get(minimumBillingAccessLevel)
@@ -711,5 +751,36 @@ export function buildUsageLimitApproachingMessage(
     return {
         title: products.length === 1 ? 'You will soon hit your usage limit' : 'You will soon hit your usage limits',
         message,
+    }
+}
+
+/**
+ * Whether a project selection covers every project there is, in which case it is not a filter.
+ *
+ * Sending it as one puts every project id into the query string and into the URL the person is
+ * looking at. Omitting it means the same thing, because the API treats an absent project filter
+ * as every project.
+ */
+export function selectionCoversEveryProject(teamIds: number[] | undefined, options: { key: string }[]): boolean {
+    if (!teamIds?.length || !options.length) {
+        return false
+    }
+    const selected = new Set(teamIds.map(String))
+    return options.every((option) => selected.has(option.key))
+}
+
+/**
+ * What the page says when billing refuses or cancels a breakdown. Billing's own `detail` is
+ * written for API callers - it talks about paging - so the page carries its own sentence per
+ * code and falls back to billing's text for a code it does not know.
+ */
+export function billingErrorGuidance(error: { code: string; detail: string }): string {
+    switch (error.code) {
+        case 'usage_query_timeout':
+            return 'This took too long to load. Select fewer projects or products, choose a shorter date range, or export it instead.'
+        case 'usage_breakdown_too_large':
+            return 'This breakdown is too large to show at once. Select fewer projects or products, choose a shorter date range or a coarser interval, or export it instead - an export streams, so it has no such limit.'
+        default:
+            return error.detail
     }
 }

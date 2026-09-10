@@ -30,6 +30,29 @@ describe('MCP HTTP entry point (Cloudflare Workers)', () => {
             const body = (await response.json()) as Record<string, unknown>
             expect(body.resource).toBe('https://mcp.posthog.com/sse')
         })
+
+        it('allows CORS from PostHog app origins for consent-page metadata fetch', async () => {
+            const response = await SELF.fetch('https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp', {
+                headers: { Origin: 'https://us.posthog.com' },
+            })
+
+            expect(response.status).toBe(200)
+            expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://us.posthog.com')
+            expect(response.headers.get('Vary')).toBe('Origin')
+        })
+
+        it('answers OPTIONS preflight for PostHog app origins', async () => {
+            const response = await SELF.fetch('https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp', {
+                method: 'OPTIONS',
+                headers: {
+                    Origin: 'https://us.posthog.com',
+                    'Access-Control-Request-Method': 'GET',
+                },
+            })
+
+            expect(response.status).toBe(204)
+            expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://us.posthog.com')
+        })
     })
 
     describe('Authentication challenges', () => {

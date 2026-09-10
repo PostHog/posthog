@@ -1,24 +1,41 @@
 import json
 import uuid
-import secrets
+from datetime import UTC, datetime
 from typing import ClassVar
 
 from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
 from django.test import TestCase
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
 from posthog.models import Integration, Organization, Team
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import CodeInvite, SandboxEnvironment, SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.models import (
+    MAX_PENDING_FOLLOWUP_CONTENT_CHARS,
+    MAX_PENDING_FOLLOWUP_MESSAGES,
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    SandboxEnvironment,
+    SandboxSnapshot,
+    Task,
+    TaskOwnershipChangedError,
+    TaskRun,
+    TaskThreadMessage,
+    bump_task_activity,
+)
+
+# Far enough back that any bump is unambiguously forward, and stable so a test can assert the
+# clock did *not* move.
+STALE_ACTIVITY_AT = datetime(2020, 1, 1, tzinfo=UTC)
 
 
 class TestTask(TestCase):
@@ -51,19 +68,46 @@ class TestTask(TestCase):
         self.assertEqual(task.description, "Test Description")
         self.assertEqual(task.origin_product, origin_product)
 
+    @parameterized.expand(
+        [
+            ("missing_cloud", "", TaskRun.Environment.CLOUD, False),
+            ("unknown_default_cloud", "unknown", None, False),
+            ("retired_local", "automation", TaskRun.Environment.LOCAL, True),
+        ]
+    )
+    def test_create_run_rejects_invalid_origin_product_only_in_cloud(
+        self, _name, origin_product, environment, expected_run
+    ):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Test Description",
+            origin_product=origin_product,
+        )
+
+        if expected_run:
+            run = task.create_run(environment=environment)
+            self.assertEqual(run.environment, TaskRun.Environment.LOCAL)
+        else:
+            with self.assertRaisesRegex(ValueError, "unsupported origin"):
+                task.create_run(environment=environment)
+
+        self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_run)
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_minimal(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        task = Task.create_and_run(
-            team=self.team,
-            title="Test Create and Run",
-            description="Test Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            repository="posthog/posthog",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Test Create and Run",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
 
         self.assertIsNotNone(task.id)
         self.assertEqual(task.title, "Test Create and Run")
@@ -84,75 +128,205 @@ class TestTask(TestCase):
         self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_threads_github_read_access_into_state(self, mock_execute_workflow):
+        from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+            TaskProcessingContext,
+        )
+
+        user = User.objects.create(email="test@test.com")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Scout run",
+                description="repo-less run wanting gh evidence access",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                github_read_access=True,
+            )
+
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        # Provisioning reads the flag back only through this property — the writer and reader agree
+        # on nothing but the state key, and a drift on either side silently drops the token.
+        ctx = TaskProcessingContext(
+            task_id="t",
+            run_id="r",
+            team_id=1,
+            team_uuid="u",
+            organization_id="o",
+            github_integration_id=None,
+            repository=None,
+            distinct_id="d",
+            state=state,
+        )
+        self.assertTrue(ctx.github_read_access)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Plain run",
+                description="no gh access requested",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+            )
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertNotIn("github_read_access", state)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_initial_permission_mode_into_state(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        task = Task.create_and_run(
-            team=self.team,
-            title="Slack Task",
-            description="Slack Description",
-            origin_product=Task.OriginProduct.SLACK,
-            user_id=user.id,
-            repository="posthog/posthog",
-            initial_permission_mode="bypassPermissions",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Slack Task",
+                description="Slack Description",
+                origin_product=Task.OriginProduct.SLACK,
+                user_id=user.id,
+                repository="posthog/posthog",
+                runtime=Task.Runtime.PI,
+                initial_permission_mode="bypassPermissions",
+            )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
         self.assertEqual(task_run.state["initial_permission_mode"], "bypassPermissions")
+        self.assertEqual(task.runtime, Task.Runtime.PI)
         self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_threads_ai_stage_into_state(self, mock_execute_workflow):
+    def test_create_and_run_threads_attribution_stamps_into_state(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        Task.create_and_run(
-            team=self.team,
-            title="Signal Task",
-            description="Signal Description",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            user_id=user.id,
-            repository="posthog/posthog",
-            ai_stage="research",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Signal Task",
+                description="Signal Description",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                repository="posthog/posthog",
+                ai_stage="research",
+                ai_agent_name="signals-scout-errors",
+            )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
         self.assertEqual(task_run.state["ai_stage"], "research")
+        self.assertEqual(task_run.state["ai_agent_name"], "signals-scout-errors")
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_omits_ai_stage_when_not_provided(self, mock_execute_workflow):
+    def test_create_and_run_omits_attribution_stamps_when_not_provided(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        Task.create_and_run(
-            team=self.team,
-            title="Plain Task",
-            description="Plain Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            repository="posthog/posthog",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Plain Task",
+                description="Plain Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
         self.assertNotIn("ai_stage", task_run.state)
+        self.assertNotIn("ai_agent_name", task_run.state)
+
+    def test_create_run_stamps_inbox_on_a_report_linked_signal_report_task(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = Task.objects.create(
+            team=self.team,
+            title="Discuss report",
+            description="From the Inbox",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+
+        run = task.create_run(mode="interactive")
+
+        self.assertEqual(run.state["ai_stage"], "inbox")
+
+    def test_create_run_leaves_a_bare_signal_report_task_unstamped(self):
+        # The origin is client-settable; only the report link proves an Inbox run.
+        task = Task.objects.create(
+            team=self.team,
+            title="Bare signal_report",
+            description="No report link",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+        run = task.create_run(mode="interactive")
+
+        self.assertNotIn("ai_stage", run.state)
+
+    def test_create_run_keeps_the_pipeline_stage_over_the_interactive_stamp(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = Task.objects.create(
+            team=self.team,
+            title="Auto-started implementation",
+            description="Pipeline",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+
+        run = task.create_run(extra_state={"ai_stage": "implementation"})
+
+        self.assertEqual(run.state["ai_stage"], "implementation")
+
+    def test_create_run_leaves_a_pipeline_created_task_unstamped(self):
+        # Stamping a pipeline-created task would move a rerun of self-driving work onto the
+        # interactive cap.
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = Task.objects.create(
+            team=self.team,
+            title="Auto-started implementation",
+            description="Pipeline",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+            internal=True,
+        )
+
+        run = task.create_run(mode="interactive")
+
+        self.assertNotIn("ai_stage", run.state)
+
+    def test_create_run_stamps_chat_on_a_signals_chat_task(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Suggest a scout",
+            description="Chat",
+            origin_product=Task.OriginProduct.SIGNALS_CHAT,
+        )
+
+        run = task.create_run(mode="interactive")
+
+        self.assertEqual(run.state["ai_stage"], "chat")
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_omits_permission_mode_when_not_provided(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        Task.create_and_run(
-            team=self.team,
-            title="Plain Task",
-            description="Plain Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            repository="posthog/posthog",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Plain Task",
+                description="Plain Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
@@ -163,14 +337,15 @@ class TestTask(TestCase):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        task = Task.create_and_run(
-            team=self.team,
-            title="Test Task",
-            description="Test Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            repository="posthog/posthog-js",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog-js",
+            )
 
         self.assertEqual(task.repository, "posthog/posthog-js")
 
@@ -198,14 +373,15 @@ class TestTask(TestCase):
     def test_create_and_run_public_repo_without_integration(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
 
-        task = Task.create_and_run(
-            team=self.team,
-            title="Test Task",
-            description="Test Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            repository="posthog/hedgebox",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/hedgebox",
+            )
 
         self.assertEqual(task.repository, "posthog/hedgebox")
         self.assertIsNone(task.github_integration)
@@ -233,25 +409,31 @@ class TestTask(TestCase):
         user = User.objects.create(email="test@test.com")
         integration = Integration.objects.create(team=self.team, kind="github", config={})
 
-        task = Task.create_and_run(
-            team=self.team,
-            title="Test Task",
-            description="Test Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            repository="posthog/posthog",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
 
         self.assertEqual(task.github_integration, integration)
         mock_execute_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_signal_report_falls_back_to_user_integration(self, mock_execute_workflow):
-        # Signal reports are BOT-authored. When the team has no Integration row but the task
-        # creator has a UserIntegration that grants access to the repo, we should accept it
-        # instead of raising "Team does not have a GitHub integration".
+        # Signal reports are BOT-authored. A broken team installation must not override the
+        # healthy user integration that repository selection used for the report.
         user = User.objects.create(email="signal-report@test.com")
         OrganizationMembership.objects.create(user=user, organization=self.organization)
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            errors=ERROR_TOKEN_REFRESH_FAILED,
+            config={"installation_unavailable_since": 1},
+        )
         user_integration = UserIntegration.objects.create(
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
@@ -261,14 +443,15 @@ class TestTask(TestCase):
             repository_cache=[{"full_name": "posthog/posthog", "id": 1}],
         )
 
-        task = Task.create_and_run(
-            team=self.team,
-            title="Signal Report",
-            description="Research",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            user_id=user.id,
-            repository="posthog/posthog",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Signal Report",
+                description="Research",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
 
         self.assertIsNone(task.github_integration)
         self.assertEqual(task.github_user_integration, user_integration)
@@ -347,6 +530,29 @@ class TestTask(TestCase):
         self.assertTrue(task.deleted)
         self.assertIsNotNone(task.deleted_at)
 
+    def test_unclaimed_prewarm_cleanup_does_not_overwrite_claimed_task(self) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            state={"prewarmed": True, "await_user_message": True},
+        )
+        Task.objects.filter(pk=task.pk).update(title="Claimed task", description="User prompt")
+
+        cleaned_up = task.soft_delete_if_unclaimed_prewarm(run)
+
+        task.refresh_from_db()
+        self.assertFalse(cleaned_up)
+        self.assertFalse(task.deleted)
+        self.assertEqual(task.title, "Claimed task")
+        self.assertEqual(task.description, "User prompt")
+
     def test_hard_delete_blocked(self):
         task = Task.objects.create(
             team=self.team,
@@ -397,6 +603,120 @@ class TestTask(TestCase):
 
         task.refresh_from_db()
         self.assertTrue(task.internal)
+
+
+class TestTaskActivityClock(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create_user(email="activity@example.com", first_name="Test", password="password")
+
+    def _task(self) -> Task:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        Task.objects.filter(id=task.id).update(last_activity_at=STALE_ACTIVITY_AT, updated_at=STALE_ACTIVITY_AT)
+        task.refresh_from_db()
+        return task
+
+    def test_thread_message_moves_the_clock_without_touching_updated_at(self):
+        task = self._task()
+
+        with team_scope(self.team.id):
+            TaskThreadMessage.objects.create(
+                team=self.team, task=task, author=self.user, content="Any news?", author_kind="human"
+            )
+
+        task.refresh_from_db()
+        assert task.last_activity_at is not None
+        self.assertGreater(task.last_activity_at, STALE_ACTIVITY_AT)
+        self.assertEqual(task.updated_at, STALE_ACTIVITY_AT)
+
+    @parameterized.expand(
+        [
+            ("status", ["status"], True),
+            ("output", ["output"], True),
+            ("completed_at", ["completed_at"], True),
+            ("bookkeeping", ["active_task_session"], False),
+            ("whole row", None, True),
+        ]
+    )
+    def test_run_write_moves_the_clock_only_when_the_run_did_something(self, _name, update_fields, expected_move):
+        task = self._task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        Task.objects.filter(id=task.id).update(last_activity_at=STALE_ACTIVITY_AT)
+
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=update_fields)
+
+        task.refresh_from_db()
+        assert task.last_activity_at is not None
+        self.assertEqual(task.last_activity_at > STALE_ACTIVITY_AT, expected_move)
+
+    def test_the_clock_never_runs_backwards(self):
+        task = self._task()
+        latest = django_timezone.now()
+        Task.objects.filter(id=task.id).update(last_activity_at=latest)
+
+        bump_task_activity(team_id=self.team.id, task_id=task.id, at=STALE_ACTIVITY_AT)
+
+        task.refresh_from_db()
+        self.assertEqual(task.last_activity_at, latest)
+
+
+class TestTaskSlackPrNotification(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+
+    def test_mark_slack_pr_notified_records_overrides_and_persists(self):
+        # Records the announced PR, overrides on a new one, and survives a reload.
+        task = self._task()
+        self.assertIsNone(task.slack_notified_pr_url)
+
+        pr_1 = "https://github.com/org/repo/pull/1"
+        pr_2 = "https://github.com/org/repo/pull/2"
+        task.mark_slack_pr_notified(pr_1)
+        self.assertEqual(task.slack_notified_pr_url, pr_1)
+
+        task.mark_slack_pr_notified(pr_2)
+        self.assertEqual(task.slack_notified_pr_url, pr_2)
+
+        task.refresh_from_db()
+        self.assertEqual(task.slack_notified_pr_url, pr_2)
+
+    def test_mark_slack_pr_notified_preserves_other_state_keys(self):
+        # It's a merge into the shared state bag, not a wholesale write.
+        task = self._task()
+        task.state = {"unrelated": "keep-me"}
+        task.save(update_fields=["state"])
+
+        task.mark_slack_pr_notified("https://github.com/org/repo/pull/1")
+
+        task.refresh_from_db()
+        self.assertEqual(task.state["unrelated"], "keep-me")
+        self.assertEqual(task.slack_notified_pr_url, "https://github.com/org/repo/pull/1")
 
 
 class TestTaskSlug(TestCase):
@@ -532,7 +852,8 @@ class TestTaskRun(TestCase):
 
     @patch("products.tasks.backend.models.publish_task_run_stream_event")
     def test_create_run_seeds_stream_state_event(self, mock_publish_stream_event):
-        run = self.task.create_run(branch="main")
+        with self.captureOnCommitCallbacks(execute=True):
+            run = self.task.create_run(branch="main")
 
         mock_publish_stream_event.assert_called_once()
         call_args = mock_publish_stream_event.call_args
@@ -545,6 +866,126 @@ class TestTaskRun(TestCase):
         run = self.task.create_run(mode="interactive")
 
         self.assertNotIn("initial_permission_mode", run.state)
+
+    def test_create_run_snapshots_task_ownership_version(self):
+        ownership_version = str(uuid.uuid4())
+        self.task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: ownership_version}
+        self.task.save(update_fields=["state", "updated_at"])
+
+        run = self.task.create_run()
+
+        self.assertEqual(run.ownership_version, ownership_version)
+        self.assertTrue(run.matches_task_ownership(self.task))
+
+    def test_create_run_rejects_stale_task_ownership(self):
+        original_owner = User.objects.create_user(
+            email="original@example.com", first_name="Original", password="password"
+        )
+        new_owner = User.objects.create_user(email="new@example.com", first_name="New", password="password")
+        task = Task.objects.create(
+            team=self.team,
+            title="Owned task",
+            created_by=original_owner,
+            state={TASK_OWNERSHIP_VERSION_STATE_KEY: "old-version"},
+        )
+        Task.objects.filter(id=task.id).update(
+            created_by=new_owner,
+            state={TASK_OWNERSHIP_VERSION_STATE_KEY: "new-version"},
+        )
+
+        with self.assertRaises(TaskOwnershipChangedError):
+            task.create_run()
+
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+    def test_create_run_rejects_resume_from_previous_owner(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Transferred task",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            state={TASK_OWNERSHIP_VERSION_STATE_KEY: "current-version"},
+        )
+        previous_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, state={})
+
+        with self.assertRaises(TaskOwnershipChangedError):
+            task.create_run(extra_state={"resume_from_run_id": str(previous_run.id)})
+
+    @parameterized.expand(
+        [
+            ("message_only", {"pending_user_message": "Look at this"}, True),
+            ("artifacts_only", {"pending_user_artifact_ids": ["artifact-1"]}, True),
+            ("nothing_pending", {"mode": "interactive"}, False),
+        ]
+    )
+    def test_create_run_stamps_pending_user_message_id(self, _name, extra_state, expects_id):
+        run = self.task.create_run(extra_state=extra_state)
+
+        if expects_id:
+            self.assertIsInstance(run.state["pending_user_message_id"], str)
+            self.assertTrue(run.state["pending_user_message_id"])
+        else:
+            self.assertNotIn("pending_user_message_id", run.state)
+
+    def test_create_run_keeps_a_carried_pending_user_message_id(self):
+        carried_id = str(uuid.uuid4())
+
+        run = self.task.create_run(
+            extra_state={"pending_user_message": "Carried over", "pending_user_message_id": carried_id}
+        )
+
+        self.assertEqual(run.state["pending_user_message_id"], carried_id)
+
+    @parameterized.expand(
+        [
+            ("restaged_message", {"pending_user_message": "Second"}, False),
+            ("unrelated_update", {"sandbox_id": "sandbox-1"}, True),
+        ]
+    )
+    def test_update_state_atomic_refreshes_the_id_only_for_restaged_messages(self, _name, updates, keeps_id):
+        existing_id = str(uuid.uuid4())
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"pending_user_message": "First", "pending_user_message_id": existing_id},
+        )
+
+        state = TaskRun.update_state_atomic(run.id, updates=updates)
+
+        self.assertTrue(state["pending_user_message_id"])
+        self.assertEqual(state["pending_user_message_id"] == existing_id, keeps_id)
+
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_prepare_for_cloud_resume_clears_stale_sandbox_routing(self, _publish):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={
+                "sandbox_id": "old-sandbox",
+                "sandbox_url": "https://old-sandbox.test",
+                "sandbox_jwt_kid": "old-key",
+                "sandbox_connect_token": "old-tunnel-token",
+                "sandbox_backend": "hogland",
+                "snapshot_external_id": "snapshot-1",
+                "pending_user_message": "Review the attachment",
+                "pending_user_artifact_ids": ["artifact-1"],
+            },
+        )
+
+        run.prepare_for_cloud_resume()
+
+        self.assertNotIn("sandbox_id", run.state)
+        self.assertNotIn("sandbox_url", run.state)
+        self.assertNotIn("sandbox_jwt_kid", run.state)
+        self.assertNotIn("sandbox_connect_token", run.state)
+        # The provider stamp must not survive because a stale `hogland` would outrank
+        # the EU guard and Modal-only fallbacks when the resumed run re-resolves.
+        self.assertNotIn("sandbox_backend", run.state)
+        self.assertNotIn("pending_user_message", run.state)
+        self.assertNotIn("pending_user_artifact_ids", run.state)
+        self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")
+        self.assertTrue(run.state["same_run_resume"])
 
     def test_s3_prefixes_keep_existing_logs_and_artifact_paths(self):
         run = TaskRun.objects.create(
@@ -591,6 +1032,42 @@ class TestTaskRun(TestCase):
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
 
+    def test_clear_sandbox_connection_state_atomic_removes_matching_sandbox(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            state={
+                "sandbox_id": "sandbox-123",
+                "sandbox_url": "https://sandbox.example.com",
+                "sandbox_connect_token": "token",
+                "sandbox_jwt_kid": "key",
+                "mode": "interactive",
+            },
+        )
+
+        TaskRun.clear_sandbox_connection_state_atomic(run.id, "sandbox-123")
+
+        run.refresh_from_db()
+        self.assertEqual(run.state, {"mode": "interactive"})
+
+    def test_clear_sandbox_connection_state_atomic_preserves_newer_sandbox(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            state={
+                "sandbox_id": "new-sandbox",
+                "sandbox_url": "https://new-sandbox.example.com",
+                "sandbox_connect_token": "new-token",
+                "sandbox_jwt_kid": "new-key",
+            },
+        )
+
+        TaskRun.clear_sandbox_connection_state_atomic(run.id, "old-sandbox")
+
+        run.refresh_from_db()
+        self.assertEqual(run.state["sandbox_id"], "new-sandbox")
+        self.assertEqual(run.state["sandbox_connect_token"], "new-token")
+
     def test_mutate_state_atomic_can_derive_values_under_lock(self):
         run = TaskRun.objects.create(
             task=self.task,
@@ -607,6 +1084,102 @@ class TestTaskRun(TestCase):
 
         run.refresh_from_db()
         self.assertEqual(run.state["slack_sent_relay_ids"], ["relay-1", "relay-2"])
+
+    @staticmethod
+    def _recorded_ids(run: TaskRun) -> list[str]:
+        return [entry["id"] for entry in run.state.get("pending_followup_messages", [])]
+
+    @staticmethod
+    def _prompt_entries(prompts: list[list[dict]]) -> list[dict]:
+        entries: list[dict] = [{"notification": {"method": "session/update", "params": {}}}]
+        entries.extend(
+            {
+                "type": "notification",
+                "notification": {
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "session/prompt",
+                    "params": {"prompt": blocks},
+                },
+            }
+            for blocks in prompts
+        )
+        return entries
+
+    def test_record_pending_followup_message_is_idempotent_per_message_id(self):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+
+        run.record_pending_followup_message("m1", "retried", accepted_at=django_timezone.now())
+        run.record_pending_followup_message("m1", "retried", accepted_at=django_timezone.now())
+
+        run.refresh_from_db()
+        recorded = run.state["pending_followup_messages"]
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0]["id"], "m1")
+        self.assertEqual(recorded[0]["content"], "retried")
+
+    def test_record_pending_followup_message_caps_the_backlog_keeping_the_newest(self):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+
+        for index in range(MAX_PENDING_FOLLOWUP_MESSAGES + 3):
+            run.record_pending_followup_message(f"m{index}", f"message {index}", accepted_at=django_timezone.now())
+
+        run.refresh_from_db()
+        recorded = self._recorded_ids(run)
+        self.assertEqual(len(recorded), MAX_PENDING_FOLLOWUP_MESSAGES)
+        self.assertEqual(recorded[0], "m3")
+        self.assertEqual(recorded[-1], f"m{MAX_PENDING_FOLLOWUP_MESSAGES + 2}")
+
+    def test_record_pending_followup_message_bounds_the_stored_content(self):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+
+        run.record_pending_followup_message(
+            "m1", "x" * (MAX_PENDING_FOLLOWUP_CONTENT_CHARS + 500), accepted_at=django_timezone.now()
+        )
+
+        run.refresh_from_db()
+        self.assertEqual(len(run.state["pending_followup_messages"][0]["content"]), MAX_PENDING_FOLLOWUP_CONTENT_CHARS)
+
+    @parameterized.expand(
+        [
+            ("visible prompt for one of them", [[{"type": "text", "text": "delivered one"}]], ["m2"]),
+            (
+                "prompt behind a hidden resume preamble",
+                [
+                    [
+                        {"type": "text", "text": "Resuming. History:...", "_meta": {"ui": {"hidden": True}}},
+                        {"type": "text", "text": "delivered one"},
+                    ]
+                ],
+                ["m2"],
+            ),
+            ("no prompt at all", [], ["m1", "m2"]),
+            (
+                "prompt that merely contains the text",
+                [[{"type": "text", "text": "look at delivered one please"}]],
+                ["m1", "m2"],
+            ),
+        ]
+    )
+    def test_clear_echoed_followup_messages(self, _name, prompts, expected_ids):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+        run.record_pending_followup_message("m1", "delivered one", accepted_at=django_timezone.now())
+        run.record_pending_followup_message("m2", "still waiting", accepted_at=django_timezone.now())
+
+        run.clear_echoed_followup_messages(self._prompt_entries(prompts))
+
+        run.refresh_from_db()
+        self.assertEqual(self._recorded_ids(run), expected_ids)
+
+    def test_clear_echoed_followup_messages_retires_one_record_per_prompt(self):
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+        run.record_pending_followup_message("m1", "yes", accepted_at=django_timezone.now())
+        run.record_pending_followup_message("m2", "yes", accepted_at=django_timezone.now())
+
+        run.clear_echoed_followup_messages(self._prompt_entries([[{"type": "text", "text": "yes"}]]))
+
+        run.refresh_from_db()
+        self.assertEqual(self._recorded_ids(run), ["m2"])
 
     def test_append_log_to_empty(self):
         run = TaskRun.objects.create(
@@ -726,13 +1299,36 @@ class TestTaskRun(TestCase):
             status=TaskRun.Status.IN_PROGRESS,
         )
 
-        error_msg = "Something went wrong"
-        run.mark_failed(error_msg)
+        error_msg = "x" * 1400 + "Error: the root cause sits at the tail"
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            run.mark_failed(error_msg, error_type="stale_queued_cleanup")
 
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.FAILED)
         self.assertEqual(run.error_message, error_msg)
         self.assertIsNotNone(run.completed_at)
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
+        self.assertEqual(len(captured), 1)
+        props = captured[0].kwargs["properties"]
+        self.assertEqual(props["error_type"], "stale_queued_cleanup")
+        self.assertEqual(len(props["error_message"]), 500)
+        self.assertTrue(props["error_message"].endswith("Error: the root cause sits at the tail"))
+
+    @parameterized.expand(
+        [
+            ("loop_run", {"loop_id": "loop-abc", "loop_trigger_id": "trig-xyz"}, "loop-abc", "trig-xyz"),
+            ("non_loop_run", {}, None, None),
+        ]
+    )
+    def test_task_run_created_carries_loop_attribution(self, _name, extra_state, expected_loop_id, expected_trigger_id):
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.task.create_run(extra_state=extra_state or None)
+        created = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_created"]
+        self.assertEqual(len(created), 1)
+        props = created[0].kwargs["properties"]
+        self.assertEqual(props["loop_id"], expected_loop_id)
+        self.assertEqual(props["loop_trigger_id"], expected_trigger_id)
 
     def test_output_jsonfield(self):
         run = TaskRun.objects.create(
@@ -989,7 +1585,6 @@ class TestTaskRun(TestCase):
         from django.core.cache import cache
 
         cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
-
         handle = mock_connect.return_value.get_workflow_handle.return_value
         handle.signal = AsyncMock()
 
@@ -1003,6 +1598,22 @@ class TestTaskRun(TestCase):
         self.assertEqual(handle.signal.call_args.kwargs, {"arg": True})
 
         cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
+
+    @parameterized.expand(["agent_command_dispatched", "agent_activity_observed"])
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_signal_agent_boot_milestone(self, milestone, mock_connect):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+        )
+        handle = mock_connect.return_value.get_workflow_handle.return_value
+        handle.signal = AsyncMock()
+
+        dispatched = run.signal_agent_boot_milestone(milestone)
+
+        self.assertTrue(dispatched)
+        handle.signal.assert_awaited_once_with(milestone)
 
 
 class TestSandboxSnapshot(TestCase):
@@ -1354,6 +1965,50 @@ class TestSandboxEnvironment(TestCase):
 
     @parameterized.expand(
         [
+            ("NODE_OPTIONS", True),
+            ("NODE_REPL_EXTERNAL_MODULE", True),
+            ("LD_PRELOAD", True),
+            ("LD_LIBRARY_PATH", True),
+            ("DYLD_INSERT_LIBRARIES", True),
+            ("BASH_ENV", True),
+            ("GIT_SSH_COMMAND", True),
+            ("GIT_CONFIG_KEY_0", True),
+            ("GIT_CONFIG_VALUE_0", True),
+            ("NODE_ENV", False),
+            ("node_options", False),
+            ("MY_API_KEY", False),
+            ("LDAP_URL", False),
+            ("GITHUB_ACTOR", False),
+        ]
+    )
+    def test_is_blocked_sandbox_env_key(self, key, expected_blocked):
+        from products.tasks.backend.constants import is_blocked_sandbox_env_key
+
+        self.assertEqual(is_blocked_sandbox_env_key(key), expected_blocked)
+
+    def test_filter_user_sandbox_env_vars_drops_reserved_and_blocked(self):
+        from products.tasks.backend.constants import filter_user_sandbox_env_vars
+
+        safe, skipped = filter_user_sandbox_env_vars(
+            {
+                "SAFE_VAR": "ok",
+                "NODE_OPTIONS": "--import=evil",
+                "LD_PRELOAD": "/tmp/evil.so",
+                "GITHUB_TOKEN": "stolen",
+                # Forging either would redirect the agent's model calls to an
+                # attacker host, so both must be reserved.
+                "AI_GATEWAY_URL": "https://evil.example.com",
+                "AI_GATEWAY_PRODUCTS": "signals_scout",
+            }
+        )
+        self.assertEqual(safe, {"SAFE_VAR": "ok"})
+        self.assertEqual(
+            sorted(skipped),
+            ["AI_GATEWAY_PRODUCTS", "AI_GATEWAY_URL", "GITHUB_TOKEN", "LD_PRELOAD", "NODE_OPTIONS"],
+        )
+
+    @parameterized.expand(
+        [
             (SandboxEnvironment.NetworkAccessLevel.FULL, [], False, []),
             (SandboxEnvironment.NetworkAccessLevel.TRUSTED, [], False, ["github.com", "api.github.com"]),
             (SandboxEnvironment.NetworkAccessLevel.CUSTOM, ["custom.com"], False, ["custom.com"]),
@@ -1500,42 +2155,3 @@ class TestTaskRunGetSandboxEnvironment(TestCase):
     def test_returns_none_for_malformed_environment_id(self):
         run = self._create_run("not-a-uuid")
         self.assertIsNone(run.get_sandbox_environment())
-
-
-class TestCodeInvite(TestCase):
-    def test_auto_generates_code_on_save(self):
-        invite = CodeInvite.objects.create()
-        self.assertEqual(len(invite.code), 8)
-        self.assertTrue(all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" for c in invite.code))
-
-    def test_preserves_explicit_code(self):
-        invite = CodeInvite.objects.create(code="MYCODE42")
-        self.assertEqual(invite.code, "MYCODE42")
-
-    def test_retries_on_code_collision(self):
-        existing = CodeInvite.objects.create(code="AAAAAAAA")
-        self.assertEqual(existing.code, "AAAAAAAA")
-
-        call_count = 0
-        original_choice = secrets.choice
-
-        def mock_choice(alphabet):
-            nonlocal call_count
-            call_count += 1
-            # First 8 calls (first attempt) return "A" to collide, rest are random
-            if call_count <= 8:
-                return "A"
-            return original_choice(alphabet)
-
-        with patch("products.tasks.backend.models.secrets.choice", side_effect=mock_choice):
-            invite = CodeInvite.objects.create()
-
-        self.assertNotEqual(invite.code, "AAAAAAAA")
-        self.assertEqual(len(invite.code), 8)
-
-    def test_raises_after_max_retries(self):
-        CodeInvite.objects.create(code="BBBBBBBB")
-
-        with patch("products.tasks.backend.models.secrets.choice", return_value="B"):
-            with self.assertRaises(IntegrityError):
-                CodeInvite.objects.create()

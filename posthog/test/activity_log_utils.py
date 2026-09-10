@@ -12,6 +12,8 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.test.insight_queries import default_pageview_query
+
 from ee.api.test.base import APILicensedTest
 
 if TYPE_CHECKING:
@@ -95,12 +97,10 @@ class ActivityLogTestHelper(APILicensedTest):
     # Group
     def create_group(self, group_type_index: int = 0, group_key: Optional[str] = None, **kwargs) -> dict[str, Any]:
         """Create a group via API."""
-        # First ensure group type exists
-        from posthog.models.group_type_mapping import GroupTypeMapping
+        # First ensure group type exists (seeds the personhog fake, no persons DB write)
+        from posthog.test.persons import create_group_type_mapping
 
-        GroupTypeMapping.objects.get_or_create(
-            team=self.team, group_type_index=group_type_index, defaults={"group_type": "organization"}
-        )
+        create_group_type_mapping(team=self.team, group_type_index=group_type_index, group_type="organization")
 
         if not group_key:
             group_key = f"org:{uuid4()}"
@@ -127,7 +127,7 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create an insight via API."""
         data = {
             "name": name,
-            "filters": {"events": [{"id": "$pageview"}], "display": "ActionsLineGraph"},
+            "query": default_pageview_query(),
             "description": "Test insight description",
             **kwargs,
         }
@@ -757,7 +757,11 @@ class ActivityLogTestHelper(APILicensedTest):
         data = {
             "name": name,
             "description": "Test saved metric",
-            "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            "query": {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/experiment_saved_metrics/", data, format="json")
@@ -852,12 +856,15 @@ class ActivityLogTestHelper(APILicensedTest):
 
         # Mock the Stripe validation to avoid needing real credentials
         with (
-            patch("posthog.temporal.data_imports.sources.stripe.stripe.validate_credentials", return_value=True),
             patch(
-                "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.validate_credentials",
+                return_value=True,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
                 return_value=(True, None),
             ),
-            patch("products.data_warehouse.backend.data_load.service.sync_external_data_job_workflow"),
+            patch("products.data_warehouse.backend.logic.data_load.service.sync_external_data_job_workflow"),
         ):
             data = {
                 "source_type": source_type,

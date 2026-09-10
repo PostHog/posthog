@@ -201,4 +201,27 @@ describe('llmSessionTitleLazyLoaderLogic', () => {
             expect(aiEventsNode).not.toBeUndefined() // ai_events (TTL-bounded) still runs
         })
     })
+
+    describe('field truncation', () => {
+        it('truncates fields with character-aware substringUTF8 in both source queries, never byte-based substring', async () => {
+            const queried: any[] = []
+            jest.spyOn(api, 'query').mockImplementation((node: any) => {
+                queried.push(node)
+                return Promise.resolve({ results: [] } as any)
+            })
+
+            logic.actions.ensureSessionTitleLoaded('s1', DATE_RANGE)
+            await settle()
+
+            const eventsNode = queried.find((n) => typeof n?.query === 'string' && n.query.includes('FROM events'))
+            const aiEventsNode = queried.find(
+                (n) => typeof n?.query === 'string' && n.query.includes('posthog.ai_events')
+            )
+
+            expect(eventsNode?.query).toContain('substringUTF8(')
+            expect(eventsNode?.query).not.toContain('substring(')
+            expect(aiEventsNode?.query).toContain('substringUTF8(')
+            expect(aiEventsNode?.query).not.toContain('substring(')
+        })
+    })
 })

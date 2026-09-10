@@ -12,23 +12,51 @@ import type {
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
+    ApplyPathCleaningSuggestionResponseApi,
+    ContentAutopilotExportResponseApi,
+    ContentAutopilotProposalApi,
+    ContentAutopilotProposalEditRequestApi,
+    ContentAutopilotRunApi,
+    ContentAutopilotRunStartRequestApi,
+    ContentAutopilotSiteDiscoveryRequestApi,
+    ContentAutopilotSiteDiscoveryResponseApi,
+    ContentAutopilotSiteProfileApi,
+    CustomBotRuleApi,
+    GeneratePathCleaningSuggestionResponseApi,
     HeatmapEventsResponseApi,
+    HeatmapPreflightRequestApi,
+    HeatmapPreflightResponseApi,
+    HeatmapPrewarmRequestApi,
     HeatmapScreenshotResponseApi,
     HeatmapScreenshotsContentRetrieveParams,
     HeatmapsEventsRetrieveParams,
     HeatmapsListParams,
     HeatmapsResponseApi,
+    LlmsTxtFetchRequestApi,
+    LlmsTxtFetchResponseApi,
+    PaginatedContentAutopilotProposalListListApi,
+    PaginatedContentAutopilotRunListApi,
+    PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
+    PatchedContentAutopilotSiteProfileApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
+    PreviewPathCleaningSuggestionResponseApi,
     RecordInteractionRequestApi,
     RecordInteractionResponseApi,
     RecordVisitResponseApi,
+    SavedHeatmapCaptureRequestApi,
     SavedHeatmapListResponseApi,
     SavedHeatmapRequestApi,
     SavedListParams,
+    WebAnalyticsContentAutopilotProfilesListParams,
+    WebAnalyticsContentAutopilotProposalsListParams,
+    WebAnalyticsContentAutopilotRunsListParams,
     WebAnalyticsFilterPresetApi,
     WebAnalyticsFilterPresetsListParams,
+    WebAnalyticsRecapParams,
+    WebAnalyticsRecapResponseApi,
+    WebAnalyticsUserPreferencesApi,
     WebAnalyticsWeeklyDigestParams,
     WeeklyDigestResponseApi,
 } from './api.schemas'
@@ -269,6 +297,136 @@ export const savedRegenerateCreate = async (
     })
 }
 
+export const getSavedCaptureCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved/capture/`
+}
+
+/**
+ * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). The image bytes are stored and served only through the authenticated content endpoint. The heatmap's data URL is set to the captured URL.
+ */
+export const savedCaptureCreate = async (
+    projectId: string,
+    savedHeatmapCaptureRequestApi: SavedHeatmapCaptureRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotResponseApi> => {
+    const formData = new FormData()
+    if (savedHeatmapCaptureRequestApi.image !== undefined && savedHeatmapCaptureRequestApi.image !== null) {
+        formData.append(`image`, savedHeatmapCaptureRequestApi.image)
+    }
+    if (savedHeatmapCaptureRequestApi.width !== undefined) {
+        formData.append(`width`, savedHeatmapCaptureRequestApi.width.toString())
+    }
+    if (savedHeatmapCaptureRequestApi.images !== undefined) {
+        savedHeatmapCaptureRequestApi.images.forEach((value) => formData.append(`images`, value))
+    }
+    if (savedHeatmapCaptureRequestApi.widths !== undefined) {
+        savedHeatmapCaptureRequestApi.widths.forEach((value) => formData.append(`widths`, value.toString()))
+    }
+    formData.append(`url`, savedHeatmapCaptureRequestApi.url)
+    if (savedHeatmapCaptureRequestApi.name !== undefined) {
+        formData.append(`name`, savedHeatmapCaptureRequestApi.name)
+    }
+
+    return apiMutator<HeatmapScreenshotResponseApi>(getSavedCaptureCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+export const getSavedPreflightCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved/preflight/`
+}
+
+/**
+ * Fetch a page URL server-side and report whether it allows being embedded in the live preview iframe, plus the HTTP status it returned. The live preview loads the customer's site directly in their browser, so a site that sends X-Frame-Options or a restrictive frame-ancestors will never render, and a 4xx or 5xx from the site's own host or CDN leaves an empty frame with no explanation. This endpoint makes both cases explainable. The fetch comes from PostHog's own network rather than from the screenshot renderer, so a host that varies its response by IP or user agent can answer this differently than it answers a screenshot render. Settled verdicts are cached briefly, so repeat checks for the same URL do not refetch it.
+ * @summary Check whether a page can back a heatmap
+ */
+export const savedPreflightCreate = async (
+    projectId: string,
+    heatmapPreflightRequestApi: HeatmapPreflightRequestApi,
+    options?: RequestInit
+): Promise<HeatmapPreflightResponseApi> => {
+    return apiMutator<HeatmapPreflightResponseApi>(getSavedPreflightCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(heatmapPreflightRequestApi),
+    })
+}
+
+export const getSavedPrewarmCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved/prewarm/`
+}
+
+/**
+ * Speculatively render a screenshot for a page URL ahead of heatmap creation, so it's ready (or closer to ready) by the time the user reaches the generation screen. Renders a single preview width. Idempotent within a short window: returns the existing in-flight or completed prewarm render for the same URL and consent setting if one exists (200), otherwise starts a new one (201). The result is reused when a heatmap is later created for the same URL.
+ */
+export const savedPrewarmCreate = async (
+    projectId: string,
+    heatmapPrewarmRequestApi: HeatmapPrewarmRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotResponseApi> => {
+    return apiMutator<HeatmapScreenshotResponseApi>(getSavedPrewarmCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(heatmapPrewarmRequestApi),
+    })
+}
+
+export const getWebAnalyticsFetchLlmsTxtUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics/llms_txt/`
+}
+
+/**
+ * Loads an llms.txt file from a public URL for coverage analysis without saving it.
+ * @summary Load an llms.txt file
+ */
+export const webAnalyticsFetchLlmsTxt = async (
+    projectId: string,
+    llmsTxtFetchRequestApi: LlmsTxtFetchRequestApi,
+    options?: RequestInit
+): Promise<LlmsTxtFetchResponseApi> => {
+    return apiMutator<LlmsTxtFetchResponseApi>(getWebAnalyticsFetchLlmsTxtUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(llmsTxtFetchRequestApi),
+    })
+}
+
+export const getWebAnalyticsRecapUrl = (projectId: string, params?: WebAnalyticsRecapParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics/recap/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics/recap/`
+}
+
+/**
+ * The 'Wrapped'-style weekly recap: everything in the weekly digest (visitors, pageviews, sessions, bounce rate, average session duration with period-over-period comparisons, top pages, top sources, and goals) plus a single derived weekly persona and a short list of screenshot-worthy highlights for the period.
+ * @summary Weekly web analytics recap
+ */
+export const webAnalyticsRecap = async (
+    projectId: string,
+    params?: WebAnalyticsRecapParams,
+    options?: RequestInit
+): Promise<WebAnalyticsRecapResponseApi> => {
+    return apiMutator<WebAnalyticsRecapResponseApi>(getWebAnalyticsRecapUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getWebAnalyticsWeeklyDigestUrl = (projectId: string, params?: WebAnalyticsWeeklyDigestParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -342,6 +500,45 @@ export const webAnalyticsAchievementsOverview = async (
     })
 }
 
+export const getWebAnalyticsAchievementsPreferencesUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_achievements/preferences/`
+}
+
+/**
+ * Returns the requesting user's per-project Web analytics achievements preferences.
+ * @summary Get Web analytics achievements preferences
+ */
+export const webAnalyticsAchievementsPreferences = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WebAnalyticsUserPreferencesApi> => {
+    return apiMutator<WebAnalyticsUserPreferencesApi>(getWebAnalyticsAchievementsPreferencesUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsAchievementsUpdatePreferencesUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_achievements/preferences/`
+}
+
+/**
+ * Sets the requesting user's per-project Web analytics achievements preferences.
+ * @summary Update Web analytics achievements preferences
+ */
+export const webAnalyticsAchievementsUpdatePreferences = async (
+    projectId: string,
+    webAnalyticsUserPreferencesApi: WebAnalyticsUserPreferencesApi,
+    options?: RequestInit
+): Promise<WebAnalyticsUserPreferencesApi> => {
+    return apiMutator<WebAnalyticsUserPreferencesApi>(getWebAnalyticsAchievementsUpdatePreferencesUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(webAnalyticsUserPreferencesApi),
+    })
+}
+
 export const getWebAnalyticsAchievementsRecordInteractionUrl = (projectId: string) => {
     return `/api/projects/${projectId}/web_analytics_achievements/record_interaction/`
 }
@@ -378,6 +575,413 @@ export const webAnalyticsAchievementsRecordVisit = async (
     return apiMutator<RecordVisitResponseApi>(getWebAnalyticsAchievementsRecordVisitUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getWebAnalyticsBotRulesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_bot_rules/`
+}
+
+/**
+ * The project's own bot rules, in the order they are checked at query time.
+ * @summary List custom bot rules
+ */
+export const webAnalyticsBotRulesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CustomBotRuleApi[]> => {
+    return apiMutator<CustomBotRuleApi[]>(getWebAnalyticsBotRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsBotRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_bot_rules/`
+}
+
+/**
+ * Add one bot rule to the project. The pattern is rejected if it cannot run, because a broken rule would break every query that classifies traffic for the project.
+ * @summary Create a custom bot rule
+ */
+export const webAnalyticsBotRulesCreate = async (
+    projectId: string,
+    customBotRuleApi: NonReadonly<CustomBotRuleApi>,
+    options?: RequestInit
+): Promise<CustomBotRuleApi> => {
+    return apiMutator<CustomBotRuleApi>(getWebAnalyticsBotRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customBotRuleApi),
+    })
+}
+
+export const getWebAnalyticsBotRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_bot_rules/${id}/`
+}
+
+/**
+ * Remove one bot rule by its id. The built-in bot list is unaffected.
+ * @summary Delete a custom bot rule
+ */
+export const webAnalyticsBotRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWebAnalyticsBotRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProfilesListUrl = (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotProfilesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/`
+}
+
+export const webAnalyticsContentAutopilotProfilesList = async (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotProfilesListParams,
+    options?: RequestInit
+): Promise<PaginatedContentAutopilotSiteProfileListApi> => {
+    return apiMutator<PaginatedContentAutopilotSiteProfileListApi>(
+        getWebAnalyticsContentAutopilotProfilesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProfilesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/`
+}
+
+export const webAnalyticsContentAutopilotProfilesCreate = async (
+    projectId: string,
+    contentAutopilotSiteProfileApi: NonReadonly<ContentAutopilotSiteProfileApi>,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteProfileApi> => {
+    return apiMutator<ContentAutopilotSiteProfileApi>(getWebAnalyticsContentAutopilotProfilesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contentAutopilotSiteProfileApi),
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProfilesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProfilesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteProfileApi> => {
+    return apiMutator<ContentAutopilotSiteProfileApi>(
+        getWebAnalyticsContentAutopilotProfilesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProfilesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProfilesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedContentAutopilotSiteProfileApi?: NonReadonly<PatchedContentAutopilotSiteProfileApi>,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteProfileApi> => {
+    return apiMutator<ContentAutopilotSiteProfileApi>(
+        getWebAnalyticsContentAutopilotProfilesPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedContentAutopilotSiteProfileApi),
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProfilesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProfilesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWebAnalyticsContentAutopilotProfilesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProfilesDiscoverUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/discover/`
+}
+
+/**
+ * Inspects a public site for its canonical origin, name, and sitemap URLs.
+ * @summary Discover content autopilot site settings
+ */
+export const webAnalyticsContentAutopilotProfilesDiscover = async (
+    projectId: string,
+    contentAutopilotSiteDiscoveryRequestApi: ContentAutopilotSiteDiscoveryRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteDiscoveryResponseApi> => {
+    return apiMutator<ContentAutopilotSiteDiscoveryResponseApi>(
+        getWebAnalyticsContentAutopilotProfilesDiscoverUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(contentAutopilotSiteDiscoveryRequestApi),
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProposalsListUrl = (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotProposalsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/`
+}
+
+export const webAnalyticsContentAutopilotProposalsList = async (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotProposalsListParams,
+    options?: RequestInit
+): Promise<PaginatedContentAutopilotProposalListListApi> => {
+    return apiMutator<PaginatedContentAutopilotProposalListListApi>(
+        getWebAnalyticsContentAutopilotProposalsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProposalsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProposalsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotProposalApi> => {
+    return apiMutator<ContentAutopilotProposalApi>(getWebAnalyticsContentAutopilotProposalsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProposalsEditUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/edit/`
+}
+
+/**
+ * Saves reviewed Markdown and its structured package without publishing it.
+ * @summary Edit a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsEdit = async (
+    projectId: string,
+    id: string,
+    contentAutopilotProposalEditRequestApi: ContentAutopilotProposalEditRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotProposalApi> => {
+    return apiMutator<ContentAutopilotProposalApi>(getWebAnalyticsContentAutopilotProposalsEditUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contentAutopilotProposalEditRequestApi),
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProposalsExportUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/export/`
+}
+
+/**
+ * Returns validated Markdown and structured JSON without publishing it.
+ * @summary Export a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsExport = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotExportResponseApi> => {
+    return apiMutator<ContentAutopilotExportResponseApi>(
+        getWebAnalyticsContentAutopilotProposalsExportUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProposalsRegenerateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/regenerate/`
+}
+
+/**
+ * Returns a proposal to generation while keeping its previous result inspectable in history.
+ * @summary Regenerate a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsRegenerate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotProposalApi> => {
+    return apiMutator<ContentAutopilotProposalApi>(
+        getWebAnalyticsContentAutopilotProposalsRegenerateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProposalsRejectUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/reject/`
+}
+
+/**
+ * Rejects a proposal without changing the public site.
+ * @summary Reject a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsReject = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotProposalApi> => {
+    return apiMutator<ContentAutopilotProposalApi>(getWebAnalyticsContentAutopilotProposalsRejectUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotRunsListUrl = (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_content_autopilot_runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_content_autopilot_runs/`
+}
+
+export const webAnalyticsContentAutopilotRunsList = async (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedContentAutopilotRunListApi> => {
+    return apiMutator<PaginatedContentAutopilotRunListApi>(
+        getWebAnalyticsContentAutopilotRunsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotRunsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_runs/${id}/`
+}
+
+export const webAnalyticsContentAutopilotRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotRunApi> => {
+    return apiMutator<ContentAutopilotRunApi>(getWebAnalyticsContentAutopilotRunsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotRunsCancelUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_runs/${id}/cancel/`
+}
+
+/**
+ * Stops a pending or generating run without creating content writes.
+ * @summary Cancel a content autopilot run
+ */
+export const webAnalyticsContentAutopilotRunsCancel = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotRunApi> => {
+    return apiMutator<ContentAutopilotRunApi>(getWebAnalyticsContentAutopilotRunsCancelUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotRunsStartUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_runs/start/`
+}
+
+/**
+ * Captures the current profile and creates one pending on-demand content research run.
+ * @summary Start a content autopilot run
+ */
+export const webAnalyticsContentAutopilotRunsStart = async (
+    projectId: string,
+    contentAutopilotRunStartRequestApi: ContentAutopilotRunStartRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotRunApi> => {
+    return apiMutator<ContentAutopilotRunApi>(getWebAnalyticsContentAutopilotRunsStartUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contentAutopilotRunStartRequestApi),
     })
 }
 
@@ -498,4 +1102,69 @@ export const webAnalyticsFilterPresetsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getWebAnalyticsPathCleaningSuggestionsApplyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_path_cleaning_suggestions/${id}/apply/`
+}
+
+/**
+ * Merges the suggestion's rules into the team's path_cleaning_filters (never overwrites existing rules) and resolves the underlying health issue. Requires project admin, matching the team API's gate on path_cleaning_filters.
+ * @summary Apply a path-cleaning suggestion
+ */
+export const webAnalyticsPathCleaningSuggestionsApply = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ApplyPathCleaningSuggestionResponseApi> => {
+    return apiMutator<ApplyPathCleaningSuggestionResponseApi>(
+        getWebAnalyticsPathCleaningSuggestionsApplyUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getWebAnalyticsPathCleaningSuggestionsPreviewUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_path_cleaning_suggestions/${id}/preview/`
+}
+
+/**
+ * Applies the suggestion's rules (in order) to a fresh sample of the team's top paths and returns before/after pairs for the paths that would change. Computed on demand; path samples are never stored. Nothing is modified.
+ * @summary Preview a path-cleaning suggestion on real paths
+ */
+export const webAnalyticsPathCleaningSuggestionsPreview = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PreviewPathCleaningSuggestionResponseApi> => {
+    return apiMutator<PreviewPathCleaningSuggestionResponseApi>(
+        getWebAnalyticsPathCleaningSuggestionsPreviewUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsPathCleaningSuggestionsGenerateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_path_cleaning_suggestions/generate/`
+}
+
+/**
+ * Samples the team's recent paths, asks the LLM for cleaning rules, validates them against the real paths, and stores the result as a `path_cleaning_suggestions` health issue (replacing any previous active one). Runs even if the team already has rules. Returns the suggestion (or a skip status when there aren't enough paths to suggest from).
+ * @summary Generate path-cleaning suggestions on demand
+ */
+export const webAnalyticsPathCleaningSuggestionsGenerate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<GeneratePathCleaningSuggestionResponseApi> => {
+    return apiMutator<GeneratePathCleaningSuggestionResponseApi>(
+        getWebAnalyticsPathCleaningSuggestionsGenerateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }

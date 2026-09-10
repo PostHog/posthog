@@ -14,6 +14,9 @@ Also available to Claude Code / Codex via `hogli sync:skill`.
 - **exploring-llm-costs** — how to investigate LLM spend: total cost, breakdowns
   by model/provider/user/trace/custom dimension, token and cache economics,
   cost regressions, and materializing cost insights, dashboards, and alerts.
+- **analyzing-expensive-users** — how to analyze the most expensive users in
+  AI observability, compare them against baseline usage, inspect
+  trace/model/token/cache patterns, and explain what drives their spend.
 - **exploring-llm-evaluations** — how to manage and investigate AI observability
   evaluations (`hog`, `llm_judge`, and `sentiment`), run them on specific generations,
   query individual results, and generate AI-powered summaries of pass/fail/N/A patterns for boolean evaluations.
@@ -24,7 +27,7 @@ the standalone Skills product — see `products/skills/skills/`.
 ## Adding a new skill
 
 ```bash
-hogli init:skill -- --product llm_analytics --name my-new-skill
+hogli init:skill -- --product ai_observability --name my-new-skill
 ```
 
 See `products/posthog_ai/scripts/build_skills.py` for the build pipeline

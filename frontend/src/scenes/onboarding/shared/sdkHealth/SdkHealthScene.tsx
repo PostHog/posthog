@@ -4,9 +4,7 @@ import posthog from 'posthog-js'
 import { IconBell, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -33,8 +31,6 @@ export function SdkHealthScene(): JSX.Element {
         snoozedUntil,
     } = useValues(sdkHealthLogic)
     const { isDev } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const healthAlertsEnabled = !!featureFlags[FEATURE_FLAGS.HEALTH_ALERTS]
 
     const { loadReport, snoozeSdkHealth } = useActions(sdkHealthLogic)
 
@@ -63,20 +59,18 @@ export function SdkHealthScene(): JSX.Element {
                 }}
                 actions={
                     <>
-                        {healthAlertsEnabled && (
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                to={urls.healthAlerts(['sdk_outdated'])}
-                                onClick={() => {
-                                    posthog.capture('health_alerts_entry_point_clicked', { source: 'sdk_health' })
-                                }}
-                                icon={<IconBell className="size-4" />}
-                                tooltip="Subscribe to alerts when SDKs go outdated"
-                            >
-                                Alerts
-                            </LemonButton>
-                        )}
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            to={urls.healthAlerts(['sdk_outdated'])}
+                            onClick={() => {
+                                posthog.capture('health_alerts_entry_point_clicked', { source: 'sdk_health' })
+                            }}
+                            icon={<IconBell className="size-4" />}
+                            tooltip="Subscribe to alerts when SDKs go outdated"
+                        >
+                            Alerts
+                        </LemonButton>
                         <LemonButton
                             size="small"
                             type="primary"
@@ -100,12 +94,6 @@ export function SdkHealthScene(): JSX.Element {
                 </div>
             )}
 
-            {/* Beta feedback banner */}
-            <LemonBanner type="info">
-                <strong>SDK Health is in Beta!</strong> Help us improve by sharing your feedback?{' '}
-                <Link to="#panel=support%3Asupport%3Asdk%3Alow%3Atrue">Send feedback</Link>
-            </LemonBanner>
-
             <div className="p-3">
                 {loading ? null : hasErrors ? (
                     <div className="text-center text-muted p-4">
@@ -120,8 +108,8 @@ export function SdkHealthScene(): JSX.Element {
                     <section className="mb-2">
                         <h3>SDK health is good</h3>
                         <LemonBanner type="success" hideIcon={false}>
-                            <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
-                            <p className="text-sm mt-1">You've got the latest. Nice work keeping everything current.</p>
+                            <p className="font-semibold">No SDK updates needed right now.</p>
+                            <p className="text-sm mt-1">Your SDKs are on the latest version or close behind it.</p>
                         </LemonBanner>
                     </section>
                 ) : (

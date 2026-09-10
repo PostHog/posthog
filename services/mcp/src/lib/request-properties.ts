@@ -1,6 +1,7 @@
 // Shared request-properties extraction. Both runtimes parse the same headers
 // and query params into the same shape, so the logic lives here.
 
+import { resolveEffectiveClientName } from './client-detection'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue, type McpMode } from './utils'
 
 export type Transport = 'streamable-http' | 'sse'
@@ -30,6 +31,9 @@ export type RequestProperties = {
     // Sandbox-provisioned task id: forwarded to the PostHog API as `X-PostHog-Task-Id` on every
     // call so writes can be attributed to the agent's task (validated server-side per team).
     taskId?: string | undefined
+    // Origin product of the sandboxed task (`X-PostHog-Task-Origin`, e.g. `signals_scout`).
+    // The consumer header can't carry this: scouts and Desktop tasks both send `posthog-code`.
+    taskOriginProduct?: string | undefined
     // Dev/test-only per-request feature-flag overrides — a JSON object string from
     // `?flag_overrides=` or the `x-posthog-flag-overrides` header. Parsed and gated
     // to NODE_ENV development/test (fail-closed) in `resolveFeatureFlagOverrides`.
@@ -64,6 +68,7 @@ export function parseRequestProperties(
 
     const token = extractBearerToken(request) ?? ''
     const readOnlyRaw = header(request, 'x-posthog-read-only') || params.get('readonly')
+    const vendorClient = sanitizeHeaderValue(header(request, 'x-anthropic-client'))
 
     return {
         apiToken: token,
@@ -79,12 +84,13 @@ export function parseRequestProperties(
         mcpConsumer: sanitizeHeaderValue(
             header(request, 'x-posthog-mcp-consumer') || params.get('consumer') || undefined
         ),
-        mcpClientName: clientInfo.clientName,
+        mcpClientName: resolveEffectiveClientName(clientInfo.clientName, vendorClient),
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
-        mcpVendorClient: sanitizeHeaderValue(header(request, 'x-anthropic-client')),
+        mcpVendorClient: vendorClient,
         mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),
+        taskOriginProduct: sanitizeHeaderValue(header(request, 'x-posthog-task-origin')),
         transport,
         requestStartTime: Date.now(),
         featureFlagOverrides: header(request, 'x-posthog-flag-overrides') || params.get('flag_overrides') || undefined,

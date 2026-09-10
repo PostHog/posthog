@@ -1,8 +1,11 @@
+import re
 import uuid
 import builtins
-from collections.abc import Callable
+import dataclasses
 from datetime import UTC, datetime
-from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
+from typing import Any, Optional, Union, cast  # noqa: UP035
+
+from django.conf import settings
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -14,7 +17,6 @@ from drf_spectacular.utils import (
     extend_schema_serializer,
     extend_schema_view,
 )
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
@@ -26,29 +28,31 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ProductKey
+from posthog.schema import ActorsQuery, ProductKey
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
 from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
+from posthog.api.fields import CoercedStringListField
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, format_paginated_url, get_target_entity
+from posthog.api.utils import action, parse_actor_property_filters
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
-from posthog.decorators import cached_by_filters
+from posthog.constants import LIMIT, OFFSET
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
+from posthog.helpers.impersonation import is_impersonated
+from posthog.hogql_queries.properties_timeline import PropertiesTimeline
+from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.filters.lifecycle_filter import LifecycleFilter
-from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
-from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.person.bulk_delete import (
     delete_persons_profile,
     queue_person_event_deletion,
@@ -59,33 +63,58 @@ from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
+    get_person_by_distinct_id,
     get_person_by_pk_or_uuid,
+    get_person_by_uuid,
     get_persons_by_uuids,
     get_persons_mapped_by_distinct_id,
 )
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
-from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
-from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
-from posthog.queries.insight import insight_sync_execute
-from posthog.queries.person_query import PersonQuery
-from posthog.queries.properties_timeline import PropertiesTimeline
-from posthog.queries.trends.lifecycle import Lifecycle
-from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
+from posthog.slo.context import JsonValue, SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.tasks.split_person import split_person
-from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
+from posthog.utils import (
+    format_query_params_absolute_url,
+    is_anonymous_id,
+    refresh_requested_by_client,
+    relative_date_parse_with_delta_mapping,
+)
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
-from products.product_analytics.backend.api.insight import capture_legacy_api_call
+from products.workflows.backend.api.message_assets import (
+    MessageAssetSerializer,
+    PersonMessageAssetsRequestSerializer,
+    fetch_message_assets_for_person,
+)
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
+
+# The id reaches the ClickHouse query id and every query_log row for the request, so bound it.
+# Cancelling matches on `query_id LIKE '<team_id>_<client_query_id>%'`, which makes an id holding
+# `%` or `_` reach the team's other queries. The cancel endpoint takes any id with or without this
+# param, so restricting the charset here would buy nothing and would reject ids like `req_1`.
+CLIENT_QUERY_ID_MAX_LENGTH = 128
+
+# Nginx's "Client Closed Request". Django and DRF have no name for it.
+HTTP_CLIENT_CLOSED_REQUEST = 499
+
+
+def tag_client_query_id(client_query_id: str | None) -> None:
+    """Name this request's ClickHouse queries so the caller can cancel them by that id."""
+    if not client_query_id:
+        return
+    if len(client_query_id) > CLIENT_QUERY_ID_MAX_LENGTH:
+        raise ValidationError({"client_query_id": f"Must be at most {CLIENT_QUERY_ID_MAX_LENGTH} characters."})
+    tag_queries(client_query_id=client_query_id)
+
+
 # Sync with .../lib/constants.tsx and .../cdp/utils.ts
 # It's almost certainly wrong to add more properties to this list, instead convince the user to send data to use with
 # these properties, or use e.g. a CDP transformation to rewrite their events.
@@ -106,6 +135,12 @@ API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
     "api_person_list_bytes_read_from_postgres",
     "An estimate of how many bytes we've read from postgres to return the person endpoint.",
     labelnames=[LABEL_TEAM_ID],
+)
+
+API_PERSON_LIST_SEARCH_COUNTER = Counter(
+    "api_person_list_search_total",
+    "Person list searches, by whether an exact identifier answered them or ClickHouse had to.",
+    labelnames=["answered_by"],
 )
 
 
@@ -177,11 +212,38 @@ class PersonUpdatePropertyRequestSerializer(serializers.Serializer):
     value = serializers.JSONField(help_text="The property value. Can be a string, number, boolean, or object.")
 
 
+# Matches the cap on the persons bulk-delete endpoint; also keeps the resulting
+# capture event safely under the ~1 MB Kafka message limit.
+MAX_UNSET_KEYS_PER_REQUEST = 1000
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string", "minLength": 1},
+            {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "minItems": 1,
+                "maxItems": MAX_UNSET_KEYS_PER_REQUEST,
+            },
+        ]
+    }
+)
+class UnsetPropertyKeysField(CoercedStringListField):
+    default_error_messages = {
+        "invalid": "Provide '$unset' as a property key or a non-empty list of property keys.",
+    }
+
+
 class PersonDeletePropertyRequestSerializer(serializers.Serializer):
     def get_fields(self):
         fields = super().get_fields()
-        # The endpoint reads request.data["$unset"], so the field name must include the $ prefix.
-        fields["$unset"] = serializers.CharField(help_text="The property key to remove from this person.")
+        # The handler reads validated_data["$unset"], so the field name must include the $ prefix.
+        fields["$unset"] = UnsetPropertyKeysField(
+            max_items=MAX_UNSET_KEYS_PER_REQUEST,
+            help_text="A property key, or a list of property keys, to remove from this person.",
+        )
         return fields
 
 
@@ -397,22 +459,6 @@ class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
     )
 
 
-def get_funnel_actor_class(filter: Filter) -> Callable:
-    funnel_actor_class: type[ActorBaseQuery]
-
-    if filter.funnel_viz_type == FunnelVizType.TRENDS:
-        funnel_actor_class = ClickhouseFunnelTrendsActors
-    else:
-        if filter.funnel_order_type == "unordered":
-            funnel_actor_class = ClickhouseFunnelUnorderedActors
-        elif filter.funnel_order_type == "strict":
-            funnel_actor_class = ClickhouseFunnelStrictActors
-        else:
-            funnel_actor_class = ClickhouseFunnelActors
-
-    return funnel_actor_class
-
-
 _PERSON_ID_PARAMETER = OpenApiParameter(
     "id",
     OpenApiTypes.STR,
@@ -439,6 +485,46 @@ _GET_OBJECT_DISTINCT_ID_LIMITS: dict[str, int] = {
 }
 
 
+# A term shaped like a full email address or a UUID names one person, so an exact identifier
+# hit answers the search. Shorter terms stay fuzzy: a partial numeric or alphanumeric ID often
+# matches one person exactly while the user is still typing, and short-circuiting there would
+# hide the other matches.
+_COMPLETE_EMAIL_TERM = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _is_canonical_uuid(value: str) -> bool:
+    # Only the dashed form counts, so the fast path answers the same terms the fuzzy search
+    # matches. UUID() also accepts braced and undashed input, which no stored ID string carries.
+    try:
+        return str(uuid.UUID(value)) == value.lower()
+    except ValueError:
+        return False
+
+
+def _exact_identifier_person_uuids(team_id: int, search: str) -> list[str]:
+    """Resolve a search term as a person UUID or distinct ID; empty when it matches neither.
+
+    Fuzzy person search reads every person row and distinct ID of the team, which is what times
+    out on large projects. Identifiers resolve over personhog in milliseconds and hold no
+    ClickHouse query slot, and pasted emails and IDs are most of what people search for.
+    """
+    term_is_uuid = _is_canonical_uuid(search)
+    if not term_is_uuid and not _COMPLETE_EMAIL_TERM.match(search):
+        return []
+
+    matches: list[str] = []
+    with personhog_caller_tag("persons/list-exact-identifier"):
+        # A UUID term can be a person's own ID or an anonymous distinct ID, so try both.
+        if term_is_uuid:
+            by_uuid = get_person_by_uuid(team_id, search, distinct_id_limit=0)
+            if by_uuid is not None:
+                matches.append(str(by_uuid.uuid))
+        by_distinct_id = get_person_by_distinct_id(team_id, search, distinct_id_limit=0)
+        if by_distinct_id is not None and str(by_distinct_id.uuid) not in matches:
+            matches.append(str(by_distinct_id.uuid))
+    return matches
+
+
 @extend_schema(extensions={"x-product": ProductKey.PERSONS})
 @extend_schema_view(
     retrieve=_id_schema,
@@ -460,7 +546,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Person.objects.none()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
-    lifecycle_class = Lifecycle
 
     def get_throttles(self):
         # API is commonly used for data deletion, so we want to throttle that less aggressively
@@ -525,13 +610,28 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
-                description="Search persons, either by email (full text search) or distinct_id (exact match).",
+                description=(
+                    "Search persons by email, name, person ID, or distinct ID. Partial values match. "
+                    "When the term is a complete email address or UUID that exactly matches a distinct ID "
+                    "or person ID, only that person is returned."
+                ),
+            ),
+            OpenApiParameter(
+                "client_query_id",
+                OpenApiTypes.STR,
+                description=(
+                    "Names the ClickHouse query this request runs. Send the same id to "
+                    "`DELETE /api/projects/:project_id/query/:client_query_id/` to stop a search that is still "
+                    "running. Up to 128 characters."
+                ),
             ),
             PersonPropertiesSerializer(required=False),
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
+        client_query_id = request.GET.get("client_query_id")
+        tag_client_query_id(client_query_id)
         team = self.team
         filter = Filter(request=request, team=self.team)
 
@@ -543,20 +643,143 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        person_query = PersonQuery(filter, team.pk)
-        paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
+        from posthog.hogql import ast  # noqa: PLC0415 — deferred to avoid a circular import at module load
+        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
 
-        raw_paginated_result = insight_sync_execute(
-            paginated_query,
-            {**paginated_params, **filter.hogql_context.values},
-            filter=filter,
-            query_type="person_list",
-            team_id=team.pk,
-            # workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
-        )
-        actor_ids = [row[0] for row in raw_paginated_result]
+        from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
+
+        person_properties: list[dict] = parse_actor_property_filters(request.GET.get("properties"))
+        if filter.email:
+            person_properties.append({"type": "person", "key": "email", "value": filter.email, "operator": "exact"})
+
+        include_total = "include_total" in request.GET
+        search = (filter.search or "").strip()
+        # Nothing else narrows the result set, so an identifier that resolves over personhog is
+        # already the whole first page, and a ClickHouse scan would add nothing.
+        can_answer_from_identifier = not person_properties and filter.offset == 0
+
+        # This endpoint bypasses `QueryRunner.run()`, so nothing else measures how long it takes.
+        # The search path is the slow one, so the shape of the request is recorded alongside the
+        # duration. The search term itself is never recorded - it is user data.
+        slo_properties: dict[str, JsonValue] = {
+            "query_type": "ActorsQuery",
+            "has_search": bool(filter.search),
+            "has_properties": bool(person_properties),
+            "has_distinct_id": bool(filter.distinct_id),
+            # Only a caller that can cancel sends an id, which is what separates the command
+            # palette's searches from the persons page's on the dashboard.
+            "has_client_query_id": bool(client_query_id),
+            "include_total": include_total,
+            "is_csv": is_csv_request,
+            "limit": filter.limit,
+            "offset": filter.offset,
+        }
+        # The block wraps the identifier fast paths too, not just the ClickHouse one. Measuring
+        # only the slow path would drop every fast answer out of the sample, so the endpoint would
+        # look slower the more requests it answers without ClickHouse. `answered_by` separates them.
+        with slo_operation(
+            spec=SloSpec(
+                # `User.distinct_id` is nullable, so fall back to the team like the query service does.
+                distinct_id=request.user.distinct_id or str(team.uuid),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.PERSONS_LIST,
+                team_id=team.pk,
+                sample_rate=settings.PERSONS_LIST_SLO_SAMPLE_RATE,
+            ),
+            properties=slo_properties,
+        ) as slo:
+            if filter.distinct_id:
+                # Exact match on any of the person's distinct IDs; no matching person => no results.
+                matched = get_person_by_distinct_id(team.pk, filter.distinct_id, distinct_id_limit=0)
+                if matched is None:
+                    # Return early: a constant-false predicate can't be pushed into the persons
+                    # lazy table, so ClickHouse would still aggregate every person row for the
+                    # team before filtering everything out.
+                    slo.tag(answered_by="exact_identifier", result_count=0)
+                    return self._person_list_response(request, [], filter, total_count=0 if include_total else None)
+                if can_answer_from_identifier and not search:
+                    slo.tag(answered_by="exact_identifier", result_count=1)
+                    return self._person_list_response(
+                        request,
+                        [str(matched.uuid)],
+                        filter,
+                        total_count=1 if include_total else None,
+                        has_next=False,
+                    )
+                person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')"})
+            elif search:
+                exact_uuids = _exact_identifier_person_uuids(team.pk, search) if can_answer_from_identifier else []
+                API_PERSON_LIST_SEARCH_COUNTER.labels(
+                    answered_by="exact_identifier" if exact_uuids else "clickhouse"
+                ).inc()
+                if exact_uuids:
+                    page = exact_uuids[: filter.limit]
+                    slo.tag(answered_by="exact_identifier", result_count=len(page))
+                    return self._person_list_response(
+                        request,
+                        page,
+                        filter,
+                        total_count=len(exact_uuids) if include_total else None,
+                        has_next=len(exact_uuids) > filter.limit,
+                    )
+
+            actors_query = ActorsQuery(
+                select=["id"],
+                properties=person_properties,
+                search=filter.search or None,
+                orderBy=["created_at DESC", "id DESC"],
+                limit=filter.limit,
+                offset=filter.offset,
+            )
+            # Use .calculate() (not .run()) — it applies the limit/offset paginator but skips the
+            # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
+            # we still hydrate the person objects ourselves via get_serialized_people.
+            actors_runner = ActorsQueryRunner(team=team, query=actors_query)
+            # A cancel kills every ClickHouse query the request has in flight, so both queries below
+            # sit inside one handler. Anything that is not a cancellation is re-raised untouched.
+            try:
+                actor_ids = [row[0] for row in actors_runner.calculate().results]
+
+                # If the undocumented include_total param is set to true, we'll return the total count of people
+                # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
+                # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
+                total_count: Optional[int] = None
+                if include_total:
+                    count_inner = actors_runner.to_query()
+                    count_inner.limit = None
+                    count_inner.offset = None
+                    count_query = ast.SelectQuery(
+                        select=[ast.Call(name="count", args=[])],
+                        select_from=ast.JoinExpr(table=count_inner),
+                    )
+                    total_count = execute_hogql_query(count_query, team=team).results[0][0]
+            except Exception as err:
+                if classify_query_error(err) is not QueryErrorCategory.CANCELLED:
+                    raise
+                # The caller killed this search, so there is no body to return and nothing went
+                # wrong. Raising would report a server error for every cancelled search.
+                #
+                # Returning also leaves the SLO block without an exception, so it records a
+                # success with however long the kill took. A cancel is not a failure, so the
+                # outcome stays as it is and this tag is what keeps an abandoned search from
+                # reading as a fast one in the latency percentiles.
+                slo.tag(cancelled=True)
+                return Response(status=HTTP_CLIENT_CLOSED_REQUEST)
+
+            slo.tag(answered_by="clickhouse", result_count=len(actor_ids))
+            return self._person_list_response(request, actor_ids, filter, total_count=total_count)
+
+    def _person_list_response(
+        self,
+        request: request.Request,
+        person_uuids: builtins.list[Any],
+        filter: Filter,
+        total_count: Optional[int] = None,
+        has_next: Optional[bool] = None,
+    ) -> Response:
+        team = self.team
         with personhog_caller_tag("persons/list"):
-            serialized_actors = get_serialized_people(team, actor_ids)
+            serialized_actors = get_serialized_people(team, person_uuids) if person_uuids else []
 
         restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
         if restricted_person_properties:
@@ -567,23 +790,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         k: v for k, v in properties.items() if k not in restricted_person_properties
                     }
 
-        _should_paginate = len(actor_ids) >= filter.limit
-
-        # If the undocumented include_total param is set to true, we'll return the total count of people
-        # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
-        # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
-        total_count: Optional[int] = None
-        if "include_total" in request.GET:
-            total_query, total_params = person_query.get_query(paginate=False, filter_future_persons=True)
-            total_query_aggregated = f"SELECT count() FROM ({total_query})"
-            raw_paginated_result = insight_sync_execute(
-                total_query_aggregated,
-                {**total_params, **filter.hogql_context.values},
-                filter=filter,
-                query_type="person_list_total",
-                team_id=team.pk,
-            )
-            total_count = raw_paginated_result[0][0]
+        # A full page means there may be more behind it. Callers that know the whole result set up
+        # front say so instead, so a page that happens to fill the limit does not advertise an
+        # empty page after it.
+        _should_paginate = len(person_uuids) >= filter.limit if has_next is None else has_next
 
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (
@@ -817,6 +1027,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return resp
 
             refresh = refresh_requested_by_client(request)
+            # The user rides along so HogQL property masking resolves their explicit
+            # grants instead of the team-default rules, matching /api/query.
             runner = PropertyValuesQueryRunner(
                 team=self.team,
                 query=PropertyValuesQuery(
@@ -824,11 +1036,21 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     property_key=key,
                     search_value=value,
                 ),
+                user=user,
             )
             execution_mode = execution_mode_from_refresh(refresh)
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
                 execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-            result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(request))
+            # Convert here rather than in the runner, so QueryRunner.run() sees the original
+            # ClickHouse error and can classify it and record it in the failure cache.
+            # The failure cache serves remembered failures as APIException subclasses with
+            # their own status codes, so they pass through uncaught. Matches /api/query.
+            try:
+                result = runner.run(
+                    execution_mode, user=user, analytics_props=get_request_analytics_properties(request)
+                )
+            except ExposedCHQueryError as e:
+                raise ValidationError(str(e), e.code_name)
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
                 isinstance(result, CachedPropertyValuesQueryResponse)
@@ -901,7 +1123,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=person.id,
             scope="Person",
             activity="split_person",
@@ -949,26 +1171,32 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._set_properties({key: request.data["value"]}, request.user)
         return Response(status=202)
 
-    @extend_schema(request=PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
+    @validated_request(PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
-    def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+    def delete_property(self, request: ValidatedRequest, pk=None, **kwargs) -> response.Response:
         # Only distinct_ids[0] is used (to attribute the property-update event), so bound the fetch to one.
         with personhog_caller_tag("persons/delete-property"):
             person = get_person_by_pk_or_uuid(self.team_id, pk, distinct_id_limit=1)
         if person is None:
             raise Person.DoesNotExist
 
-        key = request.data.get("$unset")
-        if key:
-            non_writable = self._get_non_writable_person_properties(request)
-            if key in non_writable:
-                raise ValidationError(f'You do not have write access to the property "{key}".')
+        keys = request.validated_data["$unset"]
+
+        non_writable = self._get_non_writable_person_properties(request)
+        forbidden = sorted(set(keys) & non_writable)
+        if forbidden:
+            raise ValidationError(f"You do not have write access to the following properties: {', '.join(forbidden)}.")
+
+        # distinct_ids can be empty for a person orphaned by a merge, or when a concurrent
+        # merge lands between the person fetch and the distinct-id fetch (two separate RPCs).
+        if not person.distinct_ids:
+            raise ValidationError("This person has no distinct IDs, so its properties can't be removed.")
 
         event_name = "$delete_person_property"
         distinct_id = person.distinct_ids[0]
         timestamp = datetime.now(UTC)
         properties = {
-            "$unset": [request.data["$unset"]],
+            "$unset": keys,
         }
 
         try:
@@ -1018,7 +1246,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=person.id,
             scope="Person",
             activity="delete_property",
@@ -1056,7 +1284,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             person = get_person_by_pk_or_uuid(self.team_id, request.GET["person_id"], distinct_id_limit=0)
         if person is None:
             raise NotFound()
-        cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), team.pk)
+        cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), team)
 
         # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from team-scoped ClickHouse query)
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
@@ -1165,7 +1393,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 organization_id=self.organization.id,
                 team_id=self.team.id,
                 user=user,
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=instance.pk,
                 scope="Person",
                 activity="updated",
@@ -1173,87 +1401,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    def _respond_with_cached_results(
-        self, results_package: dict[str, tuple[builtins.list, Optional[str], Optional[str], int]]
-    ):  # noqa: UP006
-        if not results_package:
-            return response.Response(data=[])
-
-        actors, next_url, initial_url, missing_persons = results_package["result"]
-
-        return response.Response(
-            data={
-                "results": [{"people": actors, "count": len(actors)}],
-                "next": next_url,
-                "initial": initial_url,
-                "missing_persons": missing_persons,
-                "is_cached": results_package.get("is_cached"),
-                "last_refresh": results_package.get("last_refresh"),
-            }
-        )
-
-    @action(methods=["GET", "POST"], detail=False)
-    def funnel(self, request: request.Request, **kwargs) -> response.Response:
-        capture_legacy_api_call(request, self.team)
-
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        return self._respond_with_cached_results(self.calculate_funnel_persons(request))
-
-    @cached_by_filters
-    def calculate_funnel_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-        filter = prepare_actor_query_filter(filter)
-        funnel_actor_class = get_funnel_actor_class(filter)
-
-        actors, serialized_actors, raw_count = funnel_actor_class(filter, self.team).get_actors()
-        initial_url = format_query_params_absolute_url(request, 0)
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-
-        # cached_function expects a dict with the key result
-        return {
-            "result": (
-                serialized_actors,
-                next_url,
-                initial_url,
-                raw_count - len(serialized_actors),
-            )
-        }
-
-    @action(methods=["GET"], detail=False)
-    def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        capture_legacy_api_call(request, self.team)
-
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        return self._respond_with_cached_results(self.calculate_trends_persons(request))
-
-    @cached_by_filters
-    def calculate_trends_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
-        filter = Filter(request=request, team=self.team)
-        filter = prepare_actor_query_filter(filter)
-        entity = get_target_entity(filter)
-
-        actors, serialized_actors, raw_count = TrendsActors(self.team, entity, filter).get_actors()
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-        initial_url = format_query_params_absolute_url(request, 0)
-
-        # cached_function expects a dict with the key result
-        return {
-            "result": (
-                serialized_actors,
-                next_url,
-                initial_url,
-                raw_count - len(serialized_actors),
-            )
-        }
-
     @action(methods=["GET"], detail=True)
     def properties_timeline(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         if request.user.is_anonymous or not self.team:
@@ -1266,47 +1413,56 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response(data=properties_timeline)
 
-    @action(methods=["GET"], detail=False)
-    def lifecycle(self, request: request.Request) -> response.Response:
-        team = cast(User, request.user).team
-        if not team:
-            return response.Response(
-                {
-                    "message": "Could not retrieve team",
-                    "detail": "Could not validate team associated with user",
-                },
-                status=400,
-            )
+    @extend_schema(
+        parameters=[PersonMessageAssetsRequestSerializer],
+        responses=MessageAssetSerializer(many=True),
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
+    def emails(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        return self._message_assets_response(request, kind="email")
 
-        target_date = request.GET.get("target_date", None)
-        if target_date is None:
-            return response.Response(
-                {
-                    "message": "Missing parameter",
-                    "detail": "Must include specified date",
-                },
-                status=400,
-            )
-        lifecycle_type = request.GET.get("lifecycle_type", None)
-        if lifecycle_type is None:
-            return response.Response(
-                {
-                    "message": "Missing parameter",
-                    "detail": "Must include lifecycle type",
-                },
-                status=400,
-            )
+    @extend_schema(
+        parameters=[PersonMessageAssetsRequestSerializer],
+        responses=MessageAssetSerializer(many=True),
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
+    def push_notifications(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        return self._message_assets_response(request, kind="push")
 
-        filter = LifecycleFilter(request=request, data=request.GET.dict(), team=self.team)
-        filter = prepare_actor_query_filter(filter)
+    def _message_assets_response(self, request: request.Request, kind: str) -> response.Response:
+        person = self.get_object()
+        param_serializer = PersonMessageAssetsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
 
-        with personhog_caller_tag("persons/lifecycle"):
-            people = self.lifecycle_class().get_people(
-                filter=filter,
-                team=team,
-            )
-        next_url = paginated_result(request, len(people), filter.offset, filter.limit)
-        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
+
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        before_date = None
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        data = fetch_message_assets_for_person(
+            team_id=self.team_id,
+            person_id=str(person.uuid),
+            limit=params["limit"],
+            offset=params["offset"],
+            after=after_date,
+            before=before_date,
+            kind=kind,
+        )
+        # Single lookup for every workflow referenced by this page of rows so the tab shows
+        # human-readable names instead of raw UUIDs. Deleted workflows drop out of the map
+        # and the row's `function_name` stays empty — the frontend falls back to `function_id`.
+        # HogFlow.id is a UUID column; ClickHouse function_id is a plain string, so coerce
+        # both sides to string when building the lookup dict.
+        function_ids = {row.function_id for row in data}
+        name_by_id = {
+            str(pk): (name or "")
+            for pk, name in HogFlow.objects.filter(team_id=self.team_id, id__in=function_ids).values_list("id", "name")
+        }
+        enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
+        return response.Response(MessageAssetSerializer(enriched, many=True).data)
 
     @extend_schema(
         exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint
@@ -1354,7 +1510,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response(status=202)
 
-    @action(methods=["POST"], detail=False, url_path="batch_by_distinct_ids")
+    @action(methods=["POST"], detail=False, url_path="batch_by_distinct_ids", required_scopes=["person:read"])
     def batch_by_distinct_ids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         distinct_ids = request.data.get("distinct_ids", [])
 
@@ -1385,13 +1541,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     for person in persons:
                         person._distinct_ids = ids
 
+        serializer_context = {**self.get_serializer_context(), "get_team": lambda: self.team}
         results: dict[str, Any] = {
-            distinct_id: MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+            distinct_id: MinimalPersonSerializer(person, context=serializer_context).data
             for distinct_id, person in persons_by_distinct_id.items()
         }
         return response.Response({"results": results})
 
-    @action(methods=["POST"], detail=False, url_path="batch_by_uuids")
+    @action(methods=["POST"], detail=False, url_path="batch_by_uuids", required_scopes=["person:read"])
     def batch_by_uuids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         uuids = request.data.get("uuids", [])
 
@@ -1410,9 +1567,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with personhog_caller_tag("persons/batch-by-uuids"):
             persons = get_persons_by_uuids(self.team_id, uuids, distinct_id_limit=10)
 
+        serializer_context = {**self.get_serializer_context(), "get_team": lambda: self.team}
         results: dict[str, Any] = {}
         for person in persons:
-            results[str(person.uuid)] = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+            results[str(person.uuid)] = MinimalPersonSerializer(person, context=serializer_context).data
 
         return response.Response({"results": results})
 
@@ -1574,63 +1732,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"error": f"Failed to retrieve person properties for {identifier_type} '{identifier}'"},
                 status=500,
             )
-
-
-def paginated_result(
-    request: request.Request,
-    count: int,
-    offset: int = 0,
-    limit: int = DEFAULT_PAGE_LIMIT,
-) -> Optional[str]:
-    return format_paginated_url(request, offset, limit) if count >= limit else None
-
-
-T = TypeVar("T", Filter, PathFilter, RetentionFilter, LifecycleFilter)
-
-
-def prepare_actor_query_filter(filter: T) -> T:
-    if not filter.limit:
-        filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
-
-    search = getattr(filter, "search", None)
-    if not search:
-        return filter
-
-    group_properties_filter_group: list[dict[str, object]] = []
-    if hasattr(filter, "aggregation_group_type_index"):
-        group_properties_filter_group += [
-            {
-                "key": "name",
-                "value": search,
-                "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,
-                "operator": "icontains",
-            },
-            {
-                "key": "slug",
-                "value": search,
-                "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,
-                "operator": "icontains",
-            },
-        ]
-
-    new_group = {
-        "type": "OR",
-        "values": [
-            {"key": "email", "type": "person", "value": search, "operator": "icontains"},
-            {"key": "name", "type": "person", "value": search, "operator": "icontains"},
-            {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
-            *group_properties_filter_group,
-        ],
-    }
-    prop_group = (
-        {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}
-        if filter.property_groups.to_dict()
-        else new_group
-    )
-
-    return filter.shallow_clone({"properties": prop_group, "search": None})
 
 
 class LegacyPersonViewSet(PersonViewSet):

@@ -5,7 +5,6 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { pluralize } from 'lib/utils/strings'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
@@ -24,7 +23,6 @@ import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/Samplin
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { FunnelVizType } from 'scenes/insights/views/Funnels/FunnelVizType'
 import { userLogic } from 'scenes/userLogic'
 
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
@@ -38,6 +36,12 @@ import {
     InsightEditorFilterGroup,
     PathType,
 } from '~/types'
+
+import { FunnelVizType } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelVizType'
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import { JourneysExclusions } from 'products/product_analytics/frontend/insights/journeys/JourneysExclusions'
+import { JourneysSettings } from 'products/product_analytics/frontend/insights/journeys/JourneysSettings'
+import { JourneysStepSourcePicker } from 'products/product_analytics/frontend/insights/journeys/JourneysStepSourcePicker'
 
 import { Breakdown } from './Breakdown'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
@@ -63,11 +67,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isFunnels,
         isRetention,
         isPaths,
+        isPathsV2,
         isLifecycle,
         isStickiness,
         isTrendsLike,
         display,
         pathsFilter,
+        pathsV2Filter,
         querySource,
         series,
         breakdownFilter,
@@ -117,7 +123,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const seriesSummary = getSeriesSummary(series)
     const filtersSummary = getFiltersSummary(properties)
     const breakdownSummary = getBreakdownSummary(breakdownFilter)
-    const exclusionCount = isPaths ? (pathsFilter?.excludeEvents?.length ?? 0) : 0
+    const exclusionCount = isPaths
+        ? (pathsFilter?.excludeEvents?.length ?? 0)
+        : isPathsV2
+          ? (pathsV2Filter?.excludedItems?.length ?? 0)
+          : 0
     const exclusionsSummary = exclusionCount > 0 ? pluralize(exclusionCount, 'exclusion') : null
 
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
@@ -140,12 +150,27 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             headerExtra:
                 isFunnels && (querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow ? (
                     <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
-                        <FunnelVizType insightProps={insightProps} />
+                        {/* span so the tooltip has a ref-able anchor — FunnelVizType is a plain function component */}
+                        <span className="inline-flex">
+                            <FunnelVizType insightProps={insightProps} />
+                        </span>
                     </Tooltip>
                 ) : null,
             editorFilters: visibleFilters([
                 { key: 'query-steps', component: FunnelsQuerySteps, show: isFunnels },
                 { key: 'event-types', label: 'Event Types', component: PathsEventsTypes, show: isPaths },
+                {
+                    key: 'step-source',
+                    label: 'Step sources',
+                    tooltip: (
+                        <>
+                            The events that can appear as steps in a journey. Each source is an event, optionally named
+                            by a property: page views named by their URL path, for example.
+                        </>
+                    ),
+                    component: JourneysStepSourcePicker,
+                    show: isPathsV2,
+                },
                 {
                     key: 'hogql',
                     label: 'SQL Expression',
@@ -189,10 +214,17 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             ]),
         },
         {
-            title: isFunnels ? 'Funnel settings' : isPaths ? 'Path settings' : 'Advanced options',
+            title: isFunnels
+                ? 'Funnel settings'
+                : isPaths
+                  ? 'Path settings'
+                  : isPathsV2
+                    ? 'Journey settings'
+                    : 'Advanced options',
             defaultExpanded: false,
             editorFilters: visibleFilters([
                 { key: 'paths-advanced', component: PathsAdvanced, show: isPaths },
+                { key: 'journeys-settings', component: JourneysSettings, show: isPathsV2 },
                 {
                     key: 'funnel-step-configuration',
                     component: FunnelStepConfiguration,
@@ -339,10 +371,25 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     key: 'paths-exclusions',
                     label: 'Exclusions',
                     tooltip: (
-                        <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
+                        <>
+                            Exclude events from Paths visualization. You can also use wildcard groups in exclusions if
+                            you are on a paid plan.
+                        </>
                     ),
                     component: PathsExclusions,
                     show: isPaths,
+                },
+                {
+                    key: 'journeys-exclusions',
+                    label: 'Exclusions',
+                    tooltip: (
+                        <>
+                            Exclude specific path items. Their events are ignored entirely, on the chart and in any
+                            funnel created from it.
+                        </>
+                    ),
+                    component: JourneysExclusions,
+                    show: isPathsV2,
                 },
             ]),
         },

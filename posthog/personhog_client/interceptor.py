@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 import random
 from collections import namedtuple
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any
 
 import grpc
@@ -154,17 +154,35 @@ _RETRYABLE_CODES = frozenset(
         grpc.StatusCode.UNAVAILABLE,
         grpc.StatusCode.DEADLINE_EXCEEDED,
         grpc.StatusCode.ABORTED,
+        grpc.StatusCode.UNKNOWN,
     }
 )
+
+
+def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode] = _RETRYABLE_CODES) -> bool:
+    """Whether ``exc``, or the error it was raised from, is a gRPC failure with a status in ``codes``.
+
+    Follows ``__cause__`` so a caller that wrapped the RpcError (``personhog_call(reraise_as=...)``)
+    still classifies the underlying transport failure. ``codes`` defaults to the in-process
+    RetryInterceptor policy; a caller that retries at a slower tier passes its own set.
+    """
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, grpc.RpcError):
+            code = getattr(current, "code", None)
+            return callable(code) and code() in codes
+        current = current.__cause__
+    return False
 
 
 class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
     """Retries transient gRPC errors with jittered backoff.
 
-    Covers three failure modes:
+    Covers four failure modes:
     - UNAVAILABLE: client-to-router connection failure
     - ABORTED: HTTP/2 stream reset during router deploys
     - DEADLINE_EXCEEDED: transient timeout (event loop saturation, brief backend slowness)
+    - UNKNOWN: catch-all for transient failures that don't map to a specific code
 
     Sits outside MetricsInterceptor so each attempt gets its own per-call metrics.
     """

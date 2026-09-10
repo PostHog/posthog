@@ -5,12 +5,38 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { IdentityMatchingLinkApi, IdentityMatchingRunApi } from './generated/api.schemas'
+import type {
+    IdentityMatchingLinkApi,
+    IdentityMatchingPersonApi,
+    IdentityMatchingRunApi,
+} from './generated/api.schemas'
 
 const RUN_A = '0197a4a6-06d9-7000-34fe-daa2e2afb501'
 const RUN_B = '0197a4a6-06d9-7000-34fe-daa2e2afb502'
 
-const LINKS_RESULT: IdentityMatchingLinkApi[] = [
+function person(distinct_id: string, overrides: Partial<IdentityMatchingPersonApi>): IdentityMatchingPersonApi {
+    return {
+        distinct_id,
+        first_seen: '2023-01-15T10:20:00Z',
+        last_seen: '2023-02-01T09:25:00Z',
+        email: null,
+        name: null,
+        city: null,
+        country: null,
+        browser: null,
+        os: null,
+        device_type: null,
+        timezone: null,
+        utm_source: null,
+        utm_medium: null,
+        utm_campaign: null,
+        referring_domain: null,
+        gclid: null,
+        ...overrides,
+    }
+}
+
+const BASE_LINKS: Omit<IdentityMatchingLinkApi, 'orphan_person' | 'anchor_person'>[] = [
     {
         job_id: RUN_A,
         model_version: 'rules_v1',
@@ -150,6 +176,110 @@ const LINKS_RESULT: IdentityMatchingLinkApi[] = [
         anchor_paid_touch: false,
     },
 ]
+
+// Resolved persons keyed by distinct ID. Links to the same identity (e.g. the rules + logreg links
+// for Anna) share these. A null entry exercises the "no profile resolved" fallback.
+const PERSON_BY_DISTINCT_ID: Record<string, IdentityMatchingPersonApi | null> = {
+    '0190a1b2-phone-3c4d-5e6f-anna00000001': person('0190a1b2-phone-3c4d-5e6f-anna00000001', {
+        city: 'Lisbon',
+        country: 'PT',
+        browser: 'Mobile Safari',
+        os: 'iOS',
+        device_type: 'Mobile',
+        timezone: 'Europe/Lisbon',
+        utm_source: 'google',
+        utm_medium: 'cpc',
+        utm_campaign: 'spring_sale_2026',
+        referring_domain: 'google.com',
+        gclid: 'Cj0KCQiAexampleLISBON',
+    }),
+    'anna@example.com': person('anna@example.com', {
+        email: 'anna@example.com',
+        name: 'Anna Müller',
+        city: 'Lisbon',
+        country: 'PT',
+        browser: 'Chrome',
+        os: 'macOS',
+        device_type: 'Desktop',
+        timezone: 'Europe/Lisbon',
+    }),
+    '0190a1b2-webview-3c4d-5e6f-cara00000001': person('0190a1b2-webview-3c4d-5e6f-cara00000001', {
+        city: 'Berlin',
+        country: 'DE',
+        browser: 'Chrome WebView',
+        os: 'Android',
+        device_type: 'Mobile',
+        timezone: 'Europe/Berlin',
+        utm_source: 'linkedin',
+        utm_medium: 'paid',
+        utm_campaign: 'q2_webinar',
+        referring_domain: 'lnkd.in',
+    }),
+    'cara@example.com': person('cara@example.com', {
+        email: 'cara@example.com',
+        name: 'Cara Lopes',
+        city: 'Berlin',
+        country: 'DE',
+        browser: 'Chrome WebView',
+        os: 'Android',
+        device_type: 'Mobile',
+        timezone: 'Europe/Berlin',
+        utm_source: 'linkedin',
+        utm_medium: 'paid',
+        utm_campaign: 'q2_webinar',
+        referring_domain: 'lnkd.in',
+    }),
+    '0190a1b2-phone-3c4d-5e6f-bob000000001': person('0190a1b2-phone-3c4d-5e6f-bob000000001', {
+        city: 'New York',
+        country: 'US',
+        browser: 'Mobile Safari',
+        os: 'iOS',
+        device_type: 'Mobile',
+        timezone: 'America/New_York',
+    }),
+    'bob@example.com': person('bob@example.com', {
+        email: 'bob@example.com',
+        city: 'New York',
+        country: 'US',
+        browser: 'Chrome',
+        os: 'Windows',
+        device_type: 'Desktop',
+        timezone: 'America/New_York',
+    }),
+    '0190a1b2-tablet-3c4d-5e6f-dana00000001': person('0190a1b2-tablet-3c4d-5e6f-dana00000001', {
+        city: 'London',
+        country: 'GB',
+        browser: 'Safari',
+        os: 'iPadOS',
+        device_type: 'Tablet',
+        timezone: 'Europe/London',
+    }),
+    'dana@example.com': person('dana@example.com', {
+        email: 'dana@example.com',
+        city: 'Manchester',
+        country: 'GB',
+        browser: 'Chrome',
+        os: 'Windows',
+        device_type: 'Desktop',
+        timezone: 'Europe/London',
+        utm_source: 'bing',
+        utm_medium: 'cpc',
+        utm_campaign: 'brand',
+    }),
+    '0190a1b2-anon-3c4d-5e6f-eve0000000001': null,
+    '0190a1b2-user-3c4d-5e6f-eve0000000002': person('0190a1b2-user-3c4d-5e6f-eve0000000002', {
+        browser: 'Firefox',
+        os: 'Linux',
+        device_type: 'Desktop',
+        timezone: 'UTC',
+    }),
+}
+
+const LINKS_RESULT: IdentityMatchingLinkApi[] = BASE_LINKS.map((link) => ({
+    ...link,
+    orphan_person: PERSON_BY_DISTINCT_ID[link.orphan_distinct_id] ?? null,
+    anchor_person: PERSON_BY_DISTINCT_ID[link.anchor_person_key] ?? null,
+}))
 
 const RUNS_RESULT: IdentityMatchingRunApi[] = [
     {

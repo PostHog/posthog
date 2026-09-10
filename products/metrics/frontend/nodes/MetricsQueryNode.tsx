@@ -1,0 +1,66 @@
+import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { useMemo, useState } from 'react'
+
+import { SpinnerOverlay } from '@posthog/lemon-ui'
+
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { AnyResponseType, MetricsQuery } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
+
+import { MetricsSeriesChart } from '../components/MetricsSeriesChart'
+import { seriesFromMetricsResponse } from './metricsResponseSeries'
+
+let uniqueNode = 0
+
+/** Renders a `MetricsQuery` wherever the generic `Query` component is used —
+ * saved insights, dashboard tiles, notebooks. */
+export function MetricsQueryNode(props: {
+    query: MetricsQuery
+    cachedResults?: AnyResponseType
+    context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
+}): JSX.Element | null {
+    const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
+    const [key] = useState(() => `MetricsQueryNode.${uniqueNode++}`)
+    // `dataNodeLogic` deep-compares its query to decide whether to refetch. Its
+    // `ignoreVisualizationOnlyChanges` option doesn't help here — that only reaches
+    // `cleanInsightQuery`, which bails unless both sides are insight query nodes, and a
+    // `MetricsQuery` isn't one. So chart settings have to be kept out of the query it sees,
+    // or changing the chart type would re-run the ClickHouse query.
+    const dataQuery = useMemo(() => {
+        const { display: _display, ...rest } = props.query
+        return rest
+    }, [props.query])
+    const logic = dataNodeLogic({
+        query: dataQuery,
+        key,
+        cachedResults: props.cachedResults,
+        loadPriority,
+        onData,
+        dataNodeCollectionId: dataNodeCollectionId ?? key,
+    })
+
+    useAttachedLogic(logic, props.attachTo)
+
+    const { response, responseLoading } = useValues(logic)
+    const series = seriesFromMetricsResponse(response)
+    const hasPoints = series.some((s) => s.points.length > 0)
+    // A formula query returns only the formula result (metricName is null on it),
+    // so the formula text itself is the honest name for an unlabelled series.
+    const fallbackName = props.query.formula ?? props.query.clauses[0]?.metricName ?? 'metric'
+
+    return (
+        <div className="relative flex flex-col w-full h-full min-h-[200px]">
+            {hasPoints ? (
+                <MetricsSeriesChart series={series} fallbackName={fallbackName} display={props.query.display} />
+            ) : !responseLoading ? (
+                <div className="flex-1 flex items-center justify-center text-secondary text-sm">
+                    No data for this metric in the selected range.
+                </div>
+            ) : null}
+            {responseLoading && <SpinnerOverlay />}
+        </div>
+    )
+}

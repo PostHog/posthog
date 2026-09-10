@@ -1,8 +1,7 @@
 import { randomBytes } from 'crypto'
 import { DateTime } from 'luxon'
 
-import { ClickHouseTimestamp } from '../src/types'
-import { safeClickhouseString } from '../src/utils/db/utils'
+import { safeClickhouseString } from '~/common/utils/db/utils'
 import {
     UUID,
     UUID7,
@@ -18,7 +17,9 @@ import {
     sanitizeSqlIdentifier,
     stringify,
     uint32ArrayLEToBuffer,
-} from '../src/utils/utils'
+} from '~/common/utils/utils'
+
+import { ClickHouseTimestamp } from '../src/types'
 
 // .zip in Base64: github repo posthog/helloworldplugin
 const zip =

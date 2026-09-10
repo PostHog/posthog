@@ -12,11 +12,11 @@ use crate::metrics::consts::{
     FLAG_EVALUATION_ERROR_COUNTER, FLAG_MISSING_REQUESTED_FLAG_KEY,
 };
 use common_metrics::{inc, timing_guard};
-use tracing::warn;
+use tracing::debug;
 
-/// Logs a warning and increments the error counter when a requested flag key is not found.
+/// Increments the error counter (and logs at debug) when a requested flag key is not found.
 fn warn_missing_flag_key(key: &str) {
-    warn!("Requested flag key not found: {}", key);
+    debug!("Requested flag key not found: {}", key);
     inc(
         FLAG_EVALUATION_ERROR_COUNTER,
         &[(

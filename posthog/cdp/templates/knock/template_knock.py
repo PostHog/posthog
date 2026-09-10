@@ -9,6 +9,14 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     description="Send events to Knock",
     icon_url="/static/services/knock.png",
     category=["SMS & Push Notifications"],
+    filters={
+        "events": [
+            {"id": "$identify", "name": "$identify", "type": "events", "order": 0},
+            {"id": "$pageview", "name": "$pageview", "type": "events", "order": 1},
+        ],
+        "actions": [],
+        "filter_test_accounts": True,
+    },
     code_language="hog",
     code="""
 if (empty(inputs.userId)) {
@@ -59,8 +67,8 @@ if (res.status >= 400) {
             "key": "userId",
             "type": "string",
             "label": "User ID",
-            "description": "You can choose to fill this from an `email` property or an `id` property. If the value is empty nothing will be sent. See here for more information: https://docs.gleap.io/server/rest-api",
-            "default": "{person.id}",
+            "description": "The identifier for the user in Knock. The default sends the PostHog distinct ID, which matches the identifier your app already uses. It sends nothing for an anonymous event, where the distinct ID is still the device ID, and nothing for an event with no person, so you do not get Knock recipients you cannot notify. Set this to another value, such as an `email` or your own `id`, if your Knock users use a different identifier. Do not use the PostHog person ID (`{person.id}`): it is a PostHog-owned UUID that Knock has never seen, so it creates a second Knock user record. If the value is empty, nothing is sent. See here for more information: https://docs.knock.app/concepts/users#user-identifiers",
+            "default": "{not empty(person.id) and event.distinct_id != event.properties.$device_id ? event.distinct_id : null}",
             "secret": False,
             "required": True,
         },
@@ -79,7 +87,8 @@ if (res.status >= 400) {
             "label": "Attribute mapping",
             "description": "Map of Knock.app attributes and their values. You can use the filters section to filter out unwanted events.",
             "default": {
-                "price": "{event.properties.price}",
+                "email": "{person.properties.email}",
+                "name": "{person.properties.name}",
             },
             "secret": False,
             "required": False,

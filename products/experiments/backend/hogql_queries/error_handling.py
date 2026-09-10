@@ -5,23 +5,43 @@ while technical details are logged for engineers.
 
 import functools
 from collections.abc import Callable
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
 import structlog
+from clickhouse_driver.errors import ServerException
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
-from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.errors import (
+    CHQueryErrorNotAnAggregate,
+    ExposedCHQueryError,
+    QueryErrorCategory,
+    look_up_clickhouse_error_code_meta,
+)
+from posthog.event_usage import groups
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.exceptions_capture import capture_exception
+from posthog.ph_client import ph_scoped_capture
 
 from products.experiments.stats.shared.statistics import StatisticError
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+    from posthog.models.user import User
 
 # Map error types to their error codes for the API response
 ERROR_TYPE_TO_CODE: dict[type, str] = {
     ClickHouseQueryMemoryLimitExceeded: "memory_limit_exceeded",
 }
+
+_MAX_ERROR_EVENT_MESSAGE_LENGTH = 500
 
 logger = structlog.get_logger(__name__)
 
@@ -80,6 +100,125 @@ def get_user_friendly_message(error: Exception) -> str | None:
     return None
 
 
+def classify_experiment_query_error(error: Exception) -> str:
+    """Single failure taxonomy for the `experiment metric error` event, derived from the typed
+    exceptions `posthog/errors.py` already produces — never from message parsing or HTTP status.
+
+    Values: timeout · out_of_memory · byte_limit · rate_limited · insufficient_data ·
+    validation_error · server_error (catch-all).
+    """
+    if isinstance(error, (StatisticError, ZeroDivisionError)):
+        return "insufficient_data"
+    if isinstance(error, (ValidationError, ExposedHogQLError)):
+        return "validation_error"
+    if isinstance(error, (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)):
+        return "timeout"
+    if isinstance(error, ClickHouseQueryMemoryLimitExceeded):
+        return "out_of_memory"
+    if isinstance(error, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
+        return "rate_limited"
+    if isinstance(error, ServerException):
+        meta = look_up_clickhouse_error_code_meta(error)
+        if meta.name == "NOT_AN_AGGREGATE":
+            # Only known producer in experiment queries is user-authored HogQL referencing a
+            # row-level column outside an aggregate — a metric-config error, not a platform one.
+            return "validation_error"
+        if meta.name in ("TIMEOUT_EXCEEDED", "SOCKET_TIMEOUT"):
+            return "timeout"
+        if meta.name == "MEMORY_LIMIT_EXCEEDED":
+            return "out_of_memory"
+        if meta.name in ("TOO_MANY_BYTES", "TOO_MANY_ROWS", "TOO_MANY_ROWS_OR_BYTES"):
+            return "byte_limit"
+        if meta.get_category() == QueryErrorCategory.RATE_LIMITED:
+            return "rate_limited"
+    return "server_error"
+
+
+def capture_experiment_metric_error_event(
+    *,
+    team: "Team",
+    error: Exception,
+    context: str,
+    mechanism: str,
+    experiment_id: int | None,
+    metric_uuid: str | None = None,
+    metric_kind: str | None = None,
+    query_kind: str | None = None,
+    user: Optional["User"] = None,
+    extra_properties: dict[str, Any] | None = None,
+) -> None:
+    """Emit the terminal `experiment metric error` product analytics event.
+
+    Call this exactly once per user-visible failure, from the layer that owns retries for its
+    execution path (the runner where nothing above retries; the orchestrator's final attempt
+    otherwise). Telemetry must never fail the caller, so any capture error is swallowed.
+    """
+    try:
+        distinct_id = user.distinct_id if user is not None and user.distinct_id else f"team_{team.id}"
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=distinct_id,
+                event="experiment metric error",
+                properties={
+                    "experiment_id": experiment_id,
+                    "team_id": team.id,
+                    "metric_uuid": metric_uuid,
+                    "metric_kind": metric_kind,
+                    "query_kind": query_kind,
+                    "error_type": classify_experiment_query_error(error),
+                    "error_message": str(error)[:_MAX_ERROR_EVENT_MESSAGE_LENGTH],
+                    "context": context,
+                    "mechanism": mechanism,
+                    **(extra_properties or {}),
+                },
+                groups=groups(organization=team.organization, team=team),
+            )
+    except Exception:
+        logger.warning(
+            "experiment_metric_error_event_capture_failed",
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            exc_info=True,
+        )
+
+
+def _emit_runner_terminal_error_event(runner: Any, error: Exception) -> None:
+    """Emit the terminal failure event for a query runner on the direct (in-request) path.
+
+    Gated on the runner's `error_event_context` ("ui"/"agent"; None = silent) AND `user_facing`
+    (internal callers — recalc, canary, warming — own their retries, so a runner-level emit there
+    would count non-terminal attempts). One runner execution is terminal on every direct path:
+    the frontend has no automatic retry loop and the async Celery task swallows failures
+    (no retry passes back through the runner).
+    """
+    if runner is None:
+        return
+    context = getattr(runner, "error_event_context", None)
+    if not context or not getattr(runner, "user_facing", True):
+        return
+    team = getattr(runner, "team", None)
+    if team is None:
+        return
+
+    experiment_id = getattr(runner, "experiment_id", None)
+    if experiment_id is None:
+        experiment_id = getattr(getattr(runner, "experiment", None), "id", None)
+    metric = getattr(runner, "metric", None)
+    query = getattr(runner, "query", None)
+
+    capture_experiment_metric_error_event(
+        team=team,
+        error=error,
+        context=context,
+        mechanism="direct",
+        experiment_id=experiment_id,
+        metric_uuid=getattr(metric, "uuid", None),
+        metric_kind=getattr(metric, "metric_type", None),
+        query_kind=type(query).__name__ if query is not None else None,
+        user=getattr(runner, "user", None),
+    )
+
+
 def experiment_error_handler(method: F) -> F:
     """
     Decorator that catches technical errors, logs them for engineers,
@@ -90,9 +229,33 @@ def experiment_error_handler(method: F) -> F:
     def wrapper(*args, **kwargs):
         try:
             return method(*args, **kwargs)
-        except (ValidationError, ExposedHogQLError):
-            # ValidationErrors and ExposedHogQLErrors are already user-facing, let them through
+        except (ValidationError, ExposedHogQLError) as e:
+            # ValidationErrors and ExposedHogQLErrors are already user-facing, let them through.
+            # Still terminal user pain (the metric fails to load every time), so still counted.
+            _emit_runner_terminal_error_event(args[0] if args else None, e)
             raise
+        except CHQueryErrorNotAnAggregate as e:
+            # Only known producer in experiment queries is user-authored HogQL (math_hogql /
+            # warehouse math_property) referencing a row-level column outside an aggregate —
+            # builder-generated SQL is snapshot-tested, and every tracked occurrence carried
+            # contains_user_hogql. A metric-config error: give an actionable message, keep it
+            # out of error tracking, and let classify_experiment_query_error's validation_error
+            # mapping make the recalculation worker fail it permanently instead of retrying.
+            self = args[0] if args else None
+            logger.warning(
+                "Experiment metric HogQL references column outside aggregate",
+                experiment_id=getattr(self, "experiment_id", None),
+                error_message=str(e),
+            )
+            user_error = ValidationError(
+                "This metric's HogQL expression references an event column outside an aggregate "
+                "function. Wrap the value in an aggregation, e.g. sum(properties.value)."
+            )
+            _emit_runner_terminal_error_event(self, user_error)
+            if self is not None and not getattr(self, "user_facing", True):
+                # Internal callers (recalculation, timeseries) expect raw types and classify themselves.
+                raise
+            raise user_error from e
         except Exception as e:
             # Get context for logging
             self = args[0] if args else None
@@ -133,6 +296,8 @@ def experiment_error_handler(method: F) -> F:
                     "method": method.__name__,
                 },
             )
+
+            _emit_runner_terminal_error_event(self, e)
 
             # If this is not user-facing, re-raise the original exception after logging/capturing
             user_facing = True

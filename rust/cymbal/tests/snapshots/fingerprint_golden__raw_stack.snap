@@ -1,0 +1,17 @@
+---
+source: cymbal/tests/fingerprint_golden.rs
+expression: fingerprint
+---
+{
+  "value": "cfe0ff85d4b448eab8e16c928f8dac7b9758900752626b26e8e8bfc94c9974e8c3235b79c664518a933a6e099137eb2854c66644b582bb1c7eb66eb9d966df08",
+  "record": [
+    {
+      "type": "exception",
+      "id": "00000000-0000-0000-0000-000000000000",
+      "pieces": [
+        "Exception Type",
+        "Exception Message"
+      ]
+    }
+  ]
+}

@@ -8,7 +8,9 @@ from django.conf import settings
 from django.core.cache import cache, caches
 
 import structlog
+import redis.exceptions
 from botocore.exceptions import BotoCoreError, ClientError
+from django_redis.exceptions import ConnectionInterrupted
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Histogram
 
@@ -18,6 +20,17 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
+
+# Redis/transport failures the primary cache read degrades on, mirroring the S3/load_fn tiers below.
+# django-redis wraps the underlying redis error in ConnectionInterrupted; we also catch the raw redis
+# errors (and the builtin socket errors under OSError) in case a backend surfaces them directly.
+_REDIS_READ_ERRORS = (
+    ConnectionInterrupted,
+    redis.exceptions.RedisError,
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
 
 
 DEFAULT_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
@@ -66,6 +79,19 @@ HYPERCACHE_REBUILD_SKIPPED_COUNTER = Counter(
     "posthog_hypercache_rebuild_skipped",
     "Rebuilds skipped because a dependency was unavailable, keeping the existing entry",
     labelnames=["namespace", "reason"],
+)
+
+HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER = Counter(
+    "posthog_hypercache_write_skipped_unchanged",
+    "Content-propagation writes skipped because the ETag was unchanged, avoiding a redundant rewrite",
+    labelnames=["namespace", "value"],
+)
+
+HYPERCACHE_MIRROR_FAILURE_COUNTER = Counter(
+    "posthog_hypercache_mirror_failure",
+    "Mirror operations to the secondary cache that failed. Mirror failures do not fail the "
+    "write, so this counter is the only Prometheus signal that the secondary tier is drifting.",
+    labelnames=["namespace", "value"],
 )
 
 CACHE_SYNC_DURATION_HISTOGRAM = Histogram(
@@ -160,6 +186,7 @@ class HyperCache:
         batch_load_fn: Optional[Callable[[list[Team]], dict[int, dict]]] = None,
         enable_etag: bool = False,
         expiry_sorted_set_key: Optional[str] = None,
+        s3_enabled: bool = True,
     ):
         if token_based and hashed_credential_based:
             raise ValueError("token_based and hashed_credential_based are mutually exclusive")
@@ -177,6 +204,10 @@ class HyperCache:
         self.batch_load_fn = batch_load_fn
         self.enable_etag = enable_etag
         self.expiry_sorted_set_key = expiry_sorted_set_key
+        # Redis-only mode: skips the S3 tier on reads, writes, and deletes. For short-TTL
+        # entries whose staleness bound depends on expiry — an S3 copy never expires, so
+        # it would restore a stale value past every redis expiry.
+        self.s3_enabled = s3_enabled
 
         # Derive cache_client and redis_url from cache_alias (single source of truth)
         if cache_alias:
@@ -186,7 +217,7 @@ class HyperCache:
             self.cache_client = cache
             self.redis_url = settings.REDIS_URL
 
-        # Optional secondary cache; writes are mirrored on a best-effort basis.
+        # Optional secondary cache; writes and deletes are mirrored on a best-effort basis.
         self.secondary_cache_client = (
             caches[secondary_cache_alias]
             if secondary_cache_alias and secondary_cache_alias in settings.CACHES
@@ -236,7 +267,14 @@ class HyperCache:
 
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
         cache_key = self.get_cache_key(key)
-        data = self.cache_client.get(cache_key)
+        try:
+            data = self.cache_client.get(cache_key)
+        except _REDIS_READ_ERRORS as e:
+            # A Redis outage on the primary read must degrade to the S3/DB tiers below, never
+            # bubble a 500 up to the request handler. Capture it for visibility, the way the S3
+            # branch does, then fall through as a cache miss.
+            capture_exception(e)
+            data = None
 
         if data:
             HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
@@ -247,12 +285,13 @@ class HyperCache:
                 return json.loads(data), "redis"
 
         try:
-            data = object_storage.read(cache_key, missing_ok=True)
-            if data:
-                response = json.loads(data)
-                HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
-                self._set_cache_value_redis(key, response)
-                return response, "s3"
+            if self.s3_enabled:
+                data = object_storage.read(cache_key, missing_ok=True)
+                if data:
+                    response = json.loads(data)
+                    HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
+                    self._set_cache_value_redis(key, response)
+                    return response, "s3"
         except (ObjectStorageError, BotoCoreError, ClientError, ValueError) as e:
             # Any storage-layer failure here (including a misconfigured S3 endpoint that
             # makes boto3 raise on client construction) must degrade to a cache miss and
@@ -313,7 +352,13 @@ class HyperCache:
         cache_keys = [self.get_cache_key(team) for team in teams]
         etag_keys = [self.get_etag_key(team) for team in teams] if self.enable_etag else []
 
-        cached_values = self.cache_client.get_many(cache_keys + etag_keys)
+        try:
+            cached_values = self.cache_client.get_many(cache_keys + etag_keys)
+        except _REDIS_READ_ERRORS as e:
+            # Degrade a Redis outage to an all-miss result rather than raising; there is no
+            # S3/DB fallback in batch mode, so every team resolves to a clean "miss" below.
+            capture_exception(e)
+            cached_values = {}
 
         # Map results back to team IDs, counting hits and misses for batch metrics
         results: dict[int, tuple[dict | None, str, str | None]] = {}
@@ -350,7 +395,28 @@ class HyperCache:
         """Get just the ETag for a cached value without loading the full response."""
         if not self.enable_etag:
             return None
-        return self.cache_client.get(self.get_etag_key(key))
+        try:
+            return self.cache_client.get(self.get_etag_key(key))
+        except _REDIS_READ_ERRORS as e:
+            # Degrade a Redis outage to a missing ETag rather than raising; callers treat a
+            # None ETag as a miss/mismatch and fall back to the full response.
+            capture_exception(e)
+            return None
+
+    def _secondary_etag_matches(self, key: KeyType, etag: str) -> bool:
+        """True when there is no secondary cache, or the secondary already holds this ETag.
+
+        An unreadable secondary returns False so the caller writes instead of skipping;
+        skipping on a failed read would leave a drifted mirror unrepaired.
+        """
+        if self.secondary_cache_client is None:
+            return True
+        try:
+            return self.secondary_cache_client.get(self.get_etag_key(key)) == etag
+        except _REDIS_READ_ERRORS as e:
+            HYPERCACHE_MIRROR_FAILURE_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
+            capture_exception(e)
+            return False
 
     def get_if_none_match(self, key: KeyType, client_etag: str | None) -> tuple[dict | None, str | None, bool]:
         """
@@ -420,7 +486,8 @@ class HyperCache:
         Pass ``data`` to write an already-built value and skip ``load_fn``; when None the
         value is loaded via ``load_fn``.
         """
-        logger.info(f"Syncing {self.namespace} cache for team {key}")
+        team_id = getattr(key, "pk", key)
+        logger.info("Syncing cache for team", namespace=self.namespace, team_id=team_id)
 
         start_time = time.time()
         success = False
@@ -441,13 +508,16 @@ class HyperCache:
             # source of the failure already reported it, so don't report it again here.
             HYPERCACHE_REBUILD_SKIPPED_COUNTER.labels(namespace=self.namespace, reason="dependency_unavailable").inc()
             logger.warning(
-                f"Skipping {self.namespace} cache sync for team {key}: dependency unavailable",
+                "Skipping cache sync for team: dependency unavailable",
                 namespace=self.namespace,
+                team_id=team_id,
             )
             return False
         except Exception as e:
             capture_exception(e)
-            logger.exception(f"Failed to sync {self.namespace} cache for team {key}", exception=str(e))
+            logger.exception(
+                "Failed to sync cache for team", namespace=self.namespace, team_id=team_id, exception=str(e)
+            )
             return False
         finally:
             duration = time.time() - start_time
@@ -455,15 +525,42 @@ class HyperCache:
             emit_cache_sync_metrics(result, self.namespace, self.value, duration=duration, size=size)
 
     def set_cache_value(
-        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: Optional[int] = None,
+        skip_if_unchanged: bool = False,
     ) -> int | None:
         """
         Set cache value in Redis and S3, returning the serialized size in bytes.
 
         Returns None for None/missing values.
+
+        When ``skip_if_unchanged`` is set, an ETag-enabled dict payload whose ETag matches
+        the stored one is not rewritten (the counter records the skip; the serialized size
+        is still returned). Skipping does not re-stamp expiry, so the cache must own an
+        independent refresh path that does. ``expiry_sorted_set_key`` is the structural marker
+        for that path (the refresh task reads the set to find expiring entries), so a refresh-less
+        cache that opts into skipping raises rather than silently letting entries expire.
         """
-        size = self._set_cache_value_redis(key, data, ttl=ttl)
-        self._set_cache_value_s3(key, data, ttl=ttl)
+        if skip_if_unchanged and not self.expiry_sorted_set_key:
+            raise ValueError(
+                "set_cache_value(skip_if_unchanged=True) requires expiry tracking "
+                "(expiry_sorted_set_key) with a scheduled refresh that re-stamps the TTL"
+            )
+        json_data: str | None = None
+        if skip_if_unchanged and self.enable_etag and isinstance(data, dict):
+            json_data = json.dumps(data, sort_keys=True)
+            etag = self._compute_etag(json_data)
+            # Skip only when every tier is current. A failed mirror write leaves the
+            # secondary on the old payload, and a primary-only ETag comparison would then
+            # skip every identical rebuild until the secondary's TTL expires.
+            if etag == self.get_etag(key) and self._secondary_etag_matches(key, etag):
+                HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
+                return len(json_data)
+        size = self._set_cache_value_redis(key, data, ttl=ttl, json_data=json_data)
+        if self.s3_enabled:
+            self._set_cache_value_s3(key, data, ttl=ttl)
         # Only track expiry when we have a Team object (avoids DB lookup)
         if isinstance(key, Team):
             self._track_expiry(key, data, ttl=ttl)
@@ -510,24 +607,34 @@ class HyperCache:
         """
         kinds = kinds or ["redis", "s3"]
         try:
+            cache_key = self.get_cache_key(key)
             if "redis" in kinds:
-                self.cache_client.delete(self.get_cache_key(key))
-                # Always delete ETag key to clean up stale ETags from when enable_etag was True
-                self.cache_client.delete(self.get_etag_key(key))
-            if "s3" in kinds:
-                object_storage.delete(self.get_cache_key(key))
+                # One DEL per cache drops the payload and its ETag together. A reader that
+                # checks the ETag first would otherwise answer 304 for a payload that is
+                # already gone. The ETag key goes even when enable_etag is off, to clear a
+                # stale ETag from when it was on.
+                redis_keys = [cache_key, self.get_etag_key(key)]
+                # Mirror the delete so the secondary never serves an entry the primary dropped,
+                # and mirror first so a primary failure cannot block it.
+                self._mirror_to_secondary(lambda c: c.delete_many(redis_keys))
+                self.cache_client.delete_many(redis_keys)
+            if "s3" in kinds and self.s3_enabled:
+                object_storage.delete(cache_key)
         finally:
             self._remove_expiry_tracking(key)
 
     def _mirror_to_secondary(self, op: Callable[..., None]) -> None:
-        """Best-effort mirror write; failures are logged and captured, never propagated."""
+        """Best-effort mirror op; failures are logged and captured, never propagated."""
         if self.secondary_cache_client is None:
             return
         try:
             op(self.secondary_cache_client)
         except Exception as e:
+            HYPERCACHE_MIRROR_FAILURE_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
+            # The traceback names the calling frame, which says whether a set or a
+            # delete failed more precisely than a label could.
             logger.warning(
-                "HyperCache secondary cache write failed",
+                "HyperCache secondary cache op failed",
                 namespace=self.namespace,
                 value=self.value,
                 exc_info=True,
@@ -535,38 +642,48 @@ class HyperCache:
             capture_exception(e)
 
     def _set_cache_value_redis(
-        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: Optional[int] = None,
+        json_data: str | None = None,
     ) -> int | None:
         """
         Set cache value in Redis and return the serialized size in bytes.
 
         Returns None for None/missing values, otherwise returns len(json_data).
+
+        Pass ``json_data`` to reuse an already-serialized payload (a caller that hashed it
+        for an ETag comparison) instead of re-running ``json.dumps`` over a large value.
         """
         cache_key = self.get_cache_key(key)
         etag_key = self.get_etag_key(key)
+        # Mirror before the primary write. During a dual-write migration the secondary can
+        # be the tier the live reader serves from, so a primary failure must not block it.
         if data is None or isinstance(data, HyperCacheStoreMissing):
-            self.cache_client.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
             self._mirror_to_secondary(lambda c: c.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl))
+            self._mirror_to_secondary(lambda c: c.delete(etag_key))
+            self.cache_client.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
             # Always delete ETag key to clean up stale ETags from when enable_etag was True
             self.cache_client.delete(etag_key)
-            self._mirror_to_secondary(lambda c: c.delete(etag_key))
             return None
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
             # Use sort_keys for deterministic serialization (consistent ETags)
-            json_data = json.dumps(data, sort_keys=True)
+            if json_data is None:
+                json_data = json.dumps(data, sort_keys=True)
             if self.enable_etag:
                 etag = self._compute_etag(json_data)
+                self._mirror_to_secondary(lambda c: c.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout))
                 # Write data and ETag via pipeline (single Redis round trip)
                 # Note this is not strictly atomic, but good enough for our use case
                 self.cache_client.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout)
-                self._mirror_to_secondary(lambda c: c.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout))
             else:
-                self.cache_client.set(cache_key, json_data, timeout=timeout)
                 self._mirror_to_secondary(lambda c: c.set(cache_key, json_data, timeout=timeout))
+                self._mirror_to_secondary(lambda c: c.delete(etag_key))
+                self.cache_client.set(cache_key, json_data, timeout=timeout)
                 # Clean up stale ETag if ETags were previously enabled
                 self.cache_client.delete(etag_key)
-                self._mirror_to_secondary(lambda c: c.delete(etag_key))
             return len(json_data)
 
     def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None):

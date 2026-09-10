@@ -10,6 +10,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import { HeatmapSettings } from '~/queries/schema/schema-general'
 
+import { getContrastingTextClass } from '../../colorUtils'
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import {
     buildFallbackGradientStops,
@@ -17,7 +18,6 @@ import {
     formatHeatmapValue,
     getHeatmapNullLabel,
     getHeatmapNullValue,
-    getHeatmapTextClassName,
     interpolateHeatmapColor,
     resolveGradientStops,
     stretchGradientStopsToValues,
@@ -48,7 +48,10 @@ type HeatmapData = {
     cellValues: Record<string, Record<string, number | null>>
     numericValues: number[]
     duplicateCellCount: number
+    isTooLarge: boolean
 }
+
+const MAX_HEATMAP_CELLS = 10_000
 
 type HeatmapDataSettings = Pick<
     HeatmapSettings,
@@ -62,7 +65,9 @@ const buildHeatmapData = (
 ): HeatmapData => {
     const xValues: string[] = []
     const yValues: string[] = []
-    const cellValues: Record<string, Record<string, number | null>> = {}
+    // Prototype-less: row labels are attacker-controlled and used as keys, so a `__proto__`
+    // label on a plain object would write through to Object.prototype (prototype pollution).
+    const cellValues: Record<string, Record<string, number | null>> = Object.create(null)
     const numericValues: number[] = []
     let duplicateCellCount = 0
 
@@ -77,6 +82,7 @@ const buildHeatmapData = (
             cellValues,
             numericValues,
             duplicateCellCount,
+            isTooLarge: false,
         }
     }
 
@@ -101,7 +107,7 @@ const buildHeatmapData = (
         }
 
         if (!cellValues[yLabel]) {
-            cellValues[yLabel] = {}
+            cellValues[yLabel] = Object.create(null)
         }
 
         const cellKey = `${yLabel}||${xLabel}`
@@ -113,14 +119,16 @@ const buildHeatmapData = (
         cellValues[yLabel][xLabel] = numericValue
     })
 
-    yValues.forEach((yValue) => {
-        xValues.forEach((xValue) => {
-            const cellValue = cellValues[yValue]?.[xValue]
-            if (cellValue !== null && cellValue !== undefined) {
-                numericValues.push(cellValue)
-            }
+    const isTooLarge = xValues.length * yValues.length > MAX_HEATMAP_CELLS
+    if (!isTooLarge) {
+        yValues.forEach((yValue) => {
+            Object.values(cellValues[yValue]).forEach((cellValue) => {
+                if (cellValue !== null && cellValue !== undefined) {
+                    numericValues.push(cellValue)
+                }
+            })
         })
-    })
+    }
 
     return {
         xValues,
@@ -128,6 +136,7 @@ const buildHeatmapData = (
         cellValues,
         numericValues,
         duplicateCellCount,
+        isTooLarge,
     }
 }
 
@@ -192,6 +201,7 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
                 cellValues: {},
                 numericValues: [],
                 duplicateCellCount: 0,
+                isTooLarge: false,
             }
         }
 
@@ -250,6 +260,17 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
         return (
             <div className="flex items-center justify-center h-full">
                 <InsightEmptyState heading="No data for selected columns" detail="" />
+            </div>
+        )
+    }
+
+    if (heatmapData.isTooLarge) {
+        return (
+            <div className="flex items-center justify-center h-full">
+                <InsightEmptyState
+                    heading="Too many cells to display"
+                    detail="Use columns with fewer unique values or reduce the query result size."
+                />
             </div>
         )
     }
@@ -363,7 +384,7 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
                                             key={`${yValue}-${xValue}`}
                                             className={clsx(
                                                 'border border-border px-2 py-1 text-center',
-                                                cellValue !== null && getHeatmapTextClassName(cellColor)
+                                                cellValue !== null && getContrastingTextClass(cellColor)
                                             )}
                                             style={{ backgroundColor: cellColor }}
                                         >

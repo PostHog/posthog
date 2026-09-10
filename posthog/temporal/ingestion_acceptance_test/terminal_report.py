@@ -18,11 +18,13 @@ def format_terminal_report(result: TestSuiteResult) -> str:
 def _format_header(result: TestSuiteResult) -> str:
     status_emoji = "✅" if result.success else "❌"
     status_text = "PASSED" if result.success else "FAILED"
-    return f"{status_emoji} Ingestion Acceptance Tests: {status_text}\n"
+    lane = result.environment.get("lane", "unknown")
+    return f"{status_emoji} Ingestion Acceptance Tests ({lane} lane): {status_text}\n"
 
 
 def _format_environment(result: TestSuiteResult) -> str:
     return (
+        f"Lane:        {result.environment.get('lane', 'unknown')}\n"
         f"Environment: {result.environment.get('api_host', 'unknown')}\n"
         f"Team ID:     {result.environment.get('team_id', 'unknown')}\n"
         f"Timestamp:   {result.timestamp}\n"

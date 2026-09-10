@@ -1,4 +1,5 @@
 use crate::{
+    api::flag_definitions::FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET,
     cohorts::cohort_models::{Cohort, CohortId, CohortType},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::{
@@ -203,6 +204,66 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
     .await
     .expect("Failed to create redis client");
     Arc::new(client)
+}
+
+/// Read the members of the flag-definitions self-heal rebuild-requests sorted set.
+/// Used by tests asserting the endpoint enqueues (or doesn't) on a cache miss.
+pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<String> {
+    let redis = setup_redis_client(Some(redis_url.to_string())).await;
+    redis
+        .zrangebyscore(
+            FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
+            "-inf".to_string(),
+            "+inf".to_string(),
+        )
+        .await
+        .unwrap_or_default()
+}
+
+/// Clear the flag-definitions self-heal rebuild-requests sorted set. Nothing flushes the
+/// test redis between runs, and team ids restart when the test database is recreated, so a
+/// stale member with a reused id would satisfy a poll on its first read.
+pub async fn clear_flag_definitions_rebuild_requests(redis_url: &str) {
+    let redis = setup_redis_client(Some(redis_url.to_string())).await;
+    redis
+        .del(FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string())
+        .await
+        .unwrap();
+}
+
+/// An S3 client that reports every key as NotFound. Lets integration tests force a
+/// genuine HyperCache `CacheMiss` (redis miss + S3 NotFound) without a real object
+/// store, so a `/flags/definitions` miss classifies as `cache_miss` rather than
+/// `s3_error`.
+pub struct AlwaysMissS3Client;
+
+#[async_trait]
+impl common_hypercache::S3Client for AlwaysMissS3Client {
+    async fn get_string(
+        &self,
+        _bucket: &str,
+        key: &str,
+    ) -> Result<String, common_hypercache::S3Error> {
+        Err(common_hypercache::S3Error::NotFound(key.to_string()))
+    }
+
+    async fn put_string(
+        &self,
+        _bucket: &str,
+        _key: &str,
+        _value: &str,
+    ) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+
+    async fn delete(&self, _bucket: &str, _key: &str) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+}
+
+/// A dummy S3 client (always NotFound) for injecting into the test server.
+pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
+    Arc::new(AlwaysMissS3Client)
 }
 
 /// Create a HyperCacheReader for tests using the provided Redis client.
@@ -492,9 +553,9 @@ async fn insert_organization_if_not_exists(
 
     sqlx::query(
         r#"INSERT INTO posthog_organization
-        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources, default_anonymize_ips)
+        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources, default_anonymize_ips)
         VALUES
-        ($1::uuid, 'Test Organization', $2, '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true, false)
+        ($1::uuid, 'Test Organization', $2, '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, NULL, '{}', '{}', true, '{}', true, true, false)
         ON CONFLICT DO NOTHING"#,
     )
     .bind(org_id)
@@ -631,6 +692,7 @@ pub async fn insert_flag_for_team_in_pg(
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         },
     };
 
@@ -692,6 +754,30 @@ pub async fn insert_evaluation_tags_for_flag_in_pg(
     Ok(())
 }
 
+pub async fn insert_experiment_for_flag_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    flag_id: i32,
+    team_id: i32,
+    deleted: bool,
+) -> Result<(), Error> {
+    let mut conn = client.get_connection().await?;
+    sqlx::query(
+        r#"
+        INSERT INTO posthog_experiment
+        (name, filters, feature_flag_id, team_id, deleted, archived,
+         only_count_matured_users, created_at, updated_at)
+        VALUES ('test experiment', '{}'::jsonb, $1, $2, $3, false, false, NOW(), NOW())
+        "#,
+    )
+    .bind(flag_id)
+    .bind(team_id)
+    .bind(deleted)
+    .execute(&mut *conn)
+    .await?;
+
+    Ok(())
+}
+
 pub async fn insert_person_for_team_in_pg(
     client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
@@ -736,6 +822,7 @@ pub async fn insert_person_for_team_in_pg(
     Ok(person_id)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_cohort_for_team_in_pg(
     client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
@@ -744,6 +831,9 @@ pub async fn insert_cohort_for_team_in_pg(
     is_static: bool,
     cohort_type: Option<CohortType>,
     last_backfill_person_properties_at: Option<DateTime<Utc>>,
+    last_backfill_events_at: Option<DateTime<Utc>>,
+    condition_type: Option<serde_json::Value>,
+    last_realtime_cohort_calculation_at: Option<DateTime<Utc>>,
 ) -> Result<Cohort, Error> {
     let cohort = Cohort {
         id: 0, // Placeholder, will be updated after insertion
@@ -763,13 +853,16 @@ pub async fn insert_cohort_for_team_in_pg(
         created_by_id: None,
         cohort_type,
         last_backfill_person_properties_at,
+        last_backfill_events_at,
+        condition_type,
+        last_realtime_cohort_calculation_at,
     };
 
     let mut conn = client.get_connection().await?;
     let row: (i32,) = sqlx::query_as(
         r#"INSERT INTO posthog_cohort
-        (name, description, team_id, deleted, filters, query, version, pending_version, count, is_calculating, is_static, errors_calculating, groups, created_by_id, cohort_type, last_backfill_person_properties_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        (name, description, team_id, deleted, filters, query, version, pending_version, count, is_calculating, is_static, errors_calculating, groups, created_by_id, cohort_type, last_backfill_person_properties_at, last_backfill_events_at, condition_type, last_realtime_cohort_calculation_at) VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
         RETURNING id"#,
     )
     .bind(&cohort.name)
@@ -788,6 +881,9 @@ pub async fn insert_cohort_for_team_in_pg(
     .bind(cohort.created_by_id)
     .bind(cohort.cohort_type)
     .bind(cohort.last_backfill_person_properties_at)
+    .bind(cohort.last_backfill_events_at)
+    .bind(&cohort.condition_type)
+    .bind(cohort.last_realtime_cohort_calculation_at)
     .fetch_one(&mut *conn)
     .await?;
 
@@ -1165,6 +1261,16 @@ impl TestContext {
         insert_flag_for_team_in_pg(self.non_persons_writer.clone(), team_id, flag).await
     }
 
+    pub async fn insert_experiment(
+        &self,
+        flag_id: i32,
+        team_id: i32,
+        deleted: bool,
+    ) -> Result<(), Error> {
+        insert_experiment_for_flag_in_pg(self.non_persons_writer.clone(), flag_id, team_id, deleted)
+            .await
+    }
+
     pub async fn insert_person(
         &self,
         team_id: i32,
@@ -1195,10 +1301,14 @@ impl TestContext {
             is_static,
             None,
             None,
+            None,
+            None,
+            None,
         )
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn insert_cohort_with_type(
         &self,
         team_id: i32,
@@ -1207,6 +1317,7 @@ impl TestContext {
         is_static: bool,
         cohort_type: Option<CohortType>,
         last_backfill_person_properties_at: Option<DateTime<Utc>>,
+        last_backfill_events_at: Option<DateTime<Utc>>,
     ) -> Result<Cohort, Error> {
         insert_cohort_for_team_in_pg(
             self.non_persons_writer.clone(),
@@ -1216,6 +1327,39 @@ impl TestContext {
             is_static,
             cohort_type,
             last_backfill_person_properties_at,
+            last_backfill_events_at,
+            None,
+            None,
+        )
+        .await
+    }
+
+    /// Like `insert_cohort_with_type`, but also sets `condition_type` and the legacy
+    /// calculation stamp, both of which the realtime membership routing predicate reads.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert_cohort_with_type_and_condition_type(
+        &self,
+        team_id: i32,
+        name: Option<String>,
+        filters: serde_json::Value,
+        is_static: bool,
+        cohort_type: Option<CohortType>,
+        last_backfill_person_properties_at: Option<DateTime<Utc>>,
+        last_backfill_events_at: Option<DateTime<Utc>>,
+        condition_type: Option<serde_json::Value>,
+        last_realtime_cohort_calculation_at: Option<DateTime<Utc>>,
+    ) -> Result<Cohort, Error> {
+        insert_cohort_for_team_in_pg(
+            self.non_persons_writer.clone(),
+            team_id,
+            name,
+            filters,
+            is_static,
+            cohort_type,
+            last_backfill_person_properties_at,
+            last_backfill_events_at,
+            condition_type,
+            last_realtime_cohort_calculation_at,
         )
         .await
     }
@@ -1251,6 +1395,8 @@ impl TestContext {
     {
         super::super::flags::flag_matching_utils::get_feature_flag_hash_key_overrides(
             self.persons_reader.clone(),
+            crate::database::pool_names::PERSONS_READER,
+            self.persons_writer.clone(),
             team_id,
             distinct_ids,
         )
@@ -1491,7 +1637,7 @@ impl TestContext {
         team_id: i32,
         label: &str,
         scopes: Option<Vec<&str>>,
-    ) -> Result<String, Error> {
+    ) -> Result<(String, String), Error> {
         let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
@@ -1517,7 +1663,7 @@ impl TestContext {
         .execute(&mut *conn)
         .await?;
 
-        Ok(raw_key)
+        Ok((key_id, raw_key))
     }
 
     /// Creates a team with both public token and secret API token
@@ -1680,15 +1826,27 @@ impl TestContext {
             .await
     }
 
-    /// Populate cache for a team and store an ETag alongside it.
-    /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
-    /// matching Django's HyperCache behavior.
+    /// Populate cache for a team and store an ETag alongside it, on the shared Redis.
+    /// See `populate_cache_for_team_with_etag_on`.
     pub async fn populate_cache_for_team_with_etag(
         &self,
         team_id: i32,
         etag: &str,
     ) -> Result<(), Error> {
         let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
+        self.populate_cache_for_team_with_etag_on(redis_client, team_id, etag)
+            .await
+    }
+
+    /// Populate cache for a team and store an ETag alongside it, on the given Redis.
+    /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
+    /// matching Django's HyperCache behavior.
+    pub async fn populate_cache_for_team_with_etag_on(
+        &self,
+        redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+        team_id: i32,
+        etag: &str,
+    ) -> Result<(), Error> {
         self.populate_flag_definitions_cache(redis_client.clone(), team_id)
             .await?;
 
@@ -1797,6 +1955,41 @@ pub fn mock_group_type_cache(
         mapping: GroupTypeMapping::new(types_to_indexes),
     };
     Arc::new(GroupTypeCacheManager::new_with_fetcher(fetcher, None, None))
+}
+
+pub struct FailingGroupTypeFetcher {
+    fetch_calls: Arc<std::sync::atomic::AtomicU32>,
+}
+
+#[async_trait]
+impl GroupTypeMappingFetcher for FailingGroupTypeFetcher {
+    async fn fetch(
+        &self,
+        _team_id: common_types::TeamId,
+    ) -> Result<GroupTypeMapping, GroupTypeFetchError> {
+        self.fetch_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(GroupTypeFetchError::DatabaseUnavailable)
+    }
+}
+
+/// A group type cache whose lookups always fail, for tests that need the matcher to see a
+/// real mapping error rather than a seeded one. Also returns the number of lookups that
+/// reached the fetcher, so tests can pin that a request reuses its first failed outcome
+/// instead of querying again.
+pub fn failing_group_type_cache() -> (
+    Arc<GroupTypeCacheManager>,
+    Arc<std::sync::atomic::AtomicU32>,
+) {
+    let fetch_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let cache = Arc::new(GroupTypeCacheManager::new_with_fetcher(
+        FailingGroupTypeFetcher {
+            fetch_calls: Arc::clone(&fetch_calls),
+        },
+        None,
+        None,
+    ));
+    (cache, fetch_calls)
 }
 
 /// Delete a single auth token cache entry from Redis.

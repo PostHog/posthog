@@ -2,14 +2,15 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
-import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 // eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
+    ActionFilter,
     ActionType,
     CohortType,
+    EntityFilter,
     EventDefinition,
     EventPropertyFilter,
     PersonProperty,
@@ -123,7 +124,9 @@ export interface TaxonomicFilterProps {
     onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     onEnter?: (query: string) => void
     onClose?: () => void
-    filter?: LocalFilter
+    /** The series/entity filter the picker is editing — lets the list surface
+     *  the committed selection with its rename (`custom_name`) applied. */
+    filter?: EntityFilter | ActionFilter
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
@@ -138,6 +141,12 @@ export interface TaxonomicFilterProps {
     autoSelectItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
+    /**
+     * Keep offering events whose data is moving out of the `events` table. Set it where the surface
+     * still needs such an event: it reads live capture, or it measures experiment exposure. Leave it
+     * unset everywhere else, so a picker stops saving queries that return nothing once the data moves.
+     */
+    includeHiddenEvents?: boolean
     /** use to indicate if a result in a group is selected */
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
@@ -290,6 +299,12 @@ export enum TaxonomicFilterGroupType {
     Cohorts = 'cohorts',
     CohortsWithAllUsers = 'cohorts_with_all',
     DataWarehouse = 'data_warehouse',
+    // Like DataWarehouse but restricted to external-source tables (no views/saved queries or self-managed
+    // tables) — used by CDP destination/workflow warehouse-row triggers.
+    DataWarehouseSourceTables = 'data_warehouse_source_tables',
+    // Materialized views (saved queries with a backing table) — used by CDP destination/workflow
+    // materialized-view triggers, which fire on the rows a view's run writes.
+    DataWarehouseMaterializedViews = 'data_warehouse_materialized_views',
     DataWarehouseProperties = 'data_warehouse_properties',
     DataWarehousePersonProperties = 'data_warehouse_person_properties',
     Elements = 'elements',
@@ -301,6 +316,7 @@ export enum TaxonomicFilterGroupType {
     EventMetadata = 'event_metadata',
     NumericalEventProperties = 'numerical_event_properties',
     PersonProperties = 'person_properties',
+    PersonMetadata = 'person_metadata',
     PageviewUrls = 'pageview_urls',
     PageviewEvents = 'pageview_events',
     Screens = 'screens',
@@ -326,6 +342,7 @@ export enum TaxonomicFilterGroupType {
     Logs = 'logs',
     LogAttributes = 'log_attributes',
     LogResourceAttributes = 'log_resource_attributes',
+    MetricAttributes = 'metric_attributes',
     Spans = 'spans',
     SpanAttributes = 'span_attributes',
     SpanResourceAttributes = 'span_resource_attributes',
@@ -333,9 +350,13 @@ export enum TaxonomicFilterGroupType {
     Replay = 'replay',
     ReplaySavedFilters = 'replay_saved_filters',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
+    AccountFields = 'account_fields',
+    AccountRelationships = 'account_relationships',
+    AccountCustomProperties = 'account_custom_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',
     ActivityLogProperties = 'activity_log_properties',
+    MCPProperties = 'mcp_properties',
     // Max AI Context
     MaxAIContext = 'max_ai_context',
     // Workflows execution variables
@@ -363,6 +384,8 @@ export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
 export const OPEN_AS_SELF_ON_REOPEN = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.DataWarehouseSourceTables,
+    TaxonomicFilterGroupType.DataWarehouseMaterializedViews,
     TaxonomicFilterGroupType.DataWarehouseProperties,
 ])
 

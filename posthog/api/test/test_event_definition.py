@@ -7,16 +7,21 @@ from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.db import connection
+from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import dateutil.parser
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.event_definition import create_event_definitions_sql
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import ActivityLog, EventDefinition, Organization, Team
+from posthog.constants import EventDefinitionType
+from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
 
 from products.actions.backend.models.action import Action
 
@@ -45,7 +50,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
             create_event_definitions(event_definition, team_id=cls.demo_team.pk)
             capture_event(
-                event=EventData(
+                event=EventFixture(
                     event=event_definition["name"],
                     team_id=cls.demo_team.pk,
                     distinct_id="abc",
@@ -67,6 +72,27 @@ class TestEventDefinitionAPI(APIBaseTest):
             )
             assert abs((dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds()) < 1
 
+    def test_list_event_definitions_scopes_by_project_across_environments(self):
+        # Rows written before the project backfill have project_id NULL and scope by team_id; rows written
+        # since carry project_id. Both must be visible from any environment of the project, and a sibling
+        # project's rows must not. Guards the scope predicate against a rewrite to only one of the columns.
+        other_env = Team.objects.create(
+            organization=self.organization, project_id=self.demo_team.project_id, name="staging env"
+        )
+        other_project_team = create_team(organization=self.organization)
+        EventDefinition.objects.create(team=other_env, project_id=self.demo_team.project_id, name="from_other_env")
+        EventDefinition.objects.create(
+            team=other_project_team, project_id=other_project_team.project_id, name="from_other_project"
+        )
+
+        response = self.client.get("/api/projects/@current/event_definitions/")
+
+        assert response.status_code == status.HTTP_200_OK
+        result_names = {r["name"] for r in response.json()["results"]}
+        assert "from_other_env" in result_names
+        assert "from_other_project" not in result_names
+        assert {d["name"] for d in self.EXPECTED_EVENT_DEFINITIONS} <= result_names
+
     def test_list_event_definitions_with_excluded_properties(self):
         response = self.client.get(
             '/api/projects/@current/event_definitions/?excluded_properties=["installed_app", "purchase"]'
@@ -76,6 +102,62 @@ class TestEventDefinitionAPI(APIBaseTest):
         result_names = [r["name"] for r in response.json()["results"]]
         assert "installed_app" not in result_names
         assert "purchase" not in result_names
+
+    @parameterized.expand(
+        [
+            ("boolean", "true"),
+            ("number", "5"),
+            ("object", '{"a": 1}'),
+        ]
+    )
+    def test_list_event_definitions_ignores_non_list_tags_filter(self, _name, tags_value):
+        response = self.client.get("/api/projects/@current/event_definitions/", data={"tags": tags_value})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    def test_list_event_definitions_filtered_by_tag_pages_in_sql(self):
+        # The tag filter used to read every definition in the project to collect ids. It now pages in
+        # SQL, so the page has to stay bounded, the count has to cover every match, and a definition
+        # that carries two of the filtered tags must still appear once.
+        bulk_url = f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/"
+        tagged_names = ["installed_app", "purchase"]
+        ids = [str(EventDefinition.objects.get(team=self.demo_team, name=name).id) for name in tagged_names]
+        self.client.post(bulk_url, {"ids": ids, "action": "add", "tags": ["billing"]})
+        self.client.post(bulk_url, {"ids": ids[:1], "action": "add", "tags": ["revenue"]})
+
+        response = self.client.get(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/",
+            data={"tags": '["billing", "revenue"]', "limit": "1"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == len(tagged_names)
+        assert [result["name"] for result in response.json()["results"]] == ["installed_app"]
+
+    @parameterized.expand(
+        [
+            ("limit", "limit=9223372036854775808"),
+            ("offset", "offset=9223372036854775808"),
+        ]
+    )
+    def test_list_event_definitions_accepts_out_of_range_bigint_pagination(self, _name, query_string):
+        response = self.client.get(f"/api/projects/@current/event_definitions/?{query_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    @parameterized.expand(
+        [
+            ("repeated", "names=installed_app&names=purchase&names=missing_event"),
+            ("comma_separated", "names=installed_app,purchase,missing_event"),
+        ]
+    )
+    def test_list_event_definitions_with_exact_names(self, _name, query_string):
+        response = self.client.get(f"/api/projects/@current/event_definitions/?{query_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {result["name"] for result in response.json()["results"]} == {"installed_app", "purchase"}
 
     @parameterized.expand(
         [
@@ -118,6 +200,17 @@ class TestEventDefinitionAPI(APIBaseTest):
                     ("installed_app", "2020-01-01T00:00:00Z"),
                     ("entered_free_trial", "2020-01-01T23:00:00Z"),
                     ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("purchase", "2019-12-30T00:00:00Z"),
+                    ("rated_app", "2019-12-21T00:00:00Z"),
+                    ("watched_movie", None),
+                ],
+            ),
+            (
+                "ordering=-last_seen_at::date",
+                [
+                    ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("entered_free_trial", "2020-01-01T23:00:00Z"),
+                    ("installed_app", "2020-01-01T00:00:00Z"),
                     ("purchase", "2019-12-30T00:00:00Z"),
                     ("rated_app", "2019-12-21T00:00:00Z"),
                     ("watched_movie", None),
@@ -198,6 +291,39 @@ class TestEventDefinitionAPI(APIBaseTest):
             assert response.json()["count"] == 306
             assert len(response.json()["results"]) == (100 if i < 2 else 6)  # Each page has 100 except the last one
             assert response.json()["results"][0]["name"] == f"z_event_{event_checkpoints[i]}"
+
+    def test_list_reads_only_the_requested_page_from_postgres(self):
+        EventDefinition.objects.bulk_create(
+            [EventDefinition(team=self.demo_team, name=f"z_event_{i}") for i in range(1, 301)]
+        )
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get("/api/projects/@current/event_definitions/?limit=10")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 306
+        page_fetches = [
+            query["sql"]
+            for query in captured.captured_queries
+            if "FROM posthog_eventdefinition" in query["sql"] and "ORDER BY" in query["sql"]
+        ]
+        assert page_fetches
+        assert all("LIMIT 10" in sql for sql in page_fetches)
+
+        expected_names = sorted(f"z_event_{i}" for i in range(1, 301))
+        for offset in (0, 11, 300, 301):
+            with self.subTest(offset=offset):
+                response = self.client.get(
+                    "/api/projects/@current/event_definitions/",
+                    data={"search": "z_event", "ordering": "-last_seen_at", "limit": 10, "offset": offset},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["count"] == 300
+                assert [row["name"] for row in response.json()["results"]] == expected_names[offset : offset + 10]
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=missing_event&limit=10")
+        assert response.json()["count"] == 0
+        assert response.json()["results"] == []
 
     def test_cant_see_event_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")
@@ -344,6 +470,27 @@ class TestEventDefinitionAPI(APIBaseTest):
         detail = cast(dict[str, Any], activity_log.detail)
         assert detail["name"] == "my_custom_event"
 
+    @patch("posthog.api.event_definition.EE_AVAILABLE", False)
+    def test_create_event_definition_rejects_enterprise_metadata_without_ee(self):
+        response = self.client.post(
+            "/api/projects/@current/event_definitions/",
+            {
+                "name": "event_with_unsupported_metadata",
+                "description": "This cannot be stored without EE.",
+                "verified": True,
+                "hidden": False,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is not supported by this deployment.",
+            "attr": "description",
+        }
+        assert not EventDefinition.objects.filter(name="event_with_unsupported_metadata", team=self.demo_team).exists()
+
     def test_create_event_definition_duplicate_name(self):
         """Test that creating an event with a duplicate name fails"""
         EventDefinition.objects.create(team=self.demo_team, name="existing_event")
@@ -463,6 +610,12 @@ class TestEventDefinitionAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_retrieve_with_non_uuid_id_returns_404(self):
+        # Links built without a saved definition id (e.g. pinned defaults) request
+        # `.../event_definitions/undefined` — that must 404, not 500 with a UUID ValueError.
+        response = self.client.get("/api/projects/@current/event_definitions/undefined")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_by_name_missing_param(self):
         response = self.client.get("/api/projects/@current/event_definitions/by_name/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -484,6 +637,123 @@ class TestEventDefinitionAPI(APIBaseTest):
         other_team = create_team(organization=self.organization)
         other_team_event_exists = EventDefinition.objects.filter(name="team_specific_event", team=other_team).exists()
         assert not other_team_event_exists
+
+    def test_bulk_update_tags_with_uuid_ids(self):
+        # Event definitions have UUID PKs and are not an object-level access-controlled resource, so the
+        # inherited mixin action (integer PKs + per-object access filter) can't be reused. If that override
+        # regresses, UUID ids 400 on the integer serializer or every object gets filtered out as inaccessible.
+        ed1 = EventDefinition.objects.create(team=self.demo_team, name="bulk_a")
+        ed2 = EventDefinition.objects.create(team=self.demo_team, name="bulk_b")
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(ed1.id), str(ed2.id)], "action": "add", "tags": ["pii", "billing"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["skipped"] == []
+        assert {row["id"]: sorted(row["tags"]) for row in data["updated"]} == {
+            str(ed1.id): ["billing", "pii"],
+            str(ed2.id): ["billing", "pii"],
+        }
+        for ed in (ed1, ed2):
+            assert sorted(ed.tagged_items.values_list("tag__name", flat=True)) == ["billing", "pii"]
+
+    def test_bulk_update_tags_ignores_event_definitions_in_other_project(self):
+        # Project-scoping / IDOR guard: a definition in another project must be reported "Not found" and left untouched.
+        other_team = create_team(organization=create_organization(name="other org"))
+        foreign = EventDefinition.objects.create(team=other_team, name="foreign_event")
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(foreign.id)], "action": "add", "tags": ["pii"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["updated"] == []
+        assert data["skipped"] == [{"id": str(foreign.id), "reason": "Not found"}]
+        assert foreign.tagged_items.count() == 0
+
+    def test_bulk_update_tags_cleans_orphan_tags_for_every_team_in_project(self):
+        # Project-scoped bulk updates can span multiple environments (teams) in one project, so orphan
+        # cleanup must run for each affected team — not just the last object's, which would leave orphan
+        # Tag rows behind in every other environment.
+        other_env = Team.objects.create(
+            organization=self.organization, project_id=self.demo_team.project_id, name="staging env"
+        )
+        ed_a = EventDefinition.objects.create(team=self.demo_team, name="env_a_event")
+        ed_b = EventDefinition.objects.create(team=other_env, name="env_b_event")
+        bulk_url = f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/"
+        # Seed a distinct tag in each environment that the batch below then orphans.
+        self.client.post(bulk_url, {"ids": [str(ed_a.id)], "action": "set", "tags": ["orphan_a"]})
+        self.client.post(bulk_url, {"ids": [str(ed_b.id)], "action": "set", "tags": ["orphan_b"]})
+        assert Tag.objects.filter(name="orphan_a", team=self.demo_team).exists()
+        assert Tag.objects.filter(name="orphan_b", team=other_env).exists()
+
+        response = self.client.post(
+            bulk_url, {"ids": [str(ed_a.id), str(ed_b.id)], "action": "set", "tags": ["shared"]}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert not Tag.objects.filter(name="orphan_a", team=self.demo_team).exists()
+        assert not Tag.objects.filter(name="orphan_b", team=other_env).exists()
+
+    def test_bulk_update_tags_logs_activity_per_event_definition(self):
+        # The single-object update path leaves a tags audit trail; the bulk path must too, or tagging
+        # 50 definitions is silent while tagging one is logged. Guards that the override threads an
+        # activity context through to apply_bulk_tag_changes.
+        ed1 = EventDefinition.objects.create(team=self.demo_team, name="logged_a")
+        ed2 = EventDefinition.objects.create(team=self.demo_team, name="logged_b")
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(ed1.id), str(ed2.id)], "action": "add", "tags": ["pii"]},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        logs = ActivityLog.objects.filter(
+            scope="EventDefinition", activity="changed", item_id__in=[str(ed1.id), str(ed2.id)]
+        )
+        assert {log.item_id for log in logs} == {str(ed1.id), str(ed2.id)}
+        log = logs.get(item_id=str(ed1.id))
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {"type": "EventDefinition", "action": "changed", "field": "tags", "before": [], "after": ["pii"]}
+        ]
+
+    def test_bulk_update_tags_noop_does_not_log_activity(self):
+        # Adding a tag a definition already has changes nothing; it must not write an empty activity
+        # entry. Guards the current_tags != new_tags skip in apply_bulk_tag_changes.
+        ed = EventDefinition.objects.create(team=self.demo_team, name="noop_event")
+        self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(ed.id)], "action": "set", "tags": ["kept"]},
+        )
+        ActivityLog.objects.filter(scope="EventDefinition").delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(ed.id)], "action": "add", "tags": ["kept"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert not ActivityLog.objects.filter(scope="EventDefinition", item_id=str(ed.id)).exists()
+
+
+class TestCreateEventDefinitionsSql(SimpleTestCase):
+    @parameterized.expand([("enterprise", True), ("open source", False)])
+    def test_selects_columns_in_a_stable_order(self, _name: str, is_enterprise: bool):
+        sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=is_enterprise)
+        select_clause = sql.split("SELECT ", 1)[1].split("FROM", 1)[0]
+        columns = [column.strip() for column in select_clause.split(",")]
+        assert columns == sorted(columns)
+
+    def test_joins_the_enterprise_table_with_a_left_join(self):
+        sql = create_event_definitions_sql(EventDefinitionType.EVENT, is_enterprise=True)
+        assert "LEFT JOIN ee_enterpriseeventdefinition" in sql
+        assert "FULL OUTER JOIN" not in sql
 
 
 class TestEventDefinitionExcludeStale(APIBaseTest):
@@ -524,7 +794,7 @@ class TestEventDefinitionExcludeStale(APIBaseTest):
 
 
 @dataclasses.dataclass
-class EventData:
+class EventFixture:
     """
     Little utility struct for creating test event data
     """
@@ -536,7 +806,7 @@ class EventData:
     properties: dict[str, Any]
 
 
-def capture_event(event: EventData):
+def capture_event(event: EventFixture):
     """
     Creates an event, given an event dict. Currently just puts this data
     directly into clickhouse, but could be created via api to get better parity

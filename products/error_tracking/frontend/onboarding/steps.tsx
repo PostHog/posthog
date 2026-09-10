@@ -1,7 +1,10 @@
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { OnboardingErrorTrackingAlertsStep } from 'scenes/onboarding/legacy/error-tracking/OnboardingErrorTrackingAlertsStep'
 import { OnboardingErrorTrackingSourceMapsStep } from 'scenes/onboarding/legacy/error-tracking/OnboardingErrorTrackingSourceMapsStep'
-import { ErrorTrackingSDKInstructions } from 'scenes/onboarding/legacy/sdks/error-tracking/ErrorTrackingSDKInstructions'
+import {
+    ErrorTrackingSDKDocsLinkOverrides,
+    ErrorTrackingSDKInstructions,
+} from 'scenes/onboarding/legacy/sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { OnboardingInstallStep } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep'
 import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
 import { urls } from 'scenes/urls'
@@ -22,7 +25,12 @@ export const errorTrackingOnboarding: ProductOnboardingProvider = {
             // `EnableErrorTracking` task still gets ticked because the dedup pass merges
             // setupTaskIds from dropped descriptors into the survivor.
             dedupKey: INSTALL_DEDUP_KEYS.POSTHOG_JS,
-            render: () => <OnboardingInstallStep sdkInstructionMap={ErrorTrackingSDKInstructions} />,
+            render: () => (
+                <OnboardingInstallStep
+                    sdkInstructionMap={ErrorTrackingSDKInstructions}
+                    sdkDocsLinkOverrides={ErrorTrackingSDKDocsLinkOverrides}
+                />
+            ),
         }
         if (ctx.role === 'secondary') {
             return [installStep]

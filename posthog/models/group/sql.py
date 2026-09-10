@@ -15,7 +15,7 @@ DROP_GROUPS_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUS
 DROP_GROUPS_TABLE_MV_SQL = f"DROP TABLE IF EXISTS {GROUPS_TABLE_MV}"
 DROP_KAFKA_GROUPS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_GROUPS_TABLE}"
 
-TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {GROUPS_TABLE} {ON_CLUSTER_CLAUSE()}"
 
 GROUPS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
@@ -128,11 +128,6 @@ INSERT_GROUP_SQL = """
 INSERT INTO groups (group_type_index, group_key, team_id, group_properties, created_at, _timestamp, _offset) SELECT %(group_type_index)s, %(group_key)s, %(team_id)s, %(group_properties)s, %(created_at)s, %(_timestamp)s, 0
 """
 
-GET_GROUP_IDS_BY_PROPERTY_SQL = """
-SELECT DISTINCT group_key
-FROM groups
-WHERE team_id = %(team_id)s AND group_type_index = %({group_type_index_var})s {filters}
-"""
 
 #
 # Demo data

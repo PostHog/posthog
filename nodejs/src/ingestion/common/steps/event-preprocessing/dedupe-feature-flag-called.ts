@@ -1,10 +1,10 @@
-import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import {
     FeatureFlagCalledDedupClaim,
     FeatureFlagCalledDedupService,
     featureFlagCalledDedupKey,
-} from '~/ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
-import { featureFlagCalledDedupEventsTotal } from '~/ingestion/utils/feature-flag-called-dedup/metrics'
+} from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { featureFlagCalledDedupEventsTotal } from '~/ingestion/common/feature-flag-called-dedup/metrics'
+import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Team } from '~/types'
 
@@ -15,12 +15,12 @@ export interface DedupeFeatureFlagCalledStepInput {
 
 /**
  * Drops redundant $feature_flag_called events using a keep-first Redis claim
- * keyed on (team, distinct_id, flag, response, groups). Server-side SDKs on
- * multi-process fleets re-emit the same exposure from every worker; only the
- * first copy carries signal, so the survivors preserve experiment exposure
- * semantics while the bulk of the volume is dropped. Note that "last called"
- * timestamps become TTL-granular: within a dedup window they reflect the
- * first call, not the most recent one.
+ * keyed on (team, distinct_id, flag, response, groups, has_experiment).
+ * Server-side SDKs on multi-process fleets re-emit the same exposure from every
+ * worker; only the first copy carries signal, so the survivors preserve
+ * experiment exposure semantics while the bulk of the volume is dropped.
+ * Note that "last called" timestamps become TTL-granular: within a dedup
+ * window they reflect the first call, not the most recent one.
  *
  * Claims are tagged with the event uuid, so a batch replayed by at-least-once
  * Kafka delivery recognizes its own claims from a failed prior attempt
@@ -58,7 +58,8 @@ export function createDedupeFeatureFlagCalledStep<T extends DedupeFeatureFlagCal
                     input.event.distinct_id,
                     flagKey,
                     properties['$feature_flag_response'],
-                    properties['$groups']
+                    properties['$groups'],
+                    properties['$feature_flag_has_experiment']
                 ),
                 claimId: input.event.uuid,
             }

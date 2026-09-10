@@ -9,15 +9,17 @@ import ViewRecordingButton, { ViewRecordingButtonVariant } from 'lib/components/
 import { IconLink } from 'lib/lemon-ui/icons'
 import { countryCodeToFlag } from 'lib/utils/country'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { NewSurvey } from 'scenes/surveys/constants'
 import { getThumbIcon } from 'scenes/surveys/hooks/useSurveyResponseColumns'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { getSurveyResponseValue, isScaleTwoRating } from 'scenes/surveys/utils'
+import { getSurveyResponseStatus, getSurveyResponseValue, isScaleTwoRating } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { SurveyEventProperties as SurveyEventPropertyNames, SurveyQuestion } from '~/types'
+import { Survey, SurveyEventProperties as SurveyEventPropertyNames, SurveyQuestion } from '~/types'
 
 interface SurveyResponseDisplayProps {
     eventProperties: Record<string, any>
+    eventName?: string
     eventUuid?: string
     distinctId?: string
     timestamp?: string | null
@@ -68,26 +70,45 @@ function MetaItem({ icon, children }: { icon?: JSX.Element; children: React.Reac
     )
 }
 
-export function SurveyResponseDisplay({
+export function SurveyResponseDisplay(props: SurveyResponseDisplayProps): JSX.Element {
+    const surveyId = props.eventProperties[SurveyEventPropertyNames.SURVEY_ID]
+    if (!surveyId) {
+        return <SurveyResponseContent {...props} />
+    }
+    return <SurveyResponseDisplayWithLogic {...props} surveyId={surveyId} />
+}
+
+function SurveyResponseDisplayWithLogic({
+    surveyId,
+    ...props
+}: SurveyResponseDisplayProps & { surveyId: string }): JSX.Element {
+    const { survey, archivedResponseUuids } = useValues(surveyLogic({ id: surveyId }))
+    return <SurveyResponseContent {...props} survey={survey} archivedResponseUuids={archivedResponseUuids} />
+}
+
+function SurveyResponseContent({
     eventProperties,
+    eventName,
     eventUuid,
     distinctId,
     timestamp,
     personProperties,
-}: SurveyResponseDisplayProps): JSX.Element {
+    survey,
+    archivedResponseUuids,
+}: SurveyResponseDisplayProps & {
+    survey?: NewSurvey | Survey
+    archivedResponseUuids?: Set<string>
+}): JSX.Element {
     const surveyId = eventProperties[SurveyEventPropertyNames.SURVEY_ID]
 
     const { location } = useValues(router)
     const isOnSurveyPage = surveyId && location.pathname.includes(`/surveys/${surveyId}`)
 
-    const { survey, archivedResponseUuids } = useValues(surveyLogic({ id: surveyId }))
     const isArchived = eventUuid ? (archivedResponseUuids?.has(eventUuid) ?? false) : false
 
     const surveyName = survey?.name || eventProperties['$survey_name']
     const iteration = eventProperties[SurveyEventPropertyNames.SURVEY_ITERATION]
-    const isPartial =
-        eventProperties[SurveyEventPropertyNames.SURVEY_COMPLETED] === false ||
-        eventProperties[SurveyEventPropertyNames.SURVEY_PARTIALLY_COMPLETED] === true
+    const partialStatus = getSurveyResponseStatus(eventName, eventProperties)
 
     const sessionId = typeof eventProperties.$session_id === 'string' ? eventProperties.$session_id : undefined
     const currentUrl = typeof eventProperties.$current_url === 'string' ? eventProperties.$current_url : null
@@ -105,7 +126,7 @@ export function SurveyResponseDisplay({
     const libraryLine = [lib, libVersion].filter(Boolean).join(' ')
 
     const hasFooter = currentUrl || deviceLine || locationLine || libraryLine
-    const hasHeaderMeta = distinctId || timestamp || sessionId || isPartial || isArchived || iteration != null
+    const hasHeaderMeta = distinctId || timestamp || sessionId || partialStatus || isArchived || iteration != null
 
     const responses: { questionIndex: number; question: SurveyQuestion; value: any }[] = []
 
@@ -149,9 +170,9 @@ export function SurveyResponseDisplay({
                             checkRecordingExists
                         />
                     )}
-                    {isPartial && (
+                    {partialStatus && (
                         <LemonTag type="warning" size="small">
-                            Partial
+                            {partialStatus}
                         </LemonTag>
                     )}
                     {isArchived && (

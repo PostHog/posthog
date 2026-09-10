@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 
+import { sanitizeForUTF8 } from '~/common/utils/strings'
+import { castTimestampOrNow } from '~/common/utils/utils'
 import { ConsoleLogLevel, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { TimestampFormat } from '~/types'
-import { sanitizeForUTF8 } from '~/utils/strings'
-import { castTimestampOrNow } from '~/utils/utils'
 
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
@@ -95,6 +95,17 @@ export class SessionConsoleLogRecorder {
         }
 
         if (!message.team.consoleLogIngestionEnabled) {
+            return
+        }
+
+        // Pre-serialized messages (native ml-mirror anonymizer) carry level counts in their metadata;
+        // no log entries are collected for storage — the ml-mirror console-log store is disabled, the
+        // counts only feed the block metadata.
+        if (message.message.preSerialized) {
+            const { consoleLogCount, consoleWarnCount, consoleErrorCount } = message.message.preSerialized
+            this.consoleLogCount += consoleLogCount
+            this.consoleWarnCount += consoleWarnCount
+            this.consoleErrorCount += consoleErrorCount
             return
         }
 

@@ -27,6 +27,7 @@ export const OnboardingStep = ({
     continueText,
     continueDisabledReason,
     hideHeader,
+    hideTitle = false,
     fullWidth = false,
     actions,
 }: {
@@ -42,6 +43,8 @@ export const OnboardingStep = ({
     continueText?: string
     continueDisabledReason?: string
     hideHeader?: boolean
+    /** Hide just the <h1> title (keeps breadcrumbs and the actions slot). */
+    hideTitle?: boolean
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
@@ -87,10 +90,14 @@ export const OnboardingStep = ({
                 <div className={`text-secondary max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
                     <OnboardingBreadcrumbs />
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center items-start gap-2 mt-3 px-4 sm:px-0">
-                        <h1 className={clsx('font-bold m-0 px-0 sm:px-2', fullWidth && 'text-center')}>
-                            {title || stepKeyToTitle(stepKey)}
-                        </h1>
-                        {actions && <div className="flex flex-row flex-wrap sm:flex-nowrap gap-2">{actions}</div>}
+                        {!hideTitle && (
+                            <h1 className={clsx('font-bold m-0 px-0 sm:px-2 sm:shrink-0', fullWidth && 'text-center')}>
+                                {title || stepKeyToTitle(stepKey)}
+                            </h1>
+                        )}
+                        {actions && (
+                            <div className="flex flex-row flex-wrap sm:flex-nowrap gap-2 min-w-0">{actions}</div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -103,10 +110,7 @@ export const OnboardingStep = ({
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">
                     {showHelpButton && (
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => openSupportForm({ kind: 'support', target_area: 'onboarding' })}
-                        >
+                        <LemonButton type="secondary" onClick={() => openSupportForm({ kind: 'support' })}>
                             Need help?
                         </LemonButton>
                     )}

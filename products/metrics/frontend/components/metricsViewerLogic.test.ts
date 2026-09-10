@@ -1,0 +1,700 @@
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
+import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
+import { insightsApi } from 'scenes/insights/utils/api'
+
+import { NodeKind } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AppContext,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
+
+import {
+    metricsAttributesRetrieve,
+    metricsCharacterizeCreate,
+    metricsQueryCreate,
+    metricsValuesRetrieve,
+} from 'products/metrics/frontend/generated/api'
+
+import { metricNamePickerLogic } from './metricNamePickerLogic'
+import { metricsViewerLogic } from './metricsViewerLogic'
+
+jest.mock('products/metrics/frontend/generated/api', () => ({
+    ...jest.requireActual('products/metrics/frontend/generated/api'),
+    metricsValuesRetrieve: jest.fn(),
+    metricsAttributesRetrieve: jest.fn(),
+    metricsQueryCreate: jest.fn(),
+    metricsCharacterizeCreate: jest.fn(),
+}))
+
+jest.mock('scenes/insights/utils/api', () => ({
+    ...jest.requireActual('scenes/insights/utils/api'),
+    insightsApi: { create: jest.fn() },
+}))
+
+const filterGroupWith = (filters: Record<string, any>[]): UniversalFiltersGroup => ({
+    type: FilterLogicalOperator.And,
+    values: [
+        {
+            type: FilterLogicalOperator.And,
+            values: filters.map(
+                (filter) => ({ type: PropertyFilterType.MetricAttribute, ...filter }) as UniversalFiltersGroupValue
+            ),
+        },
+    ],
+})
+
+const PICKER_ITEMS = [
+    { name: 'requests_total', metric_type: 'sum' },
+    { name: 'queue_depth', metric_type: 'gauge' },
+    { name: 'request_duration', metric_type: 'histogram' },
+    { name: 'mystery_metric', metric_type: 'unknown_type' },
+]
+
+const setResourceAccess = (overrides: Partial<Record<AccessControlResourceType, AccessControlLevel>>): void => {
+    window.POSTHOG_APP_CONTEXT = {
+        ...window.POSTHOG_APP_CONTEXT,
+        resource_access_control: {
+            ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+            [AccessControlResourceType.Metrics]: AccessControlLevel.Viewer,
+            [AccessControlResourceType.Insight]: AccessControlLevel.Editor,
+            [AccessControlResourceType.Tracing]: AccessControlLevel.Viewer,
+            ...overrides,
+        },
+    } as AppContext
+}
+
+describe('metricsViewerLogic', () => {
+    let logic: ReturnType<typeof metricsViewerLogic.build>
+
+    beforeEach(() => {
+        setResourceAccess({})
+        initKeaTests()
+        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
+        jest.mocked(metricsQueryCreate).mockReset().mockResolvedValue({ results: [] })
+        jest.mocked(metricsAttributesRetrieve).mockReset()
+        jest.mocked(metricsCharacterizeCreate).mockReset()
+        jest.mocked(insightsApi.create).mockReset()
+        logic = metricsViewerLogic()
+        logic.mount()
+        metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    // Regression: the viewer defaulted every metric to `sum`, so selecting a
+    // cumulative counter summed raw monotonic readings across pods and buckets —
+    // a huge meaningless total instead of the actual increase.
+    it.each([
+        ['requests_total', 'increase'],
+        ['queue_depth', 'avg'],
+        ['request_duration', 'p95'],
+    ])('selecting %s applies the type-appropriate aggregation %s', (metricName, expected) => {
+        logic.actions.setMetricName(metricName)
+        expect(logic.values.aggregation).toBe(expected)
+    })
+
+    it('keeps a manual aggregation pick until the metric changes', () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.setAggregation('rate')
+        expect(logic.values.aggregation).toBe('rate')
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.aggregation).toBe('avg')
+    })
+
+    it('leaves aggregation untouched for unknown metric types', () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.setMetricName('mystery_metric')
+        expect(logic.values.aggregation).toBe('increase')
+    })
+
+    // metricsQueryNode is what "Save as insight" persists: a wrong mapping here
+    // silently saves insights that re-run a different query than the viewer showed.
+    it('maps viewer state to a MetricsQuery node, translating p95 to quantile', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setFilterGroup(
+            filterGroupWith([{ key: 'namespace', operator: PropertyOperator.Exact, value: ['posthog'] }])
+        )
+        logic.actions.setDateFrom('-24h')
+
+        expect(logic.values.aggregation).toBe('p95')
+        expect(logic.values.metricsQueryNode).toEqual({
+            kind: NodeKind.MetricsQuery,
+            clauses: [
+                {
+                    name: 'a',
+                    metricName: 'request_duration',
+                    aggregation: 'quantile',
+                    metricType: 'histogram',
+                    quantile: 0.95,
+                    filters: [{ key: 'namespace', op: 'eq', value: 'posthog' }],
+                    groupBy: [{ key: 'container' }],
+                },
+            ],
+            dateRange: { date_from: '-24h' },
+        })
+    })
+
+    it('produces no MetricsQuery node without a metric name', () => {
+        expect(logic.values.metricsQueryNode).toBeNull()
+    })
+
+    // Guards the multi-series save path: each clause carries its own metric/aggregation,
+    // and the (sanitized) formula rides along — otherwise a saved insight re-runs a
+    // different query than the viewer showed.
+    it('maps multiple clauses and a formula into the MetricsQuery node', () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause()
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setFormula('A / b!')
+
+        expect(logic.values.metricsQueryNode).toEqual({
+            kind: NodeKind.MetricsQuery,
+            clauses: [
+                { name: 'a', metricName: 'requests_total', aggregation: 'increase', metricType: 'sum' },
+                { name: 'b', metricName: 'queue_depth', aggregation: 'avg', metricType: 'gauge' },
+            ],
+            formula: 'a / b',
+            dateRange: { date_from: '-1h' },
+        })
+    })
+
+    // The samples panel, anomaly badge, and picker scoping all read the active clause
+    // through the single-clause selectors — pointing them at the wrong clause silently
+    // shows one series' samples under another series' chart line.
+    it('single-clause setters and selectors follow the active clause', () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause()
+        expect(logic.values.activeClauseIndex).toBe(1)
+
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.viewerClauses.map((clause) => clause.metricName)).toEqual(['requests_total', 'queue_depth'])
+
+        logic.actions.setActiveClauseIndex(0)
+        expect(logic.values.metricName).toBe('requests_total')
+        expect(logic.values.aggregation).toBe('increase')
+    })
+
+    // A formula referencing a removed clause's alias can only 400 — a routine remove
+    // must leave the remaining series charted, not an error banner.
+    it('clears the formula when a clause it references is removed', () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause()
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setFormula('a / b')
+
+        logic.actions.removeClause(1)
+
+        expect(logic.values.formula).toBe('')
+        expect(logic.values.viewerClauses).toHaveLength(1)
+    })
+
+    // Custom aliases from links can contain underscores (the backend tokenizer allows
+    // them); stripping them would mangle a valid formula into an unknown alias.
+    it('keeps underscores in formulas', () => {
+        logic.actions.setFormula('err_total / req_total')
+        expect(logic.values.formula).toBe('err_total / req_total')
+    })
+
+    // A formula references clauses by alias, so a duplicate alias after remove/add would
+    // silently rebind the formula (or be rejected by the backend as non-unique).
+    it('keeps aliases unique when clauses are removed and re-added', () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause() // b
+        logic.actions.addClause() // c
+        logic.actions.removeClause(1)
+        logic.actions.addClause() // reuses the freed letter
+        expect(logic.values.viewerClauses.map((clause) => clause.name)).toEqual(['a', 'c', 'b'])
+    })
+
+    it('skips clauses without a metric when fetching, so a blank row does not fail the query', async () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause()
+
+        await expectLogic(logic, () => {
+            logic.actions.fetchQueryResults({})
+        }).toDispatchActions(['fetchQueryResultsSuccess'])
+
+        const requestBody = jest.mocked(metricsQueryCreate).mock.calls[0][1]
+        expect(requestBody.query.clauses).toEqual([
+            expect.objectContaining({ name: 'a', metricName: 'requests_total' }),
+        ])
+        expect(requestBody.query).not.toHaveProperty('formula')
+    })
+
+    // A "vs baseline" badge computed from one input clause would be attributed to the
+    // whole (multi-series or formula) chart — suppressing it is the honest behavior.
+    it('suppresses the anomaly characterization for multi-series queries', async () => {
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause()
+        logic.actions.setMetricName('queue_depth')
+
+        await expectLogic(logic, () => {
+            logic.actions.fetchAnomaly({})
+        }).toDispatchActions(['fetchAnomalySuccess'])
+
+        expect(metricsCharacterizeCreate).not.toHaveBeenCalled()
+        expect(logic.values.anomalyReport).toBeNull()
+    })
+
+    // Without an AbortController, a superseded characterize call keeps running server-side
+    // after a newer one starts — this pins that the stale request is actually cancelled,
+    // not just ignored client-side once it resolves.
+    it('aborts a superseded characterize request when a newer one starts', async () => {
+        jest.mocked(metricsCharacterizeCreate).mockImplementation(() => new Promise(() => {}))
+        logic.actions.setMetricName('requests_total')
+
+        logic.actions.fetchAnomaly({})
+        await new Promise((resolve) => setTimeout(resolve, 310))
+        expect(metricsCharacterizeCreate).toHaveBeenCalledTimes(1)
+        const firstSignal = jest.mocked(metricsCharacterizeCreate).mock.calls[0][2]?.signal
+        expect(firstSignal?.aborted).toBe(false)
+
+        logic.actions.fetchAnomaly({})
+        await new Promise((resolve) => setTimeout(resolve, 310))
+        expect(firstSignal?.aborted).toBe(true)
+    })
+
+    it('names a formula insight after the formula and its inputs', async () => {
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('requests_total')
+        logic.actions.addClause()
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setFormula('a / b')
+
+        logic.actions.saveAsInsight()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+
+        expect(insightsApi.create).toHaveBeenCalledWith(
+            expect.objectContaining({ name: 'a / b (requests_total, queue_depth)' })
+        )
+    })
+
+    // A type outside the API enum (or a metric missing from the picker list) must be
+    // omitted, not persisted — the backend rejects unknown metric types.
+    it('omits metricType from the node when the picked type is unknown', () => {
+        logic.actions.setMetricName('mystery_metric')
+        expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
+    })
+
+    // The picker's items are live search results: typing a new search after picking
+    // a metric replaces them. The picked type must be latched, not derived, or a
+    // save at that moment silently persists an untyped (blendable) query.
+    it('keeps the picked metric type when the picker search results change', () => {
+        logic.actions.setMetricName('queue_depth')
+        metricNamePickerLogic.actions.loadItemsSuccess([{ name: 'http_requests', metric_type: 'sum' }] as any)
+        expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+    })
+
+    it('backfills the metric type and recommended aggregation when the picker loads after the metric was set', () => {
+        metricNamePickerLogic.actions.loadItemsSuccess([])
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
+        metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+        expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+        // A cold URL restore sets the name before the list arrives, so without the late
+        // recommendation a gauge/counter link would silently chart as a raw sum.
+        expect(logic.values.aggregation).toBe('avg')
+    })
+
+    it('the late backfill leaves an explicitly chosen aggregation alone', () => {
+        metricNamePickerLogic.actions.loadItemsSuccess([])
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setAggregation('p95')
+        metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+        expect(logic.values.aggregation).toBe('p95')
+    })
+
+    // "Add to dashboard" must not create a fresh insight on every click — repeated
+    // clicks for an unchanged query would litter saved insights with duplicates.
+    // The mock normalizes the echoed query (like the API can: injected defaults,
+    // version stamps), so reuse must not depend on the server round-tripping the
+    // node byte-for-byte.
+    it('add to dashboard saves the insight once, then reuses it while the query is unchanged', async () => {
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) =>
+                ({ id: 1, short_id: 'abc123', ...insight, query: { ...insight.query, version: 1 } }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess', 'openAddToDashboardModal'])
+        expect(logic.values.isAddToDashboardModalOpen).toBe(true)
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+
+        logic.actions.closeAddToDashboardModal()
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['openAddToDashboardModal'])
+        expect(logic.values.isAddToDashboardModalOpen).toBe(true)
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+    })
+
+    it('add to dashboard saves a fresh insight after the query changes', async () => {
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['openAddToDashboardModal'])
+
+        logic.actions.closeAddToDashboardModal()
+        logic.actions.setAggregation('rate')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess', 'openAddToDashboardModal'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(2)
+    })
+
+    // Chart settings are presentation, but a tile configured differently is still a different
+    // tile. Excluding `display` from the reuse check (as the result cache correctly does) would
+    // silently give the second tile the first one's chart type.
+    it('add to dashboard saves a fresh insight after only the chart settings change', async () => {
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['openAddToDashboardModal'])
+
+        logic.actions.closeAddToDashboardModal()
+        logic.actions.setDisplayType('bar')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess', 'openAddToDashboardModal'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(2)
+    })
+
+    it('carries the configured chart settings onto the saved node', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setDisplayType('bar')
+        logic.actions.addGoalLine()
+        logic.actions.updateGoalLine(0, 'value', 99.9)
+        logic.actions.updateGoalLine(0, 'label', 'SLO')
+        logic.actions.setYAxisSetting('scale', 'log')
+
+        expect(logic.values.metricsQueryNode?.display).toEqual({
+            type: 'bar',
+            goalLines: [{ label: 'SLO', value: 99.9 }],
+            yAxis: { scale: 'log' },
+        })
+    })
+
+    // Emptying a bound must clear it, not persist an explicit undefined that the chart ignores
+    // while the settings count still sees a value.
+    it('clears a y-axis bound rather than persisting an undefined', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setYAxisSetting('max', 100)
+        logic.actions.setYAxisSetting('max', undefined)
+
+        expect(logic.values.metricsQueryNode?.display).toBeUndefined()
+    })
+
+    // A failed add-to-dashboard save must not leave the flow armed: a later plain
+    // "Save as insight" success would unexpectedly pop the modal.
+    it('a later plain save does not open the modal after a failed add-to-dashboard save', async () => {
+        jest.mocked(insightsApi.create).mockRejectedValueOnce(new Error('boom'))
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightFailure'])
+
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.saveAsInsight()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(logic.values.isAddToDashboardModalOpen).toBe(false)
+    })
+
+    // "Create alert" surfaces the shared insight-alert flow for a metric: it saves the query as
+    // an insight (reusing it while unchanged) and routes to that insight's alerts page, rather
+    // than building a parallel metrics-specific alert model.
+    it('create alert saves the insight and routes to its alerts page', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        push.mockRestore()
+    })
+
+    it('create alert reuses the saved insight while the query is unchanged', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) =>
+                ({ id: 1, short_id: 'abc123', ...insight, query: { ...insight.query, version: 1 } }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+
+        push.mockClear()
+        // Unchanged query: route straight to the alerts page without a duplicate save.
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['createAlert'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        push.mockRestore()
+    })
+
+    it('create alert saves a fresh insight after the query changes', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+
+        logic.actions.setAggregation('rate')
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(2)
+        push.mockRestore()
+    })
+
+    // The armed createAlert flag must clear after routing: if it stayed set, a later plain
+    // "Save as insight" would be mis-routed to the alerts page (and its toast suppressed).
+    it('a plain save after a create-alert save does not route to the alerts page', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        expect(logic.values.pendingAlert).toBe(false)
+
+        push.mockClear()
+        logic.actions.setAggregation('rate')
+        logic.actions.saveAsInsight()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(push).not.toHaveBeenCalled()
+        push.mockRestore()
+    })
+
+    // A failed query (bad regex, 500) used to render the same "No data" empty state as a genuinely
+    // empty result. The failure records the message so the viewer can show a real error instead.
+    // kea-loaders dispatches `<key>Failure(error.message, error)`, so the reducer reads the message.
+    it('records a real query failure in queryError', () => {
+        logic.actions.fetchQueryResultsFailure('Invalid regex pattern', new Error('Invalid regex pattern'))
+        expect(logic.values.queryError).toBe('Invalid regex pattern')
+    })
+
+    // The debounced viewer aborts the in-flight query on every change; that cancellation rejects with
+    // NEW_QUERY_STARTED_ERROR_MESSAGE (whose text has no "abort"), and must not become an error banner.
+    it('does not record an aborted (superseded) query as an error', () => {
+        logic.actions.fetchQueryResultsFailure(
+            NEW_QUERY_STARTED_ERROR_MESSAGE,
+            new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
+        )
+        expect(logic.values.queryError).toBeNull()
+    })
+
+    // A superseded query's abort lands as a failure while the replacement query is still in
+    // flight. kea-loaders' auto `queryResultsLoading` drops to false then, which flashed the
+    // "No data" empty state between the spinner and the chart, so `queryLoading` must ride
+    // out the abort, while still clearing on a real failure.
+    it.each([
+        [
+            'a superseded (aborted) query',
+            NEW_QUERY_STARTED_ERROR_MESSAGE,
+            new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'),
+            true,
+        ],
+        ['a real query failure', 'Invalid regex pattern', new Error('Invalid regex pattern'), false],
+    ])('queryLoading after %s', (_name, message, errorObject, expected) => {
+        logic.actions.fetchQueryResults({})
+        logic.actions.fetchQueryResultsFailure(message, errorObject)
+        expect(logic.values.queryLoading).toBe(expected)
+    })
+
+    // The filter bar's property filters must translate into the backend's Prometheus-style
+    // matchers: operator mapping, multi-value alternation (with regex escaping), and skipping
+    // chips that are still being edited. A bad mapping silently filters the chart wrong.
+    it.each([
+        [
+            'exact -> eq',
+            { key: 'env', operator: PropertyOperator.Exact, value: ['prod'] },
+            { key: 'env', op: 'eq', value: 'prod' },
+        ],
+        [
+            'is_not -> neq',
+            { key: 'env', operator: PropertyOperator.IsNot, value: ['prod'] },
+            { key: 'env', op: 'neq', value: 'prod' },
+        ],
+        [
+            'regex -> regex',
+            { key: 'svc', operator: PropertyOperator.Regex, value: ['checkout.*'] },
+            { key: 'svc', op: 'regex', value: 'checkout.*' },
+        ],
+        [
+            'not_regex -> not_regex',
+            { key: 'path', operator: PropertyOperator.NotRegex, value: ['/health'] },
+            { key: 'path', op: 'not_regex', value: '/health' },
+        ],
+        [
+            'multi-value exact -> anchored, escaped regex',
+            { key: 'pod', operator: PropertyOperator.Exact, value: ['api.1', 'api.2'] },
+            { key: 'pod', op: 'regex', value: '^(?:api\\.1|api\\.2)$' },
+        ],
+        [
+            'multi-value is_not -> anchored not_regex',
+            { key: 'pod', operator: PropertyOperator.IsNot, value: ['a', 'b'] },
+            { key: 'pod', op: 'not_regex', value: '^(?:a|b)$' },
+        ],
+    ])('maps filter bar chip (%s) to a backend matcher', (_name, propertyFilter, expected) => {
+        logic.actions.setFilterGroup(filterGroupWith([propertyFilter]))
+        expect(logic.values.queryFilters).toEqual([expected])
+    })
+
+    // The anomaly panel's one-click drilldown: clicking a label value that moved narrows the
+    // chart to it. Appending rather than replacing is the point — an investigation stacks
+    // findings, and replacing would silently drop the service the user had already pinned.
+    describe('addAttributeFilter', () => {
+        it('adds the label value as a chip alongside the existing filters', () => {
+            logic.actions.setFilterGroup(
+                filterGroupWith([{ key: 'service_name', operator: PropertyOperator.Exact, value: ['web'] }])
+            )
+
+            logic.actions.addAttributeFilter('pod', 'api-7f9')
+
+            expect(logic.values.queryFilters).toEqual([
+                { key: 'service_name', op: 'eq', value: 'web' },
+                { key: 'pod', op: 'eq', value: 'api-7f9' },
+            ])
+        })
+
+        it('does not stack a duplicate when the same value is clicked twice', () => {
+            logic.actions.addAttributeFilter('pod', 'api-7f9')
+            logic.actions.addAttributeFilter('pod', 'api-7f9')
+
+            expect(logic.values.queryFilters).toEqual([{ key: 'pod', op: 'eq', value: 'api-7f9' }])
+        })
+
+        it('widens the existing chip when a second value of the same key is picked', () => {
+            // Two chips on one key are ANDed, and no series can equal both values, so appending
+            // would blank the chart with no error rather than showing both pods.
+            logic.actions.addAttributeFilter('pod', 'api1')
+            logic.actions.addAttributeFilter('pod', 'api2')
+
+            expect(logic.values.queryFilters).toEqual([{ key: 'pod', op: 'regex', value: '^(?:api1|api2)$' }])
+        })
+    })
+
+    // Drives the metric picker's scope. Getting this wrong is silent: the picker
+    // reverts to offering every metric while the filter bar still shows a service.
+    it.each([
+        ['one exact service', [{ key: 'service_name', operator: PropertyOperator.Exact, value: ['web'] }], ['web']],
+        [
+            'several exact services',
+            [{ key: 'service_name', operator: PropertyOperator.Exact, value: ['web', 'worker'] }],
+            ['web', 'worker'],
+        ],
+        ['the unnamed sender group', [{ key: 'service_name', operator: PropertyOperator.Regex, value: ['^$'] }], ['']],
+        ['a non-service chip', [{ key: 'env', operator: PropertyOperator.Exact, value: ['prod'] }], []],
+        [
+            // Two chips are ANDed, which one IN list cannot express.
+            'two service chips',
+            [
+                { key: 'service_name', operator: PropertyOperator.Exact, value: ['web'] },
+                { key: 'service_name', operator: PropertyOperator.Exact, value: ['worker'] },
+            ],
+            [],
+        ],
+        [
+            'a service chip that is not a membership test',
+            [{ key: 'service_name', operator: PropertyOperator.IContains, value: ['we'] }],
+            [],
+        ],
+    ])('derives the picker service scope from %s', (_name, propertyFilters, expected) => {
+        logic.actions.setFilterGroup(filterGroupWith(propertyFilters))
+        expect(logic.values.selectedServices).toEqual(expected)
+    })
+
+    it('skips chips that are still being edited or use unsupported operators', () => {
+        logic.actions.setFilterGroup(
+            filterGroupWith([
+                { key: 'env', operator: PropertyOperator.Exact, value: [] }, // value not picked yet
+                { key: '', operator: PropertyOperator.Exact, value: ['x'] }, // no key
+                { key: 'env', operator: PropertyOperator.IContains, value: ['pr'] }, // unsupported operator
+                { key: 'env', operator: PropertyOperator.Exact, value: ['prod'] },
+            ])
+        )
+        expect(logic.values.queryFilters).toEqual([{ key: 'env', op: 'eq', value: 'prod' }])
+    })
+
+    // The group-by picker shipped with `options={[]}` and never fetched, so it offered no
+    // attribute keys. Typing must query the attributes endpoint (scoped by search) and map
+    // `{ name }` rows into `{ key, label }` options.
+    it('group-by search fetches attribute keys and maps them into options', async () => {
+        jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
+            results: [{ name: 'env' }, { name: 'service_name' }],
+            count: 2,
+        })
+        await expectLogic(logic, () => {
+            logic.actions.setGroupBySearch('e')
+        }).toDispatchActions(['loadAttributeKeyOptions', 'loadAttributeKeyOptionsSuccess'])
+        expect(metricsAttributesRetrieve).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ search: 'e' })
+        )
+        expect(logic.values.attributeKeyOptions).toEqual([
+            { key: 'env', label: 'env' },
+            { key: 'service_name', label: 'service_name' },
+        ])
+    })
+
+    it('does not call metrics APIs without metrics viewer access', async () => {
+        setResourceAccess({ [AccessControlResourceType.Metrics]: AccessControlLevel.None })
+        jest.mocked(metricsValuesRetrieve).mockClear()
+
+        await expectLogic(metricNamePickerLogic, () => {
+            metricNamePickerLogic.actions.loadItems({ debounce: true })
+        }).toDispatchActions(['loadItemsSuccess'])
+
+        logic.actions.setMetricName('queue_depth')
+        await expectLogic(logic, () => {
+            logic.actions.fetchQueryResults({})
+        }).toDispatchActions(['fetchQueryResultsSuccess'])
+        await expectLogic(logic, () => {
+            logic.actions.setGroupBySearch('env')
+        }).toDispatchActions(['loadAttributeKeyOptionsSuccess'])
+
+        expect(metricsValuesRetrieve).not.toHaveBeenCalled()
+        expect(metricsQueryCreate).not.toHaveBeenCalled()
+        expect(metricsAttributesRetrieve).not.toHaveBeenCalled()
+    })
+
+    it('does not create insights without insight editor access', async () => {
+        setResourceAccess({ [AccessControlResourceType.Insight]: AccessControlLevel.Viewer })
+        logic.actions.setMetricName('queue_depth')
+
+        await expectLogic(logic, () => {
+            logic.actions.saveAsInsight()
+        }).toDispatchActions(['saveAsInsightSuccess'])
+        logic.actions.addToDashboard()
+
+        expect(insightsApi.create).not.toHaveBeenCalled()
+        expect(logic.values.pendingAddToDashboard).toBe(false)
+    })
+})

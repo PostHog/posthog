@@ -2,11 +2,15 @@
 
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend.metric_utils import (
+    apply_metric_date_range,
     collect_metric_events_and_action_ids,
+    collect_metric_warehouse_tables,
     refresh_action_names_in_metric,
     resolve_action_events,
 )
@@ -387,6 +391,91 @@ class TestCollectMetricEventsAndActionIds(BaseTest):
         assert action_ids == {7}
 
 
+class TestCollectMetricWarehouseTables(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "mean",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "ExperimentDataWarehouseNode", "table_name": "stripe_charges"},
+                },
+                {"stripe_charges"},
+            ),
+            (
+                "funnel",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "series": [
+                        {"kind": "EventsNode", "event": "signup"},
+                        {"kind": "ExperimentDataWarehouseNode", "table_name": "orders"},
+                    ],
+                },
+                {"orders"},
+            ),
+            (
+                "ratio",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "ratio",
+                    "numerator": {"kind": "ExperimentDataWarehouseNode", "table_name": "revenue"},
+                    "denominator": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                {"revenue"},
+            ),
+            (
+                "retention",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": {"kind": "ExperimentDataWarehouseNode", "table_name": "trials"},
+                    "completion_event": {"kind": "ExperimentDataWarehouseNode", "table_name": "subscriptions"},
+                },
+                {"trials", "subscriptions"},
+            ),
+        ]
+    )
+    def test_collects_table_names_by_metric_type(self, _name: str, metric: dict, expected: set[str]):
+        assert collect_metric_warehouse_tables([metric]) == expected
+
+    def test_ignores_event_and_action_nodes(self):
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "funnel",
+            "series": [{"kind": "EventsNode", "event": "x"}, {"kind": "ActionsNode", "id": 1}],
+        }
+        assert collect_metric_warehouse_tables([metric]) == set()
+
+    def test_ignores_warehouse_node_without_table_name(self):
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ExperimentDataWarehouseNode", "table_name": ""},
+        }
+        assert collect_metric_warehouse_tables([metric]) == set()
+
+    def test_combines_tables_across_metrics(self):
+        # SimpleTestCase forbids DB access, so this also locks in that collection touches no DB.
+        metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "ExperimentDataWarehouseNode", "table_name": "a"},
+            },
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "ExperimentDataWarehouseNode", "table_name": "b"},
+            },
+        ]
+        assert collect_metric_warehouse_tables(metrics) == {"a", "b"}
+
+    def test_empty_metrics_returns_empty_set(self):
+        assert collect_metric_warehouse_tables([]) == set()
+
+
 class TestResolveActionEvents(BaseTest):
     def test_resolves_actions_to_their_step_events(self):
         action = Action.objects.create(
@@ -412,3 +501,23 @@ class TestResolveActionEvents(BaseTest):
     def test_empty_makes_no_query(self):
         with self.assertNumQueries(0):
             assert resolve_action_events(set(), self.team) == {}
+
+
+class TestApplyMetricDateRange(SimpleTestCase):
+    NEW_RANGE = {"date_from": "2025-02-01T00:00:00Z", "date_to": "", "explicitDate": True}
+
+    @parameterized.expand([("trends", "count_query"), ("funnels", "funnels_query")])
+    def test_overwrites_a_stale_nested_date_range(self, _name: str, query_key: str) -> None:
+        metric = {query_key: {"dateRange": {"date_from": "2025-01-30T12:16", "date_to": "2025-02-13T23:59"}}}
+
+        apply_metric_date_range(metric, self.NEW_RANGE)
+
+        assert metric[query_key]["dateRange"] == self.NEW_RANGE
+
+    @parameterized.expand([("trends", "count_query"), ("funnels", "funnels_query")])
+    def test_leaves_a_metric_without_a_date_range_alone(self, _name: str, query_key: str) -> None:
+        metric: dict = {query_key: {"series": []}}
+
+        apply_metric_date_range(metric, self.NEW_RANGE)
+
+        assert metric == {query_key: {"series": []}}

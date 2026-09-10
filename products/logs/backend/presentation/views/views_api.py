@@ -1,13 +1,68 @@
 from typing import Any
 
+from django.db import models
+
 from rest_framework import serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.logs.backend.models import LogsView
+
+
+class LogsViewColumnType(models.TextChoices):
+    TIMESTAMP = "timestamp", "timestamp"
+    LEVEL = "level", "level"
+    SOURCE = "source", "source"
+    TRACE_ID = "trace_id", "trace_id"
+    SPAN_ID = "span_id", "span_id"
+    PERSON = "person", "person"
+    SESSION = "session", "session"
+    PATTERN = "pattern", "pattern"
+    MESSAGE = "message", "message"
+    CUSTOM = "custom", "custom"
+
+
+class LogsViewColumnSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        help_text="Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.",
+    )
+    type = serializers.ChoiceField(
+        choices=LogsViewColumnType.choices,
+        help_text=(
+            "Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` "
+            "columns are computed server-side, the latter from `expression`."
+        ),
+    )
+    # Optional keys are omitted (not null) so the stored JSON round-trips the client shape exactly
+    name = serializers.CharField(
+        required=False,
+        help_text="Header label override. Defaults to the built-in type's label, or to the expression for custom columns.",
+    )
+    expression = serializers.CharField(
+        required=False,
+        help_text=(
+            "Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, "
+            "`resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim "
+            "in the logs query's `customColumns`."
+        ),
+    )
+    width = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        # Mirrors MAX_ATTRIBUTE_COLUMN_WIDTH in the frontend resizer so a legitimate drag can't
+        # persist a width the API would reject.
+        max_value=2000,
+        help_text="Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # A `custom` column is only renderable if it carries an expression to query;
+        # without one the table would show a permanently blank column.
+        if attrs.get("type") == "custom" and not attrs.get("expression"):
+            raise serializers.ValidationError({"expression": "Custom columns require an expression."})
+        return attrs
 
 
 class LogsViewSerializer(serializers.ModelSerializer):
@@ -17,6 +72,16 @@ class LogsViewSerializer(serializers.ModelSerializer):
         default=dict,
         help_text="Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.",
     )
+    columns = serializers.ListField(
+        child=LogsViewColumnSerializer(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. "
+            "Null means the view has no column preference and the client renders its default column set. "
+            "Omitting the field on update leaves the saved configuration unchanged; send null to clear it."
+        ),
+    )
 
     class Meta:
         model = LogsView
@@ -25,6 +90,7 @@ class LogsViewSerializer(serializers.ModelSerializer):
             "short_id",
             "name",
             "filters",
+            "columns",
             "pinned",
             "created_at",
             "created_by",
@@ -49,8 +115,6 @@ class LogsViewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsView.objects.all().order_by("-created_at")
     serializer_class = LogsViewSerializer
     lookup_field = "short_id"
-    posthog_feature_flag = "logs-saved-views"
-    permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: Any) -> Any:
         queryset = queryset.filter(team_id=self.team_id)

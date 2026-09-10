@@ -4,8 +4,8 @@ import json
 import uuid
 import asyncio
 import hashlib
-import tempfile
-from datetime import datetime, timedelta
+import dataclasses
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib import parse
@@ -16,12 +16,13 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import UploadedFile
 from django.db import IntegrityError, transaction
 from django.forms import ModelForm, ValidationError
-from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import NoReverseMatch, path, reverse
 from django.utils import timezone
-from django.utils.html import escapejs, format_html
+from django.utils.dateparse import parse_datetime
+from django.utils.html import escapejs, format_html, format_html_join
 from django.utils.safestring import mark_safe
 
 from structlog import get_logger
@@ -32,13 +33,13 @@ from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
-from posthog.admin.inlines.user_product_list_inline import UserProductListInline
-from posthog.cloud_utils import is_cloud
+from posthog.helpers.impersonation import is_impersonated
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Detail, log_activity
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.remote_config import RemoteConfig
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.personhog_client.client import get_personhog_client
 from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
@@ -47,8 +48,8 @@ from posthog.personhog_client.proto import (
     GetGroupTypeMappingsByTeamIdRequest,
     UpdateGroupTypeMappingRequest,
 )
-from posthog.session_recordings.recordings import recording_s3_client
 from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
+from posthog.tasks.email import send_email_sending_suspended, send_email_sending_unsuspended
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.delete_recordings.object_storage import store_session_id_chunks
@@ -59,15 +60,52 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     RecordingsWithSessionIdsInput,
     RecordingsWithTeamInput,
 )
-from posthog.temporal.session_replay.import_recording.types import ImportRecordingInput
 
-from products.replay.backend.models.exported_recording import ExportedRecording
-from products.replay.backend.services.export_recording import ReplayActivityContext, trigger_recording_export
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+)
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.email_sending_tier import recompute_email_sending_tier_for_team
+from products.workflows.backend.utils.email_sending_tiers import (
+    MIN_EMAIL_SENDING_TIER,
+    get_email_sending_tier_limits,
+    max_email_sending_tier,
+)
 
 logger = get_logger()
 
 # Upper bound on a single admin AI gateway top-up, to catch fat-fingered amounts.
 MAX_CREDIT_USD = Decimal("1000000")
+
+
+def _format_group_type_created_at(value: datetime | None) -> str:
+    """Millisecond precision, matching the RPC, so the overview and the edit form agree.
+
+    The edit form prefills from this, so dropping the sub-second part here would make an
+    untouched save rewrite created_at.
+    """
+    return value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if value else ""
+
+
+@dataclasses.dataclass(frozen=True)
+class ReplayActivityContext(ActivityContextBase):
+    reason: str
+
+
+@dataclasses.dataclass(frozen=True)
+class EmailSendingSuspensionActivityContext(ActivityContextBase):
+    reason: str
+
+
+@dataclasses.dataclass(frozen=True)
+class AIGatewayCreditActivityContext(ActivityContextBase):
+    amount_usd: str
+    reason: str
+    balance_usd: str
 
 
 class TeamAdminForm(ModelForm):
@@ -137,15 +175,19 @@ class TeamAdmin(admin.ModelAdmin):
         "updated_at",
         "internal_properties",
         "remote_config_cache_actions",
-        "export_individual_replay",
-        "import_individual_replay",
+        "flags_staff_tools_link",
         "delete_recordings",
         "api_token_display",
         "admit_state",
         "ai_gateway_actions",
         "ai_gateway_wallet",
+        "ai_gateway_credit_history",
         "policy_cache_blob",
         "group_type_mappings_display",
+        "email_sending_suspension_state",
+        "email_sending_suspension_actions",
+        "email_sending_tier_state",
+        "email_sending_tier_actions",
     ]
 
     exclude = DEPRECATED_ATTRS
@@ -153,7 +195,6 @@ class TeamAdmin(admin.ModelAdmin):
         OrganizationMemberForRelatedInline,
         TeamMarketingAnalyticsConfigInline,
         TeamExperimentsConfigInline,
-        UserProductListInline,
     ]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
@@ -172,6 +213,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "project",
                     "internal_properties",
                     "remote_config_cache_actions",
+                    "flags_staff_tools_link",
                 ],
             },
         ),
@@ -266,8 +308,6 @@ class TeamAdmin(admin.ModelAdmin):
             {
                 "classes": ["collapse"],
                 "fields": [
-                    "export_individual_replay",
-                    "import_individual_replay",
                     "delete_recordings",
                 ],
             },
@@ -283,6 +323,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "admit_state",
                     "ai_gateway_actions",
                     "ai_gateway_wallet",
+                    "ai_gateway_credit_history",
                     "policy_cache_blob",
                 ],
                 "description": mark_safe(
@@ -293,6 +334,26 @@ class TeamAdmin(admin.ModelAdmin):
                     "<code>llm_gateway_revoked_at</code> is null. "
                     "<code>llm_gateway_overspend_allowance_usd</code> (0–10000) lets the team keep dispatching "
                     "past $0 down to that USD floor; leave blank to use the gateway's operator default."
+                ),
+            },
+        ),
+        (
+            "Workflow email sending",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "email_sending_suspension_state",
+                    "email_sending_suspension_actions",
+                    "email_sending_tier_state",
+                    "email_sending_tier_actions",
+                ],
+                "description": mark_safe(
+                    "Kill switch for all workflow email from this team, used when its sender reputation "
+                    "(hard bounce / spam complaint rates) endangers shared SES deliverability. Suspending "
+                    "notifies the team by email and in-app; the CDP email worker picks the flag up within "
+                    "a few minutes.<br><br>The trust tier below sets how fast this team may send. Teams "
+                    "earn tiers automatically by sending cleanly over time; pinning holds a team at a tier "
+                    "and stops both automatic promotion and automatic demotion."
                 ),
             },
         ),
@@ -350,6 +411,7 @@ class TeamAdmin(admin.ModelAdmin):
                     **m,
                     "detail_dashboard_id": detail_dashboard_id,
                     "detail_dashboard_url": detail_dashboard_url,
+                    "created_at_display": _format_group_type_created_at(m.get("created_at")),
                     "edit_url": reverse(
                         "admin:posthog_team_edit_group_type_mapping",
                         args=[team.pk, m["group_type_index"]],
@@ -411,6 +473,8 @@ class TeamAdmin(admin.ModelAdmin):
             messages.error(request, f"Group type mapping with index {group_type_index} not found for this team.")
             return redirect(team_url)
 
+        existing_created_at = mapping_dict.get("created_at")
+
         if request.method == "GET":
             default_columns = mapping_dict.get("default_columns")
             default_columns_json = json.dumps(default_columns) if default_columns else ""
@@ -419,6 +483,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "team": team,
                 "mapping": mapping_dict,
                 "default_columns_json": default_columns_json,
+                "created_at_display": _format_group_type_created_at(existing_created_at),
                 "title": f"Edit group type mapping - {team.name} - index {group_type_index}",
             }
             return render(request, "admin/posthog/team/group_type_mapping_edit.html", context)
@@ -442,6 +507,19 @@ class TeamAdmin(admin.ModelAdmin):
                     reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
                 )
 
+        created_at_raw = request.POST.get("created_at", "").strip()
+        created_at_millis: int | None = None
+        if created_at_raw:
+            parsed_created_at = parse_datetime(created_at_raw)
+            if parsed_created_at is None:
+                messages.error(request, "Created at must be a valid datetime, e.g. 2026-01-15 10:30:00.")
+                return redirect(
+                    reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
+                )
+            if parsed_created_at.tzinfo is None:
+                parsed_created_at = parsed_created_at.replace(tzinfo=UTC)
+            created_at_millis = int(parsed_created_at.timestamp() * 1000)
+
         update_mask = ["name_singular", "name_plural"]
         update_kwargs: dict[str, Any] = {
             "project_id": team.project_id,
@@ -453,6 +531,13 @@ class TeamAdmin(admin.ModelAdmin):
             update_mask.append("default_columns")
             if parsed_default_columns is not None:
                 update_kwargs["default_columns"] = json.dumps(parsed_default_columns).encode()
+        # The form prefills created_at, so an untouched field matches what is stored and is left
+        # alone; a cleared field sends the mask path with no value, which nulls the column.
+        existing_millis = int(existing_created_at.timestamp() * 1000) if existing_created_at else None
+        if created_at_millis != existing_millis:
+            update_mask.append("created_at")
+            if created_at_millis is not None:
+                update_kwargs["created_at"] = created_at_millis
         update_kwargs["update_mask"] = update_mask
 
         try:
@@ -497,39 +582,6 @@ class TeamAdmin(admin.ModelAdmin):
             props.append("API_QUERIES_RATE_LIMIT_BYPASS")
         return format_html("<span>{}</span>", ", ".join(props) or "-")
 
-    @admin.display(description="Export individual session replay data")
-    def export_individual_replay(self, team: Team):
-        if not team.pk:
-            return "-"
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/export_individual_replay.html",
-                {
-                    "team": team,
-                    "export_url": f"/admin/posthog/team/{team.pk}/export-replay/",
-                    "export_history_url": f"/admin/posthog/team/{team.pk}/export-history/",
-                },
-                request=getattr(self, "_current_request", None),
-            )
-        )
-
-    @admin.display(description="Import individual session replay data")
-    def import_individual_replay(self, team: Team):
-        if not team.pk:
-            return "-"
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/import_individual_replay.html",
-                {
-                    "team": team,
-                    "import_url": f"/admin/posthog/team/{team.pk}/import-replay/",
-                },
-                request=getattr(self, "_current_request", None),
-            )
-        )
-
     @admin.display(description="API token")
     def api_token_display(self, team: Team):
         if not team.pk:
@@ -549,6 +601,16 @@ class TeamAdmin(admin.ModelAdmin):
         return format_html(
             '<a class="button" href="{}">Delete recordings</a>',
             delete_url,
+        )
+
+    @admin.display(description="Flags staff tools")
+    def flags_staff_tools_link(self, team: Team):
+        # Mirrors urls.featureFlagsStaffTools() in products/feature_flags/manifest.tsx; keep in sync.
+        if not team.pk:
+            return "-"
+        return format_html(
+            '<a class="button" href="/feature_flags/staff?team_id={}" target="_blank" rel="noopener noreferrer">Open flags staff tools</a>',
+            team.pk,
         )
 
     @admin.display(description="Remote config cache actions")
@@ -662,6 +724,392 @@ class TeamAdmin(admin.ModelAdmin):
         self._refresh_ai_gateway_policy_cache(team)
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
+    def _log_email_suspension_activity(self, request, team: Team, activity: str, reason: str) -> None:
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=request.user,
+            was_impersonated=is_impersonated(request),
+            item_id=team.pk,
+            scope="Team",
+            activity=activity,
+            detail=Detail(
+                name=team.name,
+                type="admin_email_sending_suspension",
+                context=EmailSendingSuspensionActivityContext(reason=reason),
+            ),
+        )
+
+    def _notify_email_suspension_changed(self, team: Team, suspended: bool, reason: str) -> None:
+        create_notification(
+            NotificationData(
+                team_id=team.id,
+                notification_type=NotificationType.EMAIL_REPUTATION,
+                priority=Priority.CRITICAL if suspended else Priority.NORMAL,
+                title=(
+                    "Email sending has been suspended for this project"
+                    if suspended
+                    else "Email sending has been re-enabled for this project"
+                ),
+                body=(
+                    f"Reason: {reason}. Check the Reputation tab and contact support to get sending re-enabled."
+                    if suspended
+                    else "Your workflows can deliver email again. Keep bounce and complaint rates low to stay enabled."
+                ),
+                target_type=TargetType.TEAM,
+                target_id=str(team.id),
+                source_url="/workflows/reputation",
+            )
+        )
+
+    def suspend_email_sending_view(self, request, object_id):
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        suspend_url = reverse("admin:posthog_team_suspend_email_sending", args=[object_id])
+        team_url = reverse("admin:posthog_team_change", args=[object_id])
+
+        if request.method == "GET":
+            context = {
+                **self.admin_site.each_context(request),
+                "team": team,
+                "title": f"Suspend email sending - {team.name}",
+            }
+            return render(request, "admin/posthog/team/suspend_email_sending_form.html", context)
+
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        reason = request.POST.get("reason", "").strip()
+        if not reason:
+            messages.error(request, "Reason is required")
+            return redirect(suspend_url)
+
+        # Row-lock the config while checking + flipping so two concurrent submits (retried POST,
+        # two open admin tabs) can't both pass the idempotency check and both dispatch the
+        # customer email + notification. Side effects stay outside the atomic block.
+        get_or_create_team_extension(team, TeamWorkflowsConfig)
+        with transaction.atomic():
+            config = TeamWorkflowsConfig.objects.select_for_update().get(team_id=team.pk)
+            if config.email_sending_suspended_at is not None:
+                already_suspended_at = config.email_sending_suspended_at
+                suspended_at = None
+            else:
+                already_suspended_at = None
+                suspended_at = timezone.now()
+                config.email_sending_suspended_at = suspended_at
+                config.email_sending_suspension_reason = reason
+                # Drop the trust tier now, in the same locked transaction, rather than at the next
+                # daily sweep: a suspension is the strongest signal there is, and the tier sets how
+                # fast the team may send once reinstated. A suspension always maps to the lowest
+                # tier, and that mapping needs no metrics, so write it here instead of through the
+                # recompute. This does not depend on ClickHouse and it also covers pinned teams,
+                # which the periodic sweep skips.
+                config.email_sending_tier = MIN_EMAIL_SENDING_TIER
+                config.email_sending_tier_updated_at = suspended_at
+                config.save(
+                    update_fields=[
+                        "email_sending_suspended_at",
+                        "email_sending_suspension_reason",
+                        "email_sending_tier",
+                        "email_sending_tier_updated_at",
+                    ]
+                )
+
+        if already_suspended_at is not None:
+            self.message_user(
+                request,
+                f"Email sending for team '{team.name}' was already suspended "
+                f"(since {already_suspended_at.isoformat()}).",
+                level=messages.INFO,
+            )
+            return redirect(team_url)
+
+        assert suspended_at is not None
+        logger.info(
+            "admin_suspend_email_sending",
+            team_id=team.id,
+            reason=reason,
+            triggered_by=request.user.email,
+        )
+        self._log_email_suspension_activity(request, team, "email_sending_suspended", reason)
+        # Best-effort side effects: the state flip has already committed, and the idempotency
+        # guard would silently skip a retry. Log the failure and let the admin know rather than
+        # 500-ing on a broker/DB hiccup and stranding the state without a customer notification.
+        try:
+            send_email_sending_suspended.delay(team_id=team.id, reason=reason, suspended_at=suspended_at.isoformat())
+            self._notify_email_suspension_changed(team, suspended=True, reason=reason)
+        except Exception:
+            logger.exception("admin_suspend_email_sending_notify_failed", team_id=team.id)
+            self.message_user(
+                request,
+                f"Suspended team '{team.name}', but sending the customer email/notification failed. "
+                "Check logs and follow up manually.",
+                level=messages.ERROR,
+            )
+            return redirect(team_url)
+        self.message_user(
+            request,
+            f"Suspended workflow email sending for team '{team.name}'. "
+            "Workers pick this up within a few minutes; the team has been notified.",
+            level=messages.WARNING,
+        )
+        return redirect(team_url)
+
+    def unsuspend_email_sending_view(self, request, object_id):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        team_url = reverse("admin:posthog_team_change", args=[object_id])
+        # Symmetric to suspend: lock the row, re-check, flip inside the transaction so racing
+        # submits can't both fire the re-enable side effects.
+        with transaction.atomic():
+            config = TeamWorkflowsConfig.objects.select_for_update().filter(team_id=team.pk).first()
+            if not config or config.email_sending_suspended_at is None:
+                was_suspended = False
+                unsuspended_at = None
+            else:
+                was_suspended = True
+                unsuspended_at = timezone.now()
+                config.email_sending_suspended_at = None
+                config.email_sending_suspension_reason = ""
+                config.save(update_fields=["email_sending_suspended_at", "email_sending_suspension_reason"])
+
+        if not was_suspended:
+            self.message_user(request, f"Email sending for team '{team.name}' is not suspended.", level=messages.INFO)
+            return redirect(team_url)
+
+        assert unsuspended_at is not None
+        logger.info(
+            "admin_unsuspend_email_sending",
+            team_id=team.id,
+            triggered_by=request.user.email,
+        )
+        self._log_email_suspension_activity(request, team, "email_sending_unsuspended", "")
+        try:
+            send_email_sending_unsuspended.delay(team_id=team.id, unsuspended_at=unsuspended_at.isoformat())
+            self._notify_email_suspension_changed(team, suspended=False, reason="")
+        except Exception:
+            logger.exception("admin_unsuspend_email_sending_notify_failed", team_id=team.id)
+            self.message_user(
+                request,
+                f"Re-enabled sending for team '{team.name}', but the customer email/notification failed. "
+                "Check logs and follow up manually.",
+                level=messages.ERROR,
+            )
+            return redirect(team_url)
+        self.message_user(
+            request,
+            f"Re-enabled workflow email sending for team '{team.name}'. The team has been notified.",
+            level=messages.SUCCESS,
+        )
+        return redirect(team_url)
+
+    @admin.display(description="Email sending state")
+    def email_sending_suspension_state(self, team: Team):
+        if not team.pk:
+            return "-"
+        config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
+        if config and config.email_sending_suspended_at:
+            return format_html(
+                '<span style="color:red"><strong>Suspended</strong></span> at {} — {}',
+                config.email_sending_suspended_at.isoformat(),
+                config.email_sending_suspension_reason or "no reason recorded",
+            )
+        return format_html("<em>Sending enabled</em>")
+
+    @admin.display(description="Email sending actions")
+    def email_sending_suspension_actions(self, team: Team):
+        if not team.pk:
+            return "-"
+        config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
+        is_suspended = bool(config and config.email_sending_suspended_at)
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/email_sending_suspension_actions.html",
+                {
+                    "team": team,
+                    "suspend_url": reverse("admin:posthog_team_suspend_email_sending", args=[team.pk]),
+                    "unsuspend_url": reverse("admin:posthog_team_unsuspend_email_sending", args=[team.pk]),
+                    "team_name_escaped": escapejs(team.name),
+                    "is_suspended": is_suspended,
+                },
+            )
+        )
+
+    @admin.display(description="Email sending tier")
+    def email_sending_tier_state(self, team: Team) -> str:
+        if not team.pk:
+            return "-"
+        config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
+        tier = config.email_sending_tier if config else 0
+        limits = get_email_sending_tier_limits(tier)
+        updated_at = config.email_sending_tier_updated_at if config else None
+        allowlist_note = ""
+        if team.pk in settings.HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS:
+            # A saved tier changes nothing while the team sits on the legacy allowlist, which the
+            # limit resolution checks first. Say so here rather than letting a staff tier write
+            # look effective when it is not.
+            allowlist_note = (
+                "<br><strong>Note:</strong> this team is on the legacy elevated allowlist "
+                "(HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS), which overrides the tier until the "
+                "team is removed from it."
+            )
+        return format_html(
+            "<strong>Tier {}</strong> of {} — {} emails/hour, {} emails/day, "
+            "{} max batch audience<br>Set at: {}<br>Pinned: {}<br>Rollout mode: <code>{}</code>{}",
+            tier,
+            max_email_sending_tier(),
+            f"{limits.per_hour:,}",
+            f"{limits.per_day:,}",
+            f"{limits.max_batch_audience:,}",
+            updated_at.isoformat() if updated_at else "never (team has not been evaluated yet)",
+            "yes" if config and config.email_sending_tier_pinned else "no",
+            settings.WORKFLOWS_EMAIL_TIER_MODE,
+            mark_safe(allowlist_note),  # noqa: S308 - static admin-only string, no user input
+        )
+
+    @admin.display(description="Email sending tier actions")
+    def email_sending_tier_actions(self, team: Team) -> str:
+        if not team.pk:
+            return "-"
+        config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
+        tiers = [
+            {
+                "tier": tier,
+                "per_hour": f"{get_email_sending_tier_limits(tier).per_hour:,}",
+                "per_day": f"{get_email_sending_tier_limits(tier).per_day:,}",
+                "selected": tier == (config.email_sending_tier if config else 0),
+            }
+            for tier in range(max_email_sending_tier() + 1)
+        ]
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/email_sending_tier_actions.html",
+                {
+                    "tiers": tiers,
+                    "pinned": bool(config and config.email_sending_tier_pinned),
+                    "set_tier_url": reverse("admin:posthog_team_set_email_sending_tier", args=[team.pk]),
+                    "recompute_url": reverse("admin:posthog_team_recompute_email_sending_tier", args=[team.pk]),
+                },
+                request=getattr(self, "_current_request", None),
+            )
+        )
+
+    def set_email_sending_tier_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        team_url = reverse("admin:posthog_team_change", args=[object_id])
+        top_tier = max_email_sending_tier()
+        try:
+            tier = int(request.POST.get("tier", ""))
+        except ValueError:
+            messages.error(request, "Tier must be a whole number.")
+            return redirect(team_url)
+        if tier < 0 or tier > top_tier:
+            messages.error(request, f"Tier must be between 0 and {top_tier}.")
+            return redirect(team_url)
+        pinned = request.POST.get("pinned") == "on"
+
+        get_or_create_team_extension(team, TeamWorkflowsConfig)
+        with transaction.atomic():
+            config = TeamWorkflowsConfig.objects.select_for_update().get(team_id=team.pk)
+            previous_tier = config.email_sending_tier
+            config.email_sending_tier = tier
+            config.email_sending_tier_pinned = pinned
+            if tier != previous_tier:
+                # Only a real tier change restarts the dwell clock. Toggling the pin alone must not
+                # push the next earned promotion out by the full dwell.
+                config.email_sending_tier_updated_at = timezone.now()
+            config.save(
+                update_fields=[
+                    "email_sending_tier",
+                    "email_sending_tier_pinned",
+                    "email_sending_tier_updated_at",
+                ]
+            )
+
+        logger.info(
+            "admin_set_email_sending_tier",
+            team_id=team.id,
+            previous_tier=previous_tier,
+            new_tier=tier,
+            pinned=pinned,
+            # The admin guarantees an authenticated staff user, but the typed request carries
+            # User | AnonymousUser.
+            triggered_by=getattr(request.user, "email", ""),
+        )
+        self.message_user(
+            request,
+            f"Set team '{team.name}' to email sending tier {tier}"
+            f"{' and pinned it there' if pinned else ' (unpinned, so it can move automatically)'}.",
+            level=messages.SUCCESS,
+        )
+        return redirect(team_url)
+
+    def recompute_email_sending_tier_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        team_url = reverse("admin:posthog_team_change", args=[object_id])
+        # A team that only sent through the API may have no config row yet, and the sweep skips a
+        # rowless team. Create the row first so the recompute can move it off tier 0, matching the
+        # suspend and set-tier actions.
+        get_or_create_team_extension(team, TeamWorkflowsConfig)
+        try:
+            decision = recompute_email_sending_tier_for_team(team.id)
+        except Exception:
+            logger.exception("admin_recompute_email_sending_tier_failed", team_id=team.id)
+            self.message_user(request, "Could not recompute the tier. Check the logs.", level=messages.ERROR)
+            return redirect(team_url)
+
+        if decision is None:
+            self.message_user(
+                request,
+                f"Team '{team.name}' was not evaluated: it is pinned, or its config changed while recomputing.",
+                level=messages.INFO,
+            )
+        elif not decision.changed:
+            hold_reasons = {
+                "too_soon": "it has not held its current tier for the required number of days yet",
+                "tier_not_used_enough": "it has not used enough of its current tier's daily allowance "
+                "on enough separate days since the tier was set",
+                "demotion_cooldown": "a recent demotion's cooldown is still active",
+                "rates_recovering": "its complaint or bounce rate over the promotion window is not clean yet",
+                "ses_reputation_not_clean": "AWS currently flags its SES tenant reputation",
+                "already_top_tier": "it is already at the top tier",
+            }
+            explanation = hold_reasons.get(decision.reason, f"decision reason: {decision.reason}")
+            self.message_user(
+                request,
+                f"Team '{team.name}' keeps tier {decision.previous_tier}: {explanation}.",
+                level=messages.INFO,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Team '{team.name}' moved from tier {decision.previous_tier} to tier {decision.new_tier} "
+                f"({decision.reason}).",
+                level=messages.SUCCESS,
+            )
+        return redirect(team_url)
+
     def add_ai_gateway_credit_view(self, request, object_id):
         team = Team.objects.get(pk=object_id)
         if not self.has_change_permission(request, team):
@@ -725,6 +1173,41 @@ class TeamAdmin(admin.ModelAdmin):
             duplicate=result.duplicate,
             triggered_by=request.user.email,
         )
+        # Audit is keyed by the ledger entry_id, so write it whenever one is missing;
+        # a replay backfills the audit if an earlier attempt's write was lost after the
+        # money moved (the credit and this record can't share a transaction). The credit
+        # has already succeeded, so an audit-side failure is logged and swallowed rather
+        # than surfaced as an error to the admin. The existence check dedupes best-effort.
+        try:
+            if not ActivityLog.objects.filter(
+                scope="AIGatewayCredit", team_id=team.id, item_id=result.entry_id
+            ).exists():
+                log_activity(
+                    organization_id=team.organization_id,
+                    team_id=team.id,
+                    user=request.user,
+                    was_impersonated=is_impersonated(request),
+                    item_id=result.entry_id,
+                    scope="AIGatewayCredit",
+                    activity="credit_added",
+                    detail=Detail(
+                        name=f"AI gateway credit — ${result.amount_usd}",
+                        type="admin_add_credit",
+                        context=AIGatewayCreditActivityContext(
+                            amount_usd=result.amount_usd,
+                            reason=reason,
+                            balance_usd=result.balance_usd,
+                        ),
+                    ),
+                )
+        except Exception:
+            logger.warning(
+                "admin_add_ai_gateway_credit_audit_failed",
+                team_id=team.id,
+                entry_id=result.entry_id,
+                triggered_by=request.user.email,
+                exc_info=True,
+            )
         if result.duplicate:
             messages.info(
                 request,
@@ -791,6 +1274,40 @@ class TeamAdmin(admin.ModelAdmin):
             )
         )
 
+    @admin.display(description="Recent top-ups (who topped up)")
+    def ai_gateway_credit_history(self, team: Team):
+        if not team.pk:
+            return "-"
+        # Local ActivityLog read (no gateway call), so render inline. The ledger
+        # records the movement; the actor lives here, joined by item_id == entry_id.
+        entries = (
+            ActivityLog.objects.filter(scope="AIGatewayCredit", team_id=team.pk, activity="credit_added")
+            .select_related("user")
+            .order_by("-created_at")[:20]
+        )
+        if not entries:
+            return format_html("<em>(no top-ups recorded)</em>")
+        rows = format_html_join(
+            "",
+            "<tr><td>{}</td><td>{}</td><td>${}</td><td>{}</td></tr>",
+            (
+                (
+                    e.created_at.strftime("%Y-%m-%d %H:%M UTC"),
+                    format_html(
+                        "{}{}", e.user.email if e.user else "—", " (impersonated)" if e.was_impersonated else ""
+                    ),
+                    (e.detail or {}).get("context", {}).get("amount_usd", ""),
+                    (e.detail or {}).get("context", {}).get("reason", ""),
+                )
+                for e in entries
+            ),
+        )
+        return format_html(
+            "<table><thead><tr><th>When</th><th>Who</th><th>Amount</th><th>Reason</th></tr></thead>"
+            "<tbody>{}</tbody></table>",
+            rows,
+        )
+
     def ai_gateway_wallet_view(self, request, object_id):
         team = Team.objects.get(pk=object_id)
         if not self.has_view_permission(request, team):
@@ -847,26 +1364,6 @@ class TeamAdmin(admin.ModelAdmin):
                 name="posthog_team_rebuild_cache",
             ),
             path(
-                "<path:object_id>/export-replay/",
-                self.admin_site.admin_view(self.export_replay_view),
-                name="posthog_team_export_replay",
-            ),
-            path(
-                "<path:object_id>/import-replay/",
-                self.admin_site.admin_view(self.import_replay_view),
-                name="posthog_team_import_replay",
-            ),
-            path(
-                "<path:object_id>/export-history/",
-                self.admin_site.admin_view(self.export_history_view),
-                name="posthog_team_export_history",
-            ),
-            path(
-                "<path:object_id>/download-export/<uuid:export_id>/",
-                self.admin_site.admin_view(self.download_export_view),
-                name="posthog_team_download_export",
-            ),
-            path(
                 "<path:object_id>/set-api-token/",
                 self.admin_site.admin_view(self.set_api_token_view),
                 name="posthog_team_set_api_token",
@@ -916,6 +1413,26 @@ class TeamAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.ai_gateway_wallet_view),
                 name="posthog_team_ai_gateway_wallet",
             ),
+            path(
+                "<path:object_id>/suspend-email-sending/",
+                self.admin_site.admin_view(self.suspend_email_sending_view),
+                name="posthog_team_suspend_email_sending",
+            ),
+            path(
+                "<path:object_id>/unsuspend-email-sending/",
+                self.admin_site.admin_view(self.unsuspend_email_sending_view),
+                name="posthog_team_unsuspend_email_sending",
+            ),
+            path(
+                "<path:object_id>/set-email-sending-tier/",
+                self.admin_site.admin_view(self.set_email_sending_tier_view),
+                name="posthog_team_set_email_sending_tier",
+            ),
+            path(
+                "<path:object_id>/recompute-email-sending-tier/",
+                self.admin_site.admin_view(self.recompute_email_sending_tier_view),
+                name="posthog_team_recompute_email_sending_tier",
+            ),
         ]
         return custom_urls + urls
 
@@ -959,60 +1476,6 @@ class TeamAdmin(admin.ModelAdmin):
         messages.success(request, f"API token updated for team '{team.name}'.")
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
-    def export_replay_view(self, request, object_id):
-        team = Team.objects.get(pk=object_id)
-
-        if request.method == "GET":
-            context = {
-                **self.admin_site.each_context(request),
-                "team": team,
-                "title": f"Export Session Replay - {team.name}",
-            }
-            return render(request, "admin/posthog/team/export_replay_form.html", context)
-
-        session_id = request.POST.get("session_id", "").strip()
-        reason = request.POST.get("reason", "").strip()
-
-        if not session_id:
-            messages.error(request, "Session ID is required")
-            return redirect(reverse("admin:posthog_team_export_replay", args=[object_id]))
-
-        if not reason:
-            messages.error(request, "Reason is required")
-            return redirect(reverse("admin:posthog_team_export_replay", args=[object_id]))
-
-        logger.info(
-            "export_replay_triggered",
-            team_id=team.id,
-            session_id=session_id,
-            reason=reason,
-            triggered_by=request.user.email,
-        )
-
-        try:
-            export_record = trigger_recording_export(
-                team=team,
-                session_id=session_id,
-                reason=reason,
-                user=request.user,
-                was_impersonated=False,
-            )
-
-            messages.success(
-                request,
-                f"Export triggered for session '{session_id}' on team '{team.name}' by {request.user.email}. Export ID: {export_record.id}",
-            )
-        except Exception as e:
-            logger.exception(
-                "export_replay_failed",
-                team_id=team.id,
-                session_id=session_id,
-                error=str(e),
-            )
-            messages.error(request, f"Export failed: {e}")
-
-        return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
-
     def view_cache(self, request, object_id):
         team = Team.objects.get(pk=object_id)
         hypercache = RemoteConfig.get_hypercache()
@@ -1041,133 +1504,6 @@ class TeamAdmin(admin.ModelAdmin):
 
         self.message_user(request, f"Cache rebuilt for team '{team.name}' (token: {team.api_token})")
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
-
-    def import_replay_view(self, request, object_id):
-        if is_cloud():
-            messages.error(request, "Importing session replays is not allowed on cloud")
-            return redirect(reverse("admin:posthog_team_change", args=[object_id]))
-
-        team = Team.objects.get(pk=object_id)
-
-        if request.method == "GET":
-            context = {
-                **self.admin_site.each_context(request),
-                "team": team,
-                "title": f"Import Session Replay - {team.name}",
-            }
-            return render(request, "admin/posthog/team/import_replay_form.html", context)
-
-        reason = request.POST.get("reason", "").strip()
-        import_file: UploadedFile | None = request.FILES.get("import_file")
-
-        if not import_file:
-            messages.error(request, "Import file is required")
-            return redirect(reverse("admin:posthog_team_import_replay", args=[object_id]))
-
-        if not reason:
-            messages.error(request, "Reason is required")
-            return redirect(reverse("admin:posthog_team_import_replay", args=[object_id]))
-
-        if not import_file.name or not import_file.name.endswith(".zip"):
-            messages.error(request, "Import file must be a .zip file")
-            return redirect(reverse("admin:posthog_team_import_replay", args=[object_id]))
-
-        logger.info(
-            "import_replay_triggered",
-            team_id=team.id,
-            file_name=import_file.name,
-            file_size=import_file.size,
-            reason=reason,
-            triggered_by=request.user.email,
-        )
-
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
-                for chunk in import_file.chunks():
-                    tmp_file.write(chunk)
-                tmp_file_path = tmp_file.name
-
-            temporal = sync_connect()
-            workflow_input = ImportRecordingInput(team_id=team.id, export_file=tmp_file_path)
-            workflow_id = f"import-recording-{team.id}-{uuid.uuid4()}"
-
-            asyncio.run(
-                temporal.start_workflow(
-                    "import-recording",
-                    workflow_input,
-                    id=workflow_id,
-                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                    retry_policy=common.RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(minutes=1),
-                    ),
-                )
-            )
-
-            log_activity(
-                organization_id=team.organization_id,
-                team_id=team.id,
-                user=request.user,
-                was_impersonated=False,
-                item_id=None,
-                scope="Replay",
-                activity="imported",
-                detail=Detail(
-                    name=f"Session replay import from {import_file.name}",
-                    type="admin_import",
-                    context=ReplayActivityContext(reason=reason),
-                ),
-            )
-
-            messages.success(
-                request,
-                f"Import triggered for team '{team.name}' by {request.user.email}.",
-            )
-        except Exception as e:
-            logger.exception(
-                "import_replay_failed",
-                team_id=team.id,
-                error=str(e),
-            )
-            messages.error(request, f"Import failed: {e}")
-
-        return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
-
-    def export_history_view(self, request, object_id):
-        team = Team.objects.get(pk=object_id)
-
-        exports = ExportedRecording.objects.filter(team=team).order_by("-created_at")[:50]
-
-        context = {
-            **self.admin_site.each_context(request),
-            "team": team,
-            "exports": exports,
-            "title": f"Export History - {team.name}",
-        }
-        return render(request, "admin/posthog/team/export_history.html", context)
-
-    def download_export_view(self, request, object_id, export_id):
-        team = Team.objects.get(pk=object_id)
-        try:
-            export = ExportedRecording.objects.get(id=export_id, team=team)
-
-            if not export.export_location:
-                messages.error(request, "Export content not available yet")
-                return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
-
-            content = recording_s3_client.recording_s3_client().download_file(export.export_location)
-
-            response = HttpResponse(content, content_type="application/zip")
-            filename = f"export-{export.session_id}.zip"
-            response["Content-Disposition"] = f'attachment; filename="{filename}"'
-            return response
-
-        except ExportedRecording.DoesNotExist:
-            messages.error(request, "Export not found")
-            return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
-        except Exception as e:
-            messages.error(request, f"Failed to download export: {e}")
-            return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
 
     def _get_delete_workflows(self, team_id: int) -> list[dict]:
         """Fetch recent delete-recordings workflows for this team from Temporal."""

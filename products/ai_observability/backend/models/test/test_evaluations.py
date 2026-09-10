@@ -200,6 +200,34 @@ class TestEvaluationModel(BaseTest):
         self.assertIsInstance(evaluation.evaluation_config["bytecode"], list)
         self.assertTrue(len(evaluation.evaluation_config["bytecode"]) > 0)
 
+    def test_hog_evaluation_compiles_null_safe_comparisons(self):
+        from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
+
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Hog Eval",
+            evaluation_type="hog",
+            evaluation_config={"source": "return properties.missing <= 1.0"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+        )
+
+        result = run_hog_eval(
+            evaluation.evaluation_config["bytecode"],
+            {
+                "uuid": "event-id",
+                "event": "$ai_generation",
+                "properties": {},
+                "distinct_id": "user-1",
+            },
+        )
+
+        self.assertFalse(result["verdict"])
+        self.assertIsNone(result["error"])
+
     def test_hog_evaluation_invalid_source_raises_validation_error(self):
         with self.assertRaises(ValidationError):
             Evaluation.objects.create(
@@ -347,7 +375,7 @@ class TestEvaluationStatusCoercion(BaseTest):
     def test_flipping_enabled_true_on_errored_row_transitions_to_active_and_clears_reason(self):
         evaluation = self._create(enabled=False)
         evaluation.status = EvaluationStatus.ERROR
-        evaluation.status_reason = EvaluationStatusReason.TRIAL_LIMIT_REACHED
+        evaluation.status_reason = EvaluationStatusReason.PROVIDER_KEY_REQUIRED
         evaluation.save()
         self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
 
@@ -366,28 +394,35 @@ class TestEvaluationStatusCoercion(BaseTest):
     def test_setting_status_error_with_reason_forces_enabled_false(self):
         evaluation = self._create(enabled=True)
         evaluation.status = EvaluationStatus.ERROR
-        evaluation.status_reason = EvaluationStatusReason.MODEL_NOT_ALLOWED
+        evaluation.status_reason = EvaluationStatusReason.PROVIDER_KEY_REQUIRED
         evaluation.save()
         self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
         self.assertFalse(evaluation.enabled)
-        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.MODEL_NOT_ALLOWED)
+        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.PROVIDER_KEY_REQUIRED)
 
     def test_paused_status_clears_any_stale_status_reason(self):
         evaluation = self._create(enabled=True)
         evaluation.status = EvaluationStatus.ERROR
-        evaluation.status_reason = EvaluationStatusReason.TRIAL_LIMIT_REACHED
+        evaluation.status_reason = EvaluationStatusReason.PROVIDER_KEY_REQUIRED
+        evaluation.status_reason_detail = "No provider API key configured."
         evaluation.save()
 
         evaluation.status = EvaluationStatus.PAUSED
         evaluation.save()
         self.assertIsNone(evaluation.status_reason)
+        self.assertIsNone(evaluation.status_reason_detail)
 
     def test_set_status_helper_transitions_all_three_fields(self):
         evaluation = self._create(enabled=True)
-        evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.PROVIDER_KEY_DELETED)
+        evaluation.set_status(
+            EvaluationStatus.ERROR,
+            EvaluationStatusReason.HOG_ERROR,
+            "Must return boolean, got int: 42",
+        )
         evaluation.refresh_from_db()
         self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
-        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.PROVIDER_KEY_DELETED)
+        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.HOG_ERROR)
+        self.assertEqual(evaluation.status_reason_detail, "Must return boolean, got int: 42")
         self.assertFalse(evaluation.enabled)
 
     def test_refresh_from_db_resets_change_tracking_baseline(self):
@@ -397,7 +432,7 @@ class TestEvaluationStatusCoercion(BaseTest):
         evaluation = self._create(enabled=True)
         # Simulate a system transition happening elsewhere (another worker, another request, etc.).
         Evaluation.objects.filter(id=evaluation.id).update(
-            enabled=False, status=EvaluationStatus.ERROR, status_reason=EvaluationStatusReason.TRIAL_LIMIT_REACHED
+            enabled=False, status=EvaluationStatus.ERROR, status_reason=EvaluationStatusReason.PROVIDER_KEY_REQUIRED
         )
 
         evaluation.refresh_from_db()

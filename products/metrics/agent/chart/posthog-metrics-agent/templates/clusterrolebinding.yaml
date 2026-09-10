@@ -1,0 +1,16 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+    name: {{ include "posthog-metrics-agent.fullname" . }}
+    labels:
+        {{- include "posthog-metrics-agent.labels" . | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: {{ include "posthog-metrics-agent.fullname" . }}
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "posthog-metrics-agent.serviceAccountName" . }}
+      namespace: {{ .Release.Namespace }}
+{{- end }}

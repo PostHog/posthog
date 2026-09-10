@@ -12,23 +12,79 @@
  * * `dashboard` - Dashboard
  * * `ai_prompt` - AI prompt
  */
-export type ResourceTypeEnumApi = (typeof ResourceTypeEnumApi)[keyof typeof ResourceTypeEnumApi]
+export type SubscriptionResourceTypeEnumApi =
+    (typeof SubscriptionResourceTypeEnumApi)[keyof typeof SubscriptionResourceTypeEnumApi]
 
-export const ResourceTypeEnumApi = {
+export const SubscriptionResourceTypeEnumApi = {
     Insight: 'insight',
     Dashboard: 'dashboard',
     AiPrompt: 'ai_prompt',
 } as const
 
 /**
+ * * `since_last_sent` - Since last report
+ * * `last_n_days` - Last N days
+ * * `days_ago_range` - Between X and Y days ago
+ */
+export type SubscriptionAIWindowModeEnumApi =
+    (typeof SubscriptionAIWindowModeEnumApi)[keyof typeof SubscriptionAIWindowModeEnumApi]
+
+export const SubscriptionAIWindowModeEnumApi = {
+    SinceLastSent: 'since_last_sent',
+    LastNDays: 'last_n_days',
+    DaysAgoRange: 'days_ago_range',
+} as const
+
+export interface AIWindowConfigApi {
+    /** What the report analyzes each run:
+     * * `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)
+     * * `last_n_days` — a fixed trailing window of start_days_ago days
+     * * `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago
+     *
+     * * `since_last_sent` - Since last report
+     * * `last_n_days` - Last N days
+     * * `days_ago_range` - Between X and Y days ago */
+    mode?: SubscriptionAIWindowModeEnumApi
+    /**
+     * Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    start_days_ago?: number | null
+    /**
+     * Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365.
+     * @minimum 0
+     * @maximum 365
+     * @nullable
+     */
+    end_days_ago?: number | null
+}
+
+export interface AIPromptConfigApi {
+    /** Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery). */
+    window?: AIWindowConfigApi
+}
+
+export type AIQueryPlanStatusEnumApi = (typeof AIQueryPlanStatusEnumApi)[keyof typeof AIQueryPlanStatusEnumApi]
+
+export const AIQueryPlanStatusEnumApi = {
+    Frozen: 'frozen',
+    NotFrozen: 'not_frozen',
+    PlannerUpdated: 'planner_updated',
+} as const
+
+/**
  * * `email` - Email
  * * `slack` - Slack
+ * * `teams` - Microsoft Teams
  */
-export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
+export type SubscriptionTargetEnumApi = (typeof SubscriptionTargetEnumApi)[keyof typeof SubscriptionTargetEnumApi]
 
-export const TargetTypeEnumApi = {
+export const SubscriptionTargetEnumApi = {
     Email: 'email',
     Slack: 'slack',
+    Teams: 'teams',
 } as const
 
 /**
@@ -76,6 +132,7 @@ export const SubscriptionApiByweekdayItem = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -88,6 +145,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -124,6 +182,14 @@ export interface UserBasicApi {
 }
 
 /**
+ * Typed view over the Subscription.delivery_config JSON blob.
+ */
+export interface DeliveryConfigApi {
+    /** Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. */
+    post_all_insights_in_main_message?: boolean
+}
+
+/**
  * Standard Subscription serializer.
  */
 export interface SubscriptionApi {
@@ -133,7 +199,7 @@ export interface SubscriptionApi {
      * * `insight` - Insight
      * * `dashboard` - Dashboard
      * * `ai_prompt` - AI prompt */
-    readonly resource_type: ResourceTypeEnumApi
+    readonly resource_type: SubscriptionResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
      * @nullable
@@ -148,19 +214,24 @@ export interface SubscriptionApi {
     readonly insight_short_id: string | null
     /** @nullable */
     readonly resource_name: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
     dashboard_export_insights?: number[]
     /**
      * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
      * @nullable
      */
     prompt?: string | null
-    /** Delivery channel: email or slack.
+    /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+    ai_prompt_config?: AIPromptConfigApi
+    /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
+    readonly ai_query_plan_status: AIQueryPlanStatusEnumApi | null
+    /** Delivery channel: email, slack, or teams.
      *
      * * `email` - Email
-     * * `slack` - Slack */
-    target_type: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
+     * * `slack` - Slack
+     * * `teams` - Microsoft Teams */
+    target_type: SubscriptionTargetEnumApi
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it. */
     target_value: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
      *
@@ -176,7 +247,7 @@ export interface SubscriptionApi {
      */
     interval: number
     /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
     byweekday?: SubscriptionApiByweekdayItem[] | null
@@ -194,7 +265,7 @@ export interface SubscriptionApi {
      * @nullable
      */
     count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
+    /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
     start_date: string
     /**
      * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -227,6 +298,8 @@ export interface SubscriptionApi {
      * @nullable
      */
     invite_message?: string | null
+    /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+    send_test_now?: boolean
     /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
     summary_enabled?: boolean
     /**
@@ -234,6 +307,8 @@ export interface SubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+    delivery_config?: DeliveryConfigApi
 }
 
 export interface PaginatedSubscriptionListApi {
@@ -277,7 +352,7 @@ export interface PatchedSubscriptionApi {
      * * `insight` - Insight
      * * `dashboard` - Dashboard
      * * `ai_prompt` - AI prompt */
-    readonly resource_type?: ResourceTypeEnumApi
+    readonly resource_type?: SubscriptionResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
      * @nullable
@@ -292,19 +367,24 @@ export interface PatchedSubscriptionApi {
     readonly insight_short_id?: string | null
     /** @nullable */
     readonly resource_name?: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
     dashboard_export_insights?: number[]
     /**
      * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
      * @nullable
      */
     prompt?: string | null
-    /** Delivery channel: email or slack.
+    /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+    ai_prompt_config?: AIPromptConfigApi
+    /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
+    readonly ai_query_plan_status?: AIQueryPlanStatusEnumApi | null
+    /** Delivery channel: email, slack, or teams.
      *
      * * `email` - Email
-     * * `slack` - Slack */
-    target_type?: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
+     * * `slack` - Slack
+     * * `teams` - Microsoft Teams */
+    target_type?: SubscriptionTargetEnumApi
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it. */
     target_value?: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
      *
@@ -320,7 +400,7 @@ export interface PatchedSubscriptionApi {
      */
     interval?: number
     /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
     byweekday?: PatchedSubscriptionApiByweekdayItem[] | null
@@ -338,7 +418,7 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
+    /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
     start_date?: string
     /**
      * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -371,6 +451,8 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     invite_message?: string | null
+    /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+    send_test_now?: boolean
     /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
     summary_enabled?: boolean
     /**
@@ -378,6 +460,8 @@ export interface PatchedSubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+    delivery_config?: DeliveryConfigApi
 }
 
 /**
@@ -396,6 +480,39 @@ export const SubscriptionDeliveryStatusEnumApi = {
     Skipped: 'skipped',
 } as const
 
+export interface AIReportQueryDiagnosticApi {
+    /** What this query step was meant to compute. */
+    description: string
+    /** The HogQL the assistant generated for this step. */
+    hogql: string
+    /** Whether the query ran successfully. */
+    ok: boolean
+    /**
+     * Exception class name when the query failed; null on success.
+     * @nullable
+     */
+    error_type: string | null
+    /**
+     * Stable query API error code when available; null on success and for unclassified errors.
+     * @nullable
+     */
+    error_code?: string | null
+    /**
+     * Human-readable failure reason, present only for query errors safe to surface to the subscription owner (e.g. an unresolved field name); null on success and for internal errors, which expose error_type only.
+     * @nullable
+     */
+    human_readable_error?: string | null
+}
+
+export interface AIReportChartApi {
+    /** Id of the rendered PNG export backing this chart. */
+    export_asset_id: number
+    /** Chart caption, taken from the plan step it illustrates. */
+    title: string
+    /** Index of the plan step this chart came from. */
+    step_index: number
+}
+
 export interface SubscriptionDeliveryApi {
     /** Primary key for this delivery row. */
     readonly id: string
@@ -405,16 +522,16 @@ export interface SubscriptionDeliveryApi {
     readonly temporal_workflow_id: string
     /** Dedupes activity retries for the same logical run. */
     readonly idempotency_key: string
-    /** Why the run started (e.g. scheduled, manual, target_change). */
+    /** Why the run started (e.g. scheduled, manual, subscription update). */
     readonly trigger_type: string
     /**
      * Planned send time when applicable.
      * @nullable
      */
     readonly scheduled_at: string | null
-    /** Channel snapshot at send time (email or slack). */
+    /** Channel snapshot at send time: email, slack, or teams. */
     readonly target_type: string
-    /** Destination snapshot at send time (emails, channel id, URL). */
+    /** Destination snapshot at send time: the email list, the Slack channel id, or the host of the Microsoft Teams webhook. The webhook URL itself is never returned. */
     readonly target_value: string
     /**
      * ExportedAsset ids generated for this send.
@@ -449,6 +566,28 @@ export interface SubscriptionDeliveryApi {
      * @nullable
      */
     readonly change_summary: string | null
+    /**
+     * AI-generated report markdown delivered by this run. Null for non-AI deliveries or runs without a persisted report.
+     * @nullable
+     */
+    readonly ai_report: string | null
+    /**
+     * Per-step query diagnostics (generated HogQL + failure type) for this report. Null for non-AI deliveries or runs without persisted diagnostics.
+     * @nullable
+     */
+    readonly ai_report_diagnostics: readonly AIReportQueryDiagnosticApi[] | null
+    /**
+     * Charts rendered for this report, in the order they were delivered. Empty when the report had no charts. Null for non-AI deliveries and for deliveries recorded before charts existed.
+     * @nullable
+     */
+    readonly ai_report_charts: readonly AIReportChartApi[] | null
+    /**
+     * The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.
+     * @nullable
+     */
+    readonly ai_report_prompt: string | null
+    /** Query plan state recorded for this delivery: frozen, not_frozen, or planner_updated. Null for older deliveries and non-AI deliveries. */
+    readonly ai_query_plan_status: AIQueryPlanStatusEnumApi | null
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {
@@ -469,9 +608,17 @@ export type SubscriptionsListParams = {
      */
     dashboard?: number
     /**
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
+     */
+    dashboard_tiles?: number
+    /**
      * Filter by insight ID.
      */
     insight?: number
+    /**
+     * Filter by a comma-separated list of insight IDs.
+     */
+    insights?: string
     /**
      * Number of results to return per page.
      */
@@ -493,7 +640,7 @@ export type SubscriptionsListParams = {
      */
     search?: string
     /**
-     * Filter by delivery channel (email or Slack).
+     * Filter by delivery channel: email, Slack, or Microsoft Teams.
      */
     target_type?: SubscriptionsListTargetType
 }
@@ -512,6 +659,7 @@ export type SubscriptionsListTargetType = (typeof SubscriptionsListTargetType)[k
 export const SubscriptionsListTargetType = {
     Email: 'email',
     Slack: 'slack',
+    Teams: 'teams',
 } as const
 
 export type SubscriptionsDeliveriesListParams = {

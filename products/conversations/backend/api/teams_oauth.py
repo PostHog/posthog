@@ -10,12 +10,12 @@ from django.views.decorators.csrf import csrf_exempt
 import jwt
 import requests
 import structlog
-from loginas.utils import is_impersonated_session
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -178,7 +178,7 @@ class TeamsDisconnectView(APIView):
         clear_teams_token(
             team=user.current_team,
             user=user,
-            is_impersonated_session=is_impersonated_session(request),
+            is_impersonated_session=is_impersonated(request),
         )
         return Response({"ok": True})
 
@@ -300,7 +300,7 @@ def teams_oauth_callback(request: HttpRequest) -> HttpResponse:
             save_teams_token(
                 team=team,
                 user=user,
-                is_impersonated_session=is_impersonated_session(request),
+                is_impersonated_session=is_impersonated(request),
                 access_token=access_token,
                 refresh_token=refresh_token,
                 tenant_id=tenant_id,

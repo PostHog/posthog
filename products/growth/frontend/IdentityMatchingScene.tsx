@@ -6,6 +6,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonInput,
+    LemonModal,
     LemonSegmentedButton,
     LemonSelect,
     LemonTab,
@@ -22,7 +23,6 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { downloadBlob } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer/LemonDrawer'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -41,8 +41,8 @@ import {
     type SignalCategory,
     computeTierStats,
     extractSignals,
+    linkPersonDisplay,
     normalizedScore,
-    personFromDistinctId,
 } from './identityMatchingUtils'
 import { PaidAttributionTimeline } from './PaidAttributionTimeline'
 import { RunsHistory } from './RunsHistory'
@@ -224,7 +224,7 @@ export function IdentityMatchingScene(): JSX.Element {
     } = useValues(identityMatchingLogic)
     const { setFilters, setPage, setActiveTab } = useActions(identityMatchingLogic)
 
-    const [drawerLink, setDrawerLink] = useState<IdentityMatchingLinkApi | null>(null)
+    const [detailLink, setDetailLink] = useState<IdentityMatchingLinkApi | null>(null)
 
     if (!user?.is_staff) {
         return <AccessDenied object="page" reason="Identity matching is limited to staff users while in development." />
@@ -238,7 +238,11 @@ export function IdentityMatchingScene(): JSX.Element {
             dataIndex: 'orphan_distinct_id',
             render: (_, link) => (
                 <Link to={urls.personByDistinctId(link.orphan_distinct_id)}>
-                    <PersonDisplay person={personFromDistinctId(link.orphan_distinct_id)} noPopover withIcon="sm" />
+                    <PersonDisplay
+                        person={linkPersonDisplay(link.orphan_person, link.orphan_distinct_id)}
+                        noPopover
+                        withIcon="sm"
+                    />
                 </Link>
             ),
         },
@@ -247,7 +251,11 @@ export function IdentityMatchingScene(): JSX.Element {
             dataIndex: 'anchor_person_key',
             render: (_, link) => (
                 <Link to={urls.personByDistinctId(link.anchor_person_key)}>
-                    <PersonDisplay person={personFromDistinctId(link.anchor_person_key)} noPopover withIcon="sm" />
+                    <PersonDisplay
+                        person={linkPersonDisplay(link.anchor_person, link.anchor_person_key)}
+                        noPopover
+                        withIcon="sm"
+                    />
                 </Link>
             ),
         },
@@ -434,7 +442,7 @@ export function IdentityMatchingScene(): JSX.Element {
                             }}
                             nouns={['link', 'links']}
                             onRow={(link) => ({
-                                onClick: () => setDrawerLink(link),
+                                onClick: () => setDetailLink(link),
                                 className: 'cursor-pointer',
                             })}
                         />
@@ -485,10 +493,10 @@ export function IdentityMatchingScene(): JSX.Element {
                 tabs={tabs}
                 sceneInset
             />
-            <LemonDrawer
-                isOpen={drawerLink !== null}
-                onClose={() => setDrawerLink(null)}
-                width="60vw"
+            <LemonModal
+                isOpen={detailLink !== null}
+                onClose={() => setDetailLink(null)}
+                width="56rem"
                 title={
                     <div className="flex items-center gap-2">
                         <IconPerson className="text-lg" />
@@ -496,8 +504,8 @@ export function IdentityMatchingScene(): JSX.Element {
                     </div>
                 }
             >
-                {drawerLink && <IdentityMatchingDetail link={drawerLink} />}
-            </LemonDrawer>
+                {detailLink && <IdentityMatchingDetail link={detailLink} />}
+            </LemonModal>
         </SceneContent>
     )
 }

@@ -17,8 +17,8 @@ export const GitHub = defineIntegration(
             <>
                 Connect GitHub to link issues and pull requests with PostHog and create issues directly from error
                 tracking. With <Link to={urls.integration('slack')}>Slack</Link> and{' '}
-                <Link to="https://posthog.com/code" target="_blank">
-                    PostHog code
+                <Link to="https://posthog.com/desktop" target="_blank">
+                    PostHog Desktop
                 </Link>{' '}
                 connected, tag @PostHog to draft pull requests and ship code changes straight to your repositories.
             </>
@@ -29,7 +29,7 @@ export const GitHub = defineIntegration(
             'Link pull requests and issues to PostHog',
             'Attribute code changes across your repositories',
         ],
-        docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
+        docsUrl: 'https://posthog.com/docs/libraries/github',
     },
     GithubIntegration
 )

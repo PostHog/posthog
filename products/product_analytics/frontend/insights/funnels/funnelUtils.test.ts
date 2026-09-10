@@ -1,0 +1,1247 @@
+import { FunnelLayout } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { formatDateRange } from 'lib/utils/datetime'
+
+import { EventsNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import {
+    FunnelConversionWindowTimeUnit,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelCorrelationType,
+    FunnelStep,
+    FunnelStepReference,
+    FunnelStepWithNestedBreakdown,
+} from '~/types'
+
+import {
+    aggregateBreakdownCompareResult,
+    aggregateBreakdownResult,
+    aggregateFunnelCompareResult,
+    dimPreviousPeriodColor,
+    EMPTY_BREAKDOWN_VALUES,
+    flattenedStepsByBreakdownCompare,
+    flattenedStepsByCompare,
+    funnelComparePeriodDateRange,
+    funnelTooltipHeaderLabel,
+    isFunnelStepsBreakdownCompareResult,
+    getBreakdownStepValues,
+    getClampedFunnelStepRange,
+    getIncompleteConversionWindowStartDate,
+    getLastFilledStep,
+    getMeanAndStandardDeviation,
+    getReferenceStep,
+    getStepBreakdownSeries,
+    getVisibilityKey,
+    hasBreakdown,
+    isFunnelWithEnoughSteps,
+    isFunnelWithIncompleteDataWarehouseStep,
+    parseDisplayNameForCorrelation,
+    stepsWithConversionMetrics,
+} from './funnelUtils'
+
+describe('getMeanAndStandardDeviation', () => {
+    const arrayToExpectedValues: [number[], number[]][] = [
+        [
+            [1, 2, 3, 4, 5],
+            [3, Math.sqrt(2)],
+        ],
+        [
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            [5.5, Math.sqrt(8.25)],
+        ],
+        [[1], [1, 0]],
+        [[], [0, 100]],
+        [
+            [1, 1, 1, 1, 1],
+            [1, 0],
+        ],
+        [
+            [1, 1, 1, 1, 5],
+            [1.8, 1.6],
+        ],
+    ]
+
+    arrayToExpectedValues.forEach(([array, expected]) => {
+        it(`expect mean and deviation for array=${array} to equal ${expected}`, () => {
+            const [mean, stdDev] = getMeanAndStandardDeviation(array)
+            expect(mean).toBeCloseTo(expected[0])
+            expect(stdDev).toBeCloseTo(expected[1])
+        })
+    })
+})
+
+describe('getBreakdownStepValues()', () => {
+    it('is baseline breakdown', () => {
+        expect(getBreakdownStepValues({ breakdown: 'blah', breakdown_value: 'Blah' }, 21, true)).toStrictEqual({
+            rowKey: 'baseline_0',
+            breakdown: ['baseline'],
+            breakdown_value: ['Baseline'],
+        })
+    })
+    it('breakdowns are well formed arrays', () => {
+        expect(
+            getBreakdownStepValues({ breakdown: ['blah', 'woof'], breakdown_value: ['Blah', 'Woof'] }, 21)
+        ).toStrictEqual({
+            rowKey: 'blah_woof_21',
+            breakdown: ['blah', 'woof'],
+            breakdown_value: ['Blah', 'Woof'],
+        })
+    })
+    it('breakdowns are empty arrays', () => {
+        expect(getBreakdownStepValues({ breakdown: [], breakdown_value: [] }, 21)).toStrictEqual(EMPTY_BREAKDOWN_VALUES)
+    })
+    it('breakdowns are arrays with empty string', () => {
+        expect(getBreakdownStepValues({ breakdown: [''], breakdown_value: [''] }, 21)).toStrictEqual(
+            EMPTY_BREAKDOWN_VALUES
+        )
+    })
+    it('breakdowns are arrays with null', () => {
+        expect(
+            getBreakdownStepValues(
+                {
+                    breakdown: [null as unknown as string | number],
+                    breakdown_value: [null as unknown as string | number],
+                },
+                21
+            )
+        ).toStrictEqual(EMPTY_BREAKDOWN_VALUES)
+    })
+    it('breakdowns are arrays with undefined', () => {
+        expect(
+            getBreakdownStepValues(
+                {
+                    breakdown: [undefined as unknown as string | number],
+                    breakdown_value: [undefined as unknown as string | number],
+                },
+                21
+            )
+        ).toStrictEqual(EMPTY_BREAKDOWN_VALUES)
+    })
+    it('breakdown is string', () => {
+        expect(getBreakdownStepValues({ breakdown: 'blah', breakdown_value: 'Blah' }, 21)).toStrictEqual({
+            rowKey: 'blah_21',
+            breakdown: ['blah'],
+            breakdown_value: ['Blah'],
+        })
+    })
+    it('breakdown is empty string', () => {
+        expect(getBreakdownStepValues({ breakdown: '', breakdown_value: '' }, 21)).toStrictEqual(EMPTY_BREAKDOWN_VALUES)
+    })
+    it('breakdown is undefined string', () => {
+        expect(getBreakdownStepValues({ breakdown: undefined, breakdown_value: undefined }, 21)).toStrictEqual(
+            EMPTY_BREAKDOWN_VALUES
+        )
+    })
+    it('breakdown is null string', () => {
+        expect(getBreakdownStepValues({ breakdown: null, breakdown_value: null }, 21)).toStrictEqual(
+            EMPTY_BREAKDOWN_VALUES
+        )
+    })
+})
+
+describe('getVisibilityKey()', () => {
+    it('returns string representation for breakdown', () => {
+        expect(getVisibilityKey(undefined)).toEqual('(empty string)')
+        expect(getVisibilityKey(null)).toEqual('(empty string)')
+        expect(getVisibilityKey('a')).toEqual('a')
+        expect(getVisibilityKey(['a', 'b'])).toEqual('a::b')
+        expect(getVisibilityKey(1)).toEqual('1')
+        expect(getVisibilityKey([1, 2])).toEqual('1::2')
+    })
+})
+
+describe('getIncompleteConversionWindowStartDate()', () => {
+    const windows = [
+        {
+            funnelWindowInterval: 10,
+            funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Second,
+            expected: '2018-04-04T15:59:50.000Z',
+        },
+        {
+            funnelWindowInterval: 60,
+            funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Minute,
+            expected: '2018-04-04T15:00:00.000Z',
+        },
+        {
+            funnelWindowInterval: 24,
+            funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Hour,
+            expected: '2018-04-03T16:00:00.000Z',
+        },
+        {
+            funnelWindowInterval: 7,
+            funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+            expected: '2018-03-28T16:00:00.000Z',
+        },
+        {
+            funnelWindowInterval: 53,
+            funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
+            expected: '2017-03-29T16:00:00.000Z',
+        },
+        {
+            funnelWindowInterval: 12,
+            funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Month,
+            expected: '2017-04-04T16:00:00.000Z',
+        },
+    ]
+    const frozenStartDate = dayjs('2018-04-04T16:00:00.000Z')
+
+    windows.forEach(({ expected, ...w }) => {
+        it(`get start date of conversion window ${w.funnelWindowInterval} ${w.funnelWindowIntervalUnit}s`, () => {
+            expect(getIncompleteConversionWindowStartDate(w, frozenStartDate).toISOString()).toEqual(expected)
+        })
+    })
+})
+
+describe('getClampedFunnelStepRange', () => {
+    const series = [{}, {}, {}] as EventsNode[]
+
+    it('does not set funnelFromStep or funnelToStep', () => {
+        expect(getClampedFunnelStepRange({}, series)).toEqual({})
+    })
+
+    it('does not touch valid funnelFromStep', () => {
+        expect(getClampedFunnelStepRange({ funnelFromStep: 0 }, series)).toEqual({ funnelFromStep: 0 })
+    })
+
+    it('does not touch valid funnelToStep', () => {
+        expect(getClampedFunnelStepRange({ funnelToStep: 2 }, series)).toEqual({ funnelToStep: 2 })
+    })
+
+    it('does not touch valid funnelFromStep and funnelToStep', () => {
+        expect(getClampedFunnelStepRange({ funnelFromStep: 0, funnelToStep: 2 }, series)).toEqual({
+            funnelFromStep: 0,
+            funnelToStep: 2,
+        })
+    })
+
+    it('minimum for funnelFromStep is 0', () => {
+        expect(getClampedFunnelStepRange({ funnelFromStep: -2 }, series)).toEqual({ funnelFromStep: 0 })
+    })
+
+    it('maximum for funnelFromStep is 1', () => {
+        expect(getClampedFunnelStepRange({ funnelFromStep: 4 }, series)).toEqual({ funnelFromStep: 1 })
+    })
+
+    it('minimum for funnelToStep is 1', () => {
+        expect(getClampedFunnelStepRange({ funnelToStep: -2 }, series)).toEqual({ funnelToStep: 1 })
+    })
+
+    it('maximum for funnelToStep is 2', () => {
+        expect(getClampedFunnelStepRange({ funnelToStep: 4 }, series)).toEqual({ funnelToStep: 2 })
+    })
+})
+
+describe('parseEventAndProperty', () => {
+    const basicFunnelRecord: FunnelCorrelation = {
+        event: { event: '$pageview::bzzz', properties: {}, elements: [] },
+        odds_ratio: 1,
+        correlation_type: FunnelCorrelationType.Success,
+        success_count: 1,
+        failure_count: 1,
+        success_people_url: '/some/people/url',
+        failure_people_url: '/some/people/url',
+        result_type: FunnelCorrelationResultsType.Events,
+    }
+    it('chooses the correct name based on Event type', async () => {
+        const result = parseDisplayNameForCorrelation(basicFunnelRecord)
+        expect(result).toEqual({
+            first_value: '$pageview::bzzz',
+            second_value: undefined,
+        })
+    })
+
+    it('chooses the correct name based on Property type', async () => {
+        const result = parseDisplayNameForCorrelation({
+            ...basicFunnelRecord,
+            result_type: FunnelCorrelationResultsType.Properties,
+        })
+        expect(result).toEqual({
+            first_value: '$pageview',
+            second_value: 'bzzz',
+        })
+    })
+
+    it('chooses the correct name based on EventWithProperty type', async () => {
+        const result = parseDisplayNameForCorrelation({
+            ...basicFunnelRecord,
+            result_type: FunnelCorrelationResultsType.EventWithProperties,
+            event: {
+                event: '$pageview::library::1.2',
+                properties: { random: 'x' },
+                elements: [],
+            },
+        })
+        expect(result).toEqual({
+            first_value: 'library',
+            second_value: '1.2',
+        })
+    })
+
+    it('handles autocapture events on EventWithProperty type', async () => {
+        const result = parseDisplayNameForCorrelation({
+            ...basicFunnelRecord,
+            result_type: FunnelCorrelationResultsType.EventWithProperties,
+            event: {
+                event: '$autocapture::elements_chain::xyz_elements_a.link*',
+                properties: { $event_type: 'click' },
+                elements: [
+                    {
+                        tag_name: 'a',
+                        href: '#',
+                        attributes: { blah: 'https://example.com' },
+                        nth_child: 0,
+                        nth_of_type: 0,
+                        order: 0,
+                        text: 'bazinga',
+                    },
+                ],
+            },
+        })
+        expect(result).toEqual({
+            first_value: 'clicked link with text "bazinga"',
+            second_value: undefined,
+        })
+    })
+
+    it('handles autocapture events without elements_chain on EventWithProperty type', async () => {
+        const result = parseDisplayNameForCorrelation({
+            ...basicFunnelRecord,
+            result_type: FunnelCorrelationResultsType.EventWithProperties,
+            event: {
+                event: '$autocapture::library::1.2',
+                properties: { random: 'x' },
+                elements: [],
+            },
+        })
+        expect(result).toEqual({
+            first_value: 'library',
+            second_value: '1.2',
+        })
+    })
+})
+
+// Helpers for building minimal FunnelStep fixtures
+const makeStep = (overrides: Partial<FunnelStep> & { count: number; order: number }): FunnelStep => ({
+    action_id: 'step',
+    name: `Step ${overrides.order}`,
+    type: 'events',
+    average_conversion_time: null,
+    median_conversion_time: null,
+    people: [],
+    converted_people_url: '',
+    dropped_people_url: '',
+    breakdown: overrides.breakdown ?? 'all',
+    breakdown_value: overrides.breakdown_value ?? 'all',
+    ...overrides,
+})
+
+describe('aggregateBreakdownResult', () => {
+    it('returns empty array for empty results', () => {
+        expect(aggregateBreakdownResult([])).toEqual([])
+    })
+
+    it('single breakdown series returns steps with nested_breakdown populated', () => {
+        const series: FunnelStep[][] = [
+            [
+                makeStep({ count: 100, order: 0, breakdown: 'Chrome', breakdown_value: 'Chrome' }),
+                makeStep({ count: 50, order: 1, breakdown: 'Chrome', breakdown_value: 'Chrome' }),
+            ],
+        ]
+        const result = aggregateBreakdownResult(series, 'browser')
+
+        expect(result).toHaveLength(2)
+        expect(result[0].count).toBe(100)
+        expect(result[1].count).toBe(50)
+        expect(result[0].breakdown).toBe('browser')
+        expect(result[0].nested_breakdown).toHaveLength(1)
+        expect(result[0].nested_breakdown![0].breakdown_value).toBe('Chrome')
+    })
+
+    it('multiple breakdown series sums counts and orders by first step count descending', () => {
+        const series: FunnelStep[][] = [
+            [
+                makeStep({ count: 30, order: 0, breakdown: 'Firefox', breakdown_value: 'Firefox' }),
+                makeStep({ count: 10, order: 1, breakdown: 'Firefox', breakdown_value: 'Firefox' }),
+            ],
+            [
+                makeStep({ count: 70, order: 0, breakdown: 'Chrome', breakdown_value: 'Chrome' }),
+                makeStep({ count: 40, order: 1, breakdown: 'Chrome', breakdown_value: 'Chrome' }),
+            ],
+        ]
+        const result = aggregateBreakdownResult(series, 'browser')
+
+        expect(result[0].count).toBe(100) // 30 + 70
+        expect(result[1].count).toBe(50) // 10 + 40
+        // nested_breakdown ordered by first step count descending: Chrome (70) before Firefox (30)
+        expect(result[0].nested_breakdown![0].breakdown_value).toBe('Chrome')
+        expect(result[0].nested_breakdown![1].breakdown_value).toBe('Firefox')
+    })
+
+    describe('average_conversion_time weighted average', () => {
+        it.each([
+            {
+                scenario: 'all null → result is null',
+                series: [
+                    [
+                        makeStep({ count: 50, order: 0, breakdown: 'A', breakdown_value: 'A' }),
+                        makeStep({
+                            count: 30,
+                            order: 1,
+                            breakdown: 'A',
+                            breakdown_value: 'A',
+                            average_conversion_time: null,
+                        }),
+                    ],
+                    [
+                        makeStep({ count: 50, order: 0, breakdown: 'B', breakdown_value: 'B' }),
+                        makeStep({
+                            count: 20,
+                            order: 1,
+                            breakdown: 'B',
+                            breakdown_value: 'B',
+                            average_conversion_time: null,
+                        }),
+                    ],
+                ],
+                expectedTime: null,
+            },
+            {
+                scenario: 'mix of null and non-null → only non-null contribute',
+                series: [
+                    [
+                        makeStep({ count: 50, order: 0, breakdown: 'A', breakdown_value: 'A' }),
+                        makeStep({
+                            count: 40,
+                            order: 1,
+                            breakdown: 'A',
+                            breakdown_value: 'A',
+                            average_conversion_time: 10,
+                        }),
+                    ],
+                    [
+                        makeStep({ count: 50, order: 0, breakdown: 'B', breakdown_value: 'B' }),
+                        makeStep({
+                            count: 20,
+                            order: 1,
+                            breakdown: 'B',
+                            breakdown_value: 'B',
+                            average_conversion_time: null,
+                        }),
+                    ],
+                ],
+                // Only A contributes: (10*40) / 40 = 10
+                expectedTime: 10,
+            },
+            {
+                scenario: 'all non-null with different counts → weighted calculation',
+                series: [
+                    [
+                        makeStep({ count: 50, order: 0, breakdown: 'A', breakdown_value: 'A' }),
+                        makeStep({
+                            count: 30,
+                            order: 1,
+                            breakdown: 'A',
+                            breakdown_value: 'A',
+                            average_conversion_time: 60,
+                        }),
+                    ],
+                    [
+                        makeStep({ count: 50, order: 0, breakdown: 'B', breakdown_value: 'B' }),
+                        makeStep({
+                            count: 70,
+                            order: 1,
+                            breakdown: 'B',
+                            breakdown_value: 'B',
+                            average_conversion_time: 20,
+                        }),
+                    ],
+                ],
+                // (60*30 + 20*70) / (30+70) = (1800 + 1400) / 100 = 32
+                expectedTime: 32,
+            },
+        ])('$scenario', ({ series, expectedTime }) => {
+            const result = aggregateBreakdownResult(series, 'browser')
+            // Step 0 has no conversion time to aggregate meaningfully; check step 1
+            expect(result[1].average_conversion_time).toBe(expectedTime)
+        })
+    })
+
+    it('median_conversion_time is always null', () => {
+        const series: FunnelStep[][] = [
+            [
+                makeStep({ count: 100, order: 0, breakdown: 'A', breakdown_value: 'A' }),
+                makeStep({
+                    count: 50,
+                    order: 1,
+                    breakdown: 'A',
+                    breakdown_value: 'A',
+                    median_conversion_time: 15,
+                }),
+            ],
+        ]
+        const result = aggregateBreakdownResult(series, 'browser')
+        expect(result[1].median_conversion_time).toBeNull()
+    })
+})
+
+describe('isFunnelStepsBreakdownCompareResult', () => {
+    it('true for list-of-lists whose inner steps carry compare_label', () => {
+        const results: FunnelStep[][] = [
+            [makeStep({ count: 10, order: 0, breakdown_value: 'Chrome', compare_label: 'current' })],
+            [makeStep({ count: 8, order: 0, breakdown_value: 'Chrome', compare_label: 'previous' })],
+        ]
+        expect(isFunnelStepsBreakdownCompareResult(results)).toBe(true)
+    })
+
+    it('false for a plain breakdown result (no compare_label)', () => {
+        const results: FunnelStep[][] = [[makeStep({ count: 10, order: 0, breakdown_value: 'Chrome' })]]
+        expect(isFunnelStepsBreakdownCompareResult(results)).toBe(false)
+    })
+
+    it('false for a flat (non-breakdown) compare result', () => {
+        const results: FunnelStep[] = [makeStep({ count: 10, order: 0, compare_label: 'current' })]
+        expect(isFunnelStepsBreakdownCompareResult(results)).toBe(false)
+    })
+
+    it('false for empty results', () => {
+        expect(isFunnelStepsBreakdownCompareResult([])).toBe(false)
+    })
+})
+
+describe('aggregateBreakdownCompareResult', () => {
+    // 2 breakdown values × 2 periods = 4 inner funnels, the shape the runner emits for breakdown +
+    // compare. Safari is listed before Chrome to prove the aggregator sorts by current count.
+    const build = (): FunnelStep[][] => [
+        [
+            makeStep({ count: 30, order: 0, breakdown_value: 'Safari', compare_label: 'current' }),
+            makeStep({ count: 10, order: 1, breakdown_value: 'Safari', compare_label: 'current' }),
+        ],
+        [
+            makeStep({ count: 70, order: 0, breakdown_value: 'Chrome', compare_label: 'current' }),
+            makeStep({ count: 40, order: 1, breakdown_value: 'Chrome', compare_label: 'current' }),
+        ],
+        [
+            makeStep({ count: 25, order: 0, breakdown_value: 'Safari', compare_label: 'previous' }),
+            makeStep({ count: 5, order: 1, breakdown_value: 'Safari', compare_label: 'previous' }),
+        ],
+        [
+            makeStep({ count: 50, order: 0, breakdown_value: 'Chrome', compare_label: 'previous' }),
+            makeStep({ count: 20, order: 1, breakdown_value: 'Chrome', compare_label: 'previous' }),
+        ],
+    ]
+
+    it('returns empty array for empty input', () => {
+        expect(aggregateBreakdownCompareResult([], 'browser')).toEqual([])
+    })
+
+    it('returns one step per order, each pairing current+previous bars per breakdown value', () => {
+        const result = aggregateBreakdownCompareResult(build(), 'browser')
+
+        expect(result).toHaveLength(2)
+        // Ordered by current first-step count desc (Chrome 70 before Safari 30), current before
+        // previous within each value.
+        expect(result[0].nested_breakdown!.map((b) => [b.breakdown_value, b.compare_label])).toEqual([
+            ['Chrome', 'current'],
+            ['Chrome', 'previous'],
+            ['Safari', 'current'],
+            ['Safari', 'previous'],
+        ])
+    })
+
+    it('gives current+previous of one value the same order, distinct across values', () => {
+        const [chromeCur, chromePrev, safariCur, safariPrev] = aggregateBreakdownCompareResult(build(), 'browser')[0]
+            .nested_breakdown!
+
+        expect(chromeCur.order).toBe(chromePrev.order)
+        expect(safariCur.order).toBe(safariPrev.order)
+        expect(chromeCur.order).not.toBe(safariCur.order)
+    })
+
+    it('preserves each variant count', () => {
+        const result = aggregateBreakdownCompareResult(build(), 'browser')
+        expect(result[0].nested_breakdown!.map((b) => b.count)).toEqual([70, 50, 30, 25])
+        expect(result[1].nested_breakdown!.map((b) => b.count)).toEqual([40, 20, 10, 5])
+    })
+})
+
+describe('flattenedStepsByCompare', () => {
+    it('emits no previous row when the result carries only the current period', () => {
+        const flat: FunnelStep[] = [
+            makeStep({
+                count: 200,
+                order: 0,
+                breakdown: undefined,
+                breakdown_value: undefined,
+                compare_label: 'current',
+            }),
+            makeStep({
+                count: 100,
+                order: 1,
+                breakdown: undefined,
+                breakdown_value: undefined,
+                compare_label: 'current',
+            }),
+        ]
+        const steps = stepsWithConversionMetrics(aggregateFunnelCompareResult(flat), FunnelStepReference.total)
+
+        expect(flattenedStepsByCompare(steps).map((r) => [r.rowKey, r.compare_label])).toEqual([
+            ['baseline_current', 'current'],
+        ])
+    })
+})
+
+describe('flattenedStepsByBreakdownCompare', () => {
+    const build = (): FunnelStep[][] => [
+        [
+            makeStep({ count: 70, order: 0, breakdown_value: 'Chrome', compare_label: 'current' }),
+            makeStep({ count: 40, order: 1, breakdown_value: 'Chrome', compare_label: 'current' }),
+        ],
+        [
+            makeStep({ count: 30, order: 0, breakdown_value: 'Safari', compare_label: 'current' }),
+            makeStep({ count: 10, order: 1, breakdown_value: 'Safari', compare_label: 'current' }),
+        ],
+        [
+            makeStep({ count: 50, order: 0, breakdown_value: 'Chrome', compare_label: 'previous' }),
+            makeStep({ count: 20, order: 1, breakdown_value: 'Chrome', compare_label: 'previous' }),
+        ],
+        [
+            makeStep({ count: 25, order: 0, breakdown_value: 'Safari', compare_label: 'previous' }),
+            makeStep({ count: 5, order: 1, breakdown_value: 'Safari', compare_label: 'previous' }),
+        ],
+    ]
+    const toSteps = (results: FunnelStep[][]): ReturnType<typeof stepsWithConversionMetrics> =>
+        stepsWithConversionMetrics(aggregateBreakdownCompareResult(results, 'browser'), FunnelStepReference.total)
+
+    // The baseline pair must key off the number of values, not nested entries — compare doubles the
+    // entries, so a single value would otherwise wrongly count as "more than one breakdown".
+    it.each([
+        {
+            scenario: 'horizontal layout: no baseline pair, color positions unshifted',
+            groups: build(),
+            layout: FunnelLayout.horizontal,
+            disableBaseline: false,
+            expectedKeys: [
+                ['Chrome', 'current'],
+                ['Chrome', 'previous'],
+                ['Safari', 'current'],
+                ['Safari', 'previous'],
+            ],
+            expectedColorIndexes: [0, 0, 1, 1],
+        },
+        {
+            scenario: 'disabled baseline (experiments): no baseline rows, color positions keep the offset',
+            groups: build(),
+            layout: FunnelLayout.vertical,
+            disableBaseline: true,
+            expectedKeys: [
+                ['Chrome', 'current'],
+                ['Chrome', 'previous'],
+                ['Safari', 'current'],
+                ['Safari', 'previous'],
+            ],
+            expectedColorIndexes: [1, 1, 2, 2],
+        },
+        {
+            scenario: 'single breakdown value: two period rows but no baseline pair',
+            groups: build().filter((group) => group[0].breakdown_value === 'Chrome'),
+            layout: FunnelLayout.vertical,
+            disableBaseline: false,
+            expectedKeys: [
+                ['Chrome', 'current'],
+                ['Chrome', 'previous'],
+            ],
+            expectedColorIndexes: [0, 0],
+        },
+    ])('$scenario', ({ groups, layout, disableBaseline, expectedKeys, expectedColorIndexes }) => {
+        const rows = flattenedStepsByBreakdownCompare(toSteps(groups), layout, disableBaseline)
+
+        expect(rows.map((r) => [getVisibilityKey(r.breakdown_value), r.compare_label])).toEqual(expectedKeys)
+        expect(rows.map((r) => r.colorIndex)).toEqual(expectedColorIndexes)
+    })
+
+    it('keeps a value present in only one period as a single row', () => {
+        const withoutSafariPrevious = build().filter(
+            (group) => !(group[0].breakdown_value === 'Safari' && group[0].compare_label === 'previous')
+        )
+        const rows = flattenedStepsByBreakdownCompare(toSteps(withoutSafariPrevious), FunnelLayout.vertical, false)
+
+        expect(rows.map((r) => [getVisibilityKey(r.breakdown_value), r.compare_label])).toEqual([
+            ['Baseline', 'current'],
+            ['Baseline', 'previous'],
+            ['Chrome', 'current'],
+            ['Chrome', 'previous'],
+            ['Safari', 'current'],
+        ])
+    })
+})
+
+describe('funnelTooltipHeaderLabel', () => {
+    it('shows the breakdown value alone when there is no compare', () => {
+        expect(funnelTooltipHeaderLabel({ breakdownLabel: 'Chrome' })).toBe('Chrome')
+    })
+
+    it('shows the period alone when there is no breakdown', () => {
+        expect(funnelTooltipHeaderLabel({ compareLabel: 'current' })).toBe('Current')
+        expect(funnelTooltipHeaderLabel({ compareLabel: 'previous' })).toBe('Previous')
+    })
+
+    it('appends the date range to the period when provided', () => {
+        expect(funnelTooltipHeaderLabel({ compareLabel: 'previous', comparePeriodDateRange: 'Mar 1 – Mar 7' })).toBe(
+            'Previous (Mar 1 – Mar 7)'
+        )
+    })
+
+    it('shows both breakdown value and period when both are present', () => {
+        expect(
+            funnelTooltipHeaderLabel({
+                breakdownLabel: 'Chrome',
+                compareLabel: 'current',
+                comparePeriodDateRange: 'Mar 8 – Mar 15',
+            })
+        ).toBe('Chrome • Current (Mar 8 – Mar 15)')
+    })
+
+    it('is empty when neither is present', () => {
+        expect(funnelTooltipHeaderLabel({})).toBe('')
+    })
+})
+
+describe('stepsWithConversionMetrics', () => {
+    const makeNestedStep = (
+        overrides: Partial<FunnelStepWithNestedBreakdown> & { count: number; order: number }
+    ): FunnelStepWithNestedBreakdown => ({
+        ...makeStep(overrides),
+        ...overrides,
+    })
+
+    it('basic 3-step funnel with FunnelStepReference.total', () => {
+        const steps = [
+            makeNestedStep({ count: 100, order: 0 }),
+            makeNestedStep({ count: 60, order: 1 }),
+            makeNestedStep({ count: 30, order: 2 }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        expect(result[0].conversionRates.fromBasisStep).toBe(1) // 100/100
+        expect(result[1].conversionRates.fromBasisStep).toBe(0.6) // 60/100 (total)
+        expect(result[2].conversionRates.fromBasisStep).toBe(0.3) // 30/100 (total)
+        expect(result[1].conversionRates.total).toBe(0.6)
+        expect(result[2].conversionRates.total).toBe(0.3)
+    })
+
+    it('basic 3-step funnel with FunnelStepReference.previous', () => {
+        const steps = [
+            makeNestedStep({ count: 100, order: 0 }),
+            makeNestedStep({ count: 60, order: 1 }),
+            makeNestedStep({ count: 30, order: 2 }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.previous)
+
+        expect(result[0].conversionRates.fromBasisStep).toBe(1) // first step always total
+        expect(result[1].conversionRates.fromBasisStep).toBe(0.6) // 60/100 (fromPrevious)
+        expect(result[2].conversionRates.fromBasisStep).toBe(0.5) // 30/60 (fromPrevious)
+        expect(result[1].conversionRates.fromPrevious).toBe(0.6)
+        expect(result[2].conversionRates.fromPrevious).toBe(0.5)
+    })
+
+    it('zero count at step 0 (empty funnel) → total is 0, not NaN', () => {
+        const steps = [makeNestedStep({ count: 0, order: 0 }), makeNestedStep({ count: 0, order: 1 })]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        expect(result[0].conversionRates.total).toBe(0)
+        expect(result[1].conversionRates.total).toBe(0)
+        expect(Number.isNaN(result[0].conversionRates.total)).toBe(false)
+        expect(Number.isNaN(result[1].conversionRates.total)).toBe(false)
+    })
+
+    it('zero count at intermediate step → fromPrevious is 0 for next step', () => {
+        const steps = [
+            makeNestedStep({ count: 100, order: 0 }),
+            makeNestedStep({ count: 0, order: 1 }),
+            makeNestedStep({ count: 0, order: 2 }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.previous)
+
+        expect(result[2].conversionRates.fromPrevious).toBe(0)
+    })
+
+    it('with optionalSteps — droppedOffFromPrevious references last non-optional step', () => {
+        const steps = [
+            makeNestedStep({ count: 100, order: 0 }),
+            makeNestedStep({ count: 80, order: 1 }),
+            makeNestedStep({ count: 50, order: 2 }), // optional (1-indexed: 3)
+            makeNestedStep({ count: 40, order: 3 }),
+        ]
+        // optionalSteps is 1-indexed, so step index 2 = optional step 3
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.previous, [3])
+
+        // Step 3 (index 3) should use step 1 (index 1, last non-optional) as previous, not step 2 (optional)
+        expect(result[3].droppedOffFromPrevious).toBe(80 - 40) // 80 (step 1) - 40 (step 3)
+        expect(result[3].conversionRates.fromPrevious).toBe(40 / 80)
+    })
+
+    it('with nested_breakdown — computes per-breakdown conversion rates', () => {
+        const steps: FunnelStepWithNestedBreakdown[] = [
+            makeNestedStep({
+                count: 200,
+                order: 0,
+                nested_breakdown: [
+                    makeStep({ count: 120, order: 0, breakdown: 'Chrome', breakdown_value: 'Chrome' }),
+                    makeStep({ count: 80, order: 0, breakdown: 'Firefox', breakdown_value: 'Firefox' }),
+                ],
+            }),
+            makeNestedStep({
+                count: 100,
+                order: 1,
+                nested_breakdown: [
+                    makeStep({ count: 90, order: 1, breakdown: 'Chrome', breakdown_value: 'Chrome' }),
+                    makeStep({ count: 10, order: 1, breakdown: 'Firefox', breakdown_value: 'Firefox' }),
+                ],
+            }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // Chrome: 90/120 total
+        expect(result[1].nested_breakdown![0].conversionRates.total).toBe(90 / 120)
+        expect(result[1].nested_breakdown![0].conversionRates.fromPrevious).toBe(90 / 120)
+        // Firefox: 10/80 total
+        expect(result[1].nested_breakdown![1].conversionRates.total).toBe(10 / 80)
+    })
+
+    it('compare mode — bars share one baseline so the previous bar reflects its volume', () => {
+        // current 200->100, previous 150->60; nested_breakdown is [current, previous] per step.
+        const makeCompareStep = (order: number, current: number, previous: number): FunnelStepWithNestedBreakdown =>
+            makeNestedStep({
+                count: current,
+                order,
+                nested_breakdown: [
+                    makeStep({ count: current, order, compare_label: 'current' }),
+                    makeStep({ count: previous, order, compare_label: 'previous' }),
+                ],
+            })
+        const steps = [makeCompareStep(0, 200, 150), makeCompareStep(1, 100, 60)]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // Baseline is the larger period's first step (200) — the previous first bar is no longer full height.
+        expect(result[0].nested_breakdown![0].conversionRates.fromBasisStep).toBe(1) // 200/200
+        expect(result[0].nested_breakdown![1].conversionRates.fromBasisStep).toBe(150 / 200)
+        expect(result[1].nested_breakdown![0].conversionRates.fromBasisStep).toBe(100 / 200)
+        expect(result[1].nested_breakdown![1].conversionRates.fromBasisStep).toBe(60 / 200)
+
+        // Tooltip rates stay per-period.
+        expect(result[0].nested_breakdown![1].conversionRates.total).toBe(1)
+        expect(result[1].nested_breakdown![1].conversionRates.total).toBe(60 / 150)
+    })
+
+    it('compare mode — a larger previous period caps at full height while the current bar shrinks', () => {
+        const steps = [
+            makeNestedStep({
+                count: 200,
+                order: 0,
+                nested_breakdown: [
+                    makeStep({ count: 200, order: 0, compare_label: 'current' }),
+                    makeStep({ count: 300, order: 0, compare_label: 'previous' }),
+                ],
+            }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // Baseline is max(200, 300) = 300, so the tallest bar is 100% and nothing overflows.
+        expect(result[0].nested_breakdown![0].conversionRates.fromBasisStep).toBe(200 / 300)
+        expect(result[0].nested_breakdown![1].conversionRates.fromBasisStep).toBe(1)
+    })
+
+    it('compare mode — empty previous period → nested total is 0, not NaN', () => {
+        // The previous period is zeroed (backend skeleton), so its first-step count is 0.
+        const makeCompareStep = (order: number, current: number, previous: number): FunnelStepWithNestedBreakdown =>
+            makeNestedStep({
+                count: current,
+                order,
+                nested_breakdown: [
+                    makeStep({ count: current, order, compare_label: 'current' }),
+                    makeStep({ count: previous, order, compare_label: 'previous' }),
+                ],
+            })
+        const steps = [makeCompareStep(0, 200, 0), makeCompareStep(1, 100, 0)]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // The empty previous series divides 0/0 — guarded to 0 so the tooltip shows 0%, not NaN%.
+        expect(result[0].nested_breakdown![1].conversionRates.total).toBe(0)
+        expect(result[1].nested_breakdown![1].conversionRates.total).toBe(0)
+        expect(Number.isNaN(result[0].nested_breakdown![1].conversionRates.total)).toBe(false)
+        expect(Number.isNaN(result[1].nested_breakdown![1].conversionRates.total)).toBe(false)
+    })
+
+    it('breakdown + compare — every value shares its period’s height at the first step (larger period fills)', () => {
+        // Chrome current 100 / previous 80; Safari current 40 / previous 25. nested_breakdown pairs
+        // current+previous per value: [Chrome-cur, Chrome-prev, Safari-cur, Safari-prev].
+        const steps: FunnelStepWithNestedBreakdown[] = [
+            makeNestedStep({
+                count: 140,
+                order: 0,
+                nested_breakdown: [
+                    makeStep({
+                        count: 100,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Chrome',
+                        compare_label: 'current',
+                    }),
+                    makeStep({
+                        count: 80,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Chrome',
+                        compare_label: 'previous',
+                    }),
+                    makeStep({
+                        count: 40,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Safari',
+                        compare_label: 'current',
+                    }),
+                    makeStep({
+                        count: 25,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Safari',
+                        compare_label: 'previous',
+                    }),
+                ],
+            }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+        const nb = result[0].nested_breakdown!
+
+        // At the first step every value converts 100% of its own entrants, so within a period all values
+        // share one height: the period's share of the larger baseline. Current is larger (140 vs 105) →
+        // 100%; previous → 105/140. Chrome and Safari read the same height within each period.
+        expect(nb[0].conversionRates.fromBasisStep).toBe(1) // Chrome current
+        expect(nb[1].conversionRates.fromBasisStep).toBe(105 / 140) // Chrome previous
+        expect(nb[2].conversionRates.fromBasisStep).toBe(1) // Safari current — same as Chrome current
+        expect(nb[3].conversionRates.fromBasisStep).toBe(105 / 140) // Safari previous — same as Chrome previous
+    })
+
+    it('nested breakdowns with outlier detection — divergent breakdown gets significant: true', () => {
+        // Create 5 breakdowns where one is an outlier
+        const breakdownCounts = [
+            { step0: 100, step1: 50 }, // 50% conversion
+            { step0: 100, step1: 48 }, // 48%
+            { step0: 100, step1: 52 }, // 52%
+            { step0: 100, step1: 49 }, // 49%
+            { step0: 100, step1: 5 }, // 5% — outlier
+        ]
+        const steps: FunnelStepWithNestedBreakdown[] = [
+            makeNestedStep({
+                count: 500,
+                order: 0,
+                nested_breakdown: breakdownCounts.map((b, i) =>
+                    makeStep({
+                        count: b.step0,
+                        order: 0,
+                        breakdown: `bd${i}`,
+                        breakdown_value: `bd${i}`,
+                    })
+                ),
+            }),
+            makeNestedStep({
+                count: 204,
+                order: 1,
+                nested_breakdown: breakdownCounts.map((b, i) =>
+                    makeStep({
+                        count: b.step1,
+                        order: 1,
+                        breakdown: `bd${i}`,
+                        breakdown_value: `bd${i}`,
+                    })
+                ),
+            }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // The outlier breakdown (index 4, 5% conversion) should be flagged as significant
+        expect(result[1].nested_breakdown![4].significant!.total).toBe(true)
+        // Normal breakdowns should not be significant
+        expect(result[1].nested_breakdown![0].significant!.total).toBe(false)
+    })
+
+    it('droppedOffFromPrevious is never negative', () => {
+        const steps = [
+            makeNestedStep({ count: 50, order: 0 }),
+            makeNestedStep({ count: 100, order: 1 }), // count > previous (can happen with sampling)
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        expect(result[1].droppedOffFromPrevious).toBe(0) // Math.max(50 - 100, 0)
+    })
+})
+
+describe('getReferenceStep', () => {
+    const steps = ['a', 'b', 'c']
+
+    it.each([
+        { scenario: 'index=0 → returns steps[0]', index: 0, ref: FunnelStepReference.total, expected: 'a' },
+        {
+            scenario: 'index=undefined → returns steps[0]',
+            index: undefined,
+            ref: FunnelStepReference.total,
+            expected: 'a',
+        },
+        {
+            scenario: 'previous with index=2 → returns steps[1]',
+            index: 2,
+            ref: FunnelStepReference.previous,
+            expected: 'b',
+        },
+        {
+            scenario: 'previous with index=1 → returns steps[0]',
+            index: 1,
+            ref: FunnelStepReference.previous,
+            expected: 'a',
+        },
+        { scenario: 'total with index=2 → returns steps[0]', index: 2, ref: FunnelStepReference.total, expected: 'a' },
+    ])('$scenario', ({ index, ref, expected }) => {
+        expect(getReferenceStep(steps, ref, index)).toBe(expected)
+    })
+})
+
+describe('getLastFilledStep', () => {
+    it.each([
+        {
+            scenario: 'all steps have count > 0 → returns step at index',
+            steps: [
+                makeStep({ count: 10, order: 0 }),
+                makeStep({ count: 5, order: 1 }),
+                makeStep({ count: 3, order: 2 }),
+            ],
+            index: 1,
+            expectedOrder: 1,
+        },
+        {
+            scenario: 'all steps have count > 0, no index → returns last step',
+            steps: [
+                makeStep({ count: 10, order: 0 }),
+                makeStep({ count: 5, order: 1 }),
+                makeStep({ count: 3, order: 2 }),
+            ],
+            index: undefined,
+            expectedOrder: 2,
+        },
+        {
+            scenario: 'last step has count: 0 → returns last step with count > 0',
+            steps: [
+                makeStep({ count: 10, order: 0 }),
+                makeStep({ count: 5, order: 1 }),
+                makeStep({ count: 0, order: 2 }),
+            ],
+            index: undefined,
+            expectedOrder: 1,
+        },
+        {
+            scenario: 'all steps have count: 0 → returns steps[0]',
+            steps: [
+                makeStep({ count: 0, order: 0 }),
+                makeStep({ count: 0, order: 1 }),
+                makeStep({ count: 0, order: 2 }),
+            ],
+            index: undefined,
+            expectedOrder: 0,
+        },
+    ])('$scenario', ({ steps, index, expectedOrder }) => {
+        expect(getLastFilledStep(steps, index).order).toBe(expectedOrder)
+    })
+})
+
+describe('getStepBreakdownSeries', () => {
+    const series = { breakdown_value: 'NL' } as any
+    it.each([
+        {
+            scenario: 'single breakdown value with breakdown filter set → returns the series',
+            step: { nested_breakdown: [series] },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: series,
+        },
+        {
+            scenario: 'no breakdown filter → null',
+            step: { nested_breakdown: [series] },
+            breakdownFilter: null,
+            expected: null,
+        },
+        {
+            scenario: 'breakdown filter without breakdown property → null',
+            step: { nested_breakdown: [series] },
+            breakdownFilter: {},
+            expected: null,
+        },
+        {
+            scenario: 'multiple breakdown values → null (use existing per-bar handlers)',
+            step: { nested_breakdown: [series, { breakdown_value: 'US' }] },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: null,
+        },
+        {
+            scenario: 'empty nested_breakdown → null',
+            step: { nested_breakdown: [] },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: null,
+        },
+        {
+            scenario: 'undefined nested_breakdown → null',
+            step: { nested_breakdown: undefined },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: null,
+        },
+        {
+            scenario: 'single entry with null breakdown_value → null',
+            step: { nested_breakdown: [{ breakdown_value: null }] },
+            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
+            expected: null,
+        },
+    ])('$scenario', ({ step, breakdownFilter, expected }) => {
+        expect(getStepBreakdownSeries(step as any, breakdownFilter as any)).toBe(expected)
+    })
+})
+
+describe('isFunnelWithEnoughSteps', () => {
+    it.each([
+        { scenario: 'no steps', series: [], expected: false },
+        { scenario: 'one step', series: [{ kind: NodeKind.EventsNode }], expected: false },
+        {
+            scenario: 'two steps',
+            series: [{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }],
+            expected: true,
+        },
+    ])('returns $expected for $scenario', ({ series, expected }) => {
+        expect(isFunnelWithEnoughSteps(series as FunnelsQuery['series'])).toBe(expected)
+    })
+})
+
+describe('isFunnelWithIncompleteDataWarehouseStep', () => {
+    it.each([
+        {
+            scenario: 'no steps',
+            series: [],
+            expected: false,
+        },
+        {
+            scenario: 'non-funnel data warehouse step',
+            series: [
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                    distinct_id_field: 'customer_id',
+                },
+            ],
+            expected: false,
+        },
+        {
+            scenario: 'complete funnel data warehouse step',
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                    aggregation_target_field: 'customer_id',
+                },
+            ],
+            expected: false,
+        },
+        {
+            scenario: 'missing aggregation target field',
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                },
+            ],
+            expected: true,
+        },
+    ])('returns $expected for $scenario', ({ series, expected }) => {
+        expect(isFunnelWithIncompleteDataWarehouseStep(series as FunnelsQuery['series'])).toBe(expected)
+    })
+})
+
+describe('hasBreakdown', () => {
+    it.each([
+        { scenario: 'undefined value', breakdownValue: undefined, expected: false },
+        { scenario: '"Baseline" string', breakdownValue: 'Baseline', expected: false },
+        { scenario: '["Baseline"] array', breakdownValue: ['Baseline'], expected: false },
+        {
+            scenario: '["Baseline", "mobile"] multi-breakdown array',
+            breakdownValue: ['Baseline', 'mobile'],
+            expected: false,
+        },
+        { scenario: 'numeric zero (regression: 0 must count as a real breakdown)', breakdownValue: 0, expected: true },
+        {
+            scenario: 'empty string (regression: "" must count as a real breakdown)',
+            breakdownValue: '',
+            expected: true,
+        },
+        { scenario: 'non-baseline string', breakdownValue: 'Chrome', expected: true },
+        { scenario: 'non-baseline number', breakdownValue: 42, expected: true },
+        { scenario: 'non-baseline array', breakdownValue: ['Chrome', 'mobile'], expected: true },
+        { scenario: 'null', breakdownValue: null, expected: true },
+    ])('returns $expected for $scenario', ({ breakdownValue, expected }) => {
+        expect(hasBreakdown(breakdownValue as Parameters<typeof hasBreakdown>[0])).toBe(expected)
+    })
+})
+
+describe('funnelComparePeriodDateRange', () => {
+    const resolved = { date_from: '2021-06-07', date_to: '2021-06-13' }
+
+    it('returns the current window for the current period', () => {
+        expect(funnelComparePeriodDateRange('current', resolved)).toBe(
+            formatDateRange(dayjs('2021-06-07'), dayjs('2021-06-13'))
+        )
+    })
+
+    it('returns the preceding equal-length window for the default previous period', () => {
+        expect(funnelComparePeriodDateRange('previous', resolved)).toBe(
+            formatDateRange(dayjs('2021-05-31'), dayjs('2021-06-06'))
+        )
+    })
+
+    it('shifts the previous window by a custom compare_to offset', () => {
+        expect(funnelComparePeriodDateRange('previous', resolved, '-30d')).toBe(
+            formatDateRange(dayjs('2021-05-08'), dayjs('2021-05-14'))
+        )
+    })
+
+    it('returns null when the resolved range is missing', () => {
+        expect(funnelComparePeriodDateRange('current', null)).toBeNull()
+        expect(funnelComparePeriodDateRange('previous', { date_from: null, date_to: null })).toBeNull()
+    })
+})
+
+describe('dimPreviousPeriodColor', () => {
+    it('dims a 6-digit hex to 50% opacity (matching the trends previous-period treatment)', () => {
+        expect(dimPreviousPeriodColor('#1d4aff')).toBe('#1d4aff80')
+    })
+
+    it('leaves colors that already carry alpha or a non-hex format unchanged', () => {
+        expect(dimPreviousPeriodColor('#1d4aff80')).toBe('#1d4aff80')
+        expect(dimPreviousPeriodColor('rgba(29, 74, 255, 0.5)')).toBe('rgba(29, 74, 255, 0.5)')
+    })
+})

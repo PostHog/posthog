@@ -13,12 +13,13 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Generic, Literal, NamedTuple, Optional, TypeVar
 
 from clickhouse_driver import Client
+from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 
 from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, TEST
 
 
 class _LazyDagsterLogger:
@@ -44,7 +45,14 @@ logger = _LazyDagsterLogger()
 
 
 def ON_CLUSTER_CLAUSE(on_cluster=True):
-    return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+    # The test ClickHouse is a single node: ON CLUSTER only adds distributed-DDL keeper
+    # round-trips (tens of ms per statement) without changing the outcome, and tests issue
+    # DDL in bulk (session-start CREATEs, per-test TRUNCATEs), so render no clause there.
+    # If a call site ever needs to exercise real ON CLUSTER SQL under TEST, thread an
+    # allow-in-test flag through here.
+    if on_cluster and not TEST:
+        return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    return ""
 
 
 # Smoke-test only: when migrating against the multinode docker-compose stack
@@ -62,6 +70,10 @@ _MULTINODE_HOST_PORT_OVERRIDES: dict[str, tuple[str, int]] = {
     "clickhouse-aux": ("localhost", 9200),
     "clickhouse-ops": ("localhost", 9300),
     "clickhouse-sessions": ("localhost", 9400),
+    "clickhouse-logs": ("localhost", 9500),
+    "clickhouse-ingestion-events": ("localhost", 9600),
+    "clickhouse-ingestion-small": ("localhost", 9700),
+    "clickhouse-ingestion-medium": ("localhost", 9800),
 }
 
 
@@ -152,6 +164,7 @@ class ClickhouseCluster:
         satellite_clusters: Sequence[str] | None = None,
         retry_policy: RetryPolicy | None = None,
         connection_overrides: Mapping[str, Any] | None = None,
+        shard_role: NodeRole = NodeRole.DATA,
     ) -> None:
         if logger is None:
             logger = logging.getLogger(__name__)
@@ -160,6 +173,15 @@ class ClickhouseCluster:
         self.__extra_hosts: set[HostInfo] = set()
 
         migrations_cluster = cluster or settings.CLICKHOUSE_CLUSTER
+        # The cluster whose shard-bearing nodes back `shards`, which is what every sharded mutation
+        # dispatches over. Callers holding a table that lives elsewhere have no way to reach it
+        # through this instance, so they need to be able to ask.
+        self.__data_cluster_name = data_cluster or migrations_cluster
+        # Which hostClusterRole owns a shard here. `data` on the main cluster, but a cluster can
+        # shard its tables across another role: the events cluster carries sharded_events_json on
+        # nodes whose role is `events`, and reading their shard numbers as absent would leave this
+        # handle with no shards to dispatch over at all.
+        self.__shard_role = shard_role
         cluster_hosts = self.__get_cluster_hosts(bootstrap_client, migrations_cluster, retry_policy)
 
         for row in cluster_hosts:
@@ -170,8 +192,8 @@ class ClickhouseCluster:
             resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
             host_info = HostInfo(
                 ConnectionInfo(resolved_host, resolved_port),
-                shard_num if host_cluster_role == NodeRole.DATA else None,
-                replica_num if host_cluster_role == NodeRole.DATA else None,
+                shard_num if host_cluster_role == shard_role else None,
+                replica_num if host_cluster_role == shard_role else None,
                 host_cluster_type,
                 host_cluster_role,
             )
@@ -184,7 +206,7 @@ class ClickhouseCluster:
             data_hosts = self.__get_cluster_hosts(bootstrap_client, data_cluster, retry_policy)
             for row in data_hosts:
                 (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
-                if host_cluster_role == NodeRole.DATA:
+                if host_cluster_role == shard_role:
                     effective_port = port if (settings.E2E_TESTING or settings.DEBUG) else None
                     resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
                     host_info = HostInfo(
@@ -239,6 +261,41 @@ class ClickhouseCluster:
         self.__client_settings = client_settings
         self.__retry_policy = retry_policy
         self.__connection_overrides = dict(connection_overrides) if connection_overrides else {}
+        # Kept so `sibling` can build a handle for another cluster from the same connection.
+        self.__bootstrap_client = bootstrap_client
+        self.__extra_host_infos = list(extra_hosts) if extra_hosts else []
+        self.__siblings: dict[tuple[str, NodeRole], ClickhouseCluster] = {}
+
+    @property
+    def shard_role(self) -> NodeRole:
+        return self.__shard_role
+
+    def sibling(self, cluster: str, shard_role: NodeRole = NodeRole.DATA) -> ClickhouseCluster:
+        """A handle addressing ``cluster``, carrying this one's connection settings.
+
+        ``shards`` covers exactly one cluster, so a caller holding a table stored on another one
+        cannot dispatch to it through this instance. Deriving the second handle here rather than
+        from a second resource keeps host, credentials, client settings and retry policy in one
+        place: a handle assembled anywhere else can drift from the one the job already holds.
+
+        Memoized, because discovery costs a query per cluster and callers resolve the same table
+        once per op. Raises whatever the server says when no such cluster is defined here.
+        """
+        if cluster == self.__data_cluster_name and shard_role == self.__shard_role:
+            return self
+        sibling = self.__siblings.get((cluster, shard_role))
+        if sibling is None:
+            sibling = self.__siblings[(cluster, shard_role)] = ClickhouseCluster(
+                self.__bootstrap_client,
+                extra_hosts=self.__extra_host_infos,
+                logger=self.__logger,
+                client_settings=self.__client_settings,
+                cluster=cluster,
+                retry_policy=self.__retry_policy,
+                connection_overrides=self.__connection_overrides,
+                shard_role=shard_role,
+            )
+        return sibling
 
     def __get_cluster_hosts(self, client: Client, cluster: str, retry_policy: RetryPolicy | None = None):
         get_cluster_hosts_fn = lambda client: client.execute(
@@ -332,6 +389,10 @@ class ClickhouseCluster:
         return hosts
 
     @property
+    def data_cluster_name(self) -> str:
+        return self.__data_cluster_name
+
+    @property
     def shards(self) -> list[int]:
         return list(self.__shards.keys())
 
@@ -389,6 +450,8 @@ class ClickhouseCluster:
         node_roles: list[NodeRole],
         concurrency: int | None = None,
         workload: Workload = Workload.DEFAULT,
+        *,
+        require_hosts: bool = False,
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster with the given node role.
@@ -396,13 +459,12 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        hosts = self.__hosts_by_roles(self.__hosts, node_roles, workload)
+        if require_hosts and not hosts:
+            raise ValueError(f"No hosts found with roles {node_roles}")
+
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap(
-                {
-                    host: executor.submit(self.__get_task_function(host, fn))
-                    for host in self.__hosts_by_roles(self.__hosts, node_roles, workload)
-                }
-            )
+            return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in hosts})
 
     def map_all_hosts_in_shard(
         self, shard_num: int, fn: Callable[[Client], T], concurrency: int | None = None
@@ -577,6 +639,18 @@ def redact_sql_secrets(sql: str) -> str:
     return _SQL_SECRET_RE.sub(r"\1 '[REDACTED]'", sql)
 
 
+# Cap how much SQL we embed in a Query repr. Reprs land in logs (every statement the migration
+# runner executes) and traces, so a multi-megabyte statement — e.g. a large seed INSERT with all
+# its VALUES inline — floods them. The head is enough to identify the statement.
+_MAX_QUERY_REPR_LEN = 1500
+
+
+def _truncate_query(query: str) -> str:
+    if len(query) <= _MAX_QUERY_REPR_LEN:
+        return query
+    return f"{query[:_MAX_QUERY_REPR_LEN]}… ({len(query) - _MAX_QUERY_REPR_LEN} more chars truncated)"
+
+
 def _redact_parameters(parameters: Any) -> Any:
     if isinstance(parameters, Mapping):
         return {k: ("[REDACTED]" if "password" in str(k).lower() else v) for k, v in parameters.items()}
@@ -595,7 +669,7 @@ class Query:
         return client.execute(self.query, self.parameters, settings=self.settings)
 
     def __repr__(self) -> str:
-        query = redact_sql_secrets(self.query)
+        query = _truncate_query(redact_sql_secrets(self.query))
         if self.parameters and isinstance(self.parameters, list):
             shown = _redact_parameters(self.parameters[:50])
             params_repr = f"{shown!r} (showing first 50 out of {len(self.parameters)} parameters)"
@@ -664,6 +738,10 @@ class MutationNotFound(Exception):
     pass
 
 
+# not present in clickhouse_driver.errors.ErrorCodes; see ClickHouse src/Common/ErrorCodes.cpp
+TOO_MANY_MUTATIONS = 692
+
+
 @dataclass
 class MutationWaiter:
     table: str
@@ -702,11 +780,38 @@ class MutationWaiter:
 
 
 @dataclass
+class MutationWaiters:
+    """Waits on several mutations as one unit — e.g. the same delete applied to the legacy and
+    native-JSON events tables."""
+
+    waiters: Sequence[MutationWaiter]
+
+    def __call__(self, client: Client) -> None:
+        return self.wait(client)
+
+    def is_done(self, client: Client) -> bool:
+        return all(waiter.is_done(client) for waiter in self.waiters)
+
+    def wait(self, client: Client) -> None:
+        for waiter in self.waiters:
+            waiter.wait(client)
+
+
+class MutationCapacityTimeout(Exception):
+    """Raised when another mutation held the table past a runner's ``capacity_timeout``."""
+
+
+# Mutability is intentional: subclasses set fields in __post_init__ and callers build these
+# incrementally. Stated explicitly so the bare-dataclass ratchet has a declared choice.
+@dataclass(frozen=False)
 class MutationRunner(abc.ABC):
     table: str
     parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     force: bool = field(default=False, kw_only=True)  # whether to force the mutation to run even if it already exists
+    # How long to wait for the table to be free of other mutations before giving up. 0 waits
+    # forever, which is what a caller with no deadline of its own wants.
+    capacity_timeout: float = field(default=0.0, kw_only=True)
 
     @abc.abstractmethod
     def get_all_commands(self) -> Set[str]:
@@ -743,7 +848,17 @@ class MutationRunner(abc.ABC):
         if not commands_to_enqueue:
             return MutationWaiter(self.table, set(mutations_running.values()))
 
-        client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
+        while True:
+            self.wait_for_mutation_capacity(client)
+            try:
+                client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
+                break
+            except ServerException as e:
+                # another mutation can land in the gap between the capacity check and our ALTER, so
+                # go back to waiting instead of failing
+                if e.code != TOO_MANY_MUTATIONS:
+                    raise
+                logger.info("Mutation rejected by %s due to unfinished mutations, waiting for capacity...", self.table)
 
         # mutations are not always immediately visible, so give anything new a bit of time to show up
         start = time.time()
@@ -756,6 +871,41 @@ class MutationRunner(abc.ABC):
         raise Exception(
             f"unable to find mutation for {expected_commands - mutations_running.keys()!r} after {time.time() - start:0.2f}s!"
         )
+
+    def wait_for_mutation_capacity(self, client: Client, poll_interval: float = 60.0) -> None:
+        """
+        Block until the target table has no unfinished mutations before enqueueing a new one, since tables can be
+        configured with ``number_of_mutations_to_throw`` to reject new mutations while others (e.g. a long-running
+        backfill) are still in flight.
+
+        This runs before the mutation exists, so a caller's own wait-for-completion deadline cannot cover it. A
+        mutation nobody here started can hold the table indefinitely, so ``capacity_timeout`` is what stops that
+        from holding the caller open forever.
+        """
+        deadline = time.monotonic() + self.capacity_timeout if self.capacity_timeout else None
+        while True:
+            [[count]] = client.execute(
+                """
+                SELECT count()
+                FROM system.mutations
+                WHERE database = %(database)s AND table = %(table)s AND NOT is_done AND NOT is_killed
+                """,
+                {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
+            )
+            if count == 0:
+                return
+            if deadline is not None and time.monotonic() > deadline:
+                raise MutationCapacityTimeout(
+                    f"{self.table} still has {count} unfinished mutation(s)"
+                    f" after {self.capacity_timeout:.0f}s waiting for capacity"
+                )
+            logger.info(
+                "Waiting for %s unfinished mutation(s) on %s before enqueueing new mutation (checking again in %ss)...",
+                count,
+                self.table,
+                poll_interval,
+            )
+            time.sleep(poll_interval)
 
     def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str]:
         """
@@ -778,7 +928,17 @@ class MutationRunner(abc.ABC):
         # ClickHouse normalizes bare references against the connection database when
         # storing the mutation, and a bare-vs-qualified mismatch defeats the join.
         alter_prefix = f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} "
-        per_command_alters = ", ".join(f"$__sql${alter_prefix}{cmd}$__sql$" for cmd in command_list)
+        # Render each command's parameters here and bind the finished text as an ordinary parameter,
+        # rather than interpolating the template into a $__sql$ heredoc and letting the driver
+        # substitute values inside it. The driver escapes quotes and backslashes but not `$`, so a
+        # value containing the heredoc delimiter would close it early and the rest would parse as
+        # SQL. Mutation parameters carry third-party strings (a person's distinct_id), so that is
+        # reachable input, and the injection is silent because the surrounding array keeps its length.
+        rendered_commands = [
+            client.substitute_params(f"{alter_prefix}{cmd}", self.parameters, client.connection.context)
+            for cmd in command_list
+        ]
+        per_command_alters = ", ".join(f"%(__command_{i})s" for i in range(len(rendered_commands)))
         mutations = client.execute(
             f"""
             SELECT mutation_id
@@ -815,10 +975,12 @@ class MutationRunner(abc.ABC):
             SETTINGS join_use_nulls = 1
             """,
             {
-                f"__database": settings.CLICKHOUSE_DATABASE,
-                f"__table": self.table,
-                f"__alter_prefix": alter_prefix,
-                **self.parameters,
+                "__database": settings.CLICKHOUSE_DATABASE,
+                "__table": self.table,
+                "__alter_prefix": alter_prefix,
+                # self.parameters are already rendered into __command_*; passing them again would
+                # reintroduce the substitution this avoids.
+                **{f"__command_{i}": text for i, text in enumerate(rendered_commands)},
             },
         )
         assert len(mutations) == len(command_list)

@@ -1,12 +1,14 @@
 import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig, TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { ChartDisplayType } from '~/types'
 
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../../trends/shared/compareDimming'
+import { humanizeSeriesLabel } from '../../trends/shared/humanizeSeriesLabel'
+import { computeMagnitudeAxisIds } from '../../trends/shared/magnitudeAxisIds'
 
 // Shape both IndexedTrendResult (kea) and StickinessResultItem (MCP) satisfy.
 export interface StickinessResultLike {
@@ -32,6 +34,9 @@ export interface BuildStickinessSeriesOpts<R extends StickinessResultLike, M = u
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
+    // Resolves the legend/series label (custom name + breakdown formatting). Hosts that lack the
+    // breakdown/cohort deps (e.g. MCP) omit it and fall back to the raw humanized event name.
+    getLabel?: (r: R) => string
 }
 
 /** Convert raw counts to percentages of `count`. Mirrors the legacy `showPercentView`
@@ -46,9 +51,9 @@ export function toPercentData(data: number[], count: number): number[] {
 export function buildStickinessMainSeries<R extends StickinessResultLike, M = unknown>(
     r: R,
     index: number,
-    opts: BuildStickinessSeriesOpts<R, M>
+    opts: BuildStickinessSeriesOpts<R, M>,
+    yAxisId: string = DEFAULT_Y_AXIS_ID
 ): Series<M> {
-    const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
     const excluded = opts.getHidden ? opts.getHidden(r, index) : false
     const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
     // Dim the compare-against-previous series so it recedes behind the current period, matching trends.
@@ -56,7 +61,7 @@ export function buildStickinessMainSeries<R extends StickinessResultLike, M = un
     const color = r.compare_label === 'previous' ? dimHexColor(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
     return {
         key: String(r.id),
-        label: r.label ?? '',
+        label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
         data: toPercentData(r.data, r.count),
         color,
         yAxisId,
@@ -70,15 +75,11 @@ export function buildStickinessSeries<R extends StickinessResultLike, M = unknow
     results: R[],
     opts: BuildStickinessSeriesOpts<R, M>
 ): Series<M>[] {
-    return results.map((r, index) => buildStickinessMainSeries(r, index, opts))
-}
-
-/** Produce per-bucket labels ("Day 0", "Day 1", …). The API's own "X day(s)" labels
- * duplicate the interval prefix when paired with a stickiness-style axis, so we
- * synthesize them from the bucket count. Mirrors `formatIntervalLabels` in the legacy LineGraph. */
-export function buildStickinessLabels(count: number, interval: string | null | undefined): string[] {
-    const prefix = capitalizeFirstLetter(interval ?? 'day')
-    return Array.from({ length: count }, (_, i) => `${prefix} ${i}`)
+    // Group on the rendered (percent-converted) values, not the raw counts.
+    const yAxisIds = opts.showMultipleYAxes
+        ? computeMagnitudeAxisIds(results.map((r) => toPercentData(r.data, r.count)))
+        : undefined
+    return results.map((r, index) => buildStickinessMainSeries(r, index, opts, yAxisIds?.[index]))
 }
 
 /** Emit `85.0%`-style ticks — legacy parity with `${value.toFixed(1)}%` in LineGraph. */
@@ -86,9 +87,7 @@ export function stickinessPercentFormatter(value: number): string {
     return `${value.toFixed(1)}%`
 }
 
-/** Stickiness adapters pin their tooltip to the top with pinnable rows. Shared so the
- *  line and bar ports stay consistent. */
-export const STICKINESS_TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
+export const STICKINESS_TOOLTIP_CONFIG = INSIGHT_TOOLTIP_CONFIG
 
 /** Stickiness `date` is an interval-count integer (1, 2, …), not a date.
  *  Render "Stickiness on {interval} {day}" so InsightTooltip doesn't try to
@@ -126,7 +125,7 @@ export function buildStickinessLineTimeSeriesConfig(
     opts: BuildStickinessLineTimeSeriesConfigOpts
 ): TimeSeriesLineChartConfig {
     return {
-        // No xAxis date config — labels are pre-formatted interval counts (Day 0, Day 1, …).
+        // No xAxis date config: labels come from the API's own per-bucket labels (e.g. "1 day", "2 days").
         yAxis: buildStickinessYAxisConfig({ yAxisScaleType: opts.yAxisScaleType, showGrid: opts.showGrid }),
         valueLabels: opts.valueLabels,
         showCrosshair: opts.showCrosshair,

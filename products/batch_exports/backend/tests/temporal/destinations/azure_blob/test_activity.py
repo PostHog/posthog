@@ -34,7 +34,7 @@ async def run_activity(
     """Run the Azure Blob export activity with internal staging."""
     assert inputs.batch_export_id is not None
 
-    stage_folder = await activity_environment.run(
+    stage_result = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=inputs.team_id,
@@ -50,7 +50,8 @@ async def run_activity(
             destination_default_fields=azure_blob_default_fields(),
         ),
     )
-    inputs.stage_folder = stage_folder
+    inputs.stage_folder = stage_result.stage_folder
+    inputs.records_total = stage_result.records_total
 
     return await activity_environment.run(
         insert_into_azure_blob_activity_from_stage,

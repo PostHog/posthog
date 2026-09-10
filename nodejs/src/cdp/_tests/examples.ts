@@ -1,4 +1,4 @@
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 
 import { PropertyOperator } from '../../types'
 import { HogFunctionType } from '../types'

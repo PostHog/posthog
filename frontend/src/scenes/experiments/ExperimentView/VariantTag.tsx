@@ -3,9 +3,10 @@ import { useValues } from 'kea'
 
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { EXPERIMENT_VARIANT_MULTIPLE } from '~/scenes/experiments/constants'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
-import { getVariantColor } from '~/scenes/experiments/utils'
+import { getExperimentVariants, getVariantColor } from '~/scenes/experiments/utils'
+
+import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 
 export function VariantTag({
     variantKey,
@@ -26,9 +27,7 @@ export function VariantTag({
         )
     }
 
-    const variantColor = experiment.feature_flag?.filters.multivariate?.variants
-        ? getVariantColor(variantKey, experiment.feature_flag?.filters.multivariate?.variants)
-        : 'var(--muted)'
+    const variantColor = getVariantColor(variantKey, getExperimentVariants(experiment))
 
     /**
      * this is only used on the distribution table, to display the holdout name

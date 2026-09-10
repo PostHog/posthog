@@ -3,6 +3,7 @@ from typing import Any
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from django.utils.functional import Promise
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.utils import UUIDTModel
@@ -19,6 +20,13 @@ class LLMProvider(models.TextChoices):
     FIREWORKS = "fireworks"
     AZURE_OPENAI = "azure_openai", "Azure OpenAI"
     TOGETHER_AI = "together_ai", "Together AI"
+    MINIMAX = "minimax", "MiniMax"
+    ZEABUR = "zeabur", "Zeabur AI Hub"
+
+
+def llm_provider_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(LLMProvider.choices)
 
 
 class LLMProviderKey(UUIDTModel):
@@ -28,14 +36,14 @@ class LLMProviderKey(UUIDTModel):
         INVALID = "invalid"
         ERROR = "error"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    provider = models.CharField(max_length=50, choices=LLMProvider)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    provider = models.CharField(max_length=50, choices=llm_provider_choices)
     name = models.CharField(max_length=255)
     state = models.CharField(max_length=20, choices=State, default=State.UNKNOWN)
     error_message = models.TextField(null=True, blank=True)
     encrypted_config = EncryptedJSONField(default=dict, ignore_decrypt_errors=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_used_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

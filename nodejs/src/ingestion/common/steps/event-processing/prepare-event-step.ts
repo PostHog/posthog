@@ -1,11 +1,12 @@
-import { invalidTimestampCounter } from '~/ingestion/common/event-pipeline/metrics'
+import { sanitizeEventName } from '~/common/utils/db/utils'
+import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
+import { invalidTimestampCounter } from '~/ingestion/common/metrics'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, ISOTimestamp, PreIngestionEvent, Team } from '~/types'
-import { sanitizeEventName } from '~/utils/db/utils'
 
 import { stripBloatProperties } from './strip-bloat-properties'
 
@@ -29,7 +30,7 @@ export function createPrepareEventStep<TInput extends PrepareEventStepInput>(): 
         const { normalizedEvent, ...rest } = input
 
         const warnings: PipelineWarning[] = []
-        const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
+        const invalidTimestampCallback = function (type: IngestionWarningType, details: Record<string, any>) {
             invalidTimestampCounter.labels(type).inc()
             warnings.push({ type, details })
         }

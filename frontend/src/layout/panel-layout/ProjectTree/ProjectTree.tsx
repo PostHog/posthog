@@ -1,22 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
+import { RefObject, useEffect, useRef, useState } from 'react'
 
-import {
-    IconCheckbox,
-    IconChevronRight,
-    IconEllipsis,
-    IconFolderPlus,
-    IconPencil,
-    IconPlusSmall,
-    IconStar,
-} from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusSmall, IconStar } from '@posthog/icons'
 
-import { commandLogic } from 'lib/components/Command/commandLogic'
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import {
@@ -32,17 +22,13 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { isMobile } from 'lib/utils/dom'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
@@ -53,10 +39,9 @@ import { TreeSearchField } from './TreeSearchField'
 import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { calculateMovePath } from './utils'
 
-export interface ProjectTreeProps {
+interface ProjectTreeBaseProps {
     logicKey?: string // key override?
     root?: string
-    onlyTree?: boolean
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
@@ -66,26 +51,30 @@ export interface ProjectTreeProps {
     checkedItemsOverride?: Record<string, boolean>
     /** Override the onItemChecked handler from the internal logic */
     onItemCheckedOverride?: (id: string, checked: boolean) => void
+    /**
+     * Runs in addition to the tree's own click handling, not instead of it. A caller that renders
+     * the tree inside a larger surface uses this to report the click in that surface's own terms.
+     */
+    onItemClicked?: (item: TreeDataItem | undefined) => void
+    /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
+    isActiveInPanel?: boolean
 }
+
+/** A bare tree has no panel to label, so `panelName` is only required when the panel renders. */
+export type ProjectTreeProps = ProjectTreeBaseProps &
+    (
+        | { onlyTree: true; panelName?: string }
+        | {
+              onlyTree?: false
+              /** Names the panel in the DOM. Pin it at the call site; a `data-attr` value is API and must not change. */
+              panelName: string
+          }
+    )
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
-const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal-v2'
-const CMD_K_HELPER_DISMISSAL_LOCAL_STORAGE_KEY = 'cmd-k-helper-dismissal'
-const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
-
-const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
-    [UserProductListReason.USED_BY_COLLEAGUES]:
-        'We think you might like this product because your colleagues are using it.',
-    [UserProductListReason.USED_SIMILAR_PRODUCTS]:
-        'We think you might like this product because you use similar products. Give it a try!',
-    [UserProductListReason.USED_ON_SEPARATE_TEAM]:
-        'You use this product on another project so we think you might like it here.',
-    [UserProductListReason.NEW_PRODUCT]: 'This is a brand new product. Give it a try!',
-    [UserProductListReason.SALES_LED]: 'This product is recommended for you by our team.',
-}
 
 // Show active state for items that are active in the URL
 const isItemActive = (item: TreeDataItem): boolean => {
@@ -116,17 +105,20 @@ const isItemActive = (item: TreeDataItem): boolean => {
     return false
 }
 
-export function ProjectTree({
-    logicKey,
-    root,
-    onlyTree = false,
-    searchPlaceholder,
-    treeSize = 'default',
-    showRecents,
-    selectModeOverride,
-    checkedItemsOverride,
-    onItemCheckedOverride,
-}: ProjectTreeProps): JSX.Element {
+export function ProjectTree(props: ProjectTreeProps): JSX.Element {
+    const {
+        logicKey,
+        root,
+        onlyTree = false,
+        searchPlaceholder,
+        treeSize = 'default',
+        showRecents,
+        selectModeOverride,
+        checkedItemsOverride,
+        onItemCheckedOverride,
+        onItemClicked,
+        isActiveInPanel,
+    } = props
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
     const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
@@ -167,40 +159,18 @@ export function ProjectTree({
     const selectMode = selectModeOverride ?? projectTreeSelectMode
     const onItemChecked = onItemCheckedOverride ?? projectTreeOnItemChecked
 
-    const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
+    const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
-    const { currentTeamId } = useValues(teamLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
-
-    const { customProducts, customProductsLoading } = useValues(customProductsLogic)
-    const { seed } = useActions(customProductsLogic)
-    const { toggleCommand } = useActions(commandLogic)
 
     const [shortcutHelperDismissed, setShortcutHelperDismissed] = useLocalStorage<boolean>(
         SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY,
         false
     )
-    const [customProductHelperDismissed, setCustomProductHelperDismissed] = useLocalStorage<boolean>(
-        CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY,
-        false
-    )
-    const [cmdKHelperDismissed, setCmdKHelperDismissed] = useLocalStorage<boolean>(
-        CMD_K_HELPER_DISMISSAL_LOCAL_STORAGE_KEY,
-        false
-    )
-    // Capture the original-banner dismissal state once on mount so the Cmd+K hint only appears
-    // on subsequent sessions — dismissing the first banner shouldn't swap in the second immediately.
-    const [originalDismissedOnMount] = useState<boolean>(() => customProductHelperDismissed === true)
 
-    const [seenCustomProducts, setSeenCustomProducts] = useLocalStorage<string[]>(
-        `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
-        []
-    )
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
-
-    const isStarredReorderEnabled = useFeatureFlag('STARRED_REORDER')
 
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
 
@@ -240,77 +210,7 @@ export function ProjectTree({
                 ),
             })
         }
-
-        if (root === 'custom-products://') {
-            const hasRecommendedProducts = customProducts.some(
-                (item) =>
-                    item.reason === UserProductListReason.USED_BY_COLLEAGUES ||
-                    item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
-            )
-
-            const showOriginalBanner = fullFileSystemFiltered.length === 0 || !customProductHelperDismissed
-            const showCmdKBanner =
-                !showOriginalBanner && originalDismissedOnMount && !cmdKHelperDismissed && !isMobile()
-
-            if (showOriginalBanner) {
-                treeData.push({
-                    id: 'products/custom-products-helper-category',
-                    name: 'Example custom products',
-                    type: 'category',
-                    displayName: (
-                        <div className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1')}>
-                            You can display your preferred apps here. You can configure what items show up in here by
-                            clicking on the{' '}
-                            <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
-                            above. We'll automatically suggest new apps to this list as you use them.{' '}
-                            {fullFileSystemFiltered.length > 0 && (
-                                <span
-                                    className="cursor-pointer underline"
-                                    onClick={() => setCustomProductHelperDismissed(true)}
-                                >
-                                    Dismiss.
-                                </span>
-                            )}
-                            {!hasRecommendedProducts && fullFileSystemFiltered.length <= 3 && (
-                                <>
-                                    <br />
-                                    <br />
-                                    <span className="cursor-pointer underline" onClick={seed}>
-                                        {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
-                                    </span>
-                                </>
-                            )}
-                        </div>
-                    ),
-                })
-            } else if (showCmdKBanner) {
-                treeData.push({
-                    id: 'products/cmd-k-helper-category',
-                    name: 'Quick search tip',
-                    type: 'category',
-                    displayName: (
-                        <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
-                            Want to browse all apps or jump back into something recent? Press{' '}
-                            <span
-                                className="cursor-pointer inline-flex items-center gap-1"
-                                onClick={() => toggleCommand()}
-                            >
-                                <KeyboardShortcut command k />
-                            </span>{' '}
-                            to open search. It's faster than hunting through the sidebar.{' '}
-                            <span className="cursor-pointer underline" onClick={() => setCmdKHelperDismissed(true)}>
-                                Dismiss.
-                            </span>
-                        </div>
-                    ),
-                })
-            }
-        }
     }
-
-    useEffect(() => {
-        setPanelTreeRef(treeRef)
-    }, [treeRef, setPanelTreeRef])
 
     useEffect(() => {
         if (projectSortMethod !== (sortMethod ?? 'folder')) {
@@ -326,15 +226,6 @@ export function ProjectTree({
             clearScrollTarget()
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
-
-    const handleMouseEnterIndicator = useCallback(
-        (itemId: string): void => {
-            if (!seenCustomProducts.includes(itemId)) {
-                setTimeout(() => setSeenCustomProducts((state) => [...state, itemId]), 250)
-            }
-        },
-        [seenCustomProducts, setSeenCustomProducts]
-    )
 
     const tree = (
         <LemonTree
@@ -364,12 +255,14 @@ export function ProjectTree({
                 }
 
                 posthog.capture('project tree item clicked', {
-                    root: root ?? null,
+                    root: root ?? 'project://',
                     item_type: item?.type ?? null,
                     record_type: item?.record?.type ?? null,
                     has_href: !!item?.record?.href,
                     name: item?.name ?? null,
                 })
+
+                onItemClicked?.(item)
 
                 if (item?.record?.href) {
                     router.actions.push(
@@ -394,7 +287,7 @@ export function ProjectTree({
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
                     posthog.capture('project tree folder toggled', {
-                        root: root ?? null,
+                        root: root ?? 'project://',
                         is_expanded: isExpanded,
                         name: folder.name ?? null,
                     })
@@ -426,7 +319,6 @@ export function ProjectTree({
                 // Sibling reorder within the Starred (shortcuts://) list. All the index/position
                 // math lives in the kea logic so the component can stay focused on rendering.
                 if (
-                    isStarredReorderEnabled &&
                     typeof oldId === 'string' &&
                     typeof newId === 'string' &&
                     shortcutEntryIdMap.has(oldId) &&
@@ -455,13 +347,18 @@ export function ProjectTree({
                 } else {
                     const { newPath, isValidMove } = calculateMovePath(oldItem, folder)
                     if (isValidMove) {
+                        posthog.capture('project tree item moved', {
+                            root: root ?? 'project://',
+                            item_type: oldItem.type ?? null,
+                            method: 'drag',
+                        })
                         moveItem(oldItem, newPath, false, logicKey ?? uniqueKey)
                     }
                 }
             }}
             isItemDraggable={(item) => {
                 if (shortcutEntryIdMap.has(item.id)) {
-                    return isStarredReorderEnabled
+                    return true
                 }
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
@@ -471,7 +368,7 @@ export function ProjectTree({
 
                 // Allow dropping onto other top-level starred items to reorder them.
                 if (shortcutEntryIdMap.has(item.id)) {
-                    return isStarredReorderEnabled
+                    return true
                 }
 
                 // disable dropping for these IDS
@@ -568,20 +465,6 @@ export function ProjectTree({
                     root === 'custom-products://'
                 ) {
                     const key = item.record?.sceneKey
-                    const reason = item.record?.reason as UserProductListReason | undefined
-                    const reasonText = item.record?.reason_text as string | null | undefined
-
-                    const suggestedProductBaseTooltipText =
-                        reasonText || (reason ? USER_PRODUCT_LIST_REASON_DEFAULTS[reason] : undefined)
-                    const tooltipText = suggestedProductBaseTooltipText ? (
-                        <>
-                            {suggestedProductBaseTooltipText}
-                            <br />
-                            Right-click to remove from sidebar.
-                            <br />
-                            <br />
-                        </>
-                    ) : undefined
 
                     return (
                         <>
@@ -590,7 +473,6 @@ export function ProjectTree({
                                     <p className="mb-1 font-semibold">{item.displayName}</p>
                                 </>
                             )}
-                            {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 
                             {item.tags?.length && (
@@ -656,26 +538,6 @@ export function ProjectTree({
                 return undefined
             }}
             renderItemIcon={(item) => {
-                const createdAt = item.record?.created_at
-                const reason = item.record?.reason as UserProductListReason | undefined
-                const reasonText = item.record?.reason_text as string | null | undefined
-                const itemId = item.id
-
-                // This indicator is shown if we detect we're looking at a custom product
-                // that's been recently added to the user's sidebar.
-                // We extract the `reasonText` from the item or come up with some default
-                // ones for some specific reasons that have a reasonable default.
-                // We exclude USED_ON_SEPARATE_TEAM as those are not particularly useful to highlight.
-                // We also hide the indicator once the user has hovered over the item.
-                const showIndicator =
-                    root === 'custom-products://' &&
-                    createdAt &&
-                    dayjs().diff(dayjs(createdAt), 'days') < 7 &&
-                    reason &&
-                    reason !== UserProductListReason.USED_ON_SEPARATE_TEAM &&
-                    (reasonText || USER_PRODUCT_LIST_REASON_DEFAULTS[reason]) &&
-                    !seenCustomProducts.includes(itemId)
-
                 return (
                     <>
                         {sortMethod === 'recent' && item.type !== 'loading-indicator' && (
@@ -685,12 +547,7 @@ export function ProjectTree({
                                 className="ml-[4px]"
                             />
                         )}
-                        <div className="relative" onMouseEnter={() => handleMouseEnterIndicator(itemId)}>
-                            <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
-                            {showIndicator && (
-                                <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse-5" />
-                            )}
-                        </div>
+                        <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
                     </>
                 )
             }}
@@ -742,15 +599,21 @@ export function ProjectTree({
         />
     )
 
-    if (onlyTree) {
+    if (props.onlyTree) {
         return tree
     }
 
     return (
         <PanelLayoutPanel
+            panelName={props.panelName}
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
-                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
+                    <TreeSearchField
+                        root={root}
+                        placeholder={searchPlaceholder}
+                        treeRef={treeRef}
+                        isActive={isActiveInPanel}
+                    />
                 </BindLogic>
             }
             filterDropdown={
@@ -781,7 +644,13 @@ export function ProjectTree({
                         sortMethod !== 'recent' && {
                             tooltip: selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select',
                             'data-attr': 'tree-panel-enable-multi-select-button',
-                            onClick: () => setSelectMode(selectMode === 'default' ? 'multi' : 'default'),
+                            onClick: () => {
+                                posthog.capture('project tree multi-select toggled', {
+                                    root: root ?? 'project://',
+                                    enabled: selectMode === 'default',
+                                })
+                                setSelectMode(selectMode === 'default' ? 'multi' : 'default')
+                            },
                             active: selectMode === 'multi',
                             'aria-pressed': selectMode === 'multi',
                             children: (

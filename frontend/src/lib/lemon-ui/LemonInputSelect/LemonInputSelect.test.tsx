@@ -19,6 +19,45 @@ describe('LemonInputSelect', () => {
         return dropdownButtons.find((button) => button.textContent?.includes(text))
     }
 
+    it('disables the input and explains why when disabledReason is set', async () => {
+        render(
+            <LemonInputSelect
+                mode="multiple"
+                options={[]}
+                value={[]}
+                onChange={jest.fn()}
+                placeholder="Select values"
+                disabledReason="You don't have access to edit this field"
+            />
+        )
+
+        const input = screen.getByPlaceholderText('Select values')
+        expect(input).toBeDisabled()
+
+        await userEvent.hover(input.closest('.LemonInput') as HTMLElement)
+
+        expect(await screen.findByText("You don't have access to edit this field")).toBeInTheDocument()
+    })
+
+    it('does not allow removing selected values when disabledReason is set', () => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect
+                mode="multiple"
+                options={[{ key: 'option-a', label: 'Option A' }]}
+                value={['option-a']}
+                onChange={onChange}
+                disabledReason="You don't have access to edit this field"
+            />
+        )
+
+        // The selected value still shows, but its remove (x) button must not render
+        expect(screen.getByText('Option A')).toBeInTheDocument()
+        expect(container.querySelector('.LemonSnack__close')).toBeNull()
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('works with string values (backwards compatibility)', () => {
         const onChange = jest.fn()
 
@@ -376,5 +415,39 @@ describe('LemonInputSelect', () => {
         // The final onChange call should ADD the value, not remove it
         const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]
         expect(lastCall[0]).toContain('alice@example.com')
+    })
+
+    it.each([
+        {
+            name: 'adds nothing when the limit is reached',
+            keys: '{ArrowDown}{ArrowDown}{Enter}',
+            expectedSelections: [],
+        },
+        {
+            name: 'still removes a selected value when the limit is reached',
+            keys: '{Enter}',
+            expectedSelections: [['apricot']],
+        },
+    ])('multiple-select mode: pressing Enter $name', async ({ keys, expectedSelections }) => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="multiple"
+                options={[
+                    { key: 'apple', label: 'Apple' },
+                    { key: 'apricot', label: 'Apricot' },
+                    { key: 'zucchini', label: 'Zucchini' },
+                ]}
+                value={['apple', 'apricot']}
+                onChange={onChange}
+                limit={2}
+            />
+        )
+
+        await openDropdown(container)
+        await userEvent.keyboard(keys)
+
+        expect(onChange.mock.calls.map((call) => call[0])).toEqual(expectedSelections)
     })
 })

@@ -6,7 +6,7 @@ import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
-import { getStickyColumnInfo } from './columnUtils'
+import { getColumnWidthCap, getStickyColumnInfo } from './columnLayoutUtils'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, TableCellRepresentation } from './types'
 
 export interface TableRowProps<T extends Record<string, any>> {
@@ -25,6 +25,8 @@ export interface TableRowProps<T extends Record<string, any>> {
     pinnedColumnWidths?: number[]
     columns?: LemonTableColumn<T, any>[]
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
+    /** Right-click handler attached to every data cell, used to offer "Copy cell contents". */
+    onCellContextMenu?: (event: React.MouseEvent<HTMLTableCellElement>) => void
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -43,6 +45,7 @@ function TableRowRaw<T extends Record<string, any>>({
     pinnedColumnWidths,
     columns,
     rowActions,
+    onCellContextMenu,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -55,6 +58,12 @@ function TableRowRaw<T extends Record<string, any>>({
 
     const isRowExpansionToggleShownLocal = !!expandable && rowExpandable >= 0
     const isRowExpansionToggleShown = expandable?.showRowExpansionToggle ?? isRowExpansionToggleShownLocal
+    const visibleDataColumnCount = columnGroups.reduce(
+        (count, columnGroup) => count + columnGroup.children.filter((column) => !column.isHidden).length,
+        0
+    )
+    const expansionColSpan =
+        visibleDataColumnCount + Number(isRowExpansionToggleShown && !!expandable?.noIndent) + Number(!!rowActions)
 
     const expandedRowClassNameDetermined =
         expandable &&
@@ -140,11 +149,27 @@ function TableRowRaw<T extends Record<string, any>>({
 
                             const extraCellProps =
                                 isTableCellRepresentation(contents) && contents.props ? contents.props : {}
+                            // A column may supply its own onContextMenu via TableCellRepresentation; chain it
+                            // with the copy handler so the spread below can't silently clobber either one.
+                            const { onContextMenu: columnOnContextMenu, ...restCellProps } = extraCellProps
+                            const onCellContextMenuChained =
+                                columnOnContextMenu || onCellContextMenu
+                                    ? (event: React.MouseEvent<HTMLTableCellElement>) => {
+                                          columnOnContextMenu?.(event)
+                                          onCellContextMenu?.(event)
+                                      }
+                                    : undefined
+                            // A cell that spans several columns is not bound by the width of the one it starts in
+                            const spansColumns = extraCellProps.colSpan !== undefined && extraCellProps.colSpan !== 1
+                            const widthCap = spansColumns ? undefined : getColumnWidthCap(column)
                             return (
                                 <td
                                     key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
                                     className={clsx(
                                         columnIndex === 0 && 'LemonTable__boundary',
+                                        // Hold the value on one line, because a capped cell that wraps grows the row
+                                        // taller instead of cropping
+                                        widthCap && 'whitespace-nowrap',
                                         isSticky && 'LemonTable__cell--sticky',
                                         isColumnSticky && 'LemonTable__cell--pinned',
                                         column.align && `text-${column.align}`,
@@ -157,9 +182,11 @@ function TableRowRaw<T extends Record<string, any>>({
                                         ...(typeof column.style === 'function'
                                             ? column.style(value as T[keyof T], record, recordIndex)
                                             : column.style),
+                                        ...(widthCap ? { maxWidth: widthCap } : {}),
                                         ...(isColumnSticky ? { left: `${leftPosition}px` } : {}),
                                     }}
-                                    {...extraCellProps}
+                                    onContextMenu={onCellContextMenuChained}
+                                    {...restCellProps}
                                 >
                                     {isTableCellRepresentation(contents) ? contents.children : contents}
                                 </td>
@@ -171,15 +198,8 @@ function TableRowRaw<T extends Record<string, any>>({
 
             {expandable && !!rowExpandable && isRowExpanded && (
                 <tr className={clsx('LemonTable__expansion', expandedRowClassNameDetermined)}>
-                    {!expandable.noIndent && <td />}
-                    <td
-                        colSpan={
-                            columnGroups.reduce((acc, columnGroup) => acc + columnGroup.children.length, 0) +
-                            Number(!!expandable.noIndent)
-                        }
-                    >
-                        {expandable.expandedRowRender(record, recordIndex)}
-                    </td>
+                    {isRowExpansionToggleShown && !expandable.noIndent && <td />}
+                    <td colSpan={expansionColSpan}>{expandable.expandedRowRender(record, recordIndex)}</td>
                 </tr>
             )}
         </>

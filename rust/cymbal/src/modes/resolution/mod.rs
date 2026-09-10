@@ -18,7 +18,7 @@ use tokio::task::JoinHandle;
 use tonic::transport::Server;
 use tracing::{info, warn};
 
-use crate::core::config::ResolverConfig;
+use crate::core::{config::ResolverConfig, shutdown::wait_for_shutdown};
 
 pub mod app_context;
 pub mod auth;
@@ -169,18 +169,6 @@ async fn readiness(draining: Arc<AtomicBool>) -> (StatusCode, &'static str) {
     }
 
     (StatusCode::OK, "ok")
-}
-
-async fn wait_for_shutdown(mut shutdown_rx: watch::Receiver<bool>) {
-    if *shutdown_rx.borrow() {
-        return;
-    }
-
-    while shutdown_rx.changed().await.is_ok() {
-        if *shutdown_rx.borrow() {
-            return;
-        }
-    }
 }
 
 #[cfg(unix)]

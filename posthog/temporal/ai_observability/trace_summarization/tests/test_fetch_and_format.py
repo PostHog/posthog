@@ -5,9 +5,10 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import (
+    _fetch_and_format_trace,
     _format_generation_text_repr,
     fetch_and_format_activity,
 )
@@ -66,6 +67,67 @@ class TestFormatGenerationTextRepr:
         assert "Provider:" not in result
         assert "Tokens:" not in result
 
+    def test_oversized_input_keeps_output_section(self):
+        generation_data = {
+            "model": "gpt-4",
+            "input": "x" * 5000,
+            "output": "DISTINCTIVE_OUTPUT_MARKER",
+        }
+
+        result = _format_generation_text_repr(generation_data, max_length=1000)
+
+        assert len(result) <= 1000
+        assert "--- Output ---" in result
+        assert "DISTINCTIVE_OUTPUT_MARKER" in result
+
+    def test_stays_within_budget_while_repairing_surrogates(self):
+        generation_data = {
+            "model": "gpt-4",
+            "input": "\ud83d\ude00" * 1000,
+            "output": "short",
+        }
+
+        result = _format_generation_text_repr(generation_data, max_length=200)
+
+        assert len(result) <= 200
+        assert result.encode("utf-8")
+
+    def test_truncated_input_keeps_head_and_tail(self):
+        generation_data = {
+            "input": "SYSTEM_PROMPT_HEAD " + "x" * 5000 + " NEWEST_MESSAGE_TAIL",
+            "output": "short",
+        }
+
+        result = _format_generation_text_repr(generation_data, max_length=1000)
+
+        assert len(result) <= 1000
+        assert "SYSTEM_PROMPT_HEAD" in result
+        assert "NEWEST_MESSAGE_TAIL" in result
+        assert "[truncated]" in result
+
+
+class TestFetchAndFormatTrace:
+    @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.llm_trace_to_formatter_format")
+    @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace")
+    @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.Team.objects.get")
+    def test_skips_trace_over_event_limit_before_formatting(
+        self, _mock_get_team: MagicMock, mock_fetch: MagicMock, mock_format: MagicMock
+    ) -> None:
+        mock_fetch.return_value = MagicMock(events=[MagicMock(properties={}) for _ in range(51)])
+
+        result = _fetch_and_format_trace(
+            trace_id="oversized-trace",
+            team_id=7,
+            window_start="2026-04-08T14:00:00+00:00",
+            window_end="2026-04-08T15:00:00+00:00",
+            max_trace_events=50,
+        )
+
+        assert result is not None
+        assert result.text_repr is None
+        assert result.event_count == 51
+        mock_format.assert_not_called()
+
 
 @patch(
     "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.Heartbeater",
@@ -106,7 +168,7 @@ class TestFetchAndFormatActivity:
     @pytest.mark.asyncio
     async def test_generation_not_found_returns_skipped(self, mock_team):
         with patch(
-            "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.execute_with_ai_events_fallback"
+            "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.query_ai_events"
         ) as mock_query:
             mock_query.return_value.results = []
 
@@ -181,7 +243,7 @@ class TestFetchAndFormatActivity:
 
         with (
             patch(
-                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.execute_with_ai_events_fallback"
+                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.query_ai_events"
             ) as mock_query,
             patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.get_async_client"),
             patch(

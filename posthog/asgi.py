@@ -1,5 +1,7 @@
 import gc
 import os
+import time
+import asyncio
 
 # Django Imports
 from django.conf import settings
@@ -7,6 +9,8 @@ from django.core.asgi import get_asgi_application
 
 # Structlog Import
 import structlog
+
+from posthog.warehouse_source_prewarm import prewarm_warehouse_source_registry
 
 os.environ["DJANGO_SETTINGS_MODULE"] = "posthog.settings"
 # Try to ensure SERVER_GATEWAY_INTERFACE is fresh for the child process
@@ -17,16 +21,57 @@ os.environ["SERVER_GATEWAY_INTERFACE"] = "ASGI"  # Set definitively
 # Get a structlog logger for asgi.py's own messages
 logger = structlog.get_logger(__name__)
 
-# NOTE: OTel and continuous profiling init is deferred to first request via
-# _ensure_post_fork_init() below. Both start background threads (OTel's
-# BatchSpanProcessor, Pyroscope's native profiler) that cannot survive
-# fork(). Nginx Unit loads this module in a "prototype" process and then
-# forks workers from it — the forked children inherit dead thread state and
-# corrupted mutexes, causing SIGSEGV / SIGABRT on the worker. Deferring to
-# first request ensures threads start in the actual worker process.
-# This is safe across all server types: Granian uses spawn (not fork),
-# runserver is single-process, and Celery doesn't import this file.
+# NOTE: OTel, continuous profiling, and the web-memory sampler init are deferred to first
+# request via _ensure_post_fork_init() below. They start background threads (OTel's
+# BatchSpanProcessor, Pyroscope's native profiler, the sampler's loop) that cannot survive
+# fork(): a child inherits dead thread state and corrupted mutexes, causing SIGSEGV /
+# SIGABRT on the worker. Deferring to first request ensures threads start in the actual
+# worker process. This is safe across all server types: runserver is single-process,
+# and Celery doesn't import this file.
 _post_fork_initialized = False
+
+_LOOP_LAG_HEARTBEAT_SECONDS = 1.0
+
+
+async def _event_loop_lag_heartbeat() -> None:
+    """Measure event-loop starvation: sleep 1s, record how late we woke up.
+
+    A busy-but-healthy loop wakes within milliseconds; sustained lag means
+    something is hogging the loop between awaits (CPU-bound work in a stream,
+    a sync iterator, ...) and health probes on this worker are at risk of
+    timing out. Exported as a gauge so operators can alert on it.
+    """
+    from prometheus_client import Gauge  # noqa: PLC0415 — deferred with the rest of post-fork init
+
+    lag_gauge = Gauge(
+        "posthog_asgi_event_loop_lag_seconds",
+        "How late the 1s heartbeat task woke up on this worker's event loop",
+        multiprocess_mode="livemax",
+    )
+    while True:
+        try:
+            before = time.monotonic()
+            await asyncio.sleep(_LOOP_LAG_HEARTBEAT_SECONDS)
+            lag_gauge.set(max(0.0, time.monotonic() - before - _LOOP_LAG_HEARTBEAT_SECONDS))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("event_loop_lag_heartbeat_error")
+            await asyncio.sleep(_LOOP_LAG_HEARTBEAT_SECONDS)
+
+
+# Strong reference so the heartbeat task cannot be garbage-collected mid-flight
+# (the event loop only keeps weak references to tasks).
+_loop_lag_heartbeat_task: "asyncio.Task[None] | None" = None
+
+
+def _start_event_loop_lag_heartbeat() -> None:
+    global _loop_lag_heartbeat_task
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # not on an event loop (e.g. WSGI import path); nothing to measure
+    _loop_lag_heartbeat_task = loop.create_task(_event_loop_lag_heartbeat())
 
 
 def _ensure_post_fork_init():
@@ -37,10 +82,20 @@ def _ensure_post_fork_init():
     from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster_in_background
     from posthog.continuous_profiling import start_continuous_profiling
     from posthog.otel_instrumentation import initialize_otel
+    from posthog.web_memory_probe import install_memory_probe_handler
+    from posthog.web_memory_sampler import start_web_memory_sampler
 
     start_continuous_profiling()
     initialize_otel()
     prewarm_query_cache_cluster_in_background()
+    # Production runs ASGI, so the sampler — previously only started from wsgi.py — never
+    # ran in prod, leaving posthog_web_worker_rss_mb empty. Start it here, post-fork.
+    start_web_memory_sampler()
+    # Register the on-demand SIGUSR2 memory probe here too — not because of fork-unsafe
+    # threads (it starts none), but because signal handlers must be set on the worker's
+    # main thread, which this init runs on. Inert unless WEB_MEMORY_PROBE_ENABLED is set.
+    install_memory_probe_handler()
+    _start_event_loop_lag_heartbeat()
     _post_fork_initialized = True
 
 
@@ -58,6 +113,15 @@ def lifetime_wrapper(func):
                 message_type = message.get("type")
 
                 if message_type == "lifespan.startup":
+                    if settings.WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT:
+                        from posthog.web_bot_auth_keys import (  # noqa: PLC0415
+                            validate_configured_web_bot_auth_private_keys_in_background,
+                        )
+
+                        validate_configured_web_bot_auth_private_keys_in_background()
+                    # No-op unless PREWARM_WAREHOUSE_SOURCE_REGISTRY is set; never raises,
+                    # so a broken catalog can't fail startup and trigger a respawn loop.
+                    prewarm_warehouse_source_registry()
                     await send({"type": "lifespan.startup.complete"})
                 elif message_type == "lifespan.shutdown":
                     await send({"type": "lifespan.shutdown.complete"})
@@ -103,8 +167,7 @@ def task_run_event_ingest_wrapper(func):
 
 # Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
 # pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
-# collections skip them — which also maximizes copy-on-write sharing when a prototype
-# process forks workers. See docs/internal/django-startup-time.md.
+# collections skip them. See docs/internal/django-startup-time.md.
 gc.disable()
 try:
     application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))

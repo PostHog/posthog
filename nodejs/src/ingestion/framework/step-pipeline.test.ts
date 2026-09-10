@@ -1,9 +1,15 @@
 import { Message } from 'node-rdkafka'
 
+import { logger } from '~/common/utils/logger'
+
 import { createContext, createOkContext } from './helpers'
 import { isOkResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
+
+jest.mock('~/common/utils/logger', () => ({
+    logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
 
 describe('StepPipeline', () => {
     describe('constructor', () => {
@@ -31,16 +37,26 @@ describe('StepPipeline', () => {
             expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'mockConstructor' }))
         })
 
-        it('should handle step errors', async () => {
+        it('should handle step errors and log the debug context', async () => {
             const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
             const step = jest.fn().mockRejectedValue(new Error('Step failed'))
             const previous = new StartPipeline<{ data: string }, unknown>()
 
             const pipeline = new StepPipeline(step, previous)
+            const input = createOkContext(
+                { data: 'test' },
+                { message, debugContext: { topic: 'test', partition: 0, offset: 1 } }
+            )
 
-            await expect(pipeline.process(createOkContext({ data: 'test' }, { message }))).rejects.toThrow(
-                'Step failed'
+            await expect(pipeline.process(input)).rejects.toThrow('Step failed')
+            expect(logger.error).toHaveBeenCalledWith(
+                '🔥',
+                expect.stringContaining('threw'),
+                expect.objectContaining({
+                    error: 'Step failed',
+                    debugContext: { topic: 'test', partition: 0, offset: 1 },
+                })
             )
         })
     })
@@ -271,7 +287,7 @@ describe('StepPipeline', () => {
         it('should accumulate warnings from step results', async () => {
             const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const stepWarning = { type: 'test_warning', details: { message: 'from step' } }
+            const stepWarning = { type: 'merge_race_condition' as const, details: { message: 'from step' } }
             const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning]))
 
             const previous = new StartPipeline<{ data: string }, unknown>()
@@ -286,8 +302,8 @@ describe('StepPipeline', () => {
         it('should merge context warnings with step warnings', async () => {
             const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const contextWarning = { type: 'context_warning', details: { message: 'from context' } }
-            const stepWarning = { type: 'step_warning', details: { message: 'from step' } }
+            const contextWarning = { type: 'client_ingestion_warning' as const, details: { message: 'from context' } }
+            const stepWarning = { type: 'schema_validation_failed' as const, details: { message: 'from step' } }
 
             const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning]))
 
@@ -323,10 +339,10 @@ describe('StepPipeline', () => {
         it('should preserve order of warnings', async () => {
             const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const contextWarning1 = { type: 'context_warning_1', details: { idx: 1 } }
-            const contextWarning2 = { type: 'context_warning_2', details: { idx: 2 } }
-            const stepWarning1 = { type: 'step_warning_1', details: { idx: 3 } }
-            const stepWarning2 = { type: 'step_warning_2', details: { idx: 4 } }
+            const contextWarning1 = { type: 'ignored_invalid_timestamp' as const, details: { idx: 1 } }
+            const contextWarning2 = { type: 'invalid_heatmap_data' as const, details: { idx: 2 } }
+            const stepWarning1 = { type: 'message_size_too_large' as const, details: { idx: 3 } }
+            const stepWarning2 = { type: 'group_key_too_long' as const, details: { idx: 4 } }
 
             const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning1, stepWarning2]))
 

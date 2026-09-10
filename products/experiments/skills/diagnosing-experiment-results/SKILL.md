@@ -1,6 +1,6 @@
 ---
 name: diagnosing-experiment-results
-description: "Diagnoses bias, anomalies, and strange-looking results on a specific PostHog experiment. Covers empty / 0-exposure experiments, sample ratio mismatch, identity fragmentation, multi-variant exposure, uneven-split exclusion bias, significance traps (peeking, A/A, Bayesian vs Frequentist), PostHog-vs-SQL discrepancies, and surprises after mid-run edits. Symptom-driven dispatch to the right diagnostic.\nTRIGGER when: user asks 'is my experiment biased?' or 'why 0 exposures?', references the bias banner, says a variant looks strange / wrong / off, sees significance flipping, notices PostHog numbers disagreeing with their SQL, sees an A/A test showing significance, or reports surprises after mid-run edits.\nDO NOT TRIGGER when: creating a new experiment (use creating-experiments), only configuring rollout (use configuring-experiment-rollout) or metrics (use configuring-experiment-analytics), or only asking lifecycle questions (use managing-experiment-lifecycle)."
+description: "Diagnoses bias, anomalies, and strange results on a PostHog experiment. Covers 0-exposure experiments, sample ratio mismatch, identity fragmentation, multi-variant exposure, uneven-split exclusion bias, significance traps (peeking, A/A, Bayesian vs Frequentist), PostHog-vs-SQL discrepancies, surprises after mid-run edits, and qualitative follow-up via a variant-split survey.\nTRIGGER when: user asks 'is my experiment biased?' or 'why 0 exposures?', references the bias banner, says a variant looks strange / wrong / off, sees significance flipping or A/A significance, finds PostHog numbers disagreeing with their SQL, reports surprises after mid-run edits, or wants qualitative feedback or a survey for an experiment.\nDO NOT TRIGGER when: creating an experiment (use creating-experiments), only configuring rollout (use configuring-experiment-rollout) or metrics (use configuring-experiment-analytics), or only asking lifecycle questions (use managing-experiment-lifecycle)."
 ---
 
 # Diagnosing experiment results
@@ -25,11 +25,17 @@ Call `experiment-get` and pull these fields. They are inputs for almost every di
 - `parameters.feature_flag_variants[].rollout_percentage` — the variant split
 - `parameters.rollout_percentage` — the overall rollout (% of users entering the experiment)
 - `exposure_criteria.multiple_variant_handling` — defaults to `"exclude"` if absent
-- `exposure_criteria.exposure_event` — `null` means default `$feature_flag_called`
+- `exposure_criteria.exposure_config.event` — unset means the default exposure event; read which one
+  from `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved
+  server-side, same properties either way)
 - `exposure_criteria.filterTestAccounts` — defaults to `true`
-- `feature_flag.active`, status (`draft` / `running` / `paused` / `stopped`), `start_date`, `end_date`
-- `feature_flag.filters.groups[].variant` — any non-null value is a forced-variant override on the
-  matched cohort (release-condition assignment, not randomized). Surfaces A7 by default.
+- `feature_flag.active`, status (`draft` / `running` / `paused` / `exposure_frozen` / `stopped`), `start_date`, `end_date`
+- `feature_flag.filters.groups[]` — for each group read `variant`, `properties`, and
+  `rollout_percentage`. Any non-null `variant` is a forced-variant override on the matched cohort
+  (release-condition assignment, not randomized) — surfaces A7. Watch for the severe shape (A7b): a
+  variant-pinned group with broad/empty `properties` at high rollout, or no group left randomized
+  (`variant: null`) / no release path to one arm — that starves the other variant (one arm gets ~0
+  analyzable exposures). See `references/bias-and-skew.md`.
 - `stats_config` — Bayesian (default) or Frequentist
 
 ## Step 1.5 — Pull a diagnostic snapshot (verify before asking)
@@ -76,6 +82,9 @@ can be confirmed or ruled out from that data without an interview.
 | "Can't convert the feature flag back to a simple (boolean) flag after the experiment ends" | E — mid-run changes                          |
 | "How do I restart an experiment with new variants?"                                        | E — mid-run changes                          |
 | Metric line is rendered but the result block is empty / no chance-to-win or significance   | E — mid-run changes (E13 legacy methodology) |
+| "Results won't load" / many metric rows show `data: null` (not a legacy experiment)        | Step 1.5 — diagnostic snapshot (null rows)   |
+| "What do users think of the new flow?" / wants qualitative feedback on an experiment       | F — qualitative feedback                     |
+| "Why did users prefer control?" / "what did they dislike about the test variant?"          | F — qualitative feedback                     |
 
 If the symptom is unclear, ask one clarifying question before picking. Most diagnostics have different fixes
 — do not guess.
@@ -142,6 +151,23 @@ results not the flag. Also covers retention-metric quirks (first-event-must-be-a
 
 → See [references/mid-run-changes.md](references/mid-run-changes.md)
 
+### F — Qualitative feedback: how the change landed, not how far the number moved
+
+Groups A–E find mechanisms. F is for the question they can't reach: what the people in the experiment made
+of the change. A short survey, shown when users finish the experimented flow, adds that qualitative half — a rating and
+an optional comment, readable per variant — and works over MCP today.
+
+It suits some experiments and not others. The gate is whether a user could describe the change without
+being shown both versions: a reworked flow, layout, or process work; a threshold or ranking tweak
+don't, however large its measured effect. Don't offer it while a mechanical diagnostic is still open — a
+survey on top of a broken flag gate collects opinions about a feature half the audience never received —
+and check whether an existing or recent survey already covers the window before proposing a new one.
+
+Two things to get right before creating one: a survey shown to a single variant is itself a difference
+between the variants, and a _running_ survey linked to the flag can generate exposure events.
+
+→ See [references/qualitative-feedback.md](references/qualitative-feedback.md)
+
 ## Step 4 — Calibrate recommendations to experiment state
 
 Surface diagnostics first (Step 3). Then recommend — but scope what you recommend to what the
@@ -164,5 +190,12 @@ count as preemptive too — only the user explicitly naming the reversal action 
 reversal mechanics.
 
 Use consistent terminology: variant _split_ (between variants) is distinct from _rollout_ (overall %
-entering); the `$feature_flag_called` exposure event is distinct from a _custom exposure event_; the
+entering); the _default exposure event_ (`resolved_exposure_event`) is distinct from a _custom exposure event_; the
 _Exclude_ / _First seen_ options control multivariate handling, not exposure.
+
+## Related skills
+
+- **`configuring-experiment-analytics`** — fix the exposure or metric configuration the diagnosis points at
+- **`configuring-experiment-rollout`** — split-change anti-patterns and safe rollout adjustments
+- **`managing-experiment-lifecycle`** — reset, end, or restart when the experiment can't be salvaged in place
+- **`analyzing-experiment-session-replays`** — when the numbers are fine but you need to see the behavior behind them

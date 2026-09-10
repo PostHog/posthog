@@ -1,7 +1,14 @@
 import type { ApiClient, GroupType } from '@/api/client'
+import type { Schemas } from '@/api/generated'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
-import { ErrorCode, MissingOrganizationContextError, MissingProjectContextError, wrapError } from '@/lib/errors'
+import {
+    ErrorCode,
+    MissingOrganizationContextError,
+    MissingProjectContextError,
+    PostHogApiError,
+    wrapError,
+} from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -9,6 +16,14 @@ import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
+
+// Entitlement-related fields shared by both org shapes we read from — the
+// standalone org endpoint and the org embedded in `/api/users/@me/`.
+type OrgEntitlementFields = {
+    is_ai_data_processing_approved?: boolean | null
+    available_product_features?: Array<{ key: string }> | null
+}
 
 export class StateManager {
     private _cache: ScopedCache<State>
@@ -42,7 +57,7 @@ export class StateManager {
             // The DRF serializer returns `null` (not `[]`) for unscoped keys, so
             // normalize at the boundary — downstream code treats these as arrays.
             return {
-                scopes,
+                scopes: scopes ?? [],
                 scoped_teams: scoped_teams ?? [],
                 scoped_organizations: scoped_organizations ?? [],
             }
@@ -58,11 +73,22 @@ export class StateManager {
             throw new Error(ErrorCode.INACTIVE_OAUTH_TOKEN)
         }
 
-        const { scope, scoped_teams, scoped_organizations, client_name } = introspectionResult.data
+        const { scope, scoped_teams, scoped_organizations, client_name, client_id } = introspectionResult.data
+
+        // Which OAuth application minted this token. Introspection is server-derived, so unlike
+        // the consumer header the caller cannot set it, which is what makes it usable as the
+        // first-party gate in `resolveEventSource`. Django gates on the same id set.
+        if (client_id) {
+            await this._cache.set('oauthClientId', client_id)
+        }
 
         const sanitizedClientName = sanitizeHeaderValue(client_name)
         if (sanitizedClientName) {
             await this._cache.set('clientName', sanitizedClientName)
+            // Introspection is the first point the OAuth app name is known, and the client was
+            // already built for this request — stamp it on so the rest of the request forwards
+            // `x-posthog-mcp-oauth-client-name` instead of waiting for the next cache hit.
+            this._api.config.oauthClientName = sanitizedClientName
         }
 
         return {
@@ -153,9 +179,23 @@ export class StateManager {
                 return { organizationId, projectId: Number(projectsResult.data[0]!) }
             }
             if (!projectsResult.success) {
-                this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
-                    organization_id: organizationId,
-                })
+                // A 404 here means the API key/OAuth token points at an org the
+                // requesting user can no longer access (or a deleted org): the
+                // org-nested projects endpoint is scoped to the user's
+                // memberships. That's a recoverable user-config state — the
+                // agent recovers via switch-project/switch-organization — so
+                // warn instead of capturing, mirroring the 403 permission_denied
+                // path in client.ts. Only genuine 5xx/unexpected failures reach
+                // error tracking.
+                if (this._isRecoverableNotFound(projectsResult.error)) {
+                    console.warn(
+                        `[StateManager] Scoped org ${organizationId} projects lookup returned 404 (org not accessible to this user or deleted); falling back to org-only context`
+                    )
+                } else {
+                    this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
+                        organization_id: organizationId,
+                    })
+                }
             }
         } catch (error) {
             this._reportException(error, 'default_org_project_projects_list_threw', {
@@ -164,6 +204,15 @@ export class StateManager {
         }
 
         return { organizationId }
+    }
+
+    /**
+     * A 404 from the scoped-org projects lookup is an expected missing-context
+     * state (org deleted, or the user lost access to a still-scoped org), not a
+     * service bug. Treat it as recoverable so it stays out of error tracking.
+     */
+    private _isRecoverableNotFound(error: unknown): boolean {
+        return error instanceof PostHogApiError && error.status === 404
     }
 
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
@@ -243,8 +292,8 @@ export class StateManager {
         return projectId
     }
 
-    private isCacheStale(fetchedAt: number | undefined): boolean {
-        return !fetchedAt || Date.now() - fetchedAt > CACHE_TTL_MS
+    private isCacheStale(fetchedAt: number | undefined, ttlMs: number = CACHE_TTL_MS): boolean {
+        return !fetchedAt || Date.now() - fetchedAt > ttlMs
     }
 
     /**
@@ -258,13 +307,14 @@ export class StateManager {
         cacheKey: D
         fetchedAtKey: F
         fetcher: () => Promise<NonNullable<State[D]>>
+        ttlMs?: number
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
             this._cache.get(opts.fetchedAtKey),
         ])) as [State[D], number | undefined]
 
-        if (!this.isCacheStale(fetchedAt)) {
+        if (!this.isCacheStale(fetchedAt, opts.ttlMs)) {
             return cached
         }
 
@@ -349,13 +399,63 @@ export class StateManager {
         })
     }
 
-    async getEnvironmentPrompt(): Promise<string | undefined> {
+    /**
+     * Integration kinds (github, slack, ...) connected in the project, for the
+     * environment prompt. Returns undefined when the key lacks `integration:read`
+     * so the prompt renders nothing rather than a false "none connected".
+     */
+    async getOrFetchIntegrationKinds(projectId: string): Promise<string[] | undefined> {
+        const apiKey = await this.getApiKey()
+        if (!hasScope(apiKey.scopes, 'integration:read')) {
+            return undefined
+        }
+        return this.getOrFetchCached({
+            name: 'integration_kinds',
+            cacheKey: `integrationKinds:${projectId}` as const,
+            fetchedAtKey: `integrationKindsFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const result = await this._api.request<Schemas.PaginatedIntegrationConfigList>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(projectId)}/integrations/`,
+                    query: { limit: 100 },
+                })
+                return [...new Set((result.results ?? []).map((integration) => String(integration.kind)))].sort()
+            },
+        })
+    }
+
+    /**
+     * The third-party MCP tools this user can reach, from the gateway.
+     *
+     * Shorter TTL than the other cached entities: connecting a server is a deliberate
+     * act and the user expects its tools to appear on the next command, not ten minutes
+     * later. Cheap enough to re-fetch — it's one request, and only `exec` triggers it.
+     */
+    async getOrFetchGatewayTools(projectId: string): Promise<Schemas.AvailableToolsResponse | undefined> {
+        return this.getOrFetchCached({
+            name: 'gateway_tools',
+            cacheKey: `gatewayTools:${projectId}` as const,
+            fetchedAtKey: `gatewayToolsFetchedAt:${projectId}` as const,
+            fetcher: () => this._api.getGatewayTools(projectId),
+            ttlMs: GATEWAY_TOOLS_CACHE_TTL_MS,
+        })
+    }
+
+    async getEnvironmentPrompt(opts?: { includeProductContext?: boolean }): Promise<string | undefined> {
+        const includeProductContext = opts?.includeProductContext !== false
         const [user, org, project] = await Promise.all([
             this.getCachedOrFetchUser().catch(() => undefined),
             this.getCachedOrFetchOrg().catch(() => undefined),
             this.getCachedOrFetchProject().catch(() => undefined),
         ])
-        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl)
+        const integrationKinds =
+            includeProductContext && project
+                ? await this.getOrFetchIntegrationKinds(String(project.id)).catch(() => undefined)
+                : undefined
+        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl, {
+            integrationKinds,
+            includeProductContext,
+        })
     }
 
     /**
@@ -386,30 +486,49 @@ export class StateManager {
         }
     }
 
-    async getAiConsentGiven(): Promise<boolean | undefined> {
+    /**
+     * Resolve a field from the active organization, failing closed to `undefined`.
+     *
+     * Tries `/api/organizations/{id}/` first. Team-scoped tokens (e.g. sandbox
+     * OAuth tokens) can never fetch that endpoint — see the guard in
+     * getCachedOrFetchOrg — so fall back to the org embedded in
+     * `/api/users/@me/` (exempt from team scoping). That embedded org is the
+     * user's *current* org, which isn't necessarily the one owning the scoped
+     * project, so only trust it when it matches the active project's owning org.
+     * Any failure resolves to `undefined` so callers keep failing closed.
+     */
+    private async getOrgField<T>(extract: (org: OrgEntitlementFields) => T): Promise<T | undefined> {
         try {
             const org = await this.getCachedOrFetchOrg()
             if (org) {
-                const consent = (org as { is_ai_data_processing_approved?: boolean | null })
-                    .is_ai_data_processing_approved
-                return !!consent
+                return extract(org as OrgEntitlementFields)
             }
 
-            // Team-scoped tokens (e.g. sandbox OAuth tokens) can never fetch
-            // `/api/organizations/{id}/` — see the guard in getCachedOrFetchOrg.
-            // But `/api/users/@me/` is exempt from team scoping and embeds the
-            // full org serializer (including the consent flag) for the user's
-            // *current* org. That org isn't necessarily the one owning the
-            // scoped project, so only trust the flag when it matches the active
-            // project's owning org; otherwise stay undefined so callers keep
-            // failing closed.
             const [user, project] = await Promise.all([this.getCachedOrFetchUser(), this.getCachedOrFetchProject()])
             if (user?.organization && project?.organization === user.organization.id) {
-                return !!user.organization.is_ai_data_processing_approved
+                return extract(user.organization)
             }
             return undefined
         } catch {
             return undefined
         }
+    }
+
+    async getAiConsentGiven(): Promise<boolean | undefined> {
+        return this.getOrgField((org) => !!org.is_ai_data_processing_approved)
+    }
+
+    async getAvailableFeatures(): Promise<string[] | undefined> {
+        // A fetched org resolves to its entitlement keys, treating both `null`
+        // and a missing field as "no features" (`[]`) rather than falling
+        // through — the fallback only exists for tokens that can't fetch the org
+        // at all, where getCachedOrFetchOrg returns undefined.
+        return this.getOrgField((org) => {
+            const features = org.available_product_features
+            if (!Array.isArray(features)) {
+                return []
+            }
+            return features.map((f) => f.key).filter((k): k is string => typeof k === 'string')
+        })
     }
 }

@@ -100,6 +100,8 @@ Use `localPathCleaningFilters` to normalize dynamic URLs. Each filter has a `reg
 
 Use `pathGroupings` for simpler glob-like grouping of paths into single nodes. Use `*` as a wildcard — the patterns are auto-escaped so only `*` has special meaning. For example, `/product/*` groups all product sub-pages into one node.
 
+Note: `pathGroupings` (wildcard groups) are part of "Advanced paths", which is only available on paid plans. On the free plan this option — including using wildcard groups in exclusions — is hidden or disabled in the paths UI. If a user is on the free plan, explain that wildcard groups require upgrading to a paid plan rather than suggesting workarounds.
+
 ## Exclusions
 
 Use `excludeEvents` to remove specific path items that clutter the visualization. The values must match path item values, not event types: for `$pageview` paths these must match your stored `$current_url` format (e.g., `/health-check` or `https://example.com/health-check`), for `custom_event` paths these are event names (e.g., `heartbeat`). To control which event types are included, use `includeEventTypes` instead.

@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -24,12 +25,13 @@ from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
-from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE, CohortViewSet
+from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE, CohortFilters
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Person, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.person.util import get_person_by_id
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
 from posthog.tasks.calculate_cohort import (
@@ -39,14 +41,40 @@ from posthog.tasks.calculate_cohort import (
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
 )
+from posthog.test.db_context_capturing import capture_db_queries
+from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.dependencies import find_behavioral_cohorts
+from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.clickhouse.materialized_columns.analyze import materialize
+
+
+def _cohort_member_uuids(team_id: int, cohort: Cohort) -> set[str]:
+    """Resolve a cohort's members to their person UUIDs via personhog."""
+    member_ids = list_cohort_member_ids(team_id=team_id, cohort_id=cohort.pk)
+    uuids: set[str] = set()
+    for pid in member_ids:
+        person = get_person_by_id(team_id, pid)
+        if person is not None:
+            uuids.add(str(person.uuid))
+    return uuids
+
+
+def _cohort_member_distinct_ids(team_id: int, cohort: Cohort) -> set[str]:
+    """Resolve a cohort's members to the union of their distinct IDs via personhog."""
+    member_ids = list_cohort_member_ids(team_id=team_id, cohort_id=cohort.pk)
+    distinct_ids: set[str] = set()
+    for pid in member_ids:
+        person = get_person_by_id(team_id, pid)
+        if person is not None:
+            distinct_ids.update(person.distinct_ids)
+    return distinct_ids
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -78,6 +106,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.maxDiff = None
 
         # Sort 'changes' lists for order-insensitive comparison
@@ -134,8 +164,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
     ):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"team_id": 5})
-        Person.objects.create(team=self.team, properties={"team_id": 6})
+        create_person(team=self.team, properties={"team_id": 5})
+        create_person(team=self.team, properties={"team_id": 6})
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
@@ -306,8 +336,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
     def test_list_cohorts_is_not_nplus1(self, patch_calculate_cohort, patch_capture):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"team_id": 5})
-        Person.objects.create(team=self.team, properties={"team_id": 6})
+        create_person(team=self.team, properties={"team_id": 5})
+        create_person(team=self.team, properties={"team_id": 6})
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -334,14 +364,88 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_list_cohorts_does_not_hydrate_team(self, patch_calculate_cohort, patch_capture):
+        # The list serializer never reads `cohort.team`, so the cohort SELECT must not hydrate the
+        # team payload — the heavy JSON and array columns each row would otherwise carry. Project
+        # scoping still JOINs `posthog_team` to filter on `project_id`, so guard the payload columns
+        # specifically rather than the JOIN. The nplus1 query-count guard would not catch a re-added
+        # `select_related("team")`, since hydrating columns onto that existing JOIN adds no query,
+        # so assert the SQL directly.
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+
+        with capture_db_queries() as context:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
+        assert response.status_code == status.HTTP_200_OK
+
+        cohort_queries = [q["sql"] for q in context.captured_queries if 'FROM "posthog_cohort"' in q["sql"]]
+        assert cohort_queries, "expected the list to run a query against posthog_cohort"
+        # These team payload columns are never part of the cohort filter, so their presence would
+        # mean the team row is hydrated onto each cohort row.
+        for sql in cohort_queries:
+            for column in ("test_account_filters", "session_replay_config"):
+                assert f'posthog_team"."{column}"' not in sql
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_detail_cohort_defers_deprecated_team_columns(self, patch_calculate_cohort, patch_capture):
+        # Detail and write actions read `cohort.team`, so they keep the hydrating `select_related("team")`
+        # JOIN. They must re-apply `.defer(*DEPRECATED_ATTRS)` the way `TeamManager` does on lazy loads, or
+        # every retrieve re-reads the deprecated taxonomy columns (`event_names` and siblings) that TOAST
+        # out to megabytes per team. `test_list_cohorts_does_not_hydrate_team` guards only the list query
+        # and only non-deprecated columns, so it cannot catch a dropped defer here. Assert the SQL directly.
+        cohort_id = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        ).json()["id"]
+
+        with capture_db_queries() as context:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+        assert response.status_code == status.HTTP_200_OK
+
+        # The query that hydrates the team carries a non-deprecated team column; find it to make sure the
+        # detail path still JOINs and hydrates the team, so the deprecated-column check below is not vacuous.
+        team_hydrating_queries = [
+            q["sql"]
+            for q in context.captured_queries
+            if 'FROM "posthog_cohort"' in q["sql"] and 'posthog_team"."test_account_filters"' in q["sql"]
+        ]
+        assert team_hydrating_queries, "expected the detail fetch to hydrate the team onto the cohort row"
+        # `event_names` is a deprecated taxonomy column that TOASTs out to megabytes. The defer keeps it off
+        # the hydrated team row; dropping the defer would pull it back in.
+        for sql in team_hydrating_queries:
+            assert 'posthog_team"."event_names"' not in sql
+
+    @parameterized.expand(
+        [
+            # A group with none of properties/action_id/event_id used to raise an uncaught
+            # ValueError from Group.__init__ and surface as a 500.
+            ("missing_all_keys", [{"days": 5}], "properties or action_id or event_id"),
+            # A falsy-but-non-list value used to slip past validation and get persisted as-is.
+            ("empty_string", "", "must be a list"),
+            ("non_dict_entry", ["not-a-dict"], "must be an object"),
+        ]
+    )
+    def test_creating_cohort_with_malformed_groups_returns_400(self, _name, groups, expected_detail):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": groups},
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn(expected_detail, response.json()["detail"])
+
     def test_static_cohort_csv_upload_end_to_end(self):
         """Test CSV upload end-to-end with actual celery task execution"""
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"email": "email@example.org"})
-        Person.objects.create(team=self.team, distinct_ids=["123"])
-        Person.objects.create(team=self.team, distinct_ids=["456"])
-        Person.objects.create(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
+        create_person(team=self.team, properties={"email": "email@example.org"})
+        create_person(team=self.team, distinct_ids=["123"])
+        create_person(team=self.team, distinct_ids=["456"])
+        create_person(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
 
         csv = SimpleUploadedFile(
             "example.csv",
@@ -367,10 +471,7 @@ email@example.org
         cohort = Cohort.objects.get(pk=response.json()["id"])
         self.assertFalse(cohort.is_calculating)
         # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids)
-        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
-        distinct_ids = set()
-        for person in cohort_people:
-            distinct_ids.update(person.distinct_ids)
+        distinct_ids = _cohort_member_distinct_ids(cohort.team_id, cohort)
         self.assertEqual(distinct_ids, {"123", "0"})
 
         # Test CSV update
@@ -396,10 +497,7 @@ User ID
         cohort.refresh_from_db()
         self.assertFalse(cohort.is_calculating)
         # Verify CSV update worked - 456 should now be included
-        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
-        distinct_ids = set()
-        for person in cohort_people:
-            distinct_ids.update(person.distinct_ids)
+        distinct_ids = _cohort_member_distinct_ids(cohort.team_id, cohort)
         self.assertIn("456", distinct_ids)  # New ID should be included
 
         # Test name-only update without CSV
@@ -414,10 +512,7 @@ User ID
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(cohort.name, "test2")
         # Verify distinct_ids remain the same after name-only update
-        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
-        distinct_ids = set()
-        for person in cohort_people:
-            distinct_ids.update(person.distinct_ids)
+        distinct_ids = _cohort_member_distinct_ids(cohort.team_id, cohort)
         self.assertIn("456", distinct_ids)  # Should still contain 456
 
     def test_static_cohort_create_and_patch_with_query(self):
@@ -482,8 +577,7 @@ email@example.org
         cohort.refresh_from_db()
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
     @patch(
         "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
@@ -533,11 +627,8 @@ email@example.org
         self.assertTrue(cohort.is_static)
         self.assertEqual(cohort.count, 1)
 
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 1)
-        first_person = people_in_cohort.first()
-        assert first_person is not None
-        self.assertEqual(first_person.uuid, matching_person.uuid)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)
+        self.assertEqual(_cohort_member_uuids(cohort.team_id, cohort), {str(matching_person.uuid)})
 
     @patch(
         "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
@@ -583,8 +674,7 @@ email@example.org
         self.assertEqual(cohort.count, 0)
         self.assertFalse(cohort.is_calculating)
 
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 0)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 0)
 
     @patch(
         "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
@@ -635,11 +725,8 @@ email@example.org
         self.assertTrue(cohort.is_static)
         self.assertEqual(cohort.count, 1)
 
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 1)
-        first_person = people_in_cohort.first()
-        assert first_person is not None
-        self.assertEqual(first_person.uuid, performed.uuid)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)
+        self.assertEqual(_cohort_member_uuids(cohort.team_id, cohort), {str(performed.uuid)})
 
     @patch(
         "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
@@ -701,8 +788,7 @@ email@example.org
         self.assertTrue(cohort.is_static)
         self.assertEqual(cohort.count, 2)
 
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual({p.uuid for p in people_in_cohort}, {first_match.uuid, second_match.uuid})
+        self.assertEqual(_cohort_member_uuids(cohort.team_id, cohort), {str(first_match.uuid), str(second_match.uuid)})
 
     def test_static_cohort_rejects_criteria_edits_after_creation(self):
         cohort = Cohort.objects.create(
@@ -839,9 +925,9 @@ email@example.org
         self, distinct_id_column_header, patch_calculate_cohort_from_list
     ):
         """Test multi-column CSV upload with distinct_id column"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
-        person3 = Person.objects.create(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
+        person3 = create_person(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
 
         csv = SimpleUploadedFile(
             "multicolumn.csv",
@@ -865,11 +951,10 @@ Zero User,0,zero@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify all three persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 3)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 3)
 
         # Verify specific persons are in the cohort
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
         self.assertIn(str(person3.uuid), person_uuids_in_cohort)
@@ -900,7 +985,7 @@ Jane Smith,25
         response_data = response.json()
         self.assertEqual(response_data["attr"], "csv")
         self.assertIn("distinct_id", response_data["detail"])
-        self.assertIn("name, age", response_data["detail"])
+        self.assertIn("'name', 'age'", response_data["detail"])
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
 
     @parameterized.expand([("person-id",), ("person_id",), ("Person .id",)])
@@ -912,8 +997,8 @@ Jane Smith,25
         self, person_id_column_header, patch_calculate_cohort_from_list
     ):
         """Test CSV upload with person_id column using async task"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         csv = SimpleUploadedFile(
             f"{person_id_column_header}.csv",
@@ -936,11 +1021,75 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
+        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
+        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+
+    @patch(
+        "posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay",
+        side_effect=calculate_cohort_from_list,
+    )
+    def test_static_cohort_csv_upload_multicolumn_with_bom_prefixed_header(self, patch_calculate_cohort_from_list):
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
+
+        csv = SimpleUploadedFile(
+            "excel_export.csv",
+            b"\xef\xbb\xbf"
+            + f"""person_id,email
+{person1.uuid},john@example.com
+{person2.uuid},jane@example.com
+""".encode(),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_bom_multicolumn", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
+        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
+        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+
+    @patch(
+        "posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay",
+        side_effect=calculate_cohort_from_list,
+    )
+    def test_static_cohort_csv_upload_single_column_with_bom_prefixed_header(self, patch_calculate_cohort_from_list):
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
+
+        csv = SimpleUploadedFile(
+            "excel_single_column.csv",
+            b"\xef\xbb\xbf"
+            + f"""person_id
+{person1.uuid}
+{person2.uuid}
+""".encode(),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_bom_single_column", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        self.assertEqual(patch_calculate_cohort_from_list.call_args.kwargs["id_type"], "person_id")
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -950,16 +1099,16 @@ Jane Smith,{person2.uuid},jane@example.com
     )
     def test_static_cohort_csv_upload_person_id_preference_over_email(self, patch_calculate_cohort_from_list):
         """Test that person_id is preferred over email when both columns are present"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         # Create persons with emails that would match if email was used instead
-        person_with_email1 = Person.objects.create(
+        person_with_email1 = create_person(
             team=self.team,
             distinct_ids=["email_user1"],
             properties={"email": "john@example.com"},
         )
-        person_with_email2 = Person.objects.create(
+        person_with_email2 = create_person(
             team=self.team,
             distinct_ids=["email_user2"],
             properties={"email": "jane@example.com"},
@@ -986,11 +1135,10 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort (the ones matched by person_id, not email)
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -1004,16 +1152,16 @@ Jane Smith,{person2.uuid},jane@example.com
     )
     def test_static_cohort_csv_upload_distinct_id_preference_over_email(self, patch_calculate_cohort_from_list):
         """Test that distinct_id is preferred over email when both columns are present"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         # Create persons with emails that would match if email was used instead
-        person_with_email1 = Person.objects.create(
+        person_with_email1 = create_person(
             team=self.team,
             distinct_ids=["email_user1"],
             properties={"email": "john@example.com"},
         )
-        person_with_email2 = Person.objects.create(
+        person_with_email2 = create_person(
             team=self.team,
             distinct_ids=["email_user2"],
             properties={"email": "jane@example.com"},
@@ -1040,11 +1188,10 @@ Jane Smith,user456,jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort (the ones matched by distinct_id, not email)
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -1053,8 +1200,8 @@ Jane Smith,user456,jane@example.com
         self.assertNotIn(str(person_with_email2.uuid), person_uuids_in_cohort)
 
     def test_static_cohort_with_manually_added_person_ids(self):
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",
@@ -1077,18 +1224,17 @@ Jane Smith,user456,jane@example.com
         self.assertEqual(response_data["count"], 2)
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
     def test_static_cohort_csv_and_manually_added(self):
         """Test CSV upload with person_id column using async task"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         csv = SimpleUploadedFile(
             f"{person1}.csv",
@@ -1115,19 +1261,18 @@ John Doe,{person1.uuid},john@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_person_id_preference_over_distinct_id(self, patch_calculate_cohort_from_list):
         """Test that person_id is preferred over distinct_id when both columns are present"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["distinct123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["distinct456"])
+        person1 = create_person(team=self.team, distinct_ids=["distinct123"])
+        person2 = create_person(team=self.team, distinct_ids=["distinct456"])
 
         csv = SimpleUploadedFile(
             "both_columns.csv",
@@ -1159,7 +1304,7 @@ Jane Smith,{person2.uuid},ignore_this_too,jane@example.com
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_with_empty_person_ids(self, patch_calculate_cohort_from_list):
         """Test CSV with person_id column but some empty values"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
 
         csv = SimpleUploadedFile(
             "empty_person_ids.csv",
@@ -1215,7 +1360,7 @@ Jane Smith,25
         self.assertIn("at least one column with a supported ID header", response_data["detail"])
         self.assertIn("person_id", response_data["detail"])
         self.assertIn("distinct_id", response_data["detail"])
-        self.assertIn("name, age", response_data["detail"])
+        self.assertIn("'name', 'age'", response_data["detail"])
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_empty_file_fails(self, patch_calculate_cohort_from_list):
@@ -1270,7 +1415,7 @@ Jane Smith,25
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_single_column_backwards_compatibility(self, patch_calculate_cohort_from_list):
         """Test that single-column CSV still works (backwards compatibility)"""
-        Person.objects.create(team=self.team, distinct_ids=["legacy_user"])
+        create_person(team=self.team, distinct_ids=["legacy_user"])
 
         csv = SimpleUploadedFile(
             "single_column.csv",
@@ -1301,8 +1446,8 @@ another_user
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_single_column_person_ids(self, patch_calculate_cohort_from_list):
         """Test that single-column CSV with person_id header is treated as person UUIDs"""
-        person1 = Person.objects.create(team=self.team)
-        person2 = Person.objects.create(team=self.team)
+        person1 = create_person(team=self.team)
+        person2 = create_person(team=self.team)
 
         csv = SimpleUploadedFile(
             "person_ids.csv",
@@ -1335,8 +1480,8 @@ another_user
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_whitespace_handling(self, patch_calculate_cohort_from_list):
         """Test that whitespace is properly trimmed from distinct IDs in multi-column CSV"""
-        Person.objects.create(team=self.team, distinct_ids=["user123"])
-        Person.objects.create(team=self.team, distinct_ids=["user456"])
+        create_person(team=self.team, distinct_ids=["user123"])
+        create_person(team=self.team, distinct_ids=["user456"])
 
         csv = SimpleUploadedFile(
             "whitespace.csv",
@@ -1369,8 +1514,8 @@ Jane Smith,	user456	,jane@example.com
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_with_commas_in_distinct_ids(self, patch_calculate_cohort_from_list):
         """Test that CSV quoting/escaping works when distinct IDs contain commas"""
-        Person.objects.create(team=self.team, distinct_ids=["user,123"])
-        Person.objects.create(team=self.team, distinct_ids=["user,456,special"])
+        create_person(team=self.team, distinct_ids=["user,123"])
+        create_person(team=self.team, distinct_ids=["user,456,special"])
 
         csv = SimpleUploadedFile(
             "comma_ids.csv",
@@ -1403,8 +1548,8 @@ Jane Smith,	user456	,jane@example.com
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_with_quotes_in_distinct_ids(self, patch_calculate_cohort_from_list):
         """Test that CSV escaping works when distinct IDs contain quotes"""
-        Person.objects.create(team=self.team, distinct_ids=['user"123'])
-        Person.objects.create(team=self.team, distinct_ids=['user"special"456'])
+        create_person(team=self.team, distinct_ids=['user"123'])
+        create_person(team=self.team, distinct_ids=['user"special"456'])
 
         csv = SimpleUploadedFile(
             "quote_ids.csv",
@@ -1437,8 +1582,8 @@ Jane Smith,	user456	,jane@example.com
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_with_inconsistent_column_count(self, patch_calculate_cohort_from_list):
         """Test that rows with incorrect column count are gracefully skipped in multi-column CSV"""
-        Person.objects.create(team=self.team, distinct_ids=["user123"])
-        Person.objects.create(team=self.team, distinct_ids=["user456"])
+        create_person(team=self.team, distinct_ids=["user123"])
+        create_person(team=self.team, distinct_ids=["user456"])
 
         csv = SimpleUploadedFile(
             "inconsistent_columns.csv",
@@ -1476,7 +1621,7 @@ user789
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_sets_is_calculating(self, patch_calculate_cohort_from_list):
         """Test that is_calculating is set to True immediately when CSV is uploaded"""
-        Person.objects.create(team=self.team, distinct_ids=["user123"])
+        create_person(team=self.team, distinct_ids=["user123"])
 
         csv = SimpleUploadedFile(
             "test.csv",
@@ -1546,9 +1691,9 @@ user456
     ):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"email": "email@example.org"})
-        Person.objects.create(team=self.team, distinct_ids=["123"])
-        Person.objects.create(team=self.team, distinct_ids=["456"])
+        create_person(team=self.team, properties={"email": "email@example.org"})
+        create_person(team=self.team, distinct_ids=["123"])
+        create_person(team=self.team, distinct_ids=["456"])
 
         csv = SimpleUploadedFile(
             "example.csv",
@@ -1583,35 +1728,81 @@ email@example.org,
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
-    def test_cohort_list_with_search(self):
-        self.team.app_urls = ["http://somewebsite.com"]
-        self.team.save()
+    @parameterized.expand(
+        [
+            ("exact substring", "Power users", "Power users"),
+            ("partial word", "Power users", "Power"),
+            ("typo / transposition via trigram", "Power users", "Pwoer users"),
+            ("prefix-as-you-type", "Power users", "Pow"),
+            ("case-insensitive lower", "Power users", "power users"),
+            ("case-insensitive upper", "Power users", "POWER"),
+        ]
+    )
+    def test_cohort_list_search_matches(self, _name, cohort_name, search):
+        Cohort.objects.create(team=self.team, name=cohort_name, created_by=self.user)
+        Cohort.objects.create(team=self.team, name="Totally unrelated", created_by=self.user)
 
-        Person.objects.create(team=self.team, properties={"prop": 5})
-        Person.objects.create(team=self.team, properties={"prop": 6})
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search={search}").json()
+        result_names = [c["name"] for c in response["results"]]
 
-        self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "cohort1", "groups": [{"properties": {"prop": 5}}]},
-        )
+        assert cohort_name in result_names, f"expected {cohort_name!r} for search {search!r}, got {result_names}"
+        assert "Totally unrelated" not in result_names
 
-        self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "cohort2", "groups": [{"properties": {"prop": 6}}]},
-        )
+    def test_cohort_list_search_no_match_returns_empty(self):
+        Cohort.objects.create(team=self.team, name="Power users", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=zzzznomatch").json()
+
+        assert response["results"] == []
+
+    def test_cohort_list_search_hides_similar_when_exact_exists_but_falls_back_when_none(self):
+        exact = Cohort.objects.create(team=self.team, name="marketing", created_by=self.user)
+        similar = Cohort.objects.create(team=self.team, name="markteing", created_by=self.user)
+
+        with_exact = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=marketing").json()["results"]
+        assert [c["id"] for c in with_exact] == [exact.id], "similar matches must be hidden when exact matches exist"
+        assert with_exact[0]["search_match_type"] == "exact"
+
+        # Delete the exact match; the fuzzy-only match must now surface as the fallback.
+        exact.delete()
+        without_exact = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=marketing").json()["results"]
+        assert [c["id"] for c in without_exact] == [similar.id]
+        assert without_exact[0]["search_match_type"] == "similar"
+
+    def test_cohort_list_omits_search_match_type_when_not_searching(self):
+        Cohort.objects.create(team=self.team, name="Power users", created_by=self.user)
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
-        self.assertEqual(len(response["results"]), 2)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=cohort1").json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["name"], "cohort1")
+        assert all("search_match_type" not in c for c in response["results"])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=nomatch").json()
-        self.assertEqual(len(response["results"]), 0)
+    @parameterized.expand(
+        [
+            ("at cap", 200, status.HTTP_200_OK),
+            ("just over cap", 201, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_cohort_list_search_enforces_length_cap(self, _name, length, expected_status):
+        Cohort.objects.create(team=self.team, name="Power users", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search={'a' * length}")
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "200 characters" in response.json()["detail"]
+
+    @parameterized.expand([("whitespace", "%20%20"), ("empty", "")])
+    def test_cohort_list_blank_search_keeps_default_ordering(self, _name, search):
+        older = Cohort.objects.create(team=self.team, name="older", created_by=self.user)
+        newer = Cohort.objects.create(team=self.team, name="newer", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search={search}").json()
+
+        assert [c["id"] for c in response["results"]] == [newer.id, older.id]
+        assert all("search_match_type" not in c for c in response["results"])
 
     def test_cohort_list_with_type_filter(self):
-        Person.objects.create(team=self.team, properties={"prop": 5})
+        create_person(team=self.team, properties={"prop": 5})
 
         # Create dynamic cohort
         self.client.post(
@@ -1642,7 +1833,7 @@ email@example.org,
         self.assertFalse(response["results"][0]["is_static"])
 
     def test_cohort_list_with_created_by_filter(self):
-        Person.objects.create(team=self.team, properties={"prop": 5})
+        create_person(team=self.team, properties={"prop": 5})
 
         # Create cohorts by self.user
         self.client.post(
@@ -1689,7 +1880,7 @@ email@example.org,
         self.assertEqual(len(response["results"]), 0)
 
     def test_cohort_list_with_combined_filters(self):
-        Person.objects.create(team=self.team, properties={"prop": 5})
+        create_person(team=self.team, properties={"prop": 5})
 
         # Create dynamic cohort
         self.client.post(
@@ -1791,6 +1982,7 @@ email@example.org,
                 filters={"properties": {"type": "OR", "values": values}},
                 cohort_type=CohortType.REALTIME if realtime_backfilled else None,
                 last_backfill_person_properties_at=timezone.now() if realtime_backfilled else None,
+                last_backfill_events_at=timezone.now() if realtime_backfilled else None,
             )
 
         cohorts = {
@@ -1805,13 +1997,11 @@ email@example.org,
                 make(7, refs=(1, 5)),
             ]
         }
-        viewset = CohortViewSet()
-
         # Without the realtime exemption, every behavioral cohort and its referrers are excluded.
-        self.assertEqual(viewset._find_behavioral_cohorts(cohorts), {1, 2, 3, 5, 6, 7})
+        self.assertEqual(find_behavioral_cohorts(cohorts), {1, 2, 3, 5, 6, 7})
         # With it, 5 is flag-compatible (not a seed) and 6 only referenced 5, so both stay.
         # 7 still reaches real seed 1, so it remains excluded.
-        self.assertEqual(viewset._find_behavioral_cohorts(cohorts, allow_realtime_backfilled=True), {1, 2, 3, 7})
+        self.assertEqual(find_behavioral_cohorts(cohorts, allow_realtime_backfilled=True), {1, 2, 3, 7})
 
     @patch("posthog.api.cohort.report_user_action")
     def test_basic_list_omits_heavy_fields(self, patch_capture):
@@ -1825,11 +2015,43 @@ email@example.org,
         self.assertIn("filters", full)
 
         basic = self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true").json()["results"][0]
-        for dropped in ("filters", "query", "groups"):
+        # `last_error_message` and `experiment_set` are dropped too — basic callers don't read
+        # them, and keeping `last_error_message` would force the per-row CohortCalculationHistory
+        # subquery back onto the hot path.
+        for dropped in ("query", "groups", "last_error_message", "experiment_set"):
             self.assertNotIn(dropped, basic)
-        # The fields pickers actually read are still present.
-        for kept in ("id", "name", "count"):
+        # `filters` stays: the feature-flag intent warning reads it off the basic list to flag
+        # behavioral cohorts. `is_calculating` drives the 5s repoll and `is_static` drives the
+        # static-cohort flag warning — both now read only from the basic payload, so trimming
+        # any of these silently breaks a feature. Guard them here.
+        for kept in ("id", "name", "count", "filters", "is_calculating", "is_static"):
             self.assertIn(kept, basic)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_basic_list_skips_error_and_experiment_queries(self, patch_capture):
+        # The basic payload drops `last_error_message` and `experiment_set`, so it must not run
+        # the per-row CohortCalculationHistory subquery or the experiment prefetch. Asserting on
+        # the emitted SQL (not query count) is what catches it: the correlated subquery splices
+        # into the enclosing SELECT rather than issuing its own, so a count wouldn't move. The
+        # full path is the positive control, so a table rename can't make the negatives pass for
+        # the wrong reason.
+        Cohort.objects.create(
+            team=self.team,
+            name="some cohort",
+            filters={"properties": {"type": "OR", "values": [{"type": "person", "key": "email", "value": "a@b.com"}]}},
+        )
+
+        with capture_db_queries() as full_ctx:
+            self.client.get(f"/api/projects/{self.team.id}/cohorts")
+        full_sql = " ".join(q["sql"] for q in full_ctx.captured_queries)
+        self.assertIn("posthog_cohortcalculationhistory", full_sql)
+        self.assertIn("posthog_experiment", full_sql)
+
+        with capture_db_queries() as basic_ctx:
+            self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true")
+        basic_sql = " ".join(q["sql"] for q in basic_ctx.captured_queries)
+        self.assertNotIn("posthog_cohortcalculationhistory", basic_sql)
+        self.assertNotIn("posthog_experiment", basic_sql)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_basic_is_ignored_on_detail_fetch(self, patch_capture):
@@ -2019,6 +2241,7 @@ email@example.org,
             },
             cohort_type=cohort_type,
             last_backfill_person_properties_at=datetime.now() if is_backfilled else None,
+            last_backfill_events_at=datetime.now() if is_backfilled else None,
         )
 
         regular_cohort = Cohort.objects.create(
@@ -2074,6 +2297,7 @@ email@example.org,
             },
             cohort_type=CohortType.REALTIME,
             last_backfill_person_properties_at=datetime.now(),
+            last_backfill_events_at=datetime.now(),
         )
 
         # Parent: non-behavioral cohort that references the leaf
@@ -2102,8 +2326,8 @@ email@example.org,
     def test_cohort_activity_log(self, patch_on_commit):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"prop": 5})
-        Person.objects.create(team=self.team, properties={"prop": 6})
+        create_person(team=self.team, properties={"prop": 5})
+        create_person(team=self.team, properties={"prop": 6})
 
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -2227,7 +2451,7 @@ email@example.org,
         num_people = 3
         person_uuids = []
         for i in range(num_people):
-            person = Person.objects.create(
+            person = create_person(
                 team=self.team,
                 distinct_ids=[f"user_{i}"],
                 properties={"email": f"user{i}@example.com"},
@@ -2275,7 +2499,7 @@ email@example.org,
         num_people = 10
         person_uuids = []
         for i in range(num_people):
-            person = Person.objects.create(
+            person = create_person(
                 team=self.team,
                 distinct_ids=[f"user_{i}"],
                 properties={"email": f"user{i}@example.com"},
@@ -2357,17 +2581,17 @@ email@example.org,
 
     def test_csv_export_new(self):
         # Test 100s of distinct_ids, we only want ~10
-        Person.objects.create(
+        create_person(
             distinct_ids=["person3"] + [f"person_{i}" for i in range(4, 100)],
             team_id=self.team.pk,
             properties={"$some_prop": "something"},
         )
-        Person.objects.create(
+        create_person(
             distinct_ids=["person1"],
             team_id=self.team.pk,
             properties={"$some_prop": "something", "email": "test@test.com"},
         )
-        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={})
         cohort = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
@@ -2403,7 +2627,14 @@ email@example.org,
         response = self.client.get(response.json()["next"])
         self.assertEqual(len(response.json()["results"]), 50, response)
 
-    def test_filter_by_cohort_prop(self):
+    @parameterized.expand(
+        [
+            ("hogql", {"type": "hogql", "key": "properties.$browser = 'Safari'"}),
+            ("type_less_person", {"key": "$browser", "value": "Safari"}),
+            ("person", {"key": "$browser", "value": "Safari", "type": "person"}),
+        ]
+    )
+    def test_filter_by_prop_without_an_operator(self, _name: str, prop: dict):
         for i in range(5):
             _create_person(
                 team=self.team,
@@ -2413,7 +2644,7 @@ email@example.org,
 
         _create_person(
             team=self.team,
-            distinct_ids=[f"target"],
+            distinct_ids=["target"],
             properties={"$os": "Chrome", "$browser": "Safari"},
         )
 
@@ -2423,10 +2654,8 @@ email@example.org,
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        response = self.client.get(
-            f"/api/cohort/{cohort.pk}/persons?properties=%s"
-            % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person"}]))
-        )
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons?properties=%s" % (json.dumps([prop])))
+        self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(len(response.json()["results"]), 1, response)
 
     def test_filter_by_cohort_prop_from_clickhouse(self):
@@ -2485,18 +2714,47 @@ email@example.org,
         self.assertEqual(len(response.json()["results"]), 1, response)
 
     def test_filter_by_static_cohort(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["123"])
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"])
+        create_person(team_id=self.team.pk, distinct_ids=["1"])
+        create_person(team_id=self.team.pk, distinct_ids=["123"])
+        create_person(team_id=self.team.pk, distinct_ids=["2"])
         # Team leakage
         team2 = Team.objects.create(organization=self.organization)
-        Person.objects.create(team=team2, distinct_ids=["1"])
+        create_person(team=team2, distinct_ids=["1"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now())
         cohort.insert_users_by_list(["1", "123"])
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 2, response)
+
+    def test_cohort_persons_paginate_newest_created_first(self):
+        # Members must paginate by created_at DESC (newest first), matching the legacy PersonQuery order.
+        # `created_at` order is deliberately decorrelated from insertion order (id) so that the
+        # ActorsQuery default (id ASC) produces a different first page than the required order —
+        # otherwise this regression is invisible (get_serialized_people re-sorts each page by
+        # created_at DESC, so a single page always *looks* correctly ordered).
+        created_at_by_label = {"a": "2021-01-02", "b": "2021-01-04", "c": "2021-01-01", "d": "2021-01-03"}
+        uuid_by_label = {}
+        for label in ["a", "b", "c", "d"]:  # insertion order → ascending id
+            with freeze_time(created_at_by_label[label]):
+                person = create_person(team=self.team, distinct_ids=[label], properties={"$os": "Chrome"})
+                uuid_by_label[label] = str(person.uuid)
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        paged_ids: list[str] = []
+        url: Optional[str] = f"/api/cohort/{cohort.pk}/persons?limit=2"
+        while url:
+            page = self.client.get(url).json()
+            paged_ids += [row["id"] for row in page["results"]]
+            url = page["next"]
+
+        expected = [uuid_by_label[label] for label in ["b", "d", "a", "c"]]  # created_at DESC
+        self.assertEqual(paged_ids, expected)
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -3133,8 +3391,8 @@ email@example.org,
     def test_creating_update_and_calculating_ignore_bad_filters(self, patch_calculate_cohort, patch_capture):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(team=self.team, properties={"team_id": 5})
-        Person.objects.create(team=self.team, properties={"team_id": 6})
+        create_person(team=self.team, properties={"team_id": 5})
+        create_person(team=self.team, properties={"team_id": 6})
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
@@ -3299,6 +3557,345 @@ email@example.org,
                 "code": "behavioral_cohort_found",
                 "detail": "A cohort dependency (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
                 "attr": "filters",
+            }.items(),
+            response.json().items(),
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_cohort_used_in_flags_allows_static_snapshot_cohort_that_preserves_behavioral_filters(
+        self, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        def filters_for(prop: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "OR", "values": [prop]}}
+
+        behavioral_filter = {
+            "event_type": "events",
+            "explicit_datetime": "-14d",
+            "key": "$pageview",
+            "value": "performed_event_first_time",
+            "type": "behavioral",
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort A",
+            filters=filters_for({"key": "$some_prop", "value": "something", "type": "person", "operator": "exact"}),
+        )
+        static_snapshot_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static snapshot cohort",
+            is_static=True,
+            filters=filters_for(behavioral_filter),
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(cohort.pk)]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={"name": "cohort A", "filters": filters_for(cohort_filter(static_snapshot_cohort.pk))},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_cohort_used_in_flags_allows_cohort_depending_on_static_snapshot_cohort(
+        self, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        def filters_for(prop: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "OR", "values": [prop]}}
+
+        behavioral_filter = {
+            "event_type": "events",
+            "explicit_datetime": "-14d",
+            "key": "$pageview",
+            "value": "performed_event_first_time",
+            "type": "behavioral",
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort A",
+            filters=filters_for({"key": "$some_prop", "value": "something", "type": "person", "operator": "exact"}),
+        )
+        behavioral_cohort = Cohort.objects.create(
+            team=self.team, name="behavioral cohort", filters=filters_for(behavioral_filter)
+        )
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            filters=filters_for(cohort_filter(behavioral_cohort.pk)),
+        )
+        nested_cohort = Cohort.objects.create(
+            team=self.team,
+            name="nested cohort",
+            filters=filters_for(cohort_filter(static_cohort.pk)),
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(cohort.pk)]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={"name": "cohort A", "filters": filters_for(cohort_filter(nested_cohort.pk))},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_cohort_behind_static_snapshot_used_in_flag_allows_behavioral_filters(
+        self, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        def filters_for(prop: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "OR", "values": [prop]}}
+
+        source_cohort = Cohort.objects.create(
+            team=self.team,
+            name="source cohort",
+            filters=filters_for({"key": "$some_prop", "value": "something", "type": "person", "operator": "exact"}),
+        )
+        static_snapshot_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static snapshot cohort",
+            is_static=True,
+            filters=filters_for(cohort_filter(source_cohort.pk)),
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(static_snapshot_cohort.pk)]}]},
+            name="This is a static cohort-based flag",
+            key="static-cohort-flag",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{source_cohort.pk}",
+            data={
+                "name": "source cohort",
+                "filters": filters_for(
+                    {
+                        "event_type": "events",
+                        "explicit_datetime": "-14d",
+                        "key": "$pageview",
+                        "value": "performed_event_first_time",
+                        "type": "behavioral",
+                    }
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_static_cohort_used_in_flag_preserves_behavioral_filters(
+        self, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        def filters_for(prop: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "OR", "values": [prop]}}
+
+        behavioral_filter = {
+            "event_type": "events",
+            "explicit_datetime": "-14d",
+            "key": "$pageview",
+            "value": "performed_event_first_time",
+            "type": "behavioral",
+        }
+        static_filters = CohortFilters.model_validate(
+            filters_for(behavioral_filter), context={"team": self.team}
+        ).model_dump(exclude_none=True)
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            filters=static_filters,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(static_cohort.pk)]}]},
+            name="This is a static cohort-based flag",
+            key="static-cohort-flag",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.pk}",
+            data={
+                "name": "renamed static cohort",
+                "filters": static_filters,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    @parameterized.expand(
+        [
+            ("holding_legacy_single_element_list", "icontains", "@example.com"),
+            ("with_is_set_filter_without_value_key", "is_set", None),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_rename_static_cohort_with_unchanged_criteria(
+        self, _name: str, operator: str, value: str | None, patch_calculate_cohort, patch_capture
+    ) -> None:
+        person_filter = {"key": "email", "type": "person", "operator": operator, "value": value}
+        stored_filters = CohortFilters.model_validate(
+            {"properties": {"type": "OR", "values": [person_filter]}}, context={"team": self.team}
+        ).model_dump(exclude_none=True)
+        if value is not None:
+            # A row written before the unwrap shipped. HogQL builds the same bytecode either way.
+            stored_filters["properties"]["values"][0]["value"] = [value]
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            filters=stored_filters,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.pk}",
+            data={
+                "name": "renamed static cohort",
+                "filters": stored_filters,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        static_cohort.refresh_from_db()
+        self.assertEqual(static_cohort.name, "renamed static cohort")
+        assert static_cohort.filters is not None
+        # The save also repairs a legacy list in place: the persisted value is the unwrapped scalar.
+        self.assertEqual(static_cohort.filters["properties"]["values"][0].get("value"), value)
+
+    @parameterized.expand([("with_filters", True), ("without_filters", False)])
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_static_cohort_used_in_flag_rejects_static_to_dynamic_behavioral_filters(
+        self, _name: str, include_filters: bool, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        def filters_for(prop: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "OR", "values": [prop]}}
+
+        behavioral_filter = {
+            "event_type": "events",
+            "explicit_datetime": "-14d",
+            "key": "$pageview",
+            "value": "performed_event_first_time",
+            "type": "behavioral",
+        }
+        static_filters = CohortFilters.model_validate(
+            filters_for(behavioral_filter), context={"team": self.team}
+        ).model_dump(exclude_none=True)
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            filters=static_filters,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(static_cohort.pk)]}]},
+            name="This is a static cohort-based flag",
+            key="static-cohort-flag",
+            created_by=self.user,
+        )
+
+        data = {
+            "name": "static cohort",
+            "is_static": False,
+        }
+        if include_filters:
+            data["filters"] = static_filters
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.pk}",
+            data=data,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertLessEqual(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+                "attr": "filters" if include_filters else None,
+            }.items(),
+            response.json().items(),
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_static_cohort_used_in_flag_rejects_static_to_dynamic_behavioral_groups(
+        self, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        behavioral_filter = {
+            "event_type": "events",
+            "explicit_datetime": "-14d",
+            "key": "$pageview",
+            "value": "performed_event_first_time",
+            "type": "behavioral",
+        }
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            groups=[{"properties": [behavioral_filter]}],
+        )
+        self.assertIsNone(static_cohort.filters)
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(static_cohort.pk)]}]},
+            name="This is a static cohort-based flag",
+            key="static-cohort-flag",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.pk}",
+            data={
+                "name": "static cohort",
+                "is_static": False,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertLessEqual(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+                "attr": None,
             }.items(),
             response.json().items(),
         )
@@ -3839,6 +4436,52 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 201, response.json())
         self.assertNotEqual(response.json()["id"], None)
+
+    @parameterized.expand(
+        [
+            ("icontains_single_list", "person", "email", "icontains", ["@example.com"], "@example.com"),
+            ("not_icontains_single_list", "person", "email", "not_icontains", ["@example.com"], "@example.com"),
+            ("starts_with_single_list", "person", "email", "starts_with", ["admin"], "admin"),
+            ("not_starts_with_single_list", "person", "email", "not_starts_with", ["admin"], "admin"),
+            ("ends_with_single_list", "person", "email", "ends_with", [".com"], ".com"),
+            ("not_ends_with_single_list", "person", "email", "not_ends_with", [".com"], ".com"),
+            ("is_date_after_single_list", "person", "email", "is_date_after", ["-7d"], "-7d"),
+            ("is_date_before_single_list", "person", "email", "is_date_before", ["-7d"], "-7d"),
+            (
+                "person_metadata_single_list",
+                "person_metadata",
+                "created_at",
+                "is_date_after",
+                ["2024-01-01"],
+                "2024-01-01",
+            ),
+            ("icontains_multi_list_kept", "person", "email", "icontains", ["@a.com", "@b.com"], ["@a.com", "@b.com"]),
+            ("icontains_plain_string_kept", "person", "email", "icontains", "@example.com", "@example.com"),
+            ("icontains_empty_list_kept", "person", "email", "icontains", [], []),
+            ("icontains_non_string_element_kept", "person", "email", "icontains", [None], [None]),
+            ("exact_single_list_kept", "person", "email", "exact", ["admin"], ["admin"]),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_single_value_operator_unwraps_single_element_list(
+        self, _name, filter_type, key, operator, value, expected, patch_capture
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": f"cohort with {operator}",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [{"key": key, "type": filter_type, "operator": operator, "value": value}],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        assert cohort.filters is not None
+        self.assertEqual(cohort.filters["properties"]["values"][0]["value"], expected)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_cohort_filter(self, patch_capture):
@@ -4767,7 +5410,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_insight(self, patch_calculate_cohort, patch_capture):
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -4796,7 +5439,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_multiple_insights(self, patch_calculate_cohort, patch_capture):
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -4830,7 +5473,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_more_than_five_insights(self, patch_calculate_cohort, patch_capture):
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -4876,7 +5519,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_can_delete_cohort_not_used_in_insights(self, patch_calculate_cohort, patch_capture):
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -4906,7 +5549,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_breakdown_filter(self, patch_calculate_cohort, patch_capture):
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -4942,7 +5585,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_deeply_nested_properties(self, patch_calculate_cohort, patch_capture):
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -4958,6 +5601,7 @@ email@example.org,
                 "source": {
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "$pageview",
                             "properties": [{"type": "cohort", "value": cohort_id}],
                         }
@@ -5289,6 +5933,34 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         )
         return cohort_a_id, cohort_b_id
 
+    def _create_flag_referencing_cohort_through_static_snapshot(self) -> tuple[int, int]:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        def filters_for(prop: dict[str, Any]) -> dict[str, Any]:
+            return {"properties": {"type": "OR", "values": [prop]}}
+
+        source_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Source cohort",
+            filters=filters_for({"key": "$some_prop", "value": "something", "type": "person", "operator": "exact"}),
+        )
+        static_snapshot_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Static snapshot cohort",
+            is_static=True,
+            filters=filters_for(cohort_filter(source_cohort.pk)),
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(static_snapshot_cohort.pk)]}]},
+            name="Static snapshot flag",
+            key="static-snapshot-flag",
+            created_by=self.user,
+            active=True,
+        )
+        return source_cohort.pk, static_snapshot_cohort.pk
+
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_used_in_returns_feature_flags(self, patch_calculate_cohort, patch_capture):
@@ -5371,6 +6043,15 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         flags = response.json()["feature_flags"]["results"]
         self.assertEqual(len(flags), 1)
         self.assertEqual(flags[0]["key"], "transitive-flag")
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_used_in_excludes_flags_behind_static_snapshot(self, patch_calculate_cohort, patch_capture):
+        source_cohort_id, _ = self._create_flag_referencing_cohort_through_static_snapshot()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{source_cohort_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["feature_flags"], {"results": [], "total": 0, "has_more": False})
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -5512,9 +6193,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             name="Insight Referencing Cohort",
             query={
-                "kind": "InsightVizNode",
+                "kind": "DataTableNode",
                 "source": {
-                    "kind": "TrendsQuery",
+                    "kind": "EventsQuery",
+                    "select": ["*"],
                     "properties": [{"type": "cohort", "key": "id", "value": cohort_id}],
                 },
             },
@@ -5539,13 +6221,12 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
 
         insight = Insight.objects.create(
             team=self.team,
-            name="Trends With Cohort Breakdown",
+            name="Insight With Cohort Breakdown",
+            # `get_insights_using_cohort` matches `source.breakdownFilter` by JSON path and never
+            # reads the query kind, so the fixture carries only the path the predicate walks.
             query={
                 "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_id]},
-                },
+                "source": {"breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_id]}},
             },
         )
 
@@ -5565,9 +6246,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         )
         cohort_id = response.json()["id"]
         cohort_query = {
-            "kind": "InsightVizNode",
+            "kind": "DataTableNode",
             "source": {
-                "kind": "TrendsQuery",
+                "kind": "EventsQuery",
+                "select": ["*"],
                 "properties": [{"type": "cohort", "key": "id", "value": cohort_id}],
             },
         }
@@ -5590,9 +6272,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         )
         cohort_id = response.json()["id"]
         cohort_query = {
-            "kind": "InsightVizNode",
+            "kind": "DataTableNode",
             "source": {
-                "kind": "TrendsQuery",
+                "kind": "EventsQuery",
+                "select": ["*"],
                 "properties": [{"type": "cohort", "key": "id", "value": cohort_id}],
             },
         }
@@ -5672,9 +6355,10 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
             team=other_team,
             name="Sibling Insight",
             query={
-                "kind": "InsightVizNode",
+                "kind": "DataTableNode",
                 "source": {
-                    "kind": "TrendsQuery",
+                    "kind": "EventsQuery",
+                    "select": ["*"],
                     "properties": [{"type": "cohort", "key": "id", "value": cohort_id}],
                 },
             },
@@ -5840,6 +6524,23 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
             response.json()["detail"],
         )
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_deletion_protection_ignores_flags_behind_static_snapshot(self, patch_calculate_cohort, patch_capture):
+        source_cohort_id, _ = self._create_flag_referencing_cohort_through_static_snapshot()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{source_cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotIn("active feature flag", response.json()["detail"])
+        self.assertIn(
+            "This cohort is used as criteria in 1 other cohort(s): Static snapshot cohort",
+            response.json()["detail"],
+        )
+
 
 class TestCalculateCohortCommand(APIBaseTest):
     def test_calculate_cohort_command_success(self):
@@ -5979,10 +6680,114 @@ class TestCohortTypeIntegration(APIBaseTest):
         # cohort_type is auto-computed for realtime-capable filters
         self.assertEqual(cohort.cohort_type, "realtime")
         self.assertEqual(response.data["cohort_type"], "realtime")
+        # condition_type is auto-computed from the filter shape, independent of realtime eligibility
+        expected_condition_type = {
+            "person_properties": True,
+            "behavioral": False,
+            "lifecycle": False,
+            "cohorts": False,
+        }
+        self.assertEqual(cohort.condition_type, expected_condition_type)
+        self.assertEqual(response.data["condition_type"], expected_condition_type)
+
+    def test_filter_test_accounts_persists_and_forces_batch_calculation(self):
+        # Forced off the realtime path because realtime bytecode can't see the injected test account filters.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "Real users only",
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "person",
+                                "key": "email",
+                                "operator": "icontains",
+                                "value": "@posthog.com",
+                            }
+                        ],
+                    },
+                    "filterTestAccounts": True,
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        cohort = Cohort.objects.get(id=response.data["id"])
+        assert cohort.filters is not None
+        self.assertIs(cohort.filters.get("filterTestAccounts"), True)
+        self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
+
+    def test_filter_test_accounts_patch_toggles_realtime_routing(self):
+        person_property_filters = {
+            "type": "AND",
+            "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+        }
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "Real users only", "filters": {"properties": person_property_filters}},
+            format="json",
+        )
+        self.assertEqual(create.status_code, 201, create.data)
+        cohort_id = create.data["id"]
+        self.assertEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
+        turn_on = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+            {"filters": {"properties": person_property_filters, "filterTestAccounts": True}},
+            format="json",
+        )
+        self.assertEqual(turn_on.status_code, 200, turn_on.data)
+        cohort = Cohort.objects.get(id=cohort_id)
+        assert cohort.filters is not None
+        self.assertIs(cohort.filters.get("filterTestAccounts"), True)
+        self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
+
+        turn_off = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+            {"filters": {"properties": person_property_filters, "filterTestAccounts": False}},
+            format="json",
+        )
+        self.assertEqual(turn_off.status_code, 200, turn_off.data)
+        self.assertEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
+    def test_person_metadata_cohort_not_classified_realtime(self):
+        """person_metadata cohorts must route to the non-realtime path: the realtime
+        evaluator's person scope exposes only person.id and person.properties, not
+        top-level persons-table columns."""
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "First seen after 2024",
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "person_metadata",
+                                "key": "created_at",
+                                "operator": "is_date_after",
+                                "value": "2024-01-01",
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        cohort = Cohort.objects.get(id=response.data["id"])
+        self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
 
     def test_api_response_includes_cohort_type(self):
-        """API responses should include the cohort_type field"""
+        """API responses should include the cohort_type and condition_type fields"""
 
+        # condition_type is intentionally not passed here: it's derived from filters on
+        # save (even for a direct ORM create, not just through the API serializer).
         cohort = Cohort.objects.create(
             team=self.team,
             name="Test Cohort",
@@ -6016,6 +6821,14 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertIn("cohort_type", response.data)
         self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+        self.assertIn("condition_type", response.data)
+        expected_condition_type = {
+            "person_properties": False,
+            "behavioral": True,
+            "lifecycle": False,
+            "cohorts": False,
+        }
+        self.assertEqual(response.data["condition_type"], expected_condition_type)
 
         # Test LIST request
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
@@ -6025,6 +6838,8 @@ class TestCohortTypeIntegration(APIBaseTest):
         cohort_data = next(c for c in response.data["results"] if c["id"] == cohort.id)
         self.assertIn("cohort_type", cohort_data)
         self.assertEqual(cohort_data["cohort_type"], CohortType.BEHAVIORAL)
+        self.assertIn("condition_type", cohort_data)
+        self.assertEqual(cohort_data["condition_type"], expected_condition_type)
 
     def test_explicit_cohort_type_validation_success(self):
         """Should accept valid explicit cohort types"""
@@ -6165,12 +6980,12 @@ class TestCohortTypeIntegration(APIBaseTest):
     )
     def test_static_cohort_csv_upload_with_email_column_only(self, patch_calculate_cohort_from_list):
         """Test CSV upload with only email column using async task"""
-        person1 = Person.objects.create(
+        person1 = create_person(
             team=self.team,
             distinct_ids=["user123"],
             properties={"email": "john@example.com"},
         )
-        person2 = Person.objects.create(
+        person2 = create_person(
             team=self.team,
             distinct_ids=["user456"],
             properties={"email": "jane@example.com"},
@@ -6192,7 +7007,7 @@ jane@example.com
         with patch.object(
             Cohort,
             "_get_uuids_for_emails_batch_ch",
-            return_value=[str(person1.uuid), str(person2.uuid)],
+            return_value=([str(person1.uuid), str(person2.uuid)], {"john@example.com", "jane@example.com"}),
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts/",
@@ -6204,11 +7019,10 @@ jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -6218,16 +7032,16 @@ jane@example.com
     )
     def test_static_cohort_csv_upload_person_id_preference_over_email(self, patch_calculate_cohort_from_list):
         """Test that person_id is preferred over email when both columns are present"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         # Create persons with emails that would match if email was used instead
-        person_with_email1 = Person.objects.create(
+        person_with_email1 = create_person(
             team=self.team,
             distinct_ids=["email_user1"],
             properties={"email": "john@example.com"},
         )
-        person_with_email2 = Person.objects.create(
+        person_with_email2 = create_person(
             team=self.team,
             distinct_ids=["email_user2"],
             properties={"email": "jane@example.com"},
@@ -6254,11 +7068,10 @@ Jane Smith,{person2.uuid},jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort (the ones matched by person_id, not email)
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -6272,16 +7085,16 @@ Jane Smith,{person2.uuid},jane@example.com
     )
     def test_static_cohort_csv_upload_distinct_id_preference_over_email(self, patch_calculate_cohort_from_list):
         """Test that distinct_id is preferred over email when both columns are present"""
-        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
-        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         # Create persons with emails that would match if email was used instead
-        person_with_email1 = Person.objects.create(
+        person_with_email1 = create_person(
             team=self.team,
             distinct_ids=["email_user1"],
             properties={"email": "john@example.com"},
         )
-        person_with_email2 = Person.objects.create(
+        person_with_email2 = create_person(
             team=self.team,
             distinct_ids=["email_user2"],
             properties={"email": "jane@example.com"},
@@ -6308,11 +7121,10 @@ Jane Smith,user456,jane@example.com
         cohort = Cohort.objects.get(pk=response.json()["id"])
 
         # Verify the persons were actually added to the cohort
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 2)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
 
         # Verify specific persons are in the cohort (the ones matched by distinct_id, not email)
-        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -6326,9 +7138,7 @@ Jane Smith,user456,jane@example.com
         CSV upload with an email column always uses the ClickHouse pmat_email
         materialized column for lookup, regardless of CSV header casing.
         """
-        person = Person.objects.create(
-            team=self.team, distinct_ids=["user_email"], properties={"email": "test@example.com"}
-        )
+        person = create_person(team=self.team, distinct_ids=["user_email"], properties={"email": "test@example.com"})
 
         csv_file = SimpleUploadedFile(
             "emails.csv",
@@ -6341,7 +7151,7 @@ Jane Smith,user456,jane@example.com
         with patch.object(
             Cohort,
             "_get_uuids_for_emails_batch_ch",
-            return_value=[str(person.uuid)],
+            return_value=([str(person.uuid)], {"test@example.com"}),
         ) as ch_mock:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts/",
@@ -6352,13 +7162,12 @@ Jane Smith,user456,jane@example.com
 
         self.assertEqual(response.status_code, 201)
         cohort = Cohort.objects.get(pk=response.json()["id"])
-        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
-        self.assertEqual(people_in_cohort.count(), 1)
-        self.assertIn(str(person.uuid), {str(p.uuid) for p in people_in_cohort})
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)
+        self.assertIn(str(person.uuid), _cohort_member_uuids(cohort.team_id, cohort))
 
     def test_insert_users_by_email_always_uses_clickhouse(self):
         cohort = Cohort.objects.create(team=self.team, name="ch-only", is_static=True)
-        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=[]) as ch_mock:
+        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=([], set())) as ch_mock:
             cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id)
         ch_mock.assert_called_once()
 
@@ -6372,7 +7181,7 @@ Jane Smith,user456,jane@example.com
     )
     def test_email_property_key_is_accepted_and_always_routes_to_clickhouse(self, _name, email_property_key):
         cohort = Cohort.objects.create(team=self.team, name="key-compat", is_static=True)
-        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=[]) as ch_mock:
+        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=([], set())) as ch_mock:
             cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id, email_property_key=email_property_key)
         ch_mock.assert_called_once()
 

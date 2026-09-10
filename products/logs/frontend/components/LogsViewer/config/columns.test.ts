@@ -1,0 +1,114 @@
+import { AttributeColumnConfig } from 'products/logs/frontend/types'
+
+import {
+    columnLabel,
+    columnsToCustomColumns,
+    LogsColumnConfig,
+    migrateAttributeColumns,
+    normalizeColumns,
+} from './columns'
+
+describe('logs column config', () => {
+    describe('columnsToCustomColumns', () => {
+        it('lowers server-computed columns, in order, and never sends client-side built-ins', () => {
+            const columns: LogsColumnConfig[] = [
+                { id: 'timestamp', type: 'timestamp' },
+                { id: 'a', type: 'custom', expression: 'attributes.http.url' },
+                { id: 'level', type: 'level' },
+                // Pattern lives only on the table, so it rides the wire like a custom column
+                { id: 'pattern', type: 'pattern' },
+                { id: 'b', type: 'custom', expression: ' upper(level) ' },
+                { id: 'message', type: 'message' },
+            ]
+            expect(columnsToCustomColumns(columns)).toEqual(['attributes.http.url', 'pattern', 'upper(level)'])
+        })
+
+        it('deduplicates repeated expressions, which the server would reject as a redefined alias', () => {
+            const columns: LogsColumnConfig[] = [
+                { id: 'p1', type: 'pattern' },
+                { id: 'p2', type: 'pattern' },
+                { id: 'c', type: 'custom', expression: 'pattern' },
+            ]
+            expect(columnsToCustomColumns(columns)).toEqual(['pattern'])
+        })
+
+        it.each<[string, LogsColumnConfig[]]>([
+            ['no columns', []],
+            ['client-side built-ins only', [{ id: 'timestamp', type: 'timestamp' }]],
+            ['custom with blank expression', [{ id: 'x', type: 'custom', expression: '   ' }]],
+            ['custom with no expression', [{ id: 'x', type: 'custom' }]],
+            // Person and Session resolve from the row's attribute maps in the cell, so they cost nothing on the wire
+            [
+                'person and session',
+                [
+                    { id: 'person', type: 'person' },
+                    { id: 'session', type: 'session' },
+                ],
+            ],
+        ])('returns undefined (not []) for %s, keeping query payloads cache-identical', (_, columns) => {
+            expect(columnsToCustomColumns(columns)).toBeUndefined()
+        })
+    })
+
+    describe('columnLabel', () => {
+        it.each<[LogsColumnConfig, string]>([
+            [{ id: 'person', type: 'person' }, 'Person'],
+            [{ id: 'session', type: 'session' }, 'Session'],
+            [{ id: 'person', type: 'person', name: 'User' }, 'User'],
+        ])('labels %j as %s', (column, expected) => {
+            expect(columnLabel(column)).toBe(expected)
+        })
+    })
+
+    describe('migrateAttributeColumns', () => {
+        it('orders by the legacy order field and preserves width', () => {
+            // Insertion order deliberately disagrees with the order field
+            const legacy: Record<string, AttributeColumnConfig> = {
+                'k8s.pod': { order: 1, width: 240 },
+                'http.status_code': { order: 0 },
+            }
+            const migrated = migrateAttributeColumns(legacy)
+
+            expect(migrated.map((c) => c.name)).toEqual(['http.status_code', 'k8s.pod'])
+            expect(migrated.map((c) => c.type)).toEqual(['custom', 'custom'])
+            expect(migrated[0].width).toBeUndefined()
+            expect(migrated[1].width).toBe(240)
+            expect(new Set(migrated.map((c) => c.id)).size).toBe(2)
+        })
+
+        it('emits an expression that reads both maps, matching the legacy attributes-then-resource fallback', () => {
+            const [migrated] = migrateAttributeColumns({ 'service.version': { order: 0 } })
+            expect(migrated.expression).toBe(
+                "if(mapContains(attributes, 'service.version'), attributes['service.version'], resource_attributes['service.version'])"
+            )
+        })
+
+        it('escapes quotes and backslashes so keys cannot break out of the expression string', () => {
+            const [migrated] = migrateAttributeColumns({ "we'ird\\key": { order: 0 } })
+            expect(migrated.expression).toContain("we\\'ird\\\\key")
+        })
+    })
+
+    describe('normalizeColumns', () => {
+        it('pins message columns last, preserving relative order of the rest', () => {
+            const columns: LogsColumnConfig[] = [
+                { id: 'm', type: 'message' },
+                { id: 't', type: 'timestamp' },
+                { id: 'c', type: 'custom', expression: 'attributes.a' },
+            ]
+            expect(normalizeColumns(columns).map((c) => c.id)).toEqual(['t', 'c', 'm'])
+        })
+
+        it('returns the same reference when message is already last or absent', () => {
+            // Identity matters: reducers call this on every mutation, and a fresh array in the
+            // steady state would defeat referential-equality checks downstream
+            const alreadyLast: LogsColumnConfig[] = [
+                { id: 't', type: 'timestamp' },
+                { id: 'm', type: 'message' },
+            ]
+            expect(normalizeColumns(alreadyLast)).toBe(alreadyLast)
+            const noMessage: LogsColumnConfig[] = [{ id: 't', type: 'timestamp' }]
+            expect(normalizeColumns(noMessage)).toBe(noMessage)
+        })
+    })
+})

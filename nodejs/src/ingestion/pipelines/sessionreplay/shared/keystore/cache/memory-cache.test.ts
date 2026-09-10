@@ -42,9 +42,9 @@ describe('MemoryCachedKeyStore', () => {
 
     describe('generateKey', () => {
         it('should call delegate and cache the result', async () => {
-            const result = await cachedKeyStore.generateKey('session-123', 1)
+            const result = await cachedKeyStore.generateKey('session-123', 1, 30)
 
-            expect(mockDelegate.generateKey).toHaveBeenCalledWith('session-123', 1)
+            expect(mockDelegate.generateKey).toHaveBeenCalledWith('session-123', 1, 30)
             expect(result).toEqual(mockSessionKey)
 
             // Second call should use cache
@@ -55,10 +55,22 @@ describe('MemoryCachedKeyStore', () => {
             expect(cachedResult).toEqual(mockSessionKey)
         })
 
+        it('should serve a cached key on a repeat generateKey without hitting the delegate', async () => {
+            // A session grouped per batch can call generateKey once per message; only the first should
+            // reach the delegate (KMS/DynamoDB), the rest come from cache.
+            await cachedKeyStore.generateKey('session-123', 1, 30)
+            mockDelegate.generateKey.mockClear()
+
+            const result = await cachedKeyStore.generateKey('session-123', 1, 30)
+
+            expect(mockDelegate.generateKey).not.toHaveBeenCalled()
+            expect(result).toEqual(mockSessionKey)
+        })
+
         it('should propagate delegate generateKey error', async () => {
             mockDelegate.generateKey.mockRejectedValue(new Error('Generate failed'))
 
-            await expect(cachedKeyStore.generateKey('session-123', 1)).rejects.toThrow('Generate failed')
+            await expect(cachedKeyStore.generateKey('session-123', 1, 30)).rejects.toThrow('Generate failed')
         })
     })
 
@@ -211,23 +223,40 @@ describe('MemoryCachedKeyStore', () => {
         })
 
         it('should expire cached items after ttlMs', async () => {
-            const ttlMs = 50 // Short TTL for testing
-            const customCachedKeyStore = new MemoryCachedKeyStore(mockDelegate, { ttlMs })
+            const ttlMs = 50
+            // lru-cache reads the clock through the performance object it captured at import, so
+            // Jest's fake timers cannot reach it: they replace that global object instead of
+            // patching it. A spy on the method does reach it. Drive the clock by hand, because on
+            // a loaded runner the wall clock can pass ttlMs between the two reads below.
+            let now = performance.now()
+            const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => now)
 
-            // First call populates cache
-            await customCachedKeyStore.getKey('session-123', 1)
-            mockDelegate.getKey.mockClear()
+            try {
+                const customCachedKeyStore = new MemoryCachedKeyStore(mockDelegate, { ttlMs })
 
-            // Immediate second call should use cache
-            await customCachedKeyStore.getKey('session-123', 1)
-            expect(mockDelegate.getKey).not.toHaveBeenCalled()
+                // First call populates cache
+                await customCachedKeyStore.getKey('session-123', 1)
+                mockDelegate.getKey.mockClear()
 
-            // Wait for TTL to expire
-            await new Promise((resolve) => setTimeout(resolve, ttlMs + 10))
+                // Baseline: still cached while the clock has not moved
+                await customCachedKeyStore.getKey('session-123', 1)
+                expect(mockDelegate.getKey).not.toHaveBeenCalled()
 
-            // After TTL - should call delegate
-            await customCachedKeyStore.getKey('session-123', 1)
-            expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
+                // Move past the TTL
+                now += ttlMs + 10
+
+                // The read above made lru-cache keep its staleness reading for ttlResolution, which
+                // is 1 ms by default, and only a timer clears it. Wait for a timer that expires
+                // after that one, so the next staleness check reads the clock above. Elapsed time
+                // is all this wait needs, so a slow runner cannot break it.
+                await new Promise((resolve) => setTimeout(resolve, 5))
+
+                // After TTL - should call delegate
+                await customCachedKeyStore.getKey('session-123', 1)
+                expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
+            } finally {
+                nowSpy.mockRestore()
+            }
         })
     })
 

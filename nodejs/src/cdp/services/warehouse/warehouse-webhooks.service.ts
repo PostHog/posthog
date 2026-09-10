@@ -1,9 +1,9 @@
 import { Gauge } from 'prom-client'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
-import { logger } from '../../../utils/logger'
-import { captureException } from '../../../utils/posthog'
 import { WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT, WarehouseSourceWebhooksOutput } from '../../outputs/outputs'
 import { CyclotronJobInvocationResult, WarehouseWebhookPayload } from '../../types'
 
@@ -39,6 +39,12 @@ export class WarehouseWebhooksService {
                 this.queue(result.warehouseWebhookPayloads)
             }
         }
+    }
+
+    // Required by ResultSink. This sink holds nothing of its own: it writes through the shared
+    // Kafka outputs, which the server disconnects separately on shutdown.
+    async stop(): Promise<void> {
+        return Promise.resolve()
     }
 
     async flush(): Promise<void> {

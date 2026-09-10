@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const RemindersListQueryParams = /* @__PURE__ */ zod.object({
+export const RemindersListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -23,7 +23,7 @@ export const remindersCreateBodyCronExpressionMax = 100
 
 export const remindersCreateBodyTimezoneMax = 64
 
-export const RemindersCreateBody = /* @__PURE__ */ zod.object({
+export const RemindersCreateBody = () => zod.object({
     organization: zod.string().describe('ID of the organization this reminder belongs to. You must be a member of it.'),
     team: zod
         .number()
@@ -56,27 +56,27 @@ export const RemindersCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
-                .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'),
+                .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'),
             zod.enum(['']),
             zod.null(),
         ])
         .optional()
         .describe(
-            'For a recurring reminder: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+            'For a recurring reminder: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
         ),
     cron_expression: zod
         .string()
         .max(remindersCreateBodyCronExpressionMax)
         .nullish()
         .describe(
-            "For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval."
+            "For a recurring reminder: a 5-field cron expression (e.g. '0 9 \* \* 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval."
         ),
     timezone: zod
         .string()
         .max(remindersCreateBodyTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
+            "IANA timezone the schedule resolves in (e.g. 'America\/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
         ),
     end_date: zod.iso
         .datetime({ offset: true })
@@ -84,11 +84,11 @@ export const RemindersCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional: recurring reminders stop (status=completed) after this time.'),
 })
 
-export const RemindersRetrieveParams = /* @__PURE__ */ zod.object({
+export const RemindersRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this reminder.'),
 })
 
-export const RemindersPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const RemindersPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this reminder.'),
 })
 
@@ -102,7 +102,7 @@ export const remindersPartialUpdateBodyCronExpressionMax = 100
 
 export const remindersPartialUpdateBodyTimezoneMax = 64
 
-export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const RemindersPartialUpdateBody = () => zod.object({
     organization: zod
         .string()
         .optional()
@@ -139,27 +139,27 @@ export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
-                .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'),
+                .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'),
             zod.enum(['']),
             zod.null(),
         ])
         .optional()
         .describe(
-            'For a recurring reminder: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+            'For a recurring reminder: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
         ),
     cron_expression: zod
         .string()
         .max(remindersPartialUpdateBodyCronExpressionMax)
         .nullish()
         .describe(
-            "For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval."
+            "For a recurring reminder: a 5-field cron expression (e.g. '0 9 \* \* 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval."
         ),
     timezone: zod
         .string()
         .max(remindersPartialUpdateBodyTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
+            "IANA timezone the schedule resolves in (e.g. 'America\/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
         ),
     end_date: zod.iso
         .datetime({ offset: true })
@@ -167,6 +167,6 @@ export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Optional: recurring reminders stop (status=completed) after this time.'),
 })
 
-export const RemindersDestroyParams = /* @__PURE__ */ zod.object({
+export const RemindersDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this reminder.'),
 })

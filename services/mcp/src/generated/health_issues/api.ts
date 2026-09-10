@@ -12,15 +12,15 @@ import * as zod from 'zod'
  * Lists health issues detected across all of this project's PostHog health checks (outdated SDKs, data warehouse sync failures, missing web analytics events, ingestion warnings, and more). Filter by status, severity, kind, or dismissed state.
  * @summary List health issues
  */
-export const HealthIssuesListParams = /* @__PURE__ */ zod.object({
+export const HealthIssuesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const HealthIssuesListQueryParams = /* @__PURE__ */ zod.object({
+export const HealthIssuesListQueryParams = () => zod.object({
     dismissed: zod
         .boolean()
         .optional()
@@ -39,23 +39,23 @@ export const HealthIssuesListQueryParams = /* @__PURE__ */ zod.object({
  * Fetches a single health issue, enriched with the owning check's rendered explanation: a title, a one-line summary of what's wrong, a deep link to the relevant page, and remediation guidance for how to fix it.
  * @summary Get a health issue
  */
-export const HealthIssuesRetrieveParams = /* @__PURE__ */ zod.object({
+export const HealthIssuesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this health issue.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
- * Returns aggregated counts of active, non-dismissed health issues for the project, broken down by severity and by kind. Use for a quick overview of overall project health before drilling in with the list endpoint.
+ * Returns aggregated counts of active, non-dismissed health issues for the project, split into `unsnoozed` and `snoozed` groups and broken down by severity and by kind within each. Use for a quick overview of overall project health before drilling in with the list endpoint.
  * @summary Summarize active health issues
  */
-export const HealthIssuesSummaryRetrieveParams = /* @__PURE__ */ zod.object({
+export const HealthIssuesSummaryRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })

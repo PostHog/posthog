@@ -16,7 +16,7 @@ import {
 } from '~/types'
 
 import { LocalFilter } from '../entityFilterLogic'
-import { entityFilterLogicType } from '../entityFilterLogicType'
+import type { entityFilterLogicType } from '../entityFilterLogic'
 
 export enum MathAvailability {
     All,
@@ -40,6 +40,9 @@ export interface ActionFilterRowProps {
     hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     showCombine?: boolean // Show the combine inline events option
     insightType?: InsightType // The type of insight (trends, funnels, etc.)
+    // Opt in the flag-gated "Performed event" behavioral filter. Off by default because behavioral
+    // filters compile to a person_id subquery, which realtime contexts (CDP, workflows) reject.
+    allowBehavioralPropertyFilter?: boolean
     propertyFiltersPopover?: boolean
     onRenameClick?: () => void // Used to open rename modal
     showSeriesIndicator?: boolean // Show series badge

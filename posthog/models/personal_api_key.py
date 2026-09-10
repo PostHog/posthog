@@ -35,6 +35,7 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     id = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="personal_api_keys")
     label = models.CharField(max_length=40)
+    description = models.TextField(null=True, blank=True, max_length=1000)
     mask_value = models.CharField(max_length=11, editable=False, null=True)
     secure_value = models.CharField(
         unique=True,
@@ -46,8 +47,8 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     last_used_at = models.DateTimeField(null=True, blank=True)
     last_rolled_at = models.DateTimeField(null=True, blank=True)
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), default=list)
-    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
-    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
     # DEPRECATED: value is no longer persisted; use secure_value for hash of value
     value = deprecate_field(models.CharField(unique=True, max_length=50, editable=False, null=True, blank=True))

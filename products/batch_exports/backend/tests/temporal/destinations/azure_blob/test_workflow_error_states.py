@@ -21,7 +21,10 @@ from products.batch_exports.backend.temporal.destinations.azure_blob_batch_expor
     AzureBlobBatchExportWorkflow,
     insert_into_azure_blob_activity_from_stage,
 )
-from products.batch_exports.backend.temporal.pipeline.internal_stage import BatchExportInsertIntoInternalStageInputs
+from products.batch_exports.backend.temporal.pipeline.internal_stage import (
+    BatchExportInsertIntoInternalStageInputs,
+    InternalStageResult,
+)
 from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -56,7 +59,7 @@ async def test_workflow_sets_failed_retryable_on_transient_error(
 
     @activity.defn(name="insert_into_internal_stage_activity")
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
-        return
+        return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -118,7 +121,7 @@ async def test_workflow_sets_failed_on_container_not_found(
 
     @activity.defn(name="insert_into_internal_stage_activity")
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
-        return
+        return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -179,7 +182,7 @@ async def test_workflow_sets_failed_on_invalid_credentials(
 
     @activity.defn(name="insert_into_internal_stage_activity")
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
-        return
+        return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -240,7 +243,7 @@ async def test_workflow_sets_cancelled_on_cancellation(
 
     @activity.defn(name="insert_into_internal_stage_activity")
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
-        return
+        return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
     @activity.defn(name="insert_into_azure_blob_activity_from_stage")
     async def never_finish_activity(_):

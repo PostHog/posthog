@@ -26,6 +26,18 @@ import {
     getQuery,
 } from './metricQueryUtils'
 
+// getQuery builds date_from/date_to from dayjs() at call time, formatted to the minute.
+// The expected values below recompute dayjs() independently, so a minute rollover between
+// the two reads makes the strings differ and toEqual flakes. Freeze the clock (no
+// advanceTimers, so it cannot move) to make both reads resolve to the same instant.
+beforeAll(() => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-01-15T12:00:00'))
+})
+
+afterAll(() => {
+    jest.useRealTimers()
+})
+
 describe('getFilter', () => {
     it('returns the correct filter for an event', () => {
         const metric: ExperimentMetric = {
@@ -235,6 +247,40 @@ describe('filterToMetricConfig', () => {
         })
     })
 
+    it('keeps a data warehouse step in a FUNNEL metric config', () => {
+        const events = [{ id: '$pageview', properties: [], order: 1 }]
+        const dataWarehouse = [
+            {
+                id: 'stripe_charges',
+                name: 'Stripe charges',
+                timestamp_field: 'created_at',
+                events_join_key: 'distinct_id',
+                data_warehouse_join_key: 'customer_id',
+                properties: [],
+                order: 0,
+            },
+        ]
+
+        const result = filterToMetricConfig(ExperimentMetricType.FUNNEL, undefined, events, dataWarehouse)
+
+        expect(result).toEqual({
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [
+                {
+                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    table_name: 'stripe_charges',
+                    name: 'Stripe charges',
+                    timestamp_field: 'created_at',
+                    events_join_key: 'distinct_id',
+                    data_warehouse_join_key: 'customer_id',
+                    custom_name: undefined,
+                    properties: [],
+                },
+                { kind: NodeKind.EventsNode, event: '$pageview', properties: [] },
+            ],
+        })
+    })
+
     it('returns MEAN metric config when mean type is provided with events', () => {
         const events = [
             { id: 'purchase', name: 'Purchase Event', math: ExperimentMetricMathType.Sum, math_property: 'revenue' },
@@ -253,6 +299,32 @@ describe('filterToMetricConfig', () => {
                 math_hogql: undefined,
                 properties: undefined,
             },
+        })
+    })
+
+    it('keeps funnel step order stable when filter order is missing', () => {
+        const events = [{ id: 'first_event' }]
+        const dataWarehouse = [
+            {
+                id: 'stripe_charges',
+                name: 'Stripe charges',
+                timestamp_field: 'created_at',
+                events_join_key: 'distinct_id',
+                data_warehouse_join_key: 'customer_id',
+            },
+        ]
+
+        const result = filterToMetricConfig(ExperimentMetricType.FUNNEL, undefined, events, dataWarehouse)
+
+        expect(result).toEqual({
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [
+                expect.objectContaining({ kind: NodeKind.EventsNode, event: 'first_event' }),
+                expect.objectContaining({
+                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    table_name: 'stripe_charges',
+                }),
+            ],
         })
     })
 
@@ -660,7 +732,7 @@ describe('Data Warehouse Support', () => {
             })
         })
 
-        it('handles funnel metrics with mixed steps (events and actions only)', () => {
+        it('keeps data warehouse fields when converting a funnel metric to filters', () => {
             const metric: ExperimentMetric = {
                 kind: NodeKind.ExperimentMetric,
                 metric_type: ExperimentMetricType.FUNNEL,
@@ -675,6 +747,14 @@ describe('Data Warehouse Support', () => {
                         id: 42,
                         name: 'subscription_action',
                     } as ActionsNode,
+                    {
+                        kind: NodeKind.ExperimentDataWarehouseNode,
+                        table_name: 'stripe_charges',
+                        name: 'Stripe charges',
+                        timestamp_field: 'created_at',
+                        events_join_key: 'distinct_id',
+                        data_warehouse_join_key: 'customer_id',
+                    } as ExperimentDataWarehouseNode,
                 ],
             }
             const filter = getFilter(metric)
@@ -698,7 +778,19 @@ describe('Data Warehouse Support', () => {
                         kind: NodeKind.ActionsNode,
                     },
                 ],
-                data_warehouse: [], // Data warehouse nodes are not supported in funnel metrics
+                data_warehouse: [
+                    expect.objectContaining({
+                        kind: NodeKind.ExperimentDataWarehouseNode,
+                        type: 'data_warehouse',
+                        table_name: 'stripe_charges',
+                        timestamp_field: 'created_at',
+                        events_join_key: 'distinct_id',
+                        data_warehouse_join_key: 'customer_id',
+                        id_field: 'customer_id',
+                        aggregation_target_field: 'distinct_id',
+                        order: 2,
+                    }),
+                ],
             })
         })
     })

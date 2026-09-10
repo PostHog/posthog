@@ -11,6 +11,15 @@ const interview: InterviewExportPayload = {
     user_name: 'Sam',
     topic: 'how you use dashboards',
     already_replied: false,
+    shared: false,
+}
+
+// Non-personalised (shared) link: no known interviewee, so the viewer asks for a name first.
+const sharedInterview: InterviewExportPayload = {
+    ...interview,
+    interviewee_identifier: '',
+    user_name: '',
+    shared: true,
 }
 
 type Story = StoryObj<ExportedData>
@@ -52,3 +61,9 @@ const meta: Meta<ExportedData> = {
 export default meta
 
 export const Default: Story = {}
+
+export const SharedLink: Story = {
+    args: {
+        interview: sharedInterview,
+    },
+}

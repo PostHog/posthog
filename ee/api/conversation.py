@@ -6,7 +6,7 @@ from typing import cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.http import StreamingHttpResponse
+from django.db.models import Q
 from django.utils import timezone
 
 import pydantic
@@ -27,6 +27,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import sse_streaming_response
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
@@ -80,6 +81,10 @@ RESEARCH_RATE_LIMIT_MESSAGE = (
     "conversation for continued access."
 )
 
+# Roughly 10k tokens. Every path that accepts a user message shares this, so the limit can't drift
+# between them. The frontend mirrors it in `MAX_MESSAGE_LENGTH` (frontend/src/scenes/max/max-constants.tsx).
+MAX_MESSAGE_CONTENT_LENGTH = 40000
+
 STREAM_ITERATION_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_stream_iteration_latency_seconds",
     "Time between iterations in the async stream loop",
@@ -104,7 +109,7 @@ class MessageSerializer(MessageMinimalSerializer):
     content = serializers.CharField(
         required=True,
         allow_null=True,  # Null content means we're resuming streaming or continuing previous generation
-        max_length=40000,  # Roughly 10k tokens
+        max_length=MAX_MESSAGE_CONTENT_LENGTH,
     )
     conversation = serializers.UUIDField(
         required=True
@@ -156,7 +161,7 @@ class MessageSerializer(MessageMinimalSerializer):
 
 
 class QueueMessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, allow_blank=False, max_length=40000)
+    content = serializers.CharField(required=True, allow_blank=False, max_length=MAX_MESSAGE_CONTENT_LENGTH)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     ui_context = serializers.JSONField(required=False)
     billing_context = serializers.JSONField(required=False)
@@ -193,11 +198,16 @@ class QueueMessageSerializer(serializers.Serializer):
 
 
 class QueueMessageUpdateSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, allow_blank=False, max_length=40000)
+    content = serializers.CharField(required=True, allow_blank=False, max_length=MAX_MESSAGE_CONTENT_LENGTH)
 
 
 class SandboxAttachedContextItemSerializer(serializers.Serializer):
-    """One typed attachment carried by a sandbox message."""
+    """One typed attachment carried by a sandbox message.
+
+    DEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in
+    `context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;
+    the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
+    """
 
     type = serializers.ChoiceField(
         choices=sorted(ALLOWED_ATTACHED_CONTEXT_TYPES),
@@ -213,6 +223,14 @@ class SandboxAttachedContextItemSerializer(serializers.Serializer):
     value = serializers.CharField(required=False, help_text="Free-text content. Only for `text` attachments.")
 
 
+def _validate_sandbox_task(task_id: uuid.UUID, team_id: int, user_id: int | None) -> None:
+    runtime = tasks_facade.task_runtime(task_id, team_id, user_id)
+    if runtime is None:
+        raise serializers.ValidationError("Task not found or not accessible.")
+    if runtime == tasks_facade.TaskRuntime.PI:
+        raise serializers.ValidationError("Pi tasks cannot be opened in PostHog AI.")
+
+
 class SandboxOpenSerializer(serializers.Serializer):
     """Request body for `POST /conversations/{id}/open/`. A string `content` processes a turn; a
     null/absent `content` warms a sandbox that idles awaiting the first message."""
@@ -221,12 +239,13 @@ class SandboxOpenSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
-        max_length=40000,
+        max_length=MAX_MESSAGE_CONTENT_LENGTH,
         help_text="The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message.",
     )
     trace_id = serializers.UUIDField(
         required=False, help_text="Client-generated trace id correlated with the resulting Run's SSE stream."
     )
+    # Deprecated with the legacy Max bridge (see SandboxAttachedContextItemSerializer) — do not extend.
     attached_context = serializers.ListField(
         required=False,
         child=SandboxAttachedContextItemSerializer(),
@@ -258,8 +277,7 @@ class SandboxOpenSerializer(serializers.Serializer):
         """
         team = self.context["team"]
         user = self.context["user"]
-        if not tasks_facade.task_visible(value, team.id, user.id):
-            raise serializers.ValidationError("Task not found or not accessible.")
+        _validate_sandbox_task(value, team.id, user.id)
         return value
 
 
@@ -275,7 +293,7 @@ class SandboxMessageResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["max"])
+@extend_schema(tags=["max"], extensions={"x-product": "posthog_ai"})
 class ConversationViewSet(
     TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, DestroyModelMixin, GenericViewSet
 ):
@@ -311,6 +329,14 @@ class ConversationViewSet(
         # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
         if self.action != "retrieve":
             queryset = queryset.filter(user=self.request.user)
+        else:
+            queryset = queryset.filter(
+                Q(task_id__isnull=True)
+                | (
+                    Q(task__team_id=self.team_id, task__deleted=False)
+                    & tasks_facade.visible_tasks_q(self.request.user.id, relation="task")
+                )
+            )
         # For listing or single retrieval, conversations must be from the assistant and have a title
         if self.action in ("list", "retrieve"):
             queryset = queryset.filter(
@@ -417,7 +443,9 @@ class ConversationViewSet(
         task_ids = list({conversation.task_id for conversation in conversations if conversation.task_id is not None})
         return {
             str(task_id): task
-            for task_id, task in tasks_facade.get_conversation_task_dtos(task_ids, self.team_id).items()
+            for task_id, task in tasks_facade.get_conversation_task_dtos(
+                task_ids, self.team_id, cast(User, self.request.user).id
+            ).items()
         }
 
     def get_serializer_context(self):
@@ -599,13 +627,11 @@ class ConversationViewSet(
                 event = await serializer.dumps(chunk)
                 yield event.encode("utf-8")
 
-        return StreamingHttpResponse(
-            (
-                async_stream(workflow_inputs)
-                if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
-                else async_to_sync(lambda: async_stream(workflow_inputs))
-            ),
-            content_type="text/event-stream",
+        return sse_streaming_response(
+            async_stream(workflow_inputs)
+            if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
+            else async_to_sync(lambda: async_stream(workflow_inputs)),
+            endpoint="max_conversation",
         )
 
     @action(detail=True, methods=["GET", "POST"], url_path="queue")
@@ -682,7 +708,7 @@ class ConversationViewSet(
         responses={
             200: SandboxMessageResponseSerializer,
             204: OpenApiResponse(description="Warm request that provisioned nothing (pool full / released)."),
-            400: OpenApiResponse(description="Conversation is not on the sandbox runtime."),
+            400: OpenApiResponse(description="Conversation or task uses an unsupported runtime."),
         },
         description=(
             "Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, "
@@ -704,6 +730,9 @@ class ConversationViewSet(
         conversation, created = self._get_or_create_sandbox_conversation(
             request, bind_task=serializer.validated_data.get("task_id")
         )
+        if conversation.task_id is not None:
+            _validate_sandbox_task(conversation.task_id, self.team.id, request.user.id)
+
         has_content = bool(serializer.validated_data.get("content"))
         convert_to_acp, resumed_context = self._compute_sandbox_conversion(request, conversation, has_content)
 

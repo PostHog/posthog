@@ -1,8 +1,44 @@
 import { z } from 'zod'
 
-// Relative (not `@/`) import: this module is loaded by the tsx schema-generation
-// script, and `playbookIds` is pure constants — no `.md` imports to choke on.
-import { PLAYBOOK_IDS, PLAYBOOK_URI_PREFIX } from '../tools/agentPlatform/playbookIds'
+// Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
+// script, and both modules are pure constants/functions — no `.md` imports to choke on.
+import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
+
+export const ChannelInstructionsBaseVersionSchema = z
+    .number()
+    .int()
+    .min(0)
+    .max(9007199254740991)
+    .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
+
+const DashboardTileLayoutSchema = z.object({
+    x: z.number().int().min(0).optional(),
+    y: z.number().int().min(0).optional(),
+    w: z.number().int().min(1).optional(),
+    h: z.number().int().min(1).optional(),
+})
+
+export const DashboardTileCreateSchema = z.object({
+    id: z.number().int().positive().describe('Dashboard ID. Use dashboard-get or dashboards-get-all to find it.'),
+    type: z
+        .enum(['text', 'image'])
+        .describe('Tile type. Use text for Markdown content. Use image for a body with exactly one Markdown image.'),
+    body: z
+        .string()
+        .min(1)
+        .max(4000)
+        .describe(
+            'Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body.'
+        ),
+    layouts: z
+        .object({
+            sm: DashboardTileLayoutSchema.optional(),
+            xs: DashboardTileLayoutSchema.optional(),
+        })
+        .optional()
+        .describe('Optional dashboard-grid layout for desktop (sm) and mobile (xs).'),
+    color: z.string().max(400).nullable().optional().describe('Optional tile accent color.'),
+})
 
 export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
     name: z
@@ -25,14 +61,6 @@ export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
         ),
 })
 
-export const AgentResolveResourceSchema = z.object({
-    resource: z
-        .string()
-        .describe(
-            `Which operator playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for doing a class of agent-platform operations well — the same skills the agent concierge uses.`
-        ),
-})
-
 export const ExternalDataJobsAfterSchema = z
     .string()
     .describe('ISO timestamp — only return jobs created after this date (e.g. "2025-01-01T00:00:00Z").')
@@ -48,7 +76,7 @@ export const ExternalDataJobsSchemasSchema = z
 export const ExternalDataSourcePayloadSchema = z
     .record(z.string(), z.unknown())
     .describe(
-        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.'
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type "Custom" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table \'schemas\' array (built from external-data-sources-db-schema) also goes in here, e.g. {"host": ..., "password": ..., "schemas": [{"name": "orders", "should_sync": true, "sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"}]}. That array is optional: omit it and every discovered table syncs with default settings. Do not pass unresolved {"secretRef": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.'
     )
 
 export const ExternalDataSourceTypeSchema = z
@@ -171,6 +199,14 @@ export const ScoreDefinitionConfigSchema = z
 
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
+    label: z
+        .string()
+        .min(1)
+        .max(128)
+        .optional()
+        .describe(
+            "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned."
+        ),
     content: z
         .enum(['full', 'preview', 'none'])
         .default('none')
@@ -179,80 +215,125 @@ export const PromptListInputSchema = z.object({
         ),
 })
 
-export const FeedbackSubmitSchema = z.object({
-    summary: z
-        .string()
-        .min(1)
-        .describe(
-            'A one-sentence headline capturing the feedback (e.g. "session replay scrubber jumps backwards when you click the timeline", "query-trends descriptions made it hard to choose between trends and funnels", or "the new SQL editor autocomplete is excellent").'
-        ),
-    feedback_type: z
-        .enum(['product', 'mcp', 'docs', 'other'])
-        .describe(
-            'What this feedback is about. "product" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). "mcp" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. "docs" = PostHog documentation. "other" = anything that doesn\'t fit the above.'
-        ),
-    sentiment: z
-        .enum(['positive', 'neutral', 'negative', 'mixed'])
-        .describe(
-            'The overall tone. Use "negative" for something broken or blocking, "mixed" for mostly-fine-but-with-a-concrete-problem, "neutral" for a suggestion or feature request with no strong sentiment, and "positive" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems.'
-        ),
-    product_area: z
-        .string()
-        .optional()
-        .describe(
-            'The PostHog product or area this is about, in free text (e.g. "session replay", "insights", "data warehouse", "feature flags", "docs"). Most useful for product feedback; for MCP feedback the tool name belongs in `details`/`friction_points` instead.'
-        ),
-    category: z
-        .enum([
-            'tool_correctness',
-            'tool_description',
-            'tool_input_schema',
-            'tool_output_format',
-            'missing_tool',
-            'instructions_clarity',
-            'performance',
-            'error_message',
-            'other',
-        ])
-        .optional()
-        .describe(
-            'For MCP feedback (`feedback_type: "mcp"`) only: the single category that best describes the dominant theme. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue. Omit for product, docs, or other feedback.'
-        ),
-    task_completed: z
-        .boolean()
-        .optional()
-        .describe(
-            'Were you able to complete the user\'s task? Be honest — "false" is just as useful as "true". Most relevant when `feedback_type` is "mcp".'
-        ),
-    tools_used: z
-        .array(z.string())
-        .optional()
-        .describe(
-            'The MCP tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
-        ),
-    friction_points: z
-        .string()
-        .optional()
-        .describe(
-            'Clear, concise bullet points describing the friction — what was confusing, broken, slow, or missing. Quote the exact product surface, tool name, parameter, or error text where you can. Omit for purely positive feedback.'
-        ),
-    suggested_improvement: z
-        .string()
-        .optional()
-        .describe(
-            'The single most impactful, concrete change that would address this feedback, if you can name one (e.g. "add a `filters` example to query-funnel\'s description", or "let the replay scrubber snap to the nearest event"). Optional — praise or an observation doesn\'t need one.'
-        ),
-    user_request: z
-        .string()
-        .optional()
-        .describe(
-            'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
-        ),
-    details: z
-        .string()
-        .optional()
-        .describe("Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."),
-})
+export const FeedbackSubmitSchema = z
+    .object({
+        summary: z
+            .string()
+            .min(1)
+            .describe(
+                'A one-sentence headline capturing the feedback (e.g. "session replay scrubber jumps backwards when you click the timeline", "query-trends descriptions made it hard to choose between trends and funnels", or "the new SQL editor autocomplete is excellent").'
+            ),
+        feedback_type: z
+            .enum(['product', 'mcp', 'docs', 'scout', 'other'])
+            .describe(
+                'What this feedback is about. "product" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). "mcp" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. "docs" = PostHog documentation. "scout" = a canonical PostHog scout skill\'s content — reserved for scheduled scout runs reporting an improvement opportunity in their own PostHog-authored skill (set `scout_skill_name`, `scout_skill_version`, and `scout_category`). "other" = anything that doesn\'t fit the above.'
+            ),
+        sentiment: z
+            .enum(['positive', 'neutral', 'negative', 'mixed'])
+            .describe(
+                'The overall tone. Use "negative" for something broken or blocking, "mixed" for mostly-fine-but-with-a-concrete-problem, "neutral" for a suggestion or feature request with no strong sentiment, and "positive" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems.'
+            ),
+        product_area: z
+            .string()
+            .optional()
+            .describe(
+                'The PostHog product or area this is about, in free text (e.g. "session replay", "insights", "data warehouse", "feature flags", "docs"). Most useful for product feedback; for MCP feedback the tool name belongs in `details`/`friction_points` instead.'
+            ),
+        category: z
+            .enum([
+                'tool_correctness',
+                'tool_description',
+                'tool_input_schema',
+                'tool_output_format',
+                'missing_tool',
+                'instructions_clarity',
+                'performance',
+                'error_message',
+                'other',
+            ])
+            .optional()
+            .describe(
+                'For MCP feedback (`feedback_type: "mcp"`) only: the single category that best describes the dominant theme. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue. Omit for product, docs, or other feedback.'
+            ),
+        scout_skill_name: z
+            .string()
+            .optional()
+            .describe(
+                'For scout feedback (`feedback_type: "scout"`) only: the canonical scout skill the feedback is about (e.g. "signals-scout-web-analytics"), exactly as named in the run identity. Required for scout feedback — without it the feedback cannot be aggregated per skill.'
+            ),
+        scout_skill_version: z
+            .number()
+            .int()
+            .optional()
+            .describe(
+                'For scout feedback (`feedback_type: "scout"`) only: the skill version the run executed (from the run identity). Feedback is only actionable against the version that produced it — the skill may have moved since.'
+            ),
+        scout_category: z
+            .enum([
+                'false_positive',
+                'missed_detection',
+                'discriminator_gap',
+                'wasted_investigation',
+                'instruction_ambiguity',
+                'other',
+            ])
+            .optional()
+            .describe(
+                'For scout feedback (`feedback_type: "scout"`) only: the single category that best describes the skill gap. "false_positive" = the skill\'s detection rules surfaced something that wasn\'t real; "missed_detection" = a real issue the skill\'s instructions steered you past; "discriminator_gap" = the skill\'s signal-vs-baseline discriminator doesn\'t hold for a class of projects; "wasted_investigation" = an investigation pattern the skill mandates burned budget without payoff; "instruction_ambiguity" = an instruction that is ambiguous in practice. Omit for non-scout feedback.'
+            ),
+        task_completed: z
+            .boolean()
+            .optional()
+            .describe(
+                'Were you able to complete the user\'s task? Be honest — "false" is just as useful as "true". Most relevant when `feedback_type` is "mcp".'
+            ),
+        tools_used: z
+            .array(z.string())
+            .optional()
+            .describe(
+                'The MCP tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
+            ),
+        friction_points: z
+            .string()
+            .optional()
+            .describe(
+                'Clear, concise bullet points describing the friction — what was confusing, broken, slow, or missing. Quote the exact product surface, tool name, parameter, or error text where you can. Omit for purely positive feedback.'
+            ),
+        suggested_improvement: z
+            .string()
+            .optional()
+            .describe(
+                'The single most impactful, concrete change that would address this feedback, if you can name one (e.g. "add a `filters` example to query-funnel\'s description", or "let the replay scrubber snap to the nearest event"). Optional — praise or an observation doesn\'t need one.'
+            ),
+        user_request: z
+            .string()
+            .optional()
+            .describe(
+                'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
+            ),
+        details: z
+            .string()
+            .optional()
+            .describe(
+                "Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."
+            ),
+    })
+    .superRefine((data, ctx) => {
+        // Scout feedback without its join keys can't be aggregated per skill/version downstream,
+        // so reject it at validation time instead of recording an unattributable event.
+        if (data.feedback_type !== 'scout') {
+            return
+        }
+        for (const field of ['scout_skill_name', 'scout_skill_version', 'scout_category'] as const) {
+            if (data[field] === undefined) {
+                ctx.addIssue({
+                    code: 'custom',
+                    path: [field],
+                    message: `${field} is required when feedback_type is "scout".`,
+                })
+            }
+        }
+    })
 
 const SavedMetricAttachItemSchema = z.object({
     id: z
@@ -284,44 +365,105 @@ export const ExperimentResultsGetSchema = z.object({
         .describe('Force refresh of results instead of using cached values. Defaults to false.'),
 })
 
-export const InsightQueryInputSchema = z.object({
-    insightId: z.string().describe('The insight ID or short_id to run.'),
-    output_format: z
-        .enum(['optimized', 'json'])
-        .optional()
-        .default('optimized')
-        .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
-        ),
-    variables_override: z
-        .union([z.string(), z.record(z.string(), z.unknown())])
-        .optional()
-        .describe(
-            'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this run only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response\'s query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
-        ),
-    filters_override: z
-        .union([z.string(), z.record(z.string(), z.unknown())])
-        .optional()
-        .describe(
-            "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
-        ),
-})
+// Accept the identifier under the aliases agents reach for (`insight-get` &
+// friends return the insight under `id`; UI URLs surface `short_id`), and
+// accept a numeric id — production traces show both mistakes are common.
+// Same motivation as the `orgId` aliases on OrganizationSetActiveSchema below;
+// normalized via preprocess here because this schema has more fields than a
+// per-alias union can reasonably enumerate.
+export const InsightQueryInputSchema = z.preprocess(
+    normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] }),
+    z.object({
+        insightId: z
+            .union([z.string(), z.number()])
+            .transform((value) => String(value))
+            .describe('The insight to run: its numeric `id` or 8-character `short_id`.'),
+        output_format: z
+            .enum(['optimized', 'json'])
+            .optional()
+            .default('optimized')
+            .describe(
+                'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            ),
+        variables_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this run only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response\'s query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            ),
+        filters_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+            ),
+    })
+)
 
 export const AIObservabilityGetCostsSchema = z.object({
-    projectId: z.number().int().positive(),
+    projectId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('Project ID. Defaults to the active project when omitted.'),
     days: z.number().optional(),
 })
 
-export const OrganizationSetActiveSchema = z.object({
-    orgId: z.string(),
-})
+// Accept `orgId` and the aliases agents reach for when composing the call from
+// scratch. `organizations-list` / `organization-get` return the org under an `id`
+// key, and in exec mode agents don't read the advertised schema — they
+// reconstruct the field name from context, producing `id`, `organizationId`,
+// `organization_id`, or `org_id`. Requiring a single spelling made this the odd
+// tool out and drove a steady stream of exec-mode validation failures. Model each
+// accepted key as its own single-field required branch so the advertised JSON
+// schema (anyOf) enumerates every alias and still expresses "exactly one
+// identifier is required"; normalize to `orgId` so the handler stays simple.
+const orgIdAliasDescription =
+    'Alias for `orgId`. Accepts the `id` returned by `organizations-list` / `organization-get`.'
+export const OrganizationSetActiveSchema = z
+    .union(
+        [
+            z.object({
+                orgId: z
+                    .string()
+                    .describe(
+                        'The organization to switch to: the `id` returned by `organizations-get` (a UUID-like string, not the organization name). Use `organizations-get` to resolve a name to its id.'
+                    ),
+            }),
+            z.object({ id: z.string().describe(orgIdAliasDescription) }),
+            z.object({ organizationId: z.string().describe(orgIdAliasDescription) }),
+            z.object({ organization_id: z.string().describe(orgIdAliasDescription) }),
+            z.object({ org_id: z.string().describe(orgIdAliasDescription) }),
+        ],
+        { error: () => 'provide the organization id via "orgId" (get it from organizations-get)' }
+    )
+    .transform((data) => ({
+        orgId:
+            'orgId' in data
+                ? data.orgId
+                : 'id' in data
+                  ? data.id
+                  : 'organizationId' in data
+                    ? data.organizationId
+                    : 'organization_id' in data
+                      ? data.organization_id
+                      : data.org_id,
+    }))
+
+export const OrganizationGetAllSchema = z.object({})
 
 export const ProjectGetAllSchema = z.object({})
+
+const EventDefinitionTagSchema = z
+    .string()
+    .max(255)
+    .refine((tag) => tag.trim().toLowerCase().length <= 255, 'Tag must be at most 255 characters after normalization')
 
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
     tags: z
-        .array(z.string())
+        .array(EventDefinitionTagSchema)
         .optional()
         .describe(
             'Tags to organize events by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention")'
@@ -339,6 +481,137 @@ export const EventDefinitionUpdateInputSchema = z.object({
 export const EventDefinitionUpdateSchema = z.object({
     eventName: z.string().describe('The name of the event to update (e.g. "$pageview", "user_signed_up")'),
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
+})
+
+export const EventDefinitionCreateSchema = z.object({
+    eventName: z.string().min(1).max(400).describe('The name of the event to create (e.g. "user_signed_up")'),
+    data: EventDefinitionUpdateInputSchema.optional().describe('Optional metadata for the new event definition'),
+})
+
+export const PropertyDefinitionUpdateInputSchema = z.object({
+    description: z.string().optional().describe('Description explaining what the property represents'),
+    tags: z
+        .array(z.string())
+        .optional()
+        .describe(
+            'Tags to organize properties by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention"). Warning: this REPLACES the property\'s entire tag list, it does not merge. To keep existing tags, include them alongside the new ones; to remove a tag, omit it. Omit this field entirely to leave tags unchanged.'
+        ),
+    property_type: z
+        .enum(['DateTime', 'String', 'Numeric', 'Boolean', 'Duration'])
+        .optional()
+        .describe('The data type of the property. Controls how the property is parsed, displayed, and filtered.'),
+    verified: z
+        .boolean()
+        .optional()
+        .describe('Mark as verified to indicate the property is correctly instrumented and safe to use'),
+    hidden: z
+        .boolean()
+        .optional()
+        .describe('Mark property as no longer used. Hides it from the UI while preserving historical data'),
+})
+
+export const PropertyDefinitionUpdateSchema = z.object({
+    propertyName: z.string().describe('The exact name of the property to update (e.g. "$browser", "plan_type")'),
+    type: z
+        .enum(['event', 'person', 'group', 'session'])
+        .default('event')
+        .describe('Which property taxonomy the property belongs to. Defaults to "event" (event properties).'),
+    groupTypeIndex: z
+        .number()
+        .int()
+        .optional()
+        .describe('Required when type is "group": the zero-based index of the group type the property belongs to.'),
+    data: PropertyDefinitionUpdateInputSchema.describe('The property definition data to update'),
+})
+
+const PathCleaningAliasField = z
+    .string()
+    .describe(
+        'The replacement for the matched path, e.g. "/users/<id>/profile". Default to angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid: it deletes the matched text (e.g. to strip a "?page=N" fragment). The alias can also reference a regex capture group with ClickHouse replaceRegexpAll syntax ("\\1" to "\\9" for a group, "\\0" for the whole match), but a rule with capture groups is roughly 3x more expensive per row, so only use one when it collapses several near-identical rules into one.'
+    )
+const PathCleaningRegexField = z
+    .string()
+    .min(1)
+    .describe(
+        'A re2 pattern matched against the path, e.g. "/users/\\\\d+/profile". No need to escape "/". Anchor with ^ / $ when you mean it.'
+    )
+const PathCleaningTargetAlias = z
+    .string()
+    .describe(
+        'The alias of the existing rule to target (must match an existing rule exactly). Use "" to target a rule whose alias is empty.'
+    )
+
+export const PathCleaningRulesUpdateSchema = z.object({
+    operations: z
+        .array(
+            z.discriminatedUnion('action', [
+                z
+                    .object({
+                        action: z.literal('append'),
+                        alias: PathCleaningAliasField,
+                        regex: PathCleaningRegexField,
+                    })
+                    .describe('Add a new rule at the end of the ordered list (runs last).'),
+                z
+                    .object({
+                        action: z.literal('insert'),
+                        index: z
+                            .number()
+                            .int()
+                            .min(0)
+                            .describe('Zero-based position to insert the rule at. Existing rules shift down.'),
+                        alias: PathCleaningAliasField,
+                        regex: PathCleaningRegexField,
+                    })
+                    .describe(
+                        'Insert a new rule at a specific position — use when it must run before more general rules.'
+                    ),
+                z
+                    .object({
+                        action: z.literal('replace'),
+                        target_alias: PathCleaningTargetAlias,
+                        alias: PathCleaningAliasField.optional().describe('New alias. Omit to keep the current alias.'),
+                        regex: PathCleaningRegexField.optional().describe('New regex. Omit to keep the current regex.'),
+                    })
+                    .describe('Replace the alias and/or regex of an existing rule, keeping its position.'),
+                z
+                    .object({
+                        action: z.literal('remove'),
+                        target_alias: PathCleaningTargetAlias,
+                    })
+                    .describe('Remove an existing rule by alias.'),
+                z
+                    .object({
+                        action: z.literal('reorder'),
+                        ordered_aliases: z
+                            .array(z.string())
+                            .describe(
+                                'The full set of current aliases in the new desired order (including "" for any empty-alias rule and any duplicates). Must be a permutation of the existing aliases.'
+                            ),
+                    })
+                    .describe(
+                        'Reorder the existing rules. Order matters: rules apply sequentially, each feeding the next.'
+                    ),
+            ])
+        )
+        .min(1)
+        .describe('Ordered list of edits to apply to the current path cleaning rules, in sequence.'),
+    sample_paths: z
+        // Bounded (count + length) so a pathological user-supplied regex can't burn unbounded
+        // CPU backtracking over the preview. A handful of representative paths is the point.
+        .array(z.string().max(2048))
+        .max(25)
+        .optional()
+        .describe(
+            'Optional real paths (e.g. "/users/123/profile") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.'
+        ),
+    confirm: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+            'Must be true to persist. When false (default) the tool returns a preview of the resulting rules (and any sample-path rewrites) WITHOUT saving — surface it to the user, then re-run with confirm:true.'
+        ),
 })
 
 export const ProjectSetActiveSchema = z.object({
@@ -364,66 +637,246 @@ export const ExecuteSQLSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+            "Optional id of a data warehouse connection (e.g. Postgres, MySQL, Snowflake, Redshift). When set, the query runs live against that source instead of the ClickHouse catalog, and may only reference that source's tables. Discover connection ids with external-data-sources-connections-list, then list a connection's tables by running `SELECT table_name FROM system.information_schema.tables` with that connectionId set."
+        ),
+    sendRawQuery: z
+        .boolean()
+        .optional()
+        .describe(
+            "Send `query` to the connection verbatim instead of compiling it from HogQL first. Use this for SQL only that connection's own engine understands, such as vendor-specific functions. Requires connectionId, and works only on a pure direct connection (access_method 'direct'), not on a synced source with live queries enabled. The connection is read-only and accepts a single statement."
         ),
 })
 
-export const ReadDataWarehouseSchemaSchema = z
-    .object({})
-    .describe('No input required. Returns core data warehouse schemas.')
+const MAX_EVENTS_PAGE_SIZE = 500
 
-const ReadEventsQuerySchema = z.object({
-    kind: z.literal('events'),
-    limit: z.number().int().min(1).max(500).default(500).optional().describe('Number of events to return per page.'),
-    offset: z.number().int().min(0).default(0).optional().describe('Number of events to skip for pagination.'),
+// Every read below is strict so a field it does not have is named back to the caller. Left
+// open, an ignored `search` or `property_name` returns a confident answer to a different
+// question than the one asked.
+const ReadEventsQuerySchema = z
+    .object({
+        kind: z.literal('events'),
+        limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(MAX_EVENTS_PAGE_SIZE)
+            .default(MAX_EVENTS_PAGE_SIZE)
+            .optional()
+            .describe('Number of events to return per page.'),
+        offset: z.number().int().min(0).default(0).optional().describe('Number of events to skip for pagination.'),
+    })
+    .strict()
+
+const ReadEventPropertiesQuerySchema = z
+    .object({
+        kind: z.literal('event_properties'),
+        event_name: z.string().describe('The name of the event that you want to retrieve properties for.'),
+    })
+    .strict()
+
+const ReadEntityPropertiesQuerySchema = z
+    .object({
+        kind: z.literal('entity_properties'),
+        entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+    })
+    .strict()
+
+const ReadActionPropertiesQuerySchema = z
+    .object({
+        kind: z.literal('action_properties'),
+        action_id: z.number().int().describe('The ID of the action that you want to retrieve properties for.'),
+    })
+    .strict()
+
+const ReadEntitySamplePropertyValuesQuerySchema = z
+    .object({
+        kind: z.literal('entity_property_values'),
+        entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+        property_name: z.string().describe('Verified property name of an entity.'),
+    })
+    .strict()
+
+const ReadEventSamplePropertyValuesQuerySchema = z
+    .object({
+        kind: z.literal('event_property_values'),
+        event_name: z.string().describe('Verified event name'),
+        property_name: z.string().describe('Verified property name of an event.'),
+    })
+    .strict()
+
+const ReadActionSamplePropertyValuesQuerySchema = z
+    .object({
+        kind: z.literal('action_property_values'),
+        action_id: z.number().int().describe('Verified action ID'),
+        property_name: z.string().describe('Verified property name of an action.'),
+    })
+    .strict()
+
+const READ_DATA_SCHEMA_QUERIES = [
+    ReadEventsQuerySchema,
+    ReadEventPropertiesQuerySchema,
+    ReadEntityPropertiesQuerySchema,
+    ReadActionPropertiesQuerySchema,
+    ReadEntitySamplePropertyValuesQuerySchema,
+    ReadEventSamplePropertyValuesQuerySchema,
+    ReadActionSamplePropertyValuesQuerySchema,
+] as const
+
+const ReadDataSchemaBodySchema = z.object({
+    query: z.discriminatedUnion('kind', READ_DATA_SCHEMA_QUERIES).describe('The data schema query to execute.'),
 })
 
-const ReadEventPropertiesQuerySchema = z.object({
-    kind: z.literal('event_properties'),
-    event_name: z.string().describe('The name of the event that you want to retrieve properties for.'),
+const READ_DATA_SCHEMA_KINDS = new Set<string>(READ_DATA_SCHEMA_QUERIES.map((query) => query.shape.kind.value))
+
+const READ_DATA_SCHEMA_QUERY_FIELDS = new Set<string>(
+    READ_DATA_SCHEMA_QUERIES.flatMap((query) => Object.keys(query.shape))
+)
+
+/**
+ * Names callers reach for instead of the seven declared kinds. Each one says exactly which
+ * read it wants, so a rejection only costs a round trip. `person_properties` and
+ * `session_properties` read so naturally next to `event_properties` that callers keep sending
+ * them; the rest are the plural/singular and list/definition variants of the same words.
+ */
+const READ_DATA_SCHEMA_KIND_ALIASES: Record<string, { kind: string; entity?: string }> = {
+    event: { kind: 'events' },
+    events_list: { kind: 'events' },
+    event_list: { kind: 'events' },
+    list_events: { kind: 'events' },
+    all_events: { kind: 'events' },
+    event_names: { kind: 'events' },
+    event_definitions: { kind: 'events' },
+    taxonomy: { kind: 'events' },
+    event_property: { kind: 'event_properties' },
+    entity_property: { kind: 'entity_properties' },
+    action_property: { kind: 'action_properties' },
+    person_properties: { kind: 'entity_properties', entity: 'person' },
+    session_properties: { kind: 'entity_properties', entity: 'session' },
+    group_properties: { kind: 'entity_properties' },
+    person_property_values: { kind: 'entity_property_values', entity: 'person' },
+    session_property_values: { kind: 'entity_property_values', entity: 'session' },
+    group_property_values: { kind: 'entity_property_values' },
+    event_property_value: { kind: 'event_property_values' },
+    entity_property_value: { kind: 'entity_property_values' },
+    action_property_value: { kind: 'action_property_values' },
+}
+
+/** Names callers use for the seven reads' own fields. */
+const normalizeReadDataSchemaFields = normalizeParamAliases({
+    event_name: ['event', 'eventName', 'event_names'],
+    property_name: ['property', 'propertyName', 'property_key'],
+    entity: ['entity_type', 'entityType', 'group_type', 'groupType'],
+    action_id: ['action', 'actionId'],
 })
 
-const ReadEntityPropertiesQuerySchema = z.object({
-    kind: z.literal('entity_properties'),
-    entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
-})
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
-const ReadActionPropertiesQuerySchema = z.object({
-    kind: z.literal('action_properties'),
-    action_id: z.number().int().describe('The ID of the action that you want to retrieve properties for.'),
-})
+/** Applies the field aliases, unwraps a single-element list, and reads numbers out of strings. */
+function normalizeQueryFields(source: Record<string, unknown>): Record<string, unknown> {
+    const fields = { ...(normalizeReadDataSchemaFields(source) as Record<string, unknown>) }
+    // A one-event list means that event. A longer list needs one call per event, so leave it for
+    // the schema to reject rather than answer about an event the caller did not pick.
+    if (Array.isArray(fields['event_name']) && fields['event_name'].length === 1) {
+        fields['event_name'] = fields['event_name'][0]
+    }
+    for (const name of ['action_id', 'limit', 'offset']) {
+        if (fields[name] !== undefined) {
+            fields[name] = castStringToInt(fields[name])
+        }
+    }
+    // Clamped rather than refused: the backend returns at most one page of this size anyway, so
+    // a bigger ask is answered instead of costing the caller a round trip.
+    if (typeof fields['limit'] === 'number') {
+        fields['limit'] = Math.min(fields['limit'], MAX_EVENTS_PAGE_SIZE)
+    }
+    return fields
+}
 
-const ReadEntitySamplePropertyValuesQuerySchema = z.object({
-    kind: z.literal('entity_property_values'),
-    entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
-    property_name: z.string().describe('Verified property name of an entity.'),
-})
+/** Picks the branch a call with no usable kind is describing from its own fields. */
+function inferKind(fields: Record<string, unknown>): string | undefined {
+    const hasValue = fields['property_name'] !== undefined
+    if (fields['event_name'] !== undefined) {
+        return hasValue ? 'event_property_values' : 'event_properties'
+    }
+    if (fields['action_id'] !== undefined) {
+        return hasValue ? 'action_property_values' : 'action_properties'
+    }
+    if (fields['entity'] !== undefined) {
+        return hasValue ? 'entity_property_values' : 'entity_properties'
+    }
+    return undefined
+}
 
-const ReadEventSamplePropertyValuesQuerySchema = z.object({
-    kind: z.literal('event_property_values'),
-    event_name: z.string().describe('Verified event name'),
-    property_name: z.string().describe('Verified property name of an event.'),
-})
+/**
+ * Accept the shapes callers keep sending for a read that is never ambiguous: the query fields
+ * at the top level instead of under `query`, an aliased kind or field name, a count written as
+ * a string, a kind left out entirely. Each one says what it wants, so a rejection only costs a
+ * round trip. `query` still wins whenever it is an object, so a well-formed call is never
+ * reinterpreted.
+ *
+ * Two things are deliberately left to fail. A field the tool does not have (a `search` term on
+ * an events read) reaches the schema, because the events read returns the full list and
+ * dropping the term would answer a different question than the one asked. And a caller that
+ * named nothing this tool understands gets the events list only when it sent no other field —
+ * otherwise it is asking about something else and deserves to hear so.
+ *
+ * Same `z.preprocess` seam as `normalizeParamAliases`, and transparent to JSON Schema output
+ * for the same reason: the advertised shape stays the wrapped one.
+ */
+function normalizeReadDataSchemaInput(input: unknown): unknown {
+    if (!isRecord(input)) {
+        return input
+    }
+    const { query, ...topLevel } = input
+    let source: Record<string, unknown>
+    if (isRecord(query)) {
+        source = query
+    } else if (
+        typeof query === 'string' &&
+        (READ_DATA_SCHEMA_KINDS.has(query) || READ_DATA_SCHEMA_KIND_ALIASES[query])
+    ) {
+        source = { ...topLevel, kind: query }
+    } else {
+        // A free-text `query` is a schema question with no kind in it, so it is dropped and the
+        // remaining fields decide the read.
+        source = topLevel
+    }
 
-const ReadActionSamplePropertyValuesQuerySchema = z.object({
-    kind: z.literal('action_property_values'),
-    action_id: z.number().int().describe('Verified action ID'),
-    property_name: z.string().describe('Verified property name of an action.'),
-})
+    const rawKind = typeof source['kind'] === 'string' ? source['kind'] : undefined
+    const alias = rawKind ? READ_DATA_SCHEMA_KIND_ALIASES[rawKind] : undefined
+    const fields = normalizeQueryFields(source)
+    if (alias?.entity !== undefined && fields['entity'] === undefined) {
+        fields['entity'] = alias.entity
+    }
 
-export const ReadDataSchemaSchema = z.object({
-    query: z
-        .discriminatedUnion('kind', [
-            ReadEventsQuerySchema,
-            ReadEventPropertiesQuerySchema,
-            ReadEntityPropertiesQuerySchema,
-            ReadActionPropertiesQuerySchema,
-            ReadEntitySamplePropertyValuesQuerySchema,
-            ReadEventSamplePropertyValuesQuerySchema,
-            ReadActionSamplePropertyValuesQuerySchema,
-        ])
-        .describe('The data schema query to execute.'),
-})
+    // A kind this tool does not have (`properties`, `property_values`) still leaves the fields,
+    // and they name one read on their own.
+    const named = alias?.kind ?? (rawKind !== undefined && READ_DATA_SCHEMA_KINDS.has(rawKind) ? rawKind : undefined)
+    let kind = named ?? inferKind(fields)
+    // Only a call that named no kind at all falls back to the event list, and only when every
+    // field it did send is one this tool has. Anything else is asking about something else.
+    if (kind === undefined && rawKind === undefined) {
+        const sent = Object.keys(fields).filter((key) => key !== 'kind')
+        if (sent.every((key) => READ_DATA_SCHEMA_QUERY_FIELDS.has(key))) {
+            kind = 'events'
+        }
+    }
+    if (kind === undefined) {
+        return { query: source }
+    }
+
+    // Paging belongs to the events read alone. Every other kind returns one entity's schema, so
+    // a stray page size is noise rather than a different question.
+    if (kind !== 'events') {
+        delete fields['limit']
+        delete fields['offset']
+    }
+    return { query: { ...fields, kind } }
+}
+
+export const ReadDataSchemaSchema = z.preprocess(normalizeReadDataSchemaInput, ReadDataSchemaBodySchema)
 
 // Mirrors the Django serializer's `validate` rule so the MCP layer fails fast
 // instead of forwarding an empty/ambiguous body and waiting for a 400.
@@ -503,7 +956,7 @@ const WorkflowGraphOperationSchema = z.discriminatedUnion('op', [
 ])
 
 export const WorkflowGraphPatchSchema = z.object({
-    id: z.string().describe('The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP.'),
+    id: z.string().describe('The workflow (HogFlow) id to edit.'),
     operations: z
         .array(WorkflowGraphOperationSchema)
         .min(1)
@@ -589,3 +1042,41 @@ export const EmailTemplateDesignPatchSchema = z.object({
                 'otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design.'
         ),
 })
+
+export const WorkflowActionEmailPatchSchema = z
+    .object({
+        id: z.string().describe('The workflow (HogFlow) id.'),
+        action_id: z.string().describe('Id of the function_email step whose email to edit.'),
+        operations: z
+            .array(EmailDesignPatchOperationSchema)
+            .min(1)
+            .optional()
+            .describe(
+                "Ordered edits applied atomically to the step's email design - the same operations as " +
+                    'workflows-patch-email-template. The result is re-rendered to HTML server-side, so the sent ' +
+                    'email always matches the patched design. Reference blocks by id (read them via workflows-get).'
+            ),
+        email_patch: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe(
+                "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, " +
+                    'preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is ' +
+                    'always re-rendered from it.'
+            ),
+        base_updated_at: z
+            .string()
+            .optional()
+            .describe(
+                'Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow ' +
+                    'is newer, the patch is rejected with 409 instead of clobbering a concurrent edit.'
+            ),
+    })
+    .superRefine((data, ctx) => {
+        if (!data.operations?.length && !data.email_patch) {
+            ctx.addIssue({
+                code: 'custom',
+                message: 'Provide operations and/or email_patch.',
+            })
+        }
+    })

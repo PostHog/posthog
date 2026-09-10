@@ -1,8 +1,10 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { API_SCOPES } from 'lib/scopes'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -26,6 +28,18 @@ function withOAuthApplication(overrides: Record<string, unknown>): Decorator {
         )
         return <Story />
     }
+}
+
+// The visual-regression runner lets a fullscreen scene grow to its full content height, which
+// would leave the scrolling permission column and the pinned action row out of the snapshot.
+// Pin the app shell to a window-sized box so the snapshot shows what a person actually sees.
+const withPinnedSceneHeight: Decorator = function PinnedSceneHeightDecorator(Story): JSX.Element {
+    return (
+        <>
+            <style>{'.Navigation3000 { height: 640px !important; min-height: 0 !important; }'}</style>
+            <Story />
+        </>
+    )
 }
 
 const pushAuthorize = (scope?: string): void => {
@@ -52,6 +66,16 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                // The logic loads projects per organization for users that have organizations
+                '/api/organizations/:organization_id/projects/': {
+                    results: [
+                        {
+                            id: 1,
+                            name: 'Default Project',
+                            organization: '1',
+                        },
+                    ],
+                },
                 '/api/projects/': {
                     results: [
                         {
@@ -88,6 +112,8 @@ export default meta
 
 type Story = StoryObj<{}>
 
+// Identity-only request (openid/email/profile): permissions render as a plain checkmark list
+// with no access selectors and no bulk actions.
 export const DefaultScopes: Story = {
     render: () => {
         useDelayedOnMountEffect(() => pushAuthorize())
@@ -95,9 +121,10 @@ export const DefaultScopes: Story = {
     },
 }
 
-// Explicit request where every requested scope is required: rows render as a plain locked list
-// (no checkboxes) and the read-only toggle is hidden, since there is nothing to toggle.
-export const WithScopes: Story = {
+// Explicit request where every requested scope is required: rows render as a plain locked
+// checkmark list (no access selectors) and the bulk actions are hidden, since there is nothing
+// to choose.
+export const AllScopesRequired: Story = {
     decorators: [
         withOAuthApplication({
             required_scopes: ['experiment:read', 'experiment:write', 'query:read', 'feature_flag:write'],
@@ -109,9 +136,10 @@ export const WithScopes: Story = {
     },
 }
 
-// Broad/deferred request (empty ceiling): nothing is required, so every row is deselectable and
-// the read-only toggle is offered. This is the MCP case.
-export const BroadFreePick: Story = {
+// Broad/deferred request (nothing required): every row gets a No access / Read / Write selector
+// capped at the requested level, plus the Select all / Read-only / Deselect all bulk actions.
+// This is the MCP case.
+export const AllScopesOptional: Story = {
     decorators: [withOAuthApplication({ required_scopes: [] })],
     render: () => {
         useDelayedOnMountEffect(() => pushAuthorize('experiment:read experiment:write query:read feature_flag:write'))
@@ -119,13 +147,83 @@ export const BroadFreePick: Story = {
     },
 }
 
-// Mixed: feature_flag:write is required but only read was requested (renders locked at write),
-// and experiment:read is required but unrequested (appears as an extra locked row). Because some
-// requested scopes stay declinable, the checkboxes remain.
+// Mixed: feature_flag:write is required but only read was requested (locked at write), and
+// experiment:read is required but unrequested (an extra locked row). Both render in the
+// checkmark list with a "Required" tag, while the rest keep their access selectors.
 export const WithRequiredScopes: Story = {
     decorators: [withOAuthApplication({ required_scopes: ['experiment:read', 'feature_flag:write'] })],
     render: () => {
         useDelayedOnMountEffect(() => pushAuthorize('feature_flag:read query:read dashboard:write'))
         return <App />
+    },
+}
+
+// A required read floor below a requested write: the row keeps its selector but "No access" is
+// disabled — the user can drop the grant to read, never below the floor.
+export const RequiredReadFloorWithOptionalWrite: Story = {
+    decorators: [withOAuthApplication({ required_scopes: ['feature_flag:read'] })],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize('feature_flag:write insight:write query:read'))
+        return <App />
+    },
+}
+
+// Wildcard request: a single "All PostHog data" row where Read expands to every grantable
+// object's read scope and Write grants `*`.
+export const WildcardScope: Story = {
+    decorators: [withOAuthApplication({ required_scopes: [] })],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize('*'))
+        return <App />
+    },
+}
+
+// A long optional list (every scope the PostHog MCP server supports) — the case the bulk
+// actions exist for.
+export const ManyOptionalScopes: Story = {
+    decorators: [withOAuthApplication({ required_scopes: [] })],
+    render: () => {
+        useDelayedOnMountEffect(() =>
+            pushAuthorize(
+                'openid profile email user:read user:write organization:read project:read project:write ' +
+                    'feature_flag:read feature_flag:write experiment:read experiment:write insight:read ' +
+                    'insight:write dashboard:read dashboard:write query:read survey:read survey:write ' +
+                    'event_definition:read event_definition:write error_tracking:read logs:read tracing:read'
+            )
+        )
+        return <App />
+    },
+}
+
+const everyScopeRequest = ['openid', 'profile', 'email', ...API_SCOPES.map(({ key }) => `${key}:write`)].join(' ')
+
+// The worst case for the layout: a client that asks for every scope PostHog has, which is one
+// permission row per scope object. The rows scroll inside the card, and the action row keeps
+// Cancel and Authorize on screen the whole way down.
+export const EveryScopeRequested: Story = {
+    decorators: [withPinnedSceneHeight, withOAuthApplication({ required_scopes: [] })],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize(everyScopeRequest))
+        return <App />
+    },
+}
+
+// The same request, scrolled to the end of the permission list. This is what a person sees after
+// reading the whole list: the action row and the Permissions header both held in place.
+export const EveryScopeRequestedScrolledToEnd: Story = {
+    decorators: [withPinnedSceneHeight, withOAuthApplication({ required_scopes: [] })],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize(everyScopeRequest))
+        return <App />
+    },
+    play: async () => {
+        const scrollArea = await waitFor(() => {
+            const element = document.querySelector<HTMLElement>('[data-attr="oauth-permissions-scroll"]')
+            if (!element) {
+                throw new Error('Permission list did not render')
+            }
+            return element
+        })
+        scrollArea.scrollTop = scrollArea.scrollHeight
     },
 }

@@ -1,18 +1,34 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { hrefFrom, isClick, isKeypress, isMouseActivity } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
+import { logger } from '~/common/utils/logger'
+import {
+    PRE_SERIALIZED_FLAG_ACTIVE,
+    PRE_SERIALIZED_FLAG_CLICK,
+    PRE_SERIALIZED_FLAG_FULL_SNAPSHOT,
+    PRE_SERIALIZED_FLAG_KEYPRESS,
+    PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY,
+    ParsedMessageData,
+} from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import {
+    SnapshotMode,
+    hrefFrom,
+    isClick,
+    isKeypress,
+    isMouseActivity,
+    snapshotModeFrom,
+} from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import {
     SegmentationEvent,
     activeMillisecondsFromSegmentationEvents,
     toSegmentationEvent,
 } from '~/ingestion/pipelines/sessionreplay/segmentation'
-import { logger } from '~/utils/logger'
+import { ReplayIndexEntry } from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB
 const MAX_URLS_COUNT = 25
+const MAX_REPLAY_INDEX_BYTES = 128 * 1024
 
 export interface EndResult {
     /** The complete compressed session block */
@@ -43,8 +59,12 @@ export interface EndResult {
     snapshotSource: string | null
     /** Library used for the snapshot */
     snapshotLibrary: string | null
+    /** Only applies when snapshotSource is 'mobile'; null until a visual snapshot identifies the mode. */
+    snapshotMode: SnapshotMode | null
     /** ID of the batch this session belongs to */
     batchId: string
+    replayIndexEntries?: ReplayIndexEntry[]
+    replayIndexTruncated?: boolean
 }
 
 /**
@@ -86,8 +106,12 @@ export class SnappySessionRecorder {
     private messageCount: number = 0
     private snapshotSource: string | null = null
     private snapshotLibrary: string | null = null
+    private snapshotMode: SnapshotMode | null = null
     private segmentationEvents: SegmentationEvent[] = []
     private droppedUrlsCount: number = 0
+    private replayIndexEntries: ReplayIndexEntry[] = []
+    private replayIndexBytes = 0
+    private replayIndexTruncated = false
 
     constructor(
         public readonly sessionId: string,
@@ -134,8 +158,15 @@ export class SnappySessionRecorder {
             this.endDateTime = message.eventsRange.end
         }
 
+        if (message.preSerialized) {
+            return this.recordPreSerialized(message)
+        }
+
         for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
             for (const event of events) {
+                if (this.snapshotMode === null && message.snapshot_source === 'mobile') {
+                    this.snapshotMode = snapshotModeFrom(event)
+                }
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
                 const chunk = Buffer.from(serializedLine)
                 this.uncompressedChunks.push(chunk)
@@ -168,6 +199,67 @@ export class SnappySessionRecorder {
 
         this.messageCount += 1
         return rawBytesWritten
+    }
+
+    /**
+     * Fast path for messages the native anonymizer already serialized: the JSONL block lines are
+     * appended as one chunk, and the counts/segmentation/urls come from the per-event metadata
+     * instead of walking parsed events.
+     */
+    private recordPreSerialized(message: ParsedMessageData): number {
+        const { lines, events, windowId } = message.preSerialized!
+
+        this.uncompressedChunks.push(lines)
+        for (const event of events) {
+            if (
+                windowId !== undefined &&
+                (event.flags & PRE_SERIALIZED_FLAG_FULL_SNAPSHOT || event.jsonLd || event.href)
+            ) {
+                const common = { windowId, eventTimestamp: event.ts, eventIndex: this.eventCount }
+                if (event.flags & PRE_SERIALIZED_FLAG_FULL_SNAPSHOT) {
+                    this.appendReplayIndexEntry({ ...common, kind: 'full_snapshot' })
+                }
+                if (event.jsonLd) {
+                    this.appendReplayIndexEntry({ ...common, kind: 'json_ld', ...event.jsonLd })
+                }
+                if (event.href) {
+                    this.appendReplayIndexEntry({ ...common, kind: 'page', url: event.href.slice(0, MAX_URL_LENGTH) })
+                }
+            }
+            this.segmentationEvents.push({
+                timestamp: event.ts,
+                isActive: (event.flags & PRE_SERIALIZED_FLAG_ACTIVE) !== 0,
+            })
+            if (event.href) {
+                this.addUrl(event.href)
+            }
+            if (event.flags & PRE_SERIALIZED_FLAG_CLICK) {
+                this.clickCount += 1
+            }
+            if (event.flags & PRE_SERIALIZED_FLAG_KEYPRESS) {
+                this.keypressCount += 1
+            }
+            if (event.flags & PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY) {
+                this.mouseActivityCount += 1
+            }
+            this.eventCount++
+        }
+        this.size += lines.length
+        this.messageCount += 1
+        return lines.length
+    }
+
+    private appendReplayIndexEntry(entry: ReplayIndexEntry): void {
+        if (this.replayIndexTruncated) {
+            return
+        }
+        const bytes = Buffer.byteLength(JSON.stringify(entry)) + 1
+        if (this.replayIndexBytes + bytes > MAX_REPLAY_INDEX_BYTES) {
+            this.replayIndexTruncated = true
+            return
+        }
+        this.replayIndexEntries.push(entry)
+        this.replayIndexBytes += bytes
     }
 
     private addUrl(url: string): void {
@@ -241,7 +333,10 @@ export class SnappySessionRecorder {
             messageCount: this.messageCount,
             snapshotSource: this.snapshotSource,
             snapshotLibrary: this.snapshotLibrary,
+            snapshotMode: this.snapshotMode,
             batchId: this.batchId,
+            ...(this.replayIndexEntries.length ? { replayIndexEntries: this.replayIndexEntries } : {}),
+            ...(this.replayIndexTruncated ? { replayIndexTruncated: true } : {}),
         }
     }
 }

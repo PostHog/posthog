@@ -11,7 +11,7 @@ from posthog.models.integration import Integration
 
 from products.conversations.backend.models import GithubCommentMapping, Ticket
 from products.conversations.backend.models.constants import Status
-from products.conversations.backend.tasks import process_github_event
+from products.conversations.backend.tasks.github import process_github_event
 
 
 def _issue_payload(
@@ -104,6 +104,8 @@ class TestProcessGithubEvent(BaseTest):
         assert ticket.channel_source == "github"
         assert ticket.channel_detail == "github_issue"
         assert ticket.status == Status.NEW
+        # Created from a signature-validated GitHub webhook — platform-attested.
+        assert ticket.identity_verified is True
 
         comment = Comment.objects.get(team=self.team, item_id=str(ticket.id))
         assert comment.content is not None

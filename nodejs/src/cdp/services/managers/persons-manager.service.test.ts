@@ -2,10 +2,8 @@ import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PersonHogClient } from '~/common/personhog/client'
-import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
-import { PersonHogService } from '~/generated/personhog/personhog/service/v1/service_pb'
-import { TeamDistinctIdSchema } from '~/generated/personhog/personhog/types/v1/common_pb'
+import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
+import { TeamDistinctIdSchema } from '~/common/generated/personhog/personhog/types/v1/common_pb'
 import {
     GetDistinctIdsForPersonsResponseSchema,
     PersonDistinctIdsSchema,
@@ -13,11 +11,13 @@ import {
     PersonWithTeamDistinctIdSchema,
     PersonsByDistinctIdsResponseSchema,
     PersonsResponseSchema,
-} from '~/generated/personhog/personhog/types/v1/person_pb'
+} from '~/common/generated/personhog/personhog/types/v1/person_pb'
+import { PersonHogClient } from '~/common/personhog/client'
+import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
 
 import { PersonsManagerService } from './persons-manager.service'
 
-jest.mock('../../../utils/logger')
+jest.mock('~/common/utils/logger')
 
 const textEncoder = new TextEncoder()
 
@@ -261,6 +261,32 @@ describe('PersonsManagerService', () => {
 
             expect(result).toBeDefined()
             expect(result!.url).toBe(`http://localhost:8000/project/${TEAM_1}/person/user%40example.com`)
+        })
+    })
+
+    describe('forceFresh', () => {
+        it('re-reads a cached person, so a write made after it was cached is visible', async () => {
+            // A hogflow run enrolling just after a person write evaluates its first wait against this
+            // read. Serving the pre-write cache entry there parks the run with nothing left to wake it.
+            const cachedRead = await manager.getCyclotronPerson(TEAM_1, 'distinct_id_A_1', 'distinct_id')
+            expect(cachedRead?.properties).toEqual({ foo: '1' })
+
+            jest.spyOn(repo, 'fetchPersonsByDistinctIds').mockResolvedValue([
+                {
+                    uuid: TEST_PERSONS[0].uuid,
+                    team_id: TEAM_1,
+                    distinct_id: 'distinct_id_A_1',
+                    properties: { foo: 'written-after-caching' },
+                },
+            ] as any)
+
+            expect((await manager.getCyclotronPerson(TEAM_1, 'distinct_id_A_1', 'distinct_id'))?.properties).toEqual({
+                foo: '1',
+            })
+            expect(
+                (await manager.getCyclotronPerson(TEAM_1, 'distinct_id_A_1', 'distinct_id', { forceFresh: true }))
+                    ?.properties
+            ).toEqual({ foo: 'written-after-caching' })
         })
     })
 

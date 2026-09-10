@@ -1,19 +1,20 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/common/kafka/consumer'
 import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/kafka/consumer'
+import { isDevEnv } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
+import { TeamManager } from '~/common/utils/team-manager'
 import { HealthCheckResult, PluginServerService } from '~/types'
-import { isDevEnv } from '~/utils/env-utils'
-import { logger } from '~/utils/logger'
-import { TeamManager } from '~/utils/team-manager'
 
 import { MetricsIngestionConsumerConfig } from './config'
+import { recordMetricsIngested } from './ingestion-otel-metrics'
 import { METRICS_DLQ_OUTPUT, METRICS_OUTPUT, MetricsDlqOutput, MetricsOutput } from './outputs/outputs'
 import { MetricsRateLimiterService } from './services/metrics-rate-limiter.service'
 import { MetricsIngestionMessage } from './types'
@@ -304,6 +305,9 @@ export class MetricsIngestionConsumer {
                             },
                         },
                     ])
+                    // Only after the ClickHouse-bound produce resolves — messages that
+                    // fail and route to the DLQ must not count as ingested.
+                    recordMetricsIngested(message.teamId, message.bytesUncompressed, message.recordCount)
                 } catch (error) {
                     await this.produceToDlq(message, error)
                     throw error

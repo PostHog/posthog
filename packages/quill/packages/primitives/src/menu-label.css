@@ -11,6 +11,6 @@
     }
 
     :is(.dark, [theme='dark']) .quill-menu-label {
-        color: color-mix(in oklab, var(--muted-foreground) 80%, transparent);
+        color: var(--subtle-foreground, var(--muted-foreground));
     }
 }

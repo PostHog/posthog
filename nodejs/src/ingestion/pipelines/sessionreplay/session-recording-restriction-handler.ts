@@ -1,10 +1,10 @@
 import { Message } from 'node-rdkafka'
 
-import { parseEventHeaders, parseKafkaHeaders } from '~/kafka/consumer'
-import { KafkaProducerWrapper } from '~/kafka/producer'
-import { EventIngestionRestrictionManager, RestrictionType } from '~/utils/event-ingestion-restrictions'
-import { logger } from '~/utils/logger'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
+import { parseEventHeaders, parseKafkaHeaders } from '~/common/kafka/consumer'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { EventIngestionRestrictionManager, RestrictionType } from '~/common/utils/event-ingestion-restrictions'
+import { logger } from '~/common/utils/logger'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 
 import { SessionRecordingIngesterMetrics } from './metrics'
 

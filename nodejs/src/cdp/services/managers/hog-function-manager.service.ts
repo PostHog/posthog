@@ -1,10 +1,11 @@
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { DEFAULT_LOADER_RETRY, LazyLoader, LoadOptions } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+import { PubSub } from '~/common/utils/pubsub'
+
 import { Team } from '../../../types'
-import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
-import { parseJSON } from '../../../utils/json-parse'
-import { LazyLoader } from '../../../utils/lazy-loader'
-import { logger } from '../../../utils/logger'
-import { captureException } from '../../../utils/posthog'
-import { PubSub } from '../../../utils/pubsub'
 import { HogFunctionType, HogFunctionTypeType } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
 
@@ -74,11 +75,13 @@ export class HogFunctionManagerService {
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'hog_function_manager_by_team',
             loader: async (teamIds) => await this.fetchTeamHogFunctions(teamIds),
+            loaderRetry: DEFAULT_LOADER_RETRY,
         })
 
         this.lazyLoader = new LazyLoader({
             name: 'hog_function_manager',
             loader: async (ids) => await this.fetchHogFunctions(ids),
+            loaderRetry: DEFAULT_LOADER_RETRY,
         })
 
         this.pubSub.on<{ teamId: Team['id']; hogFunctionIds: HogFunctionType['id'][] }>(
@@ -125,14 +128,18 @@ export class HogFunctionManagerService {
 
     public async getHogFunctionIdsForTeams(
         teamIds: Team['id'][],
-        types: HogFunctionTypeType[]
+        types: HogFunctionTypeType[],
+        options?: LoadOptions
     ): Promise<Record<Team['id'], string[]>> {
         const result = teamIds.reduce<Record<Team['id'], string[]>>((acc, teamId) => {
             acc[teamId] = []
             return acc
         }, {})
 
-        const teamHogFunctions = await this.lazyLoaderByTeam.getMany(teamIds.map((x) => x.toString()))
+        const teamHogFunctions = await this.lazyLoaderByTeam.getMany(
+            teamIds.map((x) => x.toString()),
+            options
+        )
 
         if (!teamHogFunctions) {
             return result
@@ -157,9 +164,10 @@ export class HogFunctionManagerService {
     }
 
     public async getHogFunctions(
-        ids: HogFunctionType['id'][]
+        ids: HogFunctionType['id'][],
+        options?: LoadOptions
     ): Promise<Record<HogFunctionType['id'], HogFunctionType | null>> {
-        return await this.lazyLoader.getMany(ids)
+        return await this.lazyLoader.getMany(ids, options)
     }
 
     public async fetchHogFunction(id: HogFunctionType['id']): Promise<HogFunctionType | null> {
@@ -210,7 +218,7 @@ export class HogFunctionManagerService {
 
         const response = await this.postgres.query<HogFunctionType>(
             PostgresUse.COMMON_READ,
-            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE id = ANY($1)`,
+            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE id = ANY($1) AND deleted = FALSE`,
             [ids],
             'fetchHogFunctions'
         )

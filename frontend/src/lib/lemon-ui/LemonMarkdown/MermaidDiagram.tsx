@@ -3,8 +3,7 @@ import { useEffect, useId, useState } from 'react'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from 'lib/logic/themeLogic'
 
 type MermaidApi = {
     initialize: (config: Record<string, unknown>) => void
@@ -23,21 +22,34 @@ function loadMermaid(): Promise<MermaidApi> {
 // Module-scoped so mermaid.initialize runs at most once per theme change across the whole page,
 // not once per <MermaidDiagram> instance.
 let initializedTheme: boolean | null = null
-let diagramCounter = 0
+let renderCounter = 0
 
 export interface MermaidDiagramProps {
     code: string
     className?: string
+    /** Render at the diagram's intrinsic width instead of shrinking to fit the container.
+     * Use inside a horizontally scrollable wrapper so wide diagrams scroll rather than becoming unreadably small. */
+    naturalWidth?: boolean
 }
 
-export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.Element {
+// Mermaid sizes its SVG with width="100%" plus an inline max-width of the intrinsic size, which
+// scales wide diagrams down to the container. Inline styles beat any stylesheet rule, so the only
+// way to let a scroll container take over is to rewrite the inline sizing to a fixed width.
+function withNaturalWidth(svgMarkup: string): string {
+    const host = document.createElement('div')
+    host.innerHTML = svgMarkup
+    const svgElement = host.querySelector('svg')
+    if (svgElement && svgElement.style.maxWidth) {
+        svgElement.style.width = svgElement.style.maxWidth
+        svgElement.style.maxWidth = ''
+    }
+    return host.innerHTML
+}
+
+export function MermaidDiagram({ code, className, naturalWidth = false }: MermaidDiagramProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const reactId = useId()
-    const [diagramId] = useState(() => {
-        diagramCounter += 1
-        const safe = reactId.replace(/[^a-zA-Z0-9_-]/g, '')
-        return `mermaid-${safe}-${diagramCounter}`
-    })
+    const [diagramIdPrefix] = useState(() => `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`)
 
     const [svg, setSvg] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
@@ -45,6 +57,9 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.El
 
     useEffect(() => {
         let cancelled = false
+        // Code can change before an earlier render settles; each call needs its own Mermaid DOM id.
+        renderCounter += 1
+        const diagramId = `${diagramIdPrefix}-${renderCounter}`
         setLoading(true)
         setError(null)
 
@@ -68,7 +83,7 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.El
                 if (cancelled || !result) {
                     return
                 }
-                setSvg(result.svg)
+                setSvg(naturalWidth ? withNaturalWidth(result.svg) : result.svg)
             })
             .catch((err: unknown) => {
                 if (cancelled) {
@@ -85,7 +100,7 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.El
         return () => {
             cancelled = true
         }
-    }, [code, isDarkModeOn, diagramId])
+    }, [code, isDarkModeOn, diagramIdPrefix, naturalWidth])
 
     if (error) {
         return (

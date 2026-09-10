@@ -1,10 +1,12 @@
 import uuid
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.errors import ExposedCHQueryError
 from posthog.models.event.util import create_event
 from posthog.models.raw_sessions.sessions_v3 import SESSION_V3_LOWER_TIER_AD_IDS
 from posthog.models.utils import uuid7
@@ -95,20 +97,19 @@ def _set_session_table_version(team, version):
 class TestSessionsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        s1 = str(uuid7())
-
+        # Two distinct sessions: a single session's two utm_sources collapse to the argMin entry value once raw_sessions parts merge.
         create_event(
             team=self.team,
             event="$pageview",
             distinct_id="d1",
-            properties={"$session_id": s1, "utm_source": "google"},
+            properties={"$session_id": str(uuid7()), "utm_source": "google"},
             event_uuid=(uuid.uuid4()),
         )
         create_event(
             team=self.team,
             event="$pageview",
             distinct_id="d1",
-            properties={"$session_id": s1, "utm_source": "youtube"},
+            properties={"$session_id": str(uuid7()), "utm_source": "youtube"},
             event_uuid=(uuid.uuid4()),
         )
 
@@ -149,6 +150,7 @@ class TestSessionsAPI(APIBaseTest):
         actual_values = {entry["name"] for entry in response.json()["results"]}
         expected_values = {
             "Affiliate",
+            "AI",
             "Audio",
             "Cross Network",
             "Direct",
@@ -215,6 +217,16 @@ class TestSessionsAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert len(response.json()["results"]) == 0
+
+    def test_values_returns_400_on_user_safe_clickhouse_error(self):
+        _set_session_table_version(self.team, "v2")
+        with patch(
+            "posthog.hogql.query.sync_execute",
+            side_effect=ExposedCHQueryError("Estimated query execution time is too long", code_name="timeout"),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/sessions/values/?key=$entry_utm_source")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert "Estimated query execution time" in response.json()["detail"]
 
     @parameterized.expand([("v2",), ("v3",)])
     def test_numerical_session_properties(self, version):

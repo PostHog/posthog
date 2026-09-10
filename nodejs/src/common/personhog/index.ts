@@ -1,7 +1,7 @@
 import type { CommonConfig } from '~/common/config'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { PersonHogClient, parseRolloutTeamIds } from './client'
 import { PersonHogGroupRepository } from './personhog-group-repository'
@@ -17,6 +17,8 @@ export type PersonHogConfig = Pick<
     CommonConfig,
     | 'PERSONHOG_ENABLED'
     | 'PERSONHOG_ADDR'
+    | 'PERSONHOG_IDENTITY_ADDR'
+    | 'PERSONS_STORE_MODE'
     | 'PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE'
     | 'PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS'
     | 'PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE'

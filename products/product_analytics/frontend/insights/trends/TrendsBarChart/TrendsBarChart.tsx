@@ -12,7 +12,8 @@ import {
 } from '@posthog/quill-charts'
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
+import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -31,21 +32,24 @@ import { QueryContext } from '~/queries/types'
 import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
+import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
 import { handleTrendsChartClick, type TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { useTrendsLegendConfig } from '../shared/useTrendsLegendConfig'
+import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
     buildTrendsBarAggregatedSeries,
     buildTrendsBarTimeSeries,
     buildTrendsBarTimeSeriesConfig,
+    pickAggregatedTooltipSeriesData,
 } from './trendsBarChartTransforms'
 
 interface TrendsBarChartProps {
@@ -56,8 +60,7 @@ interface TrendsBarChartProps {
 }
 
 const EMPTY_LABELS: string[] = []
-const TIME_SERIES_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
-const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false }
+const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false, placement: 'cursor' as const }
 
 type AggregationLabelFn = (groupTypeIndex: number | null | undefined) => { plural: string }
 
@@ -85,12 +88,12 @@ export function TrendsBarChart({
     inSharedMode = false,
     embedded = false,
 }: TrendsBarChartProps): JSX.Element | null {
-    const theme = useMemo(() => buildTheme(), [])
+    const theme = useChartTheme()
     const { insightProps, insight } = useValues(insightLogic)
 
     // Time-series bars (vertical) render the in-chart legend; the aggregated bar-value layout has
     // no legend (each bar is a breakdown row, not a series).
-    const legendConfig = useTrendsLegendConfig({ insightProps, inSharedMode })
+    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
 
     const {
         indexedResults,
@@ -103,7 +106,6 @@ export function TrendsBarChart({
         breakdownFilter,
         insightData,
         trendsFilter,
-        formula,
         isStickiness,
         labelGroupType,
         hasPersonsModal,
@@ -121,7 +123,6 @@ export function TrendsBarChart({
 
     const isAggregated = display === ChartDisplayType.ActionsBarValue
     const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
-    const quillLegendEnabled = !isAggregated && !!legendConfig
     const isPercentStackView = !isAggregated && !!showPercentStackView && !!supportsPercentStackView
     // Per-series y-axes are only meaningful for grouped (unstacked) bars — stacked layouts share
     // one axis. Mirrors the legacy ActionsLineGraph, which assigns y0/y1/… per dataset.
@@ -129,13 +130,7 @@ export function TrendsBarChart({
 
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel, context?.groupTypeLabel)
 
-    const hasData =
-        !!indexedResults?.[0] &&
-        (isAggregated
-            ? indexedResults.some(
-                  (r: IndexedTrendResult) => Number.isFinite(r.aggregated_value) && r.aggregated_value !== 0
-              )
-            : !!indexedResults[0].data && indexedResults.some((r: IndexedTrendResult) => r.count !== 0))
+    const hasData = hasTrendsChartData(indexedResults)
 
     const stackBreakdowns = !!querySource && !!getStackBreakdownValues(querySource)
 
@@ -150,6 +145,16 @@ export function TrendsBarChart({
         [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
+    const getLabel = useCallback(
+        (r: IndexedTrendResult): string =>
+            getTrendsSeriesDisplayLabel(r, {
+                breakdownFilter,
+                cohorts: allCohorts?.results,
+                formatPropertyValueForDisplay,
+            }),
+        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+    )
+
     const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -162,15 +167,21 @@ export function TrendsBarChart({
         }
         const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
             getColor: getTrendsColor,
-            // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
-            // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
-            getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+            // Hidden series stay listed (dimmed) and are excluded via config.legend.hiddenKeys
+            // instead of being dropped here, so the legend can restore them.
+            getHidden: undefined,
+            getLabel,
             buildMeta: buildTrendsSeriesMeta,
             showMultipleYAxes: applyMultipleYAxes,
         })
+        // Bands are keyed by these strings, so they must be unique per point. Display labels
+        // are not (week and hour labels omit the year), which folds a multi-year range's bars
+        // onto each other. Use the ISO days; ticks and tooltips format from them. Stickiness
+        // x values are interval counts rather than dates, so it keeps its labels.
+        const days = currentPeriodResult?.days
         return {
             series: timeSeries,
-            labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
+            labels: (!isStickiness && days?.length ? days : currentPeriodResult?.labels) ?? EMPTY_LABELS,
             displayLabels: undefined,
         }
     }, [
@@ -178,11 +189,13 @@ export function TrendsBarChart({
         indexedResults,
         getTrendsColor,
         getTrendsHidden,
+        isStickiness,
+        currentPeriodResult?.days,
         currentPeriodResult?.labels,
         stackBreakdowns,
         getAggregatedDisplayLabel,
+        getLabel,
         applyMultipleYAxes,
-        quillLegendEnabled,
     ])
 
     const valueLabelFormatter = useCallback(
@@ -197,7 +210,7 @@ export function TrendsBarChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const timeSeriesConfig: TimeSeriesBarChartConfig = useMemo(
+    const timeSeriesConfig: TimeSeriesBarChartConfig = useChartConfig(
         () => ({
             ...buildTrendsBarTimeSeriesConfig({
                 trendsFilter,
@@ -212,7 +225,7 @@ export function TrendsBarChart({
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: TIME_SERIES_TOOLTIP_CONFIG,
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
             }),
             // Interactive legend (toggle callbacks, context menu) is a component concern, kept out
             // of the pure transform so the builder stays free of React state.
@@ -241,7 +254,7 @@ export function TrendsBarChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const aggregatedConfig: BarChartConfig = useMemo(() => {
+    const aggregatedConfig: BarChartConfig = useChartConfig(() => {
         // Band keys are synthetic per-series; render the human label via the categorical-axis
         // formatter and skip repeats so band-shared breakdown rows don't double-paint.
         let xTickFormatter: BarChartConfig['xTickFormatter']
@@ -316,19 +329,10 @@ export function TrendsBarChart({
         [isAggregated, goalLines, series]
     )
 
-    const indexByResult = useMemo(() => {
-        const m = new Map<IndexedTrendResult, number>()
-        ;(indexedResults ?? []).forEach((r: IndexedTrendResult, i: number) => m.set(r, i))
-        return m
-    }, [indexedResults])
-
     // Anomaly markers must read the same axis their series is scaled against.
     const getYAxisId = useCallback(
-        (r: IndexedTrendResult) => {
-            const idx = indexByResult.get(r) ?? 0
-            return applyMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
-        },
-        [indexByResult, applyMultipleYAxes]
+        (r: IndexedTrendResult) => series.find((s) => s.key === String(r.id))?.yAxisId ?? DEFAULT_Y_AXIS_ID,
+        [series]
     )
 
     const onPointClick = useCallback(
@@ -342,13 +346,15 @@ export function TrendsBarChart({
         [isAggregated, clickDeps]
     )
 
+    // Time-series layouts only — the aggregated bar-value layout has categorical labels, not dates.
+    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            // BarTooltip already put the cursor-visible segment at seriesData[0] — keep just that.
             const tooltipCtx: TooltipContext<TrendsSeriesMeta> = isAggregated
                 ? {
                       ...ctx,
-                      seriesData: ctx.seriesData.slice(0, 1),
+                      seriesData: pickAggregatedTooltipSeriesData(ctx),
                   }
                 : ctx
             const onRowClick = canHandleClick
@@ -361,24 +367,23 @@ export function TrendsBarChart({
                       }
                   }
                 : undefined
-            return (
-                <TrendsTooltip
-                    context={tooltipCtx}
-                    timezone={timezone}
-                    interval={interval ?? undefined}
-                    breakdownFilter={breakdownFilter ?? undefined}
-                    dateRange={insightData?.resolved_date_range ?? undefined}
-                    trendsFilter={trendsFilter}
-                    formula={formula}
-                    showPercentView={isStickiness}
-                    isPercentStackView={isPercentStackView}
-                    baseCurrency={baseCurrency}
-                    groupTypeLabel={resolvedGroupTypeLabel}
-                    formatCompareLabel={context?.formatCompareLabel}
-                    onRowClick={onRowClick}
-                    showHeader={isAggregated ? false : undefined}
-                />
-            )
+            const sharedProps = {
+                context: tooltipCtx,
+                timezone,
+                interval: interval ?? undefined,
+                breakdownFilter: breakdownFilter ?? undefined,
+                dateRange: insightData?.resolved_date_range ?? undefined,
+                trendsFilter,
+                showPercentView: isStickiness,
+                isPercentStackView,
+                baseCurrency,
+                groupTypeLabel: resolvedGroupTypeLabel,
+                formatCompareLabel: context?.formatCompareLabel,
+                onRowClick,
+                showHeader: isAggregated ? (false as const) : undefined,
+                sortedByValue: false,
+            }
+            return <InsightSeriesTooltip {...sharedProps} />
         },
         [
             timezone,
@@ -386,7 +391,6 @@ export function TrendsBarChart({
             breakdownFilter,
             insightData?.resolved_date_range,
             trendsFilter,
-            formula,
             isStickiness,
             isPercentStackView,
             baseCurrency,
@@ -399,7 +403,13 @@ export function TrendsBarChart({
     )
 
     if (!hasData) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="bar"
+            />
+        )
     }
 
     if (isAggregated) {
@@ -453,6 +463,7 @@ export function TrendsBarChart({
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="BarGraph"
             dataAttr="trend-bar-graph"
             onError={handleChartError}

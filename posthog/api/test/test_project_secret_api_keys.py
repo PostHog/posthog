@@ -76,6 +76,14 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert data["last_used_at"] is None
         assert data["value"].startswith("phs_")
 
+    def test_create_feature_flag_read_scope(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "local eval key", "scopes": ["feature_flag:read"]},
+        )
+        assert response.status_code == 201
+        assert response.json()["scopes"] == ["feature_flag:read"]
+
     def test_create_too_many_api_keys(self):
         for i in range(0, MAX_PROJECT_SECRET_API_KEYS_PER_TEAM):
             self.client.post(

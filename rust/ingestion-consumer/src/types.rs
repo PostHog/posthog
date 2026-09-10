@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use common_kafka_consumer::{Offset, PolledMessage};
 use serde::{Deserialize, Serialize};
 
 /// Matches `SerializedKafkaMessage` in `nodejs/src/ingestion/api/types.ts`.
@@ -15,18 +16,27 @@ pub struct SerializedKafkaMessage {
     pub headers: HashMap<String, String>,
 }
 
-/// Matches `IngestBatchRequest` in `nodejs/src/ingestion/api/types.ts`.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct IngestBatchRequest {
-    pub batch_id: String,
-    pub messages: Vec<SerializedKafkaMessage>,
+impl SerializedKafkaMessage {
+    /// Approximate payload size for queue accounting: key plus value bytes,
+    /// ignoring headers and framing.
+    pub fn payload_bytes(&self) -> usize {
+        self.key.as_ref().map_or(0, String::len) + self.value.as_ref().map_or(0, String::len)
+    }
 }
 
-/// Matches `IngestBatchResponse` in `nodejs/src/ingestion/api/types.ts`.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct IngestBatchResponse {
-    pub batch_id: String,
-    pub status: String,
-    pub accepted: u32,
-    pub error: Option<String>,
+/// The demux's view of a message: the Kafka key is the routing key.
+impl From<SerializedKafkaMessage> for PolledMessage<String, SerializedKafkaMessage> {
+    fn from(message: SerializedKafkaMessage) -> Self {
+        PolledMessage {
+            offset: Offset(message.offset),
+            key: message.key.clone(),
+            inner: message,
+        }
+    }
 }
+
+/// One poll's messages for one routing key on one partition, in offset order.
+pub type Group = common_kafka_consumer::Group<String, SerializedKafkaMessage>;
+
+/// The demux that builds one poll's groups.
+pub type Accumulator = common_kafka_consumer::Accumulator<String, SerializedKafkaMessage>;

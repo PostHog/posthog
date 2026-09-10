@@ -1,0 +1,70 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "blogs": {
+        "description": "The Blogger blog being synced, with its metadata and aggregate post/page counts.",
+        "docs_url": "https://developers.google.com/blogger/docs/3.0/reference/blogs",
+        "columns": {
+            "id": "Unique identifier for the blog.",
+            "name": "The display name of the blog.",
+            "description": "The blog's description.",
+            "published": "RFC 3339 timestamp of when the blog was created.",
+            "updated": "RFC 3339 timestamp of when the blog was last updated.",
+            "url": "The public URL of the blog.",
+            "posts": "Aggregate information about the blog's posts (total count and self link).",
+            "pages": "Aggregate information about the blog's pages (total count and self link).",
+            "locale": "The locale (language, country, variant) configured for the blog.",
+            "status": "Status of the blog (e.g. LIVE).",
+        },
+    },
+    "posts": {
+        "description": "Posts published to the blog. Synced incrementally on the immutable `published` date.",
+        "docs_url": "https://developers.google.com/blogger/docs/3.0/reference/posts",
+        "columns": {
+            "id": "Unique identifier for the post.",
+            "blog": "The blog this post belongs to (contains the blog id).",
+            "published": "RFC 3339 timestamp of when the post was published.",
+            "updated": "RFC 3339 timestamp of when the post was last updated.",
+            "url": "The public URL of the post.",
+            "title": "The title of the post.",
+            "content": "The HTML body of the post.",
+            "author": "The post author (id, display name, url, and image).",
+            "labels": "List of labels applied to the post.",
+            "replies": "Aggregate information about the post's comments (total count and self link).",
+            "images": "Images attached to the post.",
+            "status": "Status of the post (e.g. LIVE, DRAFT, SCHEDULED).",
+        },
+    },
+    "pages": {
+        "description": "Static pages on the blog. Full refresh only — the API exposes no date filter for pages.",
+        "docs_url": "https://developers.google.com/blogger/docs/3.0/reference/pages",
+        "columns": {
+            "id": "Unique identifier for the page.",
+            "blog": "The blog this page belongs to (contains the blog id).",
+            "published": "RFC 3339 timestamp of when the page was created.",
+            "updated": "RFC 3339 timestamp of when the page was last updated.",
+            "url": "The public URL of the page.",
+            "title": "The title of the page.",
+            "content": "The HTML body of the page.",
+            "author": "The page author (id, display name, url, and image).",
+            "status": "Status of the page (e.g. LIVE, DRAFT).",
+        },
+    },
+    "comments": {
+        "description": "Comments across all of the blog's posts. Synced incrementally on the immutable `published` date.",
+        "docs_url": "https://developers.google.com/blogger/docs/3.0/reference/comments",
+        "columns": {
+            "id": "Unique identifier for the comment.",
+            "post": "The post this comment was made on (contains the post id).",
+            "blog": "The blog this comment belongs to (contains the blog id).",
+            "published": "RFC 3339 timestamp of when the comment was published.",
+            "updated": "RFC 3339 timestamp of when the comment was last updated.",
+            "content": "The body of the comment.",
+            "author": "The comment author (id, display name, url, and image).",
+            "inReplyTo": "The comment this comment replies to, if any (contains the parent comment id).",
+            "status": "Status of the comment (e.g. LIVE, PENDING, SPAM).",
+        },
+    },
+}

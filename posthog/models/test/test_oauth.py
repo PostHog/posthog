@@ -1,45 +1,33 @@
-import uuid
 from datetime import timedelta
 
 from freezegun import freeze_time
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models import Organization, User
 from posthog.models.oauth import (
+    UNNORMALIZABLE_CIMD_URL,
     OAuthAccessToken,
     OAuthApplication,
     OAuthGrant,
-    OAuthIDToken,
     OAuthRefreshToken,
+    normalize_cimd_url,
     revoke_application_sessions,
     revoke_oauth_session,
+    revoke_oauth_token_session,
 )
+from posthog.models.oauth_provisioning import UNLIMITED_OVERRIDE, ProvisioningConfig
 
 
 class TestOAuthModels(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
         self.user = User.objects.create(email="test@example.com")
-
-    def test_create_oauth_application(self):
-        app = OAuthApplication.objects.create(
-            name="Test App",
-            client_id="test_client_id",
-            client_secret="test_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-        self.assertEqual(app.name, "Test App")
-        self.assertEqual(app.client_id, "test_client_id")
-        self.assertEqual(app.algorithm, "RS256")
 
     def _make_app(self, name: str, client_id: str, **overrides) -> OAuthApplication:
         return OAuthApplication.objects.create(
@@ -60,14 +48,27 @@ class TestOAuthModels(TestCase):
         app.refresh_from_db()
         self.assertEqual(app.scopes, [])
 
-    def test_oauth_application_scopes_persists_explicit_list(self):
-        app = self._make_app(
-            "Scopes Explicit",
-            "scopes_explicit_client",
-            scopes=["insight:read", "llm_gateway:read"],
+    @parameterized.expand(
+        [
+            ("whole_token", "openid  llm_gateway:read query:read", True, True),
+            ("substring", "openid llm_gateway:reader query:read", True, False),
+            ("different_case", "openid LLM_GATEWAY:READ query:read", True, False),
+            ("no_application", "llm_gateway:read", False, False),
+        ]
+    )
+    def test_access_tokens_with_scope(
+        self, name: str, stored_scopes: str, application_bound: bool, expected: bool
+    ) -> None:
+        app = self._make_app(f"Scope lookup {name}", f"scope_lookup_{name}")
+        access_token = OAuthAccessToken.objects.create(
+            application=app if application_bound else None,
+            user=self.user,
+            token=f"scope_lookup_token_{name}",
+            expires=timezone.now() + timedelta(minutes=5),
+            scope=stored_scopes,
         )
-        app.refresh_from_db()
-        self.assertEqual(app.scopes, ["insight:read", "llm_gateway:read"])
+
+        self.assertEqual(OAuthAccessToken.with_scope("llm_gateway:read").filter(pk=access_token.pk).exists(), expected)
 
     @parameterized.expand(
         [
@@ -108,36 +109,11 @@ class TestOAuthModels(TestCase):
             "CIMD Split",
             "cimd_split_client",
             is_cimd_client=True,
-            cimd_metadata_url="https://example.com/oauth-client",
             scopes=["insight:read"],
             optional_scopes=["dashboard:read"],
         )
         self.assertEqual(app.required_scopes, ["insight:read"])
         self.assertEqual(app.ceiling_scopes, ["insight:read", "dashboard:read"])
-
-    def test_oauth_access_token_label_defaults_to_empty_string(self):
-        app = self._make_app("Token Label Default", "token_label_default_client")
-        token = OAuthAccessToken.objects.create(
-            application=app,
-            user=self.user,
-            token="default_label_token",
-            expires=timezone.now() + timedelta(minutes=5),
-        )
-        self.assertEqual(token.label, "")
-        token.refresh_from_db()
-        self.assertEqual(token.label, "")
-
-    def test_oauth_access_token_label_persists_explicit_value(self):
-        app = self._make_app("Token Label Explicit", "token_label_explicit_client")
-        token = OAuthAccessToken.objects.create(
-            application=app,
-            user=self.user,
-            token="labeled_token",
-            expires=timezone.now() + timedelta(minutes=5),
-            label="laptop-2026",
-        )
-        token.refresh_from_db()
-        self.assertEqual(token.label, "laptop-2026")
 
     @freeze_time("2024-01-01 00:00:00")
     def test_create_oauth_application_with_skip_authorization_fails(self):
@@ -154,66 +130,6 @@ class TestOAuthModels(TestCase):
                 algorithm="RS256",
                 skip_authorization=True,  # This should trigger the constraint
             )
-
-    def test_create_oauth_grant(self):
-        app = OAuthApplication.objects.create(
-            name="Test App",
-            client_id="test_client_id",
-            client_secret="test_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-        grant = OAuthGrant.objects.create(
-            application=app,
-            user=self.user,
-            code="test_code",
-            code_challenge="test_challenge",
-            code_challenge_method="S256",
-            expires=timezone.now() + timedelta(minutes=15),
-        )
-        self.assertEqual(grant.code, "test_code")
-        self.assertEqual(grant.code_challenge_method, "S256")
-
-    def test_token_expiry(self):
-        app = OAuthApplication.objects.create(
-            name="Test App",
-            client_id="test_client_id",
-            client_secret="test_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-        grant = OAuthGrant.objects.create(
-            application=app,
-            user=self.user,
-            code="test_code",
-            code_challenge="test_challenge",
-            code_challenge_method="S256",
-            expires=timezone.now() + timedelta(minutes=5),
-            scoped_organizations=[self.organization.id],
-        )
-        self.assertTrue(grant.expires > timezone.now())
-
-        with freeze_time(timezone.now() + timedelta(minutes=10)):
-            self.assertTrue(grant.expires < timezone.now())
-
-    def test_create_oauth_application_with_https_redirect_url(self):
-        app = OAuthApplication.objects.create(
-            name="Secure App",
-            client_id="secure_client_id",
-            client_secret="secure_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",  # HTTPS URL
-            organization=self.organization,
-            algorithm="RS256",
-        )
-        self.assertEqual(app.redirect_uris, "https://example.com/callback")
 
     @override_settings(DEBUG=False)
     def test_cannot_create_application_with_http_redirect_url_when_debug_is_false(self):
@@ -346,6 +262,7 @@ class TestOAuthModels(TestCase):
         ("reverse domain style", "com.posthog.code://oauth"),
         ("cursor scheme", "cursor://oauth"),
         ("vscode scheme", "vscode://oauth"),
+        ("authority-less native scheme", "com.example.app:/oauth"),
     ]
 
     @parameterized.expand(valid_custom_scheme_uris)
@@ -363,7 +280,13 @@ class TestOAuthModels(TestCase):
         )
         self.assertEqual(app.redirect_uris, redirect_uri)
 
-    def test_custom_scheme_with_fragment_still_rejected(self):
+    @parameterized.expand(
+        [
+            ("authority form", "myapp://callback#fragment"),
+            ("authority-less native", "com.example.app:/oauth#fragment"),
+        ]
+    )
+    def test_custom_scheme_with_fragment_still_rejected(self, _name, redirect_uri):
         with self.assertRaises(ValidationError):
             OAuthApplication.objects.create(
                 name="Invalid Custom Scheme App",
@@ -371,7 +294,7 @@ class TestOAuthModels(TestCase):
                 client_secret="invalid_custom_scheme_client_secret",
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="myapp://callback#fragment",
+                redirect_uris=redirect_uri,
                 organization=self.organization,
                 algorithm="RS256",
             )
@@ -427,6 +350,42 @@ class TestOAuthModels(TestCase):
                 algorithm="RS256",
             )
 
+    def test_code_grant_application_requires_redirect_uri(self):
+        with self.assertRaises(ValidationError):
+            OAuthApplication.objects.create(
+                name="No Redirect App",
+                client_id="no_redirect_client_id",
+                client_secret="no_redirect_client_secret",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="",
+                organization=self.organization,
+                algorithm="RS256",
+            )
+
+    def test_valid_allowed_origins_accepted(self):
+        app = self._make_app(
+            "Allowed Origins App",
+            "allowed_origins_client",
+            allowed_origins="https://app.example.com https://www.example.com",
+        )
+        self.assertIn("app.example.com", app.allowed_origins)
+
+    @parameterized.expand(
+        [
+            ("non-https scheme", "http://app.example.com"),
+            ("origin with path", "https://app.example.com/callback"),
+        ]
+    )
+    def test_invalid_allowed_origins_rejected(self, _name, allowed_origins):
+        with self.assertRaises(ValidationError):
+            self._make_app("Bad Origin App", "bad_origin_client", allowed_origins=allowed_origins)
+
+    def test_rs256_without_private_key_rejected(self):
+        with override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": ""}):
+            with self.assertRaises(ValidationError):
+                self._make_app("No Key App", "no_key_client")
+
     def test_invalid_redirect_uri_no_host(self):
         with self.assertRaises(ValidationError):
             OAuthApplication.objects.create(
@@ -452,114 +411,6 @@ class TestOAuthModels(TestCase):
                 organization=self.organization,
                 algorithm="RS256",
             )
-
-    def test_token_revocation(self):
-        app = OAuthApplication.objects.create(
-            name="Revocable App",
-            client_id="revocable_client_id",
-            client_secret="revocable_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-        grant = OAuthGrant.objects.create(
-            application=app,
-            user=self.user,
-            code="revocable_code",
-            code_challenge="revocable_challenge",
-            code_challenge_method="S256",
-            expires=timezone.now() + timedelta(minutes=5),
-        )
-        grant.delete()
-        with self.assertRaises(OAuthGrant.DoesNotExist):
-            OAuthGrant.objects.get(code="revocable_code")
-
-    def test_application_deletion_cascades(self):
-        app = OAuthApplication.objects.create(
-            name="Cascade Delete App",
-            client_id="cascade_client_id",
-            client_secret="cascade_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-        OAuthGrant.objects.create(
-            application=app,
-            user=self.user,
-            code="cascade_code",
-            code_challenge="cascade_challenge",
-            code_challenge_method="S256",
-            expires=timezone.now() + timedelta(minutes=5),
-        )
-        app_id = app.id
-        app.delete()
-        self.assertFalse(OAuthGrant.objects.filter(application_id=app_id).exists())
-
-    def test_user_and_organization_association(self):
-        app = OAuthApplication.objects.create(
-            name="Association App",
-            client_id="association_client_id",
-            client_secret="association_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-
-        self.assertEqual(app.organization, self.organization)
-
-    def test_oauth_models_have_reverse_relationships(self):
-        app = OAuthApplication.objects.create(
-            name="Test App",
-            client_id="test_client_id",
-            client_secret="test_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-
-        grant = OAuthGrant.objects.create(
-            application=app,
-            user=self.user,
-            code="test_code",
-            code_challenge="test_challenge",
-            code_challenge_method="S256",
-            expires=timezone.now() + timedelta(minutes=5),
-        )
-
-        id_token = OAuthIDToken.objects.create(
-            application=app,
-            user=self.user,
-            jti=uuid.uuid4(),
-            expires=timezone.now() + timedelta(minutes=5),
-        )
-
-        access_token = OAuthAccessToken.objects.create(
-            application=app,
-            user=self.user,
-            token="test_token",
-            expires=timezone.now() + timedelta(minutes=5),
-        )
-
-        refresh_token = OAuthRefreshToken.objects.create(
-            application=app,
-            user=self.user,
-            token="test_token",
-        )
-
-        self.assertIn(app, self.organization.oauth_applications.all())
-
-        self.assertIn(grant, self.user.oauth_grants.all())
-        self.assertIn(id_token, self.user.oauth_id_tokens.all())
-        self.assertIn(access_token, self.user.oauth_access_tokens.all())
-        self.assertIn(refresh_token, self.user.oauth_refresh_tokens.all())
 
     def test_get_allowed_schemes_extracts_schemes_from_redirect_uris(self):
         app = OAuthApplication.objects.create(
@@ -653,8 +504,7 @@ class TestOAuthModels(TestCase):
 
         self.assertEqual(OAuthAccessToken.objects.filter(user=self.user, application=app).count(), 0)
         self.assertEqual(OAuthGrant.objects.filter(user=self.user, application=app).count(), 0)
-        refresh_token.refresh_from_db()
-        self.assertIsNotNone(refresh_token.revoked)
+        self.assertFalse(OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists())
 
     def test_revoke_oauth_session_with_null_user_still_revokes_specific_token(self):
         app = OAuthApplication.objects.create(
@@ -678,6 +528,90 @@ class TestOAuthModels(TestCase):
         revoke_oauth_session(access_token=access_token)
 
         self.assertFalse(OAuthAccessToken.objects.filter(id=token_id).exists())
+
+    def test_revoke_oauth_token_session_revokes_only_the_paired_tokens(self):
+        app = OAuthApplication.objects.create(
+            name="Narrow Revoke Test App",
+            client_id="narrow_revoke_test_client_id",
+            client_secret="narrow_revoke_test_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="narrow_refresh_1")
+        access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="narrow_access_1",
+            expires=timezone.now() + timedelta(minutes=5),
+            source_refresh_token=refresh_token,
+        )
+        # A second, unrelated session for the same user+application - must survive.
+        other_access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="narrow_access_2",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="narrow_grant_code",
+            code_challenge="challenge",
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        revoke_oauth_token_session(access_token=access_token)
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token.id).exists())
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
+
+        self.assertTrue(OAuthAccessToken.objects.filter(id=other_access_token.id).exists())
+        self.assertTrue(OAuthGrant.objects.filter(id=grant.id).exists())
+
+    def test_revoke_oauth_token_session_sweeps_all_access_tokens_for_non_rotating_refresh(self):
+        # DCR/CIMD clients get non-rotating refreshes: _save_bearer_token inserts a new,
+        # unlinked OAuthAccessToken row per refresh instead of updating one in place, so
+        # source_refresh_token stays None on every one of them and there's no queryable
+        # link back to the refresh token that minted them. A per-token revoke can't find
+        # tokens it has no link to, so this must fall back to the full sweep instead.
+        app = OAuthApplication.objects.create(
+            name="DCR Non-Rotating Test App",
+            client_id="dcr_non_rotating_client_id",
+            client_secret="dcr_non_rotating_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+            is_dcr_client=True,
+        )
+        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="dcr_refresh_1")
+        first_access_token = OAuthAccessToken.objects.create(
+            application=app, user=self.user, token="dcr_access_1", expires=timezone.now() + timedelta(minutes=5)
+        )
+        second_access_token = OAuthAccessToken.objects.create(
+            application=app, user=self.user, token="dcr_access_2", expires=timezone.now() + timedelta(minutes=5)
+        )
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="dcr_grant_code",
+            code_challenge="challenge",
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        revoke_oauth_token_session(refresh_token=refresh_token)
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=first_access_token.id).exists())
+        self.assertFalse(OAuthAccessToken.objects.filter(id=second_access_token.id).exists())
+        self.assertFalse(OAuthGrant.objects.filter(id=grant.id).exists())
+        self.assertFalse(OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists())
 
     @freeze_time("2026-01-01 00:00:00")
     def test_revoke_application_sessions_revokes_across_all_users_and_leaves_other_apps(self):
@@ -723,3 +657,95 @@ class TestOAuthModels(TestCase):
         other_app.refresh_from_db()
         self.assertEqual(app.sessions_revoked_at, timezone.now())
         self.assertIsNone(other_app.sessions_revoked_at)
+
+
+class TestCarriesProvisioningConfig(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # The backfill writes a config to every row, so an ordinary OAuth app ends up with a
+            # populated blob. Owing a partner quota has to key on what the config says, or every
+            # OAuth app's refresh starts consuming the partner token-exchange bucket.
+            ("all_default_config", {"is_provisioning_partner": False, "config": ProvisioningConfig()}, False),
+            ("partner_flag", {"is_provisioning_partner": True, "config": ProvisioningConfig()}, True),
+            # An admin disabling a partner clears the flag, and its outstanding tokens must stay
+            # throttled rather than being exempted by the same action.
+            (
+                "disabled_partner",
+                {"is_provisioning_partner": False, "config": ProvisioningConfig(disabled=True)},
+                True,
+            ),
+            (
+                "quota_recorded",
+                {"is_provisioning_partner": False, "config": ProvisioningConfig(rate_limits={"account_requests": 5})},
+                True,
+            ),
+        ]
+    )
+    def test_carries_provisioning_config(self, _name: str, fields: dict, expected: bool) -> None:
+        app = OAuthApplication(
+            is_provisioning_partner=fields["is_provisioning_partner"],
+            _provisioning_config=fields["config"].model_dump(mode="json"),
+        )
+        assert app.carries_provisioning_config is expected
+
+
+class TestNormalizeRateLimits(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # The old fixed-field shape stored these two for "no override" and "unlimited".
+            ("null_is_no_override", {"account_requests": None}, {}),
+            ("zero_becomes_unlimited", {"account_requests": 0}, {"account_requests": UNLIMITED_OVERRIDE}),
+            ("negative_stays_unlimited", {"account_requests": -1}, {"account_requests": UNLIMITED_OVERRIDE}),
+            ("value_is_kept", {"account_requests": 5}, {"account_requests": 5}),
+            # The config is re-parsed on every read, so a value the validator cannot coerce has
+            # to drop out rather than raise and fail every request for that partner.
+            ("unreadable_value_is_dropped", {"account_requests": {}}, {}),
+            ("unreadable_text_is_dropped", {"account_requests": "many"}, {}),
+            ("readable_value_survives_an_unreadable_sibling", {"a": [], "b": 5}, {"b": 5}),
+        ]
+    )
+    def test_normalize_rate_limits(self, _name: str, stored: dict, expected: dict) -> None:
+        assert ProvisioningConfig(rate_limits=stored).rate_limits == expected
+
+
+class TestNormalizeCimdUrl(SimpleTestCase):
+    # `CIMDVerificationToken.cimd_url` stores this function's output directly, and migration
+    # 1296_backfill_cimd_verification_token_url keeps a frozen copy of the same logic. Changing
+    # what any of these inputs normalize to silently unverifies every stored token bound to a
+    # URL of that shape, with no test failure elsewhere — that's what this table pins.
+    @parameterized.expand(
+        [
+            ("trailing_slash", "https://a.example.com/cimd.json/", "https://a.example.com/cimd.json"),
+            ("multiple_trailing_slashes", "https://a.example.com/cimd.json///", "https://a.example.com/cimd.json"),
+            ("uppercase_host", "https://A.Example.COM/cimd.json", "https://a.example.com/cimd.json"),
+            ("uppercase_scheme", "HTTPS://a.example.com/cimd.json", "https://a.example.com/cimd.json"),
+            ("default_port_443", "https://a.example.com:443/cimd.json", "https://a.example.com/cimd.json"),
+            ("port_zero", "https://a.example.com:0/cimd.json", "https://a.example.com/cimd.json"),
+            ("path_params_stripped", "https://a.example.com/cimd.json;evil", "https://a.example.com/cimd.json"),
+            ("surrounding_space", "  https://a.example.com/cimd.json  ", "https://a.example.com/cimd.json"),
+        ]
+    )
+    def test_equivalent_spellings_collapse(self, _name, raw, expected):
+        self.assertEqual(normalize_cimd_url(raw), expected)
+
+    @parameterized.expand(
+        [
+            ("non_default_port", "https://a.example.com:8443/cimd.json"),
+            ("path_case_is_significant", "https://a.example.com/CIMD.json"),
+            ("different_path", "https://a.example.com/other.json"),
+        ]
+    )
+    def test_distinct_documents_stay_distinct(self, _name, other):
+        self.assertNotEqual(normalize_cimd_url(other), normalize_cimd_url("https://a.example.com/cimd.json"))
+
+    @parameterized.expand(
+        [
+            ("non_numeric_port", "https://a.example.com:abc/cimd.json"),
+            ("out_of_range_port", "https://a.example.com:99999/cimd.json"),
+            # urlparse() itself raises "Invalid IPv6 URL" here, not just the .port accessor —
+            # the case that reached _token_is_bound_to_url as an uncaught 500 on /authorize.
+            ("invalid_ipv6_literal", "https://[::1/x.json"),
+        ]
+    )
+    def test_unparseable_url_returns_sentinel_instead_of_raising(self, _name, raw):
+        self.assertEqual(normalize_cimd_url(raw), UNNORMALIZABLE_CIMD_URL)

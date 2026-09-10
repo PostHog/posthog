@@ -117,10 +117,10 @@
     .quill-dialog__header {
         padding-inline: 1rem;
         padding-top: 1rem;
+        padding-bottom: 1rem;
     }
 
     .quill-dialog__header:has(~ [data-slot='dialog-body']) {
-        padding-bottom: 1rem;
         border-bottom: 1px solid var(--border);
     }
 

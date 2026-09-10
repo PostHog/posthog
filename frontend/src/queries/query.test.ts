@@ -4,7 +4,7 @@ import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
-import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { EventsQuery, HogQLQuery, NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -20,6 +20,17 @@ describe('query', () => {
                         return [
                             200,
                             { results: [], clickhouse: 'clickhouse string', hogql: 'hogql string', is_cached: false },
+                        ]
+                    }
+                    if (data.query?.kind === 'WebStatsTableQuery') {
+                        return [
+                            200,
+                            {
+                                results: [],
+                                is_cached: false,
+                                preComputeStrategy: 'lazy_precompute',
+                                preComputeStale: true,
+                            },
                         ]
                     }
                     if (data.query?.kind === 'EventsQuery' && data.query.select[0] === 'error') {
@@ -110,6 +121,23 @@ describe('query', () => {
         })
     })
 
+    it('captures precompute strategy and staleness from web analytics responses', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const q = setLatestVersionsOnQuery({
+            kind: NodeKind.WebStatsTableQuery,
+            breakdownBy: WebStatsBreakdown.Page,
+            properties: [],
+        }) as any
+        captureSpy.mockClear()
+        await performQuery(q)
+        const queryCompletedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
+        expect(queryCompletedCalls).toHaveLength(1)
+        expect(queryCompletedCalls[0][1]).toMatchObject({
+            precompute_strategy: 'lazy_precompute',
+            precompute_stale: true,
+        })
+    })
+
     it('emits an event when a query errors', async () => {
         const captureSpy = jest.spyOn(posthog, 'capture')
         const q: EventsQuery = setLatestVersionsOnQuery({
@@ -124,7 +152,29 @@ describe('query', () => {
 
         const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
         expect(queryFailedCalls).toHaveLength(1)
-        expect(queryFailedCalls[0][1]).toMatchObject({ query: q, duration: expect.any(Number) })
+        expect(queryFailedCalls[0][1]).toMatchObject({
+            query: q,
+            duration: expect.any(Number),
+            error_status: 500,
+            error_code: null,
+        })
+        // Raw error text must stay out of telemetry
+        expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
+    })
+
+    it('does not emit a query failed event when the request is aborted', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const q: HogQLQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.HogQLQuery,
+            query: 'select * from events',
+        })
+        captureSpy.mockClear()
+        const controller = new AbortController()
+        controller.abort()
+        await expect(performQuery(q, { signal: controller.signal })).rejects.toThrow()
+
+        const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
+        expect(queryFailedCalls).toHaveLength(0)
     })
 
     describe('waitForPageVisible', () => {
@@ -198,7 +248,150 @@ describe('query', () => {
         })
     })
 
+    describe('pollForResults and backgrounded tabs', () => {
+        const originalVisibilityState = document.visibilityState
+
+        afterEach(() => {
+            Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true })
+            jest.restoreAllMocks()
+        })
+
+        it('does not count time spent hidden against the poll deadline', async () => {
+            Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+
+            let now = 0
+            jest.spyOn(performance, 'now').mockImplementation(() => now)
+
+            jest.spyOn(api.queryStatus, 'get')
+                .mockResolvedValueOnce({ query_status: { complete: false } } as any)
+                .mockResolvedValueOnce({ query_status: { complete: true, results: ['ok'] } } as any)
+
+            const promise = pollForResults('test-query-id', undefined, () => {
+                // Fires right after the first (incomplete) poll, before the loop rechecks its
+                // deadline for the next one. Simulate the tab backgrounding for longer than the
+                // whole poll deadline (10m6s) right here: a wall-clock deadline would time out on
+                // the very next check, even though no polling actually happened during that time.
+                Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+                now += 11 * 60 * 1000
+                setTimeout(() => {
+                    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+                    document.dispatchEvent(new Event('visibilitychange'))
+                }, 0)
+            })
+
+            await expect(promise).resolves.toMatchObject({ complete: true, results: ['ok'] })
+        })
+    })
+
+    describe('polling a query the server has forgotten', () => {
+        const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
+        const submitted = (id: string): any => ({ query_status: { id, complete: false } })
+        const forgotten = (): ApiError => new ApiError('Query not found', 404, undefined, { detail: 'Query not found' })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+            delete (window as any).POSTHOG_EXPORTED_DATA
+        })
+
+        it('runs the query again when its status has expired', async () => {
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValueOnce(submitted('gone'))
+                .mockResolvedValueOnce({ results: ['from the cache'], is_cached: true } as any)
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+
+            await expect(performQuery(query, undefined, 'async')).resolves.toMatchObject({
+                results: ['from the cache'],
+            })
+
+            expect(querySpy).toHaveBeenCalledTimes(2)
+            // Same ID, so anything holding it still points at the run the user is waiting for.
+            expect(querySpy.mock.calls[1][1]?.clientQueryId).toBe('gone')
+        })
+
+        it('reads the cache on the retry rather than forcing the same work twice', async () => {
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValueOnce(submitted('gone'))
+                .mockResolvedValueOnce({ results: ['from the cache'], is_cached: true } as any)
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+
+            await performQuery(query, undefined, 'force_async')
+
+            // force_async disregards the cache, and the first run already cached what it computed.
+            expect(querySpy.mock.calls[0][1]?.refresh).toBe('force_async')
+            expect(querySpy.mock.calls[1][1]?.refresh).toBe('async')
+        })
+
+        it.each([
+            ['an error that is not a 404', new ApiError('boom', 500)],
+            [
+                'a warehouse whose connection is down',
+                new ApiError('unavailable', 404, undefined, { code: 'managed_warehouse_connection_unavailable' }),
+            ],
+        ])('does not resubmit on %s', async (_name, failure) => {
+            const querySpy = jest.spyOn(api, 'query').mockResolvedValueOnce(submitted('gone'))
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(failure)
+
+            await expect(performQuery(query, undefined, 'async')).rejects.toMatchObject({
+                status: failure.status,
+            })
+
+            expect(querySpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('gives up when the second attempt is forgotten too', async () => {
+            jest.spyOn(api, 'query').mockResolvedValue(submitted('gone'))
+            const statusSpy = jest.spyOn(api.queryStatus, 'get').mockRejectedValue(forgotten())
+
+            await expect(performQuery(query, undefined, 'async')).rejects.toMatchObject({ status: 404 })
+
+            expect(statusSpy).toHaveBeenCalledTimes(2)
+        })
+
+        it('runs the query again for a tile resuming a recompute, which polls by id but holds the query', async () => {
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValueOnce({ results: ['from the cache'], is_cached: true } as any)
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+
+            await expect(
+                performQuery(query, undefined, 'async', 'resumed', undefined, undefined, undefined, true)
+            ).resolves.toMatchObject({ results: ['from the cache'] })
+
+            expect(querySpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not even try to resubmit from a shared or exported view', async () => {
+            const querySpy = jest.spyOn(api, 'query')
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(forgotten())
+            ;(window as any).POSTHOG_EXPORTED_DATA = { type: 'embed' }
+
+            await expect(
+                performQuery(query, undefined, 'async', 'gone', undefined, undefined, undefined, true)
+            ).rejects.toMatchObject({ status: 404 })
+
+            expect(querySpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('pollForResults error message parsing', () => {
+        it('prefers the structured error_code from the query status over one parsed from the message', async () => {
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
+                data: {
+                    query_status: {
+                        error_message: 'This query ran out of memory before it could finish',
+                        error_code: 'clickhouse_memory_limit_exceeded',
+                    },
+                },
+            })
+
+            await expect(pollForResults('test-query-id')).rejects.toMatchObject({
+                detail: 'This query ran out of memory before it could finish',
+                code: 'clickhouse_memory_limit_exceeded',
+            })
+        })
+
         it('parses ErrorDetail list format and extracts message and code', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
                 data: {
@@ -241,6 +434,20 @@ describe('query', () => {
 
             await expect(pollForResults('test-query-id')).rejects.toMatchObject({
                 detail: 'Simple error message',
+            })
+        })
+
+        it('preserves a detail-only API error', async () => {
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
+                data: {
+                    detail: 'This managed warehouse connection is no longer available. Select a source and run the query again.',
+                    code: 'managed_warehouse_connection_unavailable',
+                },
+            })
+
+            await expect(pollForResults('test-query-id')).rejects.toMatchObject({
+                detail: 'This managed warehouse connection is no longer available. Select a source and run the query again.',
+                code: 'managed_warehouse_connection_unavailable',
             })
         })
 

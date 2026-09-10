@@ -235,5 +235,12 @@ func runInteractive(configPath string, debug bool) int {
 		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)
 		return 1
 	}
+	// Quitting phrocs stops its supervised processes, but docker compose runs
+	// detached (`up -d`), so containers keep running by design: the compose
+	// stack is shared across worktrees. Say so, since nothing else does.
+	// (printDockerTeardownHint itself stays quiet in sandboxes.)
+	if _, ok := cfg.Procs["docker-compose"]; ok {
+		printDockerTeardownHint()
+	}
 	return 0
 }

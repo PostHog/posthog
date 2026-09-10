@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import { IconEmojiAdd } from '@posthog/icons'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover'
 
 import { EmojiPickerPanel } from './EmojiPickerPanel'
@@ -19,6 +19,11 @@ export interface EmojiPickerPopoverProps {
      */
     defaultOpen?: boolean
     /**
+     * Size of the button that opens the popover
+     * Defaults to 'small'
+     */
+    size?: LemonButtonProps['size']
+    /**
      * the data-attr to set on the button that opens and closes the popover
      */
     'data-attr'?: string
@@ -27,6 +32,7 @@ export interface EmojiPickerPopoverProps {
 export function EmojiPickerPopover({
     onSelect,
     defaultOpen = false,
+    size = 'small',
     'data-attr': dataAttr,
 }: EmojiPickerPopoverProps): JSX.Element {
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(defaultOpen)
@@ -52,7 +58,7 @@ export function EmojiPickerPopover({
                 onClick={() => {
                     setEmojiPickerOpen(!emojiPickerOpen)
                 }}
-                size="small"
+                size={size}
             />
         </Popover>
     )

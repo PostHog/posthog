@@ -3,7 +3,9 @@ This module contains serializers that are used across other serializers for nest
 """
 
 import copy
+from functools import cached_property
 from typing import Any, Optional
+from uuid import UUID
 
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
@@ -15,6 +17,7 @@ from rest_framework.utils import model_meta
 from posthog.helpers.trigram_search import search_match_type_from_instance
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_notification_lock import LOCKABLE_NOTIFICATION_SETTINGS
 from posthog.models.project import Project
 
 tracer = trace.get_tracer(__name__)
@@ -33,8 +36,8 @@ class SearchMatchTypeSerializerMixin(serializers.Serializer):
         read_only=True,
         help_text=(
             "How this row matched the `search` query parameter: `exact` (the term is a "
-            "case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match "
-            "only). Results are ordered exact-first. Null when the list is not filtered by `search`."
+            "case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, "
+            "returned only when no exact match exists). Null when the list is not filtered by `search`."
         ),
     )
 
@@ -117,6 +120,13 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
     )
+    # Project-only: tags label a Project, which environments do not have, so this is not mirrored
+    # onto TeamBasicSerializer.
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        read_only=True,
+        help_text="Labels applied to this project.",
+    )
 
     class Meta:
         model = Project
@@ -133,8 +143,9 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
             "is_demo",  # Compat with TeamSerializer
             "timezone",  # Compat with TeamSerializer
             "access_control",  # Compat with TeamSerializer
+            "tags",
         )
-        read_only_fields = fields
+        read_only_fields = tuple(field for field in fields if field != "tags")
         team_passthrough_fields = {
             "uuid",
             "api_token",
@@ -216,6 +227,17 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
             else:
                 ret[field.field_name] = field.to_representation(attribute)
 
+        # Tags live in a join table rather than on the model, so the loop above skips them.
+        # This method does not delegate to Serializer.to_representation, so nothing else can add them.
+        if instance.pk:
+            ret["tags"] = (
+                [tagged_item.tag.name for tagged_item in instance.prefetched_tags]
+                if hasattr(instance, "prefetched_tags")
+                else list(instance.tagged_items.values_list("tag__name", flat=True))
+            )
+        else:
+            ret["tags"] = []
+
         return ret
 
 
@@ -282,10 +304,16 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
         ]
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
-        membership = OrganizationMembership.objects.filter(
-            organization=organization, user=self.context["request"].user
-        ).first()
-        return OrganizationMembership.Level(membership.level) if membership is not None else None
+        level = self._membership_levels_by_org.get(organization.id)
+        return OrganizationMembership.Level(level) if level is not None else None
+
+    @cached_property
+    def _membership_levels_by_org(self) -> dict[UUID, int]:
+        return dict(
+            OrganizationMembership.objects.filter(user=self.context["request"].user).values_list(
+                "organization_id", "level"
+            )
+        )
 
     @tracer.start_as_current_span("organization_basic_serializer.to_representation")
     def to_representation(self, instance):
@@ -304,3 +332,15 @@ class FiltersSerializer(serializers.Serializer):
     events = FilterBaseSerializer(many=True, required=False)
     actions = FilterBaseSerializer(many=True, required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
+
+
+class OrganizationNotificationLockSerializer(serializers.Serializer):
+    setting = serializers.ChoiceField(
+        choices=sorted(LOCKABLE_NOTIFICATION_SETTINGS),
+        help_text="Notification setting this rule enforces.",
+    )
+    scope_id = serializers.CharField(
+        allow_blank=True,
+        help_text="What the setting applies to: a project ID or an organization ID. Empty for a setting that is a single switch.",
+    )
+    locked_value = serializers.BooleanField(help_text="The value the organization enforces.")

@@ -6,9 +6,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
+import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { EvaluationRun } from '../evaluations/types'
-import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
+import type { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogic'
 import { EvaluationResultTag, getEvaluationResultSortValue } from './EvaluationResultTag'
+import { EvaluationRunTargetCell } from './EvaluationRunTargetCell'
 
 export function GenerationEvalRunsTable({
     generationRunsLogic,
@@ -16,6 +18,7 @@ export function GenerationEvalRunsTable({
     generationRunsLogic: BuiltLogic<generationEvaluationRunsLogicType>
 }): JSX.Element {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(generationRunsLogic)
+    const { detectorEvaluationIds } = useValues(llmEvaluationsLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
@@ -34,11 +37,25 @@ export function GenerationEvalRunsTable({
             ),
         },
         {
+            title: 'Target',
+            key: 'target',
+            render: (_, run) => <EvaluationRunTargetCell run={run} />,
+        },
+        {
             title: 'Result',
             key: 'result',
-            render: (_, run) => <EvaluationResultTag run={run} />,
+            render: (_, run) => (
+                <EvaluationResultTag run={run} trueIsFailure={detectorEvaluationIds.includes(run.evaluation_id)} />
+            ),
             sorter: (a, b) => {
-                return getEvaluationResultSortValue(b) - getEvaluationResultSortValue(a)
+                return (
+                    getEvaluationResultSortValue(b, {
+                        trueIsFailure: detectorEvaluationIds.includes(b.evaluation_id),
+                    }) -
+                    getEvaluationResultSortValue(a, {
+                        trueIsFailure: detectorEvaluationIds.includes(a.evaluation_id),
+                    })
+                )
             },
         },
         {
@@ -68,7 +85,7 @@ export function GenerationEvalRunsTable({
                     <div className="text-center py-8">
                         <div className="text-muted mb-2">No evaluations run yet</div>
                         <div className="text-sm text-muted">
-                            Click "Run Evaluation" above to run an evaluation on this generation.
+                            Evaluation runs for this trace and its generations will appear here.
                         </div>
                     </div>
                 }

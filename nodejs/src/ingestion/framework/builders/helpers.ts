@@ -7,13 +7,16 @@ import {
     BeforeBatchInput,
     BeforeBatchOutput,
 } from '~/ingestion/framework/batching-pipeline'
-import { BufferingBatchPipeline } from '~/ingestion/framework/buffering-batch-pipeline'
+import { BufferingChunkPipeline } from '~/ingestion/framework/buffering-chunk-pipeline'
+import { DebugContextOf, PipelineBuilderContext } from '~/ingestion/framework/pipeline.interface'
 
-import { BatchPipelineBuilder } from './batch-pipeline-builders'
+import { ChunkPipelineBuilder } from './chunk-pipeline-builders'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
 
-export function newBatchPipelineBuilder<T, C = Record<string, never>>(): BatchPipelineBuilder<T, T, C> {
-    return new BatchPipelineBuilder(new BufferingBatchPipeline<T, C>())
+export function newChunkPipelineBuilder<T, C = Record<string, never>>(
+    builderContext?: PipelineBuilderContext<DebugContextOf<C>>
+): ChunkPipelineBuilder<T, T, C, C, never, DebugContextOf<C>> {
+    return new ChunkPipelineBuilder(new BufferingChunkPipeline<T, C>(), builderContext)
 }
 
 export function newPipelineBuilder<T, C = Record<string, never>>(): StartPipelineBuilder<T, C> {
@@ -27,6 +30,8 @@ export function newBatchingPipeline<
     CBatch = NonNullable<unknown>,
     COutput = CInput,
     R extends string = never,
+    D = DebugContextOf<CInput>,
+    CFeed extends object = Record<never, never>,
 >(
     beforeBatch: (
         builder: StartPipelineBuilder<BeforeBatchInput<TInput, CInput>, Record<string, never>>
@@ -36,13 +41,15 @@ export function newBatchingPipeline<
         Record<string, never>
     >,
     callback: (
-        builder: BatchPipelineBuilder<
+        builder: ChunkPipelineBuilder<
             TInput & CBatch,
             TInput & CBatch,
             CInput & BatchingContext,
-            CInput & BatchingContext
+            CInput & BatchingContext,
+            never,
+            D
         >
-    ) => BatchPipelineBuilder<TInput & CBatch, TOutput, CInput & BatchingContext, COutput & BatchingContext, R>,
+    ) => ChunkPipelineBuilder<TInput & CBatch, TOutput, CInput & BatchingContext, COutput & BatchingContext, R, D>,
     afterBatch: (
         builder: StartPipelineBuilder<
             AfterBatchInput<TOutput, COutput & BatchingContext, CBatch, R>,
@@ -53,11 +60,17 @@ export function newBatchingPipeline<
         AfterBatchOutput<TOutput, COutput & BatchingContext, CBatch, R>,
         Record<string, never>
     >,
-    options?: Partial<BatchingPipelineOptions>
-): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext, R> {
-    const startBuilder = new BatchPipelineBuilder(
-        new BufferingBatchPipeline<TInput & CBatch, CInput & BatchingContext>()
-    )
+    options?: Partial<BatchingPipelineOptions>,
+    builderContext?: PipelineBuilderContext<D>
+): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext, R, CFeed> {
+    const startBuilder = new ChunkPipelineBuilder<
+        TInput & CBatch,
+        TInput & CBatch,
+        CInput & BatchingContext,
+        CInput & BatchingContext,
+        never,
+        D
+    >(new BufferingChunkPipeline<TInput & CBatch, CInput & BatchingContext>(), builderContext)
     const subPipeline = callback(startBuilder).build()
 
     const beforePipeline = beforeBatch(

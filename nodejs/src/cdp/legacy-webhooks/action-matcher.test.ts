@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 
-import { commonUserId, insertRow, resetTestDatabase } from '../../../tests/helpers/sql'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+
+import { createTestTeamFixture, insertRow } from '../../../tests/helpers/sql'
 import {
     Action,
     ActionStep,
@@ -12,11 +14,10 @@ import {
     RawAction,
     StringMatching,
 } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { ActionManager } from './action-manager'
 import { ActionMatcher, castingCompare } from './action-matcher'
 
-jest.mock('../../../src/utils/logger')
+jest.mock('~/common/utils/logger')
 
 /** Return a test event created on a common base using provided property overrides. */
 function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostIngestionEvent {
@@ -26,7 +27,7 @@ function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostInges
     return {
         eventUuid: 'uuid1',
         distinctId: 'my_id',
-        teamId: 2,
+        teamId: testTeamId,
         timestamp: new Date().toISOString() as ISOTimestamp,
         event: '$pageview',
         properties: { $current_url: url },
@@ -38,19 +39,23 @@ function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostInges
     }
 }
 
+let testTeamId: number
+
 describe('ActionMatcher', () => {
     let hub: Hub
     let actionManager: ActionManager
     let actionMatcher: ActionMatcher
     let actionCounter: number
+    let teamId: number
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
+        teamId = (await createTestTeamFixture(hub.postgres)).team.id
+        testTeamId = teamId
         actionManager = new ActionManager(hub.postgres, hub.pubSub)
         await actionManager.start()
         actionMatcher = new ActionMatcher(actionManager)
-        actionCounter = 0
+        actionCounter = teamId
     })
 
     afterEach(async () => {
@@ -61,11 +66,11 @@ describe('ActionMatcher', () => {
     async function createTestAction(partialSteps: Partial<ActionStep>[] | null): Promise<Action> {
         const action: RawAction = {
             id: actionCounter++,
-            team_id: 2,
+            team_id: teamId,
             name: 'Test',
             description: '',
             created_at: new Date().toISOString(),
-            created_by_id: commonUserId,
+            created_by_id: null,
             deleted: false,
             post_to_slack: true,
             slack_message_format: '',

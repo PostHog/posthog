@@ -1,6 +1,32 @@
-import { heatmapApiPath } from 'lib/components/heatmaps/heatmapDataLogic'
+import { eventFilterParam, heatmapApiPath, isWithinBounds } from 'lib/components/heatmaps/heatmapDataLogic'
+import { CommonFilters, HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
 
 import { AppContext } from '~/types'
+
+describe('isWithinBounds', () => {
+    const staticArea: HeatmapBoundsFilter = {
+        areaFixed: false,
+        bounds: { left: 100, right: 200, top: 1000, bottom: 2000 },
+    }
+    const fixedArea: HeatmapBoundsFilter = {
+        areaFixed: true,
+        bounds: { left: 100, right: 200, top: 10, bottom: 60 },
+    }
+
+    it.each([
+        ['no filter keeps every point', { x: 0, y: 0, targetFixed: false }, null, true],
+        ['a static point inside a static area', { x: 150, y: 1500, targetFixed: false }, staticArea, true],
+        ['a static point outside a static area', { x: 150, y: 100, targetFixed: false }, staticArea, false],
+        // points and areas in different coordinate spaces are excluded, not cross-compared
+        ['a fixed point against a static area', { x: 150, y: 1500, targetFixed: true }, staticArea, false],
+        ['a static point against a fixed area', { x: 150, y: 30, targetFixed: false }, fixedArea, false],
+        ['a fixed point inside a fixed area', { x: 150, y: 30, targetFixed: true }, fixedArea, true],
+        ['a fixed point outside a fixed area', { x: 150, y: 300, targetFixed: true }, fixedArea, false],
+        ['a boundary point is inclusive', { x: 100, y: 1000, targetFixed: false }, staticArea, true],
+    ] as const)('%s', (_name, point, filter, expected) => {
+        expect(isWithinBounds(point, filter)).toBe(expected)
+    })
+})
 
 describe('heatmapApiPath', () => {
     let priorAppContext: AppContext | undefined
@@ -29,5 +55,22 @@ describe('heatmapApiPath', () => {
             : { current_team: { id: teamId } }) as unknown as AppContext
 
         expect(heatmapApiPath(context, endpoint)).toBe(expected)
+    })
+})
+
+describe('eventFilterParam', () => {
+    it.each([
+        ['no events', undefined, undefined],
+        ['an empty list', [], undefined],
+        // ActionFilter adds the row before the user picks an event, and the API rejects a null id.
+        ['only rows without a picked event', [{ id: null }, { id: null }], undefined],
+        ['a mix of picked and unpicked rows', [{ id: null }, { id: 'purchase' }], '[{"id":"purchase"}]'],
+        [
+            'the property filters a picked row carries',
+            [{ id: 'purchase', properties: [{ type: 'event', key: 'plan', value: 'pro' }] }],
+            '[{"id":"purchase","properties":[{"type":"event","key":"plan","value":"pro"}]}]',
+        ],
+    ] as const)('%s', (_name, events, expected) => {
+        expect(eventFilterParam(events as CommonFilters['events'])).toBe(expected)
     })
 })

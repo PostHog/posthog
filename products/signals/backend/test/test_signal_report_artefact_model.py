@@ -10,13 +10,14 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     Priority,
     PriorityAssessment,
+    RelatedTo,
     SignalFinding,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.temporal.agentic.report import _AGENTIC_ARTEFACT_TYPES
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task  # tach-ignore
+from products.tasks.backend.models import Task
 
 
 class TestSignalReportArtefactHelpers(BaseTest):
@@ -131,6 +132,31 @@ class TestSignalReportArtefactHelpers(BaseTest):
                 content=PriorityAssessment(priority=Priority.P1, explanation="x"),  # type: ignore[arg-type]
                 attribution=ArtefactAttribution.system(),
             )
+
+    @parameterized.expand([("add_log",), ("append",)])
+    def test_related_to_writes_symmetric_backlink(self, write_method):
+        # A related_to link must be maintained on both reports from either write entry point, and
+        # must not recurse (exactly one row per side).
+        report_a = self._report()
+        report_b = self._report()
+        writer = getattr(SignalReportArtefact, write_method)
+        writer(
+            team_id=self.team.id,
+            report_id=str(report_a.id),
+            content=RelatedTo(report_id=str(report_b.id)),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        def links_of(report: SignalReport) -> list[str]:
+            return [
+                RelatedTo.model_validate_json(a.content).report_id
+                for a in SignalReportArtefact.objects.filter(
+                    report=report, type=SignalReportArtefact.ArtefactType.RELATED_TO
+                )
+            ]
+
+        assert links_of(report_a) == [str(report_b.id)]
+        assert links_of(report_b) == [str(report_a.id)]
 
     # --- append_status ---
 

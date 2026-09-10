@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { useValues } from 'kea'
 
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'

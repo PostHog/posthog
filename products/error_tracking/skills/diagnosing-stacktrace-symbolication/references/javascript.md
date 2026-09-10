@@ -3,6 +3,16 @@
 Companion to [../SKILL.md](../SKILL.md) for JavaScript and TypeScript web apps. Covers `@posthog/rollup-plugin`,
 `@posthog/webpack-plugin`, `@posthog/nextjs-config`, `@posthog/nuxt`, and direct `posthog-cli sourcemap` invocations.
 
+## Contents
+
+- Step 1 — Build config and packages
+- Step 2 — Local artifacts
+- Smoking gun — empty `mappings`
+- Inspecting an extracted symbol set
+- CLI and plugin logging
+- JS-specific fixes
+- JS-specific failure rows
+
 ## Step 1 — Build config and packages
 
 Show relevant package versions, using the package manager the repo uses:

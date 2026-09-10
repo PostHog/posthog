@@ -8,6 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionLogicWrapper } from '../../../../__mocks__/events'
+import { results as batchGetResults } from '../../../../__mocks__/stack_frames/batch_get'
 import { StyleVariables } from '../../../StyleVariables'
 import { StackTraceActions } from './StackTraceActions'
 
@@ -39,7 +40,7 @@ const meta: Meta = {
         },
         mswDecorator({
             post: {
-                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': require('../../../../__mocks__/stack_frames/batch_get'),
+                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': { results: batchGetResults },
             },
         }),
     ],

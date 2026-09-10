@@ -7,7 +7,7 @@ import { EventHeaders, ISOTimestamp, Person, PreIngestionEvent, Team } from '~/t
 export interface ErrorTrackingPrepareEventInput {
     event: PluginEvent
     team: Team
-    person: Person | null
+    person: Person | undefined
     headers: EventHeaders
 }
 

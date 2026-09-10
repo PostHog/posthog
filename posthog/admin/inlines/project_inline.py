@@ -18,7 +18,9 @@ class ProjectInline(TabularInlinePaginated):
         "displayed_name",
         "created_at",
     )
-    readonly_fields = [*ProjectAdmin.readonly_fields, "displayed_name"]
+    # Exclude ProjectAdmin's change-page display methods (e.g. trigger_deletion_display) —
+    # they resolve on the admin, not on the inline or the Project model.
+    readonly_fields = [*(f for f in ProjectAdmin.readonly_fields if f != "trigger_deletion_display"), "displayed_name"]
 
     def displayed_name(self, project: Project):
         return format_html(

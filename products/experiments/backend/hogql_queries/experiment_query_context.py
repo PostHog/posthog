@@ -28,8 +28,10 @@ class ExperimentQueryContext:
     entity_key: str
     breakdowns: tuple[Breakdown, ...]
     only_count_matured_users: bool
-    funnel_steps_data_disabled: bool
     cuped_config: CupedQueryConfig
+    # When set, an entity only counts as exposed once it emits this event at/after its first
+    # default exposure event, and that activation event's timestamp becomes the exposure time.
+    activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
 
 
 @dataclass(frozen=True)

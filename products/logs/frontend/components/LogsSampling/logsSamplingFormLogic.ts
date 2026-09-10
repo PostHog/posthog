@@ -1,24 +1,21 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props } from 'kea'
+import { MakeLogicType, connect, kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { FilterLogicalOperator, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { logsSamplingRulesCreate, logsSamplingRulesPartialUpdate } from 'products/logs/frontend/generated/api'
 import {
     LogsSamplingRuleApi,
     PatchedLogsSamplingRuleApi,
-    RuleTypeEnumApi,
+    LogsExclusionRuleRuleTypeEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 import { logsDropRulesSettingsUrl } from 'products/logs/frontend/logsDropRulesSettingsUrl'
-
-import type { logsSamplingFormLogicType } from './logsSamplingFormLogicType'
 
 const EMPTY_FILTER_GROUP: UniversalFiltersGroup = {
     type: FilterLogicalOperator.And,
@@ -44,7 +41,7 @@ export const MAX_RATE_LIMIT_KB_PER_S = 1_000_000
 export interface LogsSamplingFormType {
     name: string
     enabled: boolean
-    rule_type: RuleTypeEnumApi
+    rule_type: LogsExclusionRuleRuleTypeEnumApi
     filter_group: UniversalFiltersGroup
     /** User-entered amount in the chosen unit. Fractional values are allowed. */
     rate_limit_amount: string
@@ -54,7 +51,7 @@ export interface LogsSamplingFormType {
 const DEFAULT_FORM: LogsSamplingFormType = {
     name: '',
     enabled: true,
-    rule_type: RuleTypeEnumApi.PathDrop,
+    rule_type: LogsExclusionRuleRuleTypeEnumApi.PathDrop,
     filter_group: EMPTY_FILTER_GROUP,
     rate_limit_amount: '',
     rate_limit_unit: 'MB/s',
@@ -109,17 +106,16 @@ function wrapFilterGroup(inner: UniversalFiltersGroup): UniversalFiltersGroup {
     return { type: FilterLogicalOperator.And, values: [inner] as never }
 }
 
-function isFilterGroupNonEmpty(group: UniversalFiltersGroup): boolean {
-    return Array.isArray(group.values) && group.values.length > 0
-}
-
 export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): LogsSamplingFormType {
     if (!rule) {
         return { ...DEFAULT_FORM }
     }
     // Legacy SEVERITY_SAMPLING rules collapse into PathDrop — the new form unifies
     // severity into the filter group, so the dedicated severity rule type is no longer surfaced.
-    const rule_type = rule.rule_type === RuleTypeEnumApi.SeveritySampling ? RuleTypeEnumApi.PathDrop : rule.rule_type
+    const rule_type =
+        rule.rule_type === LogsExclusionRuleRuleTypeEnumApi.SeveritySampling
+            ? LogsExclusionRuleRuleTypeEnumApi.PathDrop
+            : rule.rule_type
     const cfg = (rule.config ?? {}) as Record<string, unknown>
     const form: LogsSamplingFormType = {
         ...DEFAULT_FORM,
@@ -128,7 +124,7 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
         rule_type,
     }
     form.filter_group = extractFilterGroup(cfg.filter_group)
-    if (rule_type === RuleTypeEnumApi.RateLimit) {
+    if (rule_type === LogsExclusionRuleRuleTypeEnumApi.RateLimit) {
         // Read the byte-rate field the ingestion worker enforces on (`kb_per_second`).
         // Fall back to the legacy `logs_per_second` field for rules saved before this
         // fix so they still populate the form — the stored number was always derived as
@@ -144,7 +140,7 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
 }
 
 export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<string, unknown> {
-    if (form.rule_type === RuleTypeEnumApi.RateLimit) {
+    if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RateLimit) {
         // The form expresses a byte rate (KB/s · MB/s · GB/s) and the preview plots the
         // threshold in bytes — so the rule must be stored in byte mode (`kb_per_second`),
         // which charges each log its own uncompressed size. Writing `logs_per_second`
@@ -156,12 +152,7 @@ export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<s
             filter_group: wrapFilterGroup(form.filter_group),
         }
     }
-    // `patterns: []` keeps the existing path_drop config validator happy.
-    // Backend filter_group evaluation is wired in the follow-up PR; today the
-    // worker reads `patterns` only, so rules saved through the new UI are
-    // no-ops on the ingestion path until that lands.
     return {
-        patterns: [],
         filter_group: wrapFilterGroup(form.filter_group),
     }
 }
@@ -169,6 +160,74 @@ export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<s
 export interface LogsSamplingFormLogicProps {
     rule: LogsSamplingRuleApi | null
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface logsSamplingFormLogicValues {
+    currentTeamId: number | null // teamLogic
+    isSamplingFormSubmitting: boolean
+    isSamplingFormValid: boolean
+    samplingForm: LogsSamplingFormType
+    samplingFormAllErrors: Record<string, any>
+    samplingFormChanged: boolean
+    samplingFormErrors: DeepPartialMap<LogsSamplingFormType, ValidationErrorType>
+    samplingFormHasErrors: boolean
+    samplingFormManualErrors: Record<string, any>
+    samplingFormTouched: boolean
+    samplingFormTouches: Record<string, boolean>
+    samplingFormValidationErrors: DeepPartialMap<LogsSamplingFormType, ValidationErrorType>
+    showSamplingFormErrors: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface logsSamplingFormLogicActions {
+    resetSamplingForm: (values?: LogsSamplingFormType) => {
+        values?: LogsSamplingFormType
+    }
+    setSamplingFormManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setSamplingFormValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setSamplingFormValues: (values: DeepPartial<LogsSamplingFormType>) => {
+        values: DeepPartial<LogsSamplingFormType>
+    }
+    submitSamplingForm: () => {
+        value: boolean
+    }
+    submitSamplingFormFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitSamplingFormRequest: (samplingForm: LogsSamplingFormType) => {
+        samplingForm: LogsSamplingFormType
+    }
+    submitSamplingFormSuccess: (samplingForm: LogsSamplingFormType) => {
+        samplingForm: LogsSamplingFormType
+    }
+    touchSamplingFormField: (key: string) => {
+        key: string
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface logsSamplingFormLogicMeta {
+    key: string
+}
+
+export type logsSamplingFormLogicType = MakeLogicType<
+    logsSamplingFormLogicValues,
+    logsSamplingFormLogicActions,
+    LogsSamplingFormLogicProps,
+    logsSamplingFormLogicMeta
+>
 
 export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsSampling', 'logsSamplingFormLogic']),
@@ -179,69 +238,12 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
         values: [teamLogic, ['currentTeamId']],
     })),
 
-    actions({
-        refreshFilterPreview: true,
-    }),
-
-    loaders(({ values }) => ({
-        filterPreview: [
-            null as { time: string; service: string; count: number; bytes_uncompressed?: number }[] | null,
-            {
-                loadFilterPreview: async (_, breakpoint) => {
-                    await breakpoint(400)
-                    const form = values.samplingForm
-                    if (!isFilterGroupNonEmpty(form.filter_group)) {
-                        return null
-                    }
-                    const response = await api.logs.sparkline({
-                        query: {
-                            dateRange: { date_from: '-24h', date_to: null },
-                            filterGroup: wrapFilterGroup(form.filter_group) as PropertyGroupFilter,
-                            severityLevels: [],
-                            serviceNames: [],
-                            sparklineBreakdownBy: 'service',
-                        },
-                    })
-                    // The backend returns each row keyed by the breakdown value ('service' here),
-                    // not by the underlying column name (service_name).
-                    return response as {
-                        time: string
-                        service: string
-                        count: number
-                        bytes_uncompressed?: number
-                    }[]
-                },
-            },
-        ],
-    })),
-
-    listeners(({ actions }) => ({
-        refreshFilterPreview: () => {
-            actions.loadFilterPreview(null)
-        },
-        setSamplingFormValue: ({ name }) => {
-            if (name === 'filter_group') {
-                actions.refreshFilterPreview()
-            }
-        },
-    })),
-
-    afterMount(({ actions, values }) => {
-        // Kick off an initial preview load on mount whenever the form is opened with
-        // a filter_group already set (edit mode, or pre-filled defaults). Without this
-        // the loader only fires on subsequent edits, leaving the sparkline stuck on
-        // "loading" because filterPreview is null and we never ran the request.
-        if (isFilterGroupNonEmpty(values.samplingForm.filter_group)) {
-            actions.refreshFilterPreview()
-        }
-    }),
-
     forms(({ props, values }) => ({
         samplingForm: {
             defaults: buildSamplingFormDefaults(props.rule),
             errors: (form: LogsSamplingFormType) => {
                 let rateAmountError: string | undefined
-                if (form.rule_type === RuleTypeEnumApi.RateLimit) {
+                if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RateLimit) {
                     if (form.rate_limit_amount.trim() === '') {
                         rateAmountError = 'Enter a rate limit'
                     } else {

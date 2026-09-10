@@ -1,0 +1,65 @@
+"""Direct report-authoring write paths for the scout `emit_report` / `edit_report` channel.
+
+See `persistence.py` for the design: an opted-in scout authors a `SignalReport` directly (plus its
+backing `document_embeddings` signal rows) instead of routing a weak signal through the grouping
+pipeline. This package is the sanctioned write service the harness tools (Phase 3) call — harness
+code never touches `SignalReport` or the embeddings pipeline directly.
+"""
+
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPTS
+from products.signals.backend.scout_report.persistence import (
+    INFERRED_REPOSITORY_REASON,
+    MAX_REPORT_SIGNALS,
+    ExistingScoutReport,
+    InvalidScoutReportError,
+    PersistedScoutReport,
+    ScoutReportAlreadyEmittedError,
+    ScoutReportSignal,
+    append_report_evidence,
+    append_report_note,
+    create_scout_report,
+    emit_appended_report_evidence,
+    find_scout_report_by_idempotency_key,
+    get_scout_report_signal_count,
+    get_scout_report_status,
+    get_scout_report_title,
+    record_report_edit,
+    record_scout_run_task_artefact,
+    scout_report_exists,
+    set_report_charts,
+    set_report_suggested_prompts,
+    set_scout_report_inferred_repository,
+    set_scout_report_reviewers,
+    soft_delete_scout_signal,
+    update_scout_report,
+)
+
+__all__ = [
+    "INFERRED_REPOSITORY_REASON",
+    "MAX_REPORT_CHARTS",
+    "MAX_REPORT_SIGNALS",
+    "MAX_SUGGESTED_PROMPTS",
+    "ExistingScoutReport",
+    "InvalidScoutReportError",
+    "PersistedScoutReport",
+    "ScoutReportAlreadyEmittedError",
+    "ScoutReportSignal",
+    "append_report_evidence",
+    "append_report_note",
+    "create_scout_report",
+    "emit_appended_report_evidence",
+    "find_scout_report_by_idempotency_key",
+    "get_scout_report_signal_count",
+    "get_scout_report_status",
+    "get_scout_report_title",
+    "record_report_edit",
+    "record_scout_run_task_artefact",
+    "scout_report_exists",
+    "set_report_charts",
+    "set_report_suggested_prompts",
+    "set_scout_report_inferred_repository",
+    "set_scout_report_reviewers",
+    "soft_delete_scout_signal",
+    "update_scout_report",
+]

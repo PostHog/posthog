@@ -1,24 +1,45 @@
+"""US/EU cross-region forwarding for the agentic provisioning API.
+
+Partners call a single base URL, but the account or token they are acting on
+may live in the other region. Each view declares a strategy for deciding
+whether the request belongs to the other region:
+
+- ``body_region``:   proxy when ``configuration.region`` differs from the
+                     current region (account_requests).
+- ``token_lookup``:  proxy when the auth code / refresh token isn't found
+                     locally (oauth/token).
+- ``bearer_lookup``: proxy when the bearer token isn't found locally (all
+                     resource endpoints).
+
+Forwarding preserves the request path, so both regions must expose the same
+routes (they deploy the same code). The decision happens before DRF
+authenticates or throttles anything, so the forward carries its own per-IP cap
+(:class:`~ee.api.agentic_provisioning.throttling.RegionProxyThrottle`).
+"""
+
 from __future__ import annotations
 
-import uuid
+import json
 import hashlib
-import functools
+from typing import Any, ClassVar
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
 from django.core.cache import cache
+from django.http import HttpRequest, HttpResponse
 
 import requests
 import structlog
-import posthoganalytics
-from rest_framework.request import Request
-from rest_framework.response import Response
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.utils import get_instance_region
 
-from . import AUTH_CODE_CACHE_PREFIX
+from ee.api.agentic_provisioning.analytics import capture_region_proxy_event
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
+from ee.api.agentic_provisioning.exceptions import Envelope, ProvisioningError, provisioning_error_body
+from ee.api.agentic_provisioning.throttling import RegionProxyThrottle
 
 logger = structlog.get_logger(__name__)
 
@@ -35,25 +56,33 @@ BEARER_EXISTS_CACHE_PREFIX = "agentic_bearer_exists:"
 BEARER_EXISTS_POSITIVE_TTL = 300
 BEARER_EXISTS_NEGATIVE_TTL = 30
 
-
-def _region_domains() -> tuple[str, str]:
-    """Read at call time, not import time, so @override_settings works in tests."""
-    return (
-        getattr(settings, "REGION_US_DOMAIN", DEFAULT_US_DOMAIN),
-        getattr(settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN),
-    )
-
-
 PROXY_HEADER_ALLOWLIST = frozenset(
     {
         "content-type",
         "accept",
-        "stripe-signature",
-        "api-version",
         "authorization",
         "user-agent",
+        "x-forwarded-for",
     }
 )
+
+# Match DRF's compact JSON rendering so proxied bodies read the same as
+# locally rendered ones.
+_JSON_SEPARATORS = (",", ":")
+
+
+@frozen
+class RegionDomains:
+    us: str
+    eu: str
+
+
+def _region_domains() -> RegionDomains:
+    """Read at call time, not import time, so @override_settings works in tests."""
+    return RegionDomains(
+        us=getattr(settings, "REGION_US_DOMAIN", DEFAULT_US_DOMAIN),
+        eu=getattr(settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN),
+    )
 
 
 def _current_region() -> str | None:
@@ -64,13 +93,28 @@ def _current_region() -> str | None:
 
 
 def _other_region_domain(current: str) -> str:
-    us_domain, eu_domain = _region_domains()
+    domains = _region_domains()
     if current == "US":
-        return eu_domain
-    return us_domain
+        return domains.eu
+    return domains.us
 
 
-def _proxy_to_region(request: Request, target_domain: str) -> Response:
+def _request_payload(request: HttpRequest) -> dict[str, Any]:
+    """Parse the request body for the strategy checks without consuming the stream.
+
+    Accessing ``request.body`` caches it, so DRF can still parse it downstream.
+    """
+    try:
+        content_type = request.content_type or ""
+        if "json" in content_type:
+            parsed = json.loads(request.body.decode("utf-8")) if request.body else {}
+            return parsed if isinstance(parsed, dict) else {}
+        return dict(request.POST.items())
+    except Exception:
+        return {}
+
+
+def _proxy_to_region(request: HttpRequest, target_domain: str) -> HttpResponse:
     parsed_url = urlparse(request.build_absolute_uri())
     target_url = urlunparse(parsed_url._replace(netloc=target_domain))
 
@@ -94,40 +138,62 @@ def _proxy_to_region(request: Request, target_domain: str) -> Response:
         )
 
         if response.status_code == 204:
-            return Response(status=204)
+            return HttpResponse(status=204)
 
         try:
             data = response.json() if response.content else {}
         except ValueError:
             data = {"error": "Invalid response from alternate region"}
 
-        return Response(data=data, status=response.status_code)
+        return HttpResponse(
+            json.dumps(data, separators=_JSON_SEPARATORS),
+            status=response.status_code,
+            content_type="application/json",
+        )
 
     except requests.exceptions.RequestException as e:
         capture_exception(e, {"target_url": target_url, "step": "provisioning.proxy.failed"})
         raise
 
 
-def _should_proxy_body_region(request: Request, current_region: str) -> bool:
-    configuration = request.data.get("configuration")
+def _error_response(error: ProvisioningError, envelope: Envelope) -> HttpResponse:
+    """Serialize an error without DRF.
+
+    ``dispatch`` runs outside ``APIView``'s exception handling and renderer
+    negotiation, so a raised :class:`ProvisioningError` would surface as a 500
+    and an unrendered DRF ``Response`` would blow up in middleware.
+    """
+    response = HttpResponse(
+        json.dumps(provisioning_error_body(error, envelope), separators=_JSON_SEPARATORS),
+        status=error.status,
+        content_type="application/json",
+    )
+    if error.retry_after is not None:
+        response["Retry-After"] = str(error.retry_after)
+    return response
+
+
+def _should_proxy_body_region(request: HttpRequest, current_region: str) -> bool:
+    configuration = _request_payload(request).get("configuration")
     if not isinstance(configuration, dict):
         configuration = {}
     requested_region = (configuration.get("region") or "US").upper()
     return requested_region != current_region
 
 
-def _should_proxy_token_lookup(request: Request, current_region: str) -> bool:
-    grant_type = request.data.get("grant_type", "")
+def _should_proxy_token_lookup(request: HttpRequest, current_region: str) -> bool:
+    payload = _request_payload(request)
+    grant_type = payload.get("grant_type", "")
 
     if grant_type == "authorization_code":
-        code = request.data.get("code", "")
+        code = payload.get("code", "")
         if not code:
             return False
         cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
         return cache.get(cache_key) is None
 
     if grant_type == "refresh_token":
-        refresh_token_value = request.data.get("refresh_token", "")
+        refresh_token_value = payload.get("refresh_token", "")
         if not refresh_token_value:
             return False
         return find_oauth_refresh_token(refresh_token_value) is None
@@ -152,7 +218,7 @@ def _bearer_exists_locally(token_value: str) -> bool:
     return exists
 
 
-def _should_proxy_bearer_lookup(request: Request, current_region: str) -> bool:
+def _should_proxy_bearer_lookup(request: HttpRequest, current_region: str) -> bool:
     auth_header = request.META.get("HTTP_AUTHORIZATION", "")
     if not auth_header.startswith(BEARER_PREFIX):
         return False
@@ -171,67 +237,85 @@ _STRATEGY_CHECKS = {
 }
 
 
-REGION_PROXY_REGISTRY: dict[str, str] = {}
+class RegionProxyMixin:
+    """Forward the request to the other region when its resources live there.
 
+    Set ``region_proxy_strategy`` on the view. Runs before authentication (a
+    bearer that only exists in the other region must proxy, not 401 locally),
+    which also means DRF's own throttles haven't run, hence the per-IP
+    :class:`RegionProxyThrottle` guarding the forward itself.
 
-def region_proxy(strategy: str):
-    check_fn = _STRATEGY_CHECKS[strategy]
+    On proxy failure, ``body_region`` returns a flat ``proxy_failed`` 502 (the
+    request can't be served locally at all); the lookup strategies fall through
+    to local handling, which produces the appropriate auth error.
+    """
 
-    def decorator(view_func):
-        REGION_PROXY_REGISTRY[view_func.__qualname__] = strategy
+    region_proxy_strategy: str | None = None
+    # Declared by ProvisioningAPIView; the mixin reads it to render a 429 in the
+    # endpoint's own wire envelope.
+    error_envelope: ClassVar[Envelope]
 
-        @functools.wraps(view_func)
-        def wrapper(request: Request, *args, **kwargs) -> Response:
-            # Cache the raw body before any `request.data` access downstream.
-            # Without this, DRF parses the stream when a strategy check reads
-            # request.data, then _proxy_to_region raises RawPostDataException
-            # when it tries to forward request.body. Previously this was a
-            # side effect of verify_stripe_signature running here.
-            _ = request.body
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        strategy = self.region_proxy_strategy
+        if strategy is None:
+            return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]
 
-            current = _current_region()
-            if current is None or current in ("DEV", "LOCAL"):
-                return view_func(request, *args, **kwargs)
+        # Cache the raw body before the strategy checks touch it, so DRF's
+        # parsers can still read it afterwards.
+        _ = request.body
 
-            if request.META.get(f"HTTP_{PROXY_LOOP_HEADER.upper().replace('-', '_')}"):
-                return view_func(request, *args, **kwargs)
+        current = _current_region()
+        if current is None or current in ("DEV", "LOCAL"):
+            return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]
 
-            if check_fn(request, current):
-                target = _other_region_domain(current)
-                logger.info(
-                    "provisioning.proxy.routing",
-                    strategy=strategy,
-                    current_region=current,
-                    target_domain=target,
+        if request.META.get(f"HTTP_{PROXY_LOOP_HEADER.upper().replace('-', '_')}"):
+            return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]
+
+        if _STRATEGY_CHECKS[strategy](request, current):
+            target = _other_region_domain(current)
+            proxy_props = {
+                "strategy": strategy,
+                "from_region": current,
+                "to_domain": target,
+                "endpoint": request.path,
+            }
+
+            throttle = RegionProxyThrottle()
+            if not throttle.allow_http_request(request):
+                logger.warning("provisioning.proxy.rate_limited", **proxy_props)
+                capture_region_proxy_event("proxy_rate_limited", **proxy_props)
+                wait = throttle.wait()
+                return _error_response(
+                    ProvisioningError(
+                        "rate_limited",
+                        RegionProxyThrottle.error_message,
+                        status=429,
+                        retry_after=max(1, int(wait)) if wait else None,
+                    ),
+                    self.error_envelope,
                 )
-                proxy_props = {
-                    "strategy": strategy,
-                    "from_region": current,
-                    "to_domain": target,
-                    "endpoint": request.path,
-                }
-                try:
-                    response = _proxy_to_region(request, target)
-                    posthoganalytics.capture(
-                        "agentic_provisioning region_proxy",
-                        distinct_id=f"agentic_provisioning_{uuid.uuid4().hex[:16]}",
-                        properties={"outcome": "proxied", **proxy_props},
-                    )
-                    return response
-                except requests.exceptions.RequestException:
-                    posthoganalytics.capture(
-                        "agentic_provisioning region_proxy",
-                        distinct_id=f"agentic_provisioning_{uuid.uuid4().hex[:16]}",
-                        properties={"outcome": "proxy_failed", **proxy_props},
-                    )
-                    if strategy == "body_region":
-                        return Response(
+
+            logger.info(
+                "provisioning.proxy.routing",
+                strategy=strategy,
+                current_region=current,
+                target_domain=target,
+            )
+
+            try:
+                response = _proxy_to_region(request, target)
+                capture_region_proxy_event("proxied", **proxy_props)
+                return response
+            except requests.exceptions.RequestException:
+                capture_region_proxy_event("proxy_failed", **proxy_props)
+                if strategy == "body_region":
+                    return HttpResponse(
+                        json.dumps(
                             {"error": {"code": "proxy_failed", "message": "Failed to route to correct region"}},
-                            status=502,
-                        )
+                            separators=_JSON_SEPARATORS,
+                        ),
+                        status=502,
+                        content_type="application/json",
+                    )
 
-            return view_func(request, *args, **kwargs)
-
-        return wrapper
-
-    return decorator
+        return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]

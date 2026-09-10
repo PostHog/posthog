@@ -1,5 +1,5 @@
-import { MessageKey } from '~/kafka/producer'
-import { logger } from '~/utils/logger'
+import { MessageKey } from '~/common/kafka/producer'
+import { logger } from '~/common/utils/logger'
 
 import { IngestionOutput } from './ingestion-output'
 import { IngestionOutputMessage } from './types'

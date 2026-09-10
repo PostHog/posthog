@@ -1,10 +1,10 @@
 name: Turbo CI
-on:
-    pull_request:
 
-concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# Reusable workflow, called by pr-housekeeping.yml on every PR push.
+# Push-cancels-previous-push comes from the caller's concurrency group.
+
+on:
+    workflow_call:
 
 jobs:
     turbo-affected-4:
@@ -25,12 +25,6 @@ jobs:
                   # Just fetch the current commit/PR head
                   fetch-depth: 1
 
-            - name: Detect architecture
-              if: ${{ runner.os == 'Linux' || runner.os == 'macOS' }}
-              run: |
-                  ARCH=$(uname -m)
-                  echo "ARCH=$ARCH" >> $GITHUB_ENV
-
             # Conditionally fetch the base branch so Turborepo can compare against it
             - name: Fetch base branch
               run: |
@@ -49,14 +43,32 @@ jobs:
                     echo "TURBO_SCM_BASE=master" >> $GITHUB_ENV
                   fi
 
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
-              with:
-                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+            # Turbo only, not the workspace. The dry run builds the task graph
+            # from the package manifests, turbo.json and the lockfile. It runs no
+            # task, so it never reads node_modules.
+            #
+            # The version comes from package.json, so a bump there cannot leave
+            # this job on an older Turbo than the workspace pins. Turbo warns
+            # that it found no local install. That warning is expected here.
+            #
+            # Turbo ships a prebuilt binary, and this job runs no package
+            # script, so the runner's own Node is enough to start it and the job
+            # needs no setup-node step.
+            - name: Install turbo
+              env:
+                  # Keep a registry blip from failing the job.
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
+              # Installed under RUNNER_TEMP, which is always writable, rather
+              # than into the workspace, where a node_modules directory would
+              # change what Turbo hashes.
+              run: |
+                  version="$(jq -re '.devDependencies.turbo | ltrimstr("^")' package.json)"
+                  npm install --prefix "$RUNNER_TEMP/turbo" --no-audit --no-fund --no-save "turbo@$version"
+                  echo "$RUNNER_TEMP/turbo/node_modules/.bin" >> "$GITHUB_PATH"
 
             - name: Turbo Affected
-              run: |
-                  bin/turbo build --affected --dry-run
+              run: turbo build --affected --dry-run
               env:
-                  NODE_OPTIONS: --max-old-space-size=8192
                   TURBO_SCM_BASE: ${{ env.TURBO_SCM_BASE }}

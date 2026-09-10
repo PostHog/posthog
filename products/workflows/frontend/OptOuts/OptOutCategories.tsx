@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
+import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import { IconDownload, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
-import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -13,6 +14,8 @@ import { customerIOImportLogic } from './customerIOImportLogic'
 import { NewCategoryModal } from './NewCategoryModal'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { OptOutList } from './OptOutList'
+
+const HedgehogConstruction2 = pngHoggie(construction2Png)
 
 interface MessageCategory {
     id: string
@@ -137,7 +140,6 @@ export function OptOutCategories(): JSX.Element {
                         <LemonCollapse panels={collapseItems} />
                     ) : (
                         <ProductIntroduction
-                            productName="Message Categories"
                             thingName="category"
                             description="Configure message categories to manage user opt-out preferences for different types of communications."
                             docsURL="https://posthog.com/docs/workflows/customerio-import"
@@ -151,7 +153,7 @@ export function OptOutCategories(): JSX.Element {
                                     </LemonButton>
                                 </>
                             }
-                            customHog={BuilderHog3}
+                            customHog={HedgehogConstruction2}
                             isEmpty
                         />
                     )}

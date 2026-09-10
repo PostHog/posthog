@@ -10,12 +10,17 @@ import { urls } from 'scenes/urls'
 
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
 
+import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
+import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
+
 import { Intro } from '../Intro'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
+import { phaiAiComposerSeedLogic } from '../phaiAiComposerSeedLogic'
 import { Thread } from '../Thread'
 import { MaxNotConfigured } from './MaxNotConfigured'
+import { PhaiViewToggle } from './PhaiViewToggle'
 import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './ThreadAutoScroller'
 
@@ -25,11 +30,14 @@ export function ChatHeader({
     tabId,
     children,
     hideBorder,
+    isSandboxRuntime,
 }: {
     conversationId: string | null
     tabId?: string
     children?: React.ReactNode
     hideBorder?: boolean
+    /** Debug rows only exist on the sandbox runtime, so the staff menu that reveals them is hidden elsewhere. */
+    isSandboxRuntime?: boolean
 }): JSX.Element {
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { chatTitle } = useValues(maxLogic)
@@ -53,6 +61,8 @@ export function ChatHeader({
                 )}
             </div>
             <div className="flex items-center gap-2">
+                {isSandboxRuntime && <DebugLogsMenu variant="lemon" />}
+                <PhaiViewToggle variant="lemon" />
                 {conversationId ? (
                     <LemonButton
                         size="small"
@@ -92,7 +102,26 @@ interface AiFirstMaxInstanceProps {
 export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Element {
     const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ panelId: tabId }))
     const { startNewConversation } = useActions(maxLogic({ panelId: tabId }))
-    const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
+
+    // On `/ai` the new view is the full TaskTracker product (tasks list + composer + run detail); a thin
+    // bar keeps the toggle reachable so the user can drop back to the legacy chat.
+    if (effectivePhaiView === 'new') {
+        return (
+            <div className="flex flex-col grow overflow-hidden h-full">
+                <div className="flex w-full items-center justify-end gap-2 py-2 px-2 border-b border-primary">
+                    {/* The new view is the runner, which is always the sandbox runtime — no runtime check needed. */}
+                    <DebugLogsMenu variant="lemon" />
+                    <PhaiViewToggle variant="lemon" />
+                </div>
+                <div className="flex flex-col flex-1 min-h-0">
+                    <BindLogic logic={phaiAiComposerSeedLogic} props={{}}>
+                        <EmbeddedRunner />
+                    </BindLogic>
+                </div>
+            </div>
+        )
+    }
 
     const threadProps: MaxThreadLogicProps = {
         panelId: tabId,
@@ -105,7 +134,11 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
             <BindLogic logic={maxLogic} props={{ panelId: tabId }}>
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
                     <div className="flex flex-col grow overflow-hidden">
-                        <ChatHeader conversationId={conversationId} tabId={tabId} />
+                        <ChatHeader
+                            conversationId={conversationId}
+                            tabId={tabId}
+                            isSandboxRuntime={conversation?.agent_runtime === 'sandbox'}
+                        />
                         {isMaxAvailable ? (
                             <ChatArea
                                 threadVisible={threadVisible}
@@ -140,7 +173,7 @@ function ChatArea({ threadVisible, conversation, onStartNewConversation }: ChatA
 
             {/* Intro - fades out when messages appear */}
             <div
-                className={`flex flex-col items-center transition-all duration-200 ease-out ${
+                className={`flex flex-col items-center transition-[opacity,height,padding] duration-200 ease-out ${
                     hasMessages ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100 pb-3'
                 }`}
             >
@@ -168,7 +201,7 @@ function ChatArea({ threadVisible, conversation, onStartNewConversation }: ChatA
 
             {/* Input - always in flow, mt-auto pushes to bottom when messages exist */}
             <div
-                className={`w-full max-w-3xl mx-auto px-4 transition-all duration-300 ease-out z-50 ${
+                className={`w-full max-w-3xl mx-auto px-4 transition-[max-width,padding,background-color] duration-300 ease-out z-50 ${
                     hasMessages ? 'sticky bottom-0 bg-primary py-2 max-w-none' : 'pb-4'
                 }`}
             >

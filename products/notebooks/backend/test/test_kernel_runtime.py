@@ -13,6 +13,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.notebooks.backend.kernel_runtime import (
+    NOTEBOOK_KERNEL_TTL_SECONDS,
     KernelRuntimeService,
     _KernelHandle,
     _NotebookBridgeParser,
@@ -47,6 +48,7 @@ class _FakeSandbox:
         self.stream = stream
         self.command: str | None = None
         self.timeout_seconds: int | None = None
+        self.written_files: dict[str, bytes] = {}
 
     def execute(self, command: str, timeout_seconds: int | None = None) -> _FakeExecutionResult:
         self.command = command
@@ -59,6 +61,10 @@ class _FakeSandbox:
         if self.stream is None:
             raise RuntimeError("Fake sandbox stream not configured")
         return self.stream
+
+    def write_file(self, path: str, content: bytes) -> _FakeExecutionResult:
+        self.written_files[path] = content
+        return self.result
 
 
 class _FakeSandboxStream:
@@ -100,7 +106,7 @@ class TestKernelRuntimeService(BaseTest):
             (
                 "memory_only",
                 {"kernel_memory_gb": 12.0},
-                {"memory_gb": 12.0},
+                {"memory_gb": 12.0, "ttl_seconds": NOTEBOOK_KERNEL_TTL_SECONDS},
             ),
         ]
     )
@@ -342,7 +348,7 @@ class TestKernelRuntimeService(BaseTest):
         assert execution_result.stdout == "before\nafter"
         mock_payload.assert_called_once_with(bridge_payload_json, handle)
 
-    def test_execute_in_sandbox_stream_yields_output_and_result(self) -> None:
+    def test_notebook_bridge_hogql_executes_as_runtime_user(self) -> None:
         service = KernelRuntimeService(execution_timeout=5)
         notebook = Notebook.objects.create(team=self.team)
         runtime = KernelRuntime.objects.create(
@@ -363,59 +369,21 @@ class TestKernelRuntimeService(BaseTest):
             backend=KernelRuntime.Backend.DOCKER,
             sandbox_id=runtime.sandbox_id,
         )
-        marker = service._notebook_bridge_marker(handle)
-        bridge_payload = {"call": "hogql_execute", "query": "select 1", "response_path": "/tmp/resp.json"}
-        bridge_payload_json = json.dumps(bridge_payload)
-        bridge_message = f"{marker}{len(bridge_payload_json)} {bridge_payload_json}\n"
-        payload_out: dict[str, Any] = {
-            "type": "result",
-            "status": "ok",
-            "stdout": "final",
-            "stderr": "",
-            "result": None,
-            "media": [],
-            "execution_count": 2,
-            "error_name": None,
-            "traceback": [],
-            "user_expressions": None,
-        }
-        stream = _FakeSandboxStream(
-            stdout_lines=[
-                json.dumps(
-                    {
-                        "type": "stream",
-                        "name": "stdout",
-                        "text": f"hello\n{bridge_message}world",
-                    }
-                ),
-                json.dumps({"type": "stream", "name": "stderr", "text": "oops"}),
-                json.dumps(payload_out),
-            ],
-            result=_FakeExecutionResult(stdout=""),
-        )
-        sandbox = _FakeSandbox(_FakeExecutionResult(stdout=""), stream=stream)
+        sandbox = _FakeSandbox(_FakeExecutionResult(stdout=""))
         _FakeSandboxClass.sandbox = sandbox
+        payload = {"call": "hogql_execute", "query": "select * from warehouse_table", "response_path": "/tmp/resp.json"}
 
         with (
             patch.object(service, "_get_sandbox_class", return_value=_FakeSandboxClass),
-            patch.object(service, "_handle_notebook_bridge_payload") as mock_payload,
+            patch("products.notebooks.backend.kernel_runtime.execute_hogql_query") as mock_execute,
         ):
-            output = list(
-                service._execute_in_sandbox_stream(
-                    handle,
-                    "print('hi')",
-                    capture_variables=False,
-                    variable_names=[],
-                    timeout=5,
-                )
-            )
+            mock_execute.return_value.model_dump.return_value = {"results": [[1]], "columns": ["count"]}
+            service._handle_notebook_bridge_payload(json.dumps(payload), handle)
 
-        assert output[0] == {"type": "stdout", "text": "hello\nworld"}
-        assert output[1] == {"type": "stderr", "text": "oops"}
-        assert output[2]["type"] == "result"
-        assert output[2]["data"]["stdout"] == "final"
-        mock_payload.assert_called_once_with(bridge_payload_json, handle)
-        assert sandbox.timeout_seconds == 5
+        mock_execute.assert_called_once()
+        assert mock_execute.call_args.kwargs["user"] == self.user
+        header, body = sandbox.written_files["/tmp/resp.json"].split(b"\n", 1)
+        assert int(header) == len(body)
 
     @parameterized.expand(
         [

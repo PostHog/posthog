@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { MessageHeader } from 'node-rdkafka'
 import { z } from 'zod'
 
 const dateTimeSchema = z.custom<DateTime>((val) => val instanceof DateTime)
@@ -9,6 +8,10 @@ const dateTimeSchema = z.custom<DateTime>((val) => val instanceof DateTime)
 export const RawEventMessageSchema = z.object({
     distinct_id: z.string(),
     data: z.string(),
+    // Capture stamps both at the same instant; their difference is the sender's clock offset.
+    // Optional: capture omits sent_at when the client sends none.
+    sent_at: z.string().optional(),
+    now: z.string().optional(),
 })
 
 export type RawEventMessage = z.infer<typeof RawEventMessageSchema>
@@ -54,6 +57,31 @@ export const EventSchema = z.object({
     properties: EventPropertiesSchema,
 })
 
+// Ready-to-write JSONL lines plus per-event metadata from the native anonymizer.
+
+// Per-event flag bits, mirroring `rust/replay-anonymizer/src/snapshot.rs` (EVENT_FLAG_*).
+export const PRE_SERIALIZED_FLAG_ACTIVE = 1
+export const PRE_SERIALIZED_FLAG_CLICK = 2
+export const PRE_SERIALIZED_FLAG_KEYPRESS = 4
+export const PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY = 8
+export const PRE_SERIALIZED_FLAG_FULL_SNAPSHOT = 16
+
+export const PreSerializedEventMetaSchema = z.object({
+    ts: z.number(),
+    flags: z.number(),
+    href: z.string().optional(),
+    jsonLd: z.object({ rootTypes: z.array(z.string()), fullSnapshotTimestamp: z.number().optional() }).optional(),
+})
+
+export const PreSerializedEventsSchema = z.object({
+    windowId: z.string().optional(),
+    lines: z.instanceof(Buffer),
+    events: z.array(PreSerializedEventMetaSchema),
+    consoleLogCount: z.number(),
+    consoleWarnCount: z.number(),
+    consoleErrorCount: z.number(),
+})
+
 export const ParsedMessageDataSchema = z.object({
     distinct_id: z.string(),
     session_id: z.string(),
@@ -62,10 +90,12 @@ export const ParsedMessageDataSchema = z.object({
     eventsRange: EventsRangeSchema,
     snapshot_source: z.string().nullable(),
     snapshot_library: z.string().nullable(),
-    headers: z.array(z.custom<MessageHeader>()).optional(),
     metadata: MessageMetadataSchema,
+    preSerialized: PreSerializedEventsSchema.optional(),
 })
 
 export type Event = z.infer<typeof EventSchema>
 export type SnapshotEvent = z.infer<typeof SnapshotEventSchema>
+export type PreSerializedEventMeta = z.infer<typeof PreSerializedEventMetaSchema>
+export type PreSerializedEvents = z.infer<typeof PreSerializedEventsSchema>
 export type ParsedMessageData = z.infer<typeof ParsedMessageDataSchema>

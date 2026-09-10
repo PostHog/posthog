@@ -1,6 +1,6 @@
 import { FilterLogicalOperator } from '~/types'
 
-import { LogsSamplingRuleApi, RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsSamplingRuleApi, LogsExclusionRuleRuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import {
     buildSamplingConfigPayload,
@@ -12,14 +12,31 @@ import {
 const rateLimitForm = (overrides: Partial<LogsSamplingFormType> = {}): LogsSamplingFormType => ({
     name: 'cap smokescreen',
     enabled: true,
-    rule_type: RuleTypeEnumApi.RateLimit,
+    rule_type: LogsExclusionRuleRuleTypeEnumApi.RateLimit,
     filter_group: { type: FilterLogicalOperator.And, values: [] },
     rate_limit_amount: '1',
     rate_limit_unit: 'MB/s',
     ...overrides,
 })
 
-describe('logsSamplingFormLogic rate-limit serialization', () => {
+describe('logsSamplingFormLogic serialization', () => {
+    it('serializes a path_drop rule into filter_group-only config', () => {
+        const innerGroup = {
+            type: FilterLogicalOperator.And,
+            values: [{ key: 'service.name', operator: 'exact', value: 'api', type: 'log_resource_attribute' }],
+        } as LogsSamplingFormType['filter_group']
+
+        const config = buildSamplingConfigPayload(
+            rateLimitForm({ rule_type: LogsExclusionRuleRuleTypeEnumApi.PathDrop, filter_group: innerGroup })
+        )
+
+        // The whole config is the wrapped filter group — the worker evaluates
+        // config.filter_group directly, and nothing else belongs in the payload.
+        expect(config).toEqual({
+            filter_group: { type: FilterLogicalOperator.And, values: [innerGroup] },
+        })
+    })
+
     it.each([
         ['1', 'MB/s', 1000],
         ['50', 'KB/s', 50],
@@ -53,7 +70,7 @@ describe('logsSamplingFormLogic rate-limit serialization', () => {
         const rule = {
             name: 'cap smokescreen',
             enabled: true,
-            rule_type: RuleTypeEnumApi.RateLimit,
+            rule_type: LogsExclusionRuleRuleTypeEnumApi.RateLimit,
             config: { kb_per_second: 1000, burst_kb: 10000, filter_group: { type: 'AND', values: [] } },
         } as unknown as LogsSamplingRuleApi
 
@@ -66,7 +83,7 @@ describe('logsSamplingFormLogic rate-limit serialization', () => {
         const legacy = {
             name: 'legacy cap',
             enabled: true,
-            rule_type: RuleTypeEnumApi.RateLimit,
+            rule_type: LogsExclusionRuleRuleTypeEnumApi.RateLimit,
             config: { logs_per_second: 50, burst_logs: 500 },
         } as unknown as LogsSamplingRuleApi
 

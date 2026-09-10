@@ -18,12 +18,12 @@ from posthog.schema import (
     PathsQuery,
     PathsQueryResponse,
     PathType,
+    ResolvedDateRangeResponse,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -31,14 +31,15 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import HOGQL, PAGEVIEW_EVENT, SCREEN_EVENT
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
-from posthog.queries.util import correct_result_for_sampling
+
+from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
+from products.product_analytics.backend.hogql_queries.funnels.utils import funnel_window_interval_unit_to_sql
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT_SECONDS = 30 * 60  # 30 minutes
@@ -231,7 +232,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         if not self.query.funnelPathsFilter:
             raise ValueError("Funnel paths filter is required for funnel paths.")
 
-        from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
+        from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
 
         funnelPathType, funnelSource, funnelStep = (
             self.query.funnelPathsFilter.funnelPathType,
@@ -886,13 +887,14 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
     def _calculate(self) -> PathsQueryResponse:
         query = self.to_query()
-        hogql = to_printed_hogql(query, self.team)
+        hogql = self.response_hogql(query)
 
         response = execute_hogql_query(
             query_type="PathsQuery",
             query=query,
             team=self.team,
             user=self.user,
+            context=self.build_hogql_context(),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -914,7 +916,16 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             for source, target, value, avg_conversion_time in response.results
         )
 
-        return PathsQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
+        return PathsQueryResponse(
+            results=results,
+            timings=response.timings,
+            hogql=hogql,
+            modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
+        )
 
     @property
     def extra_event_fields_and_properties(self) -> list[str]:

@@ -1,4 +1,5 @@
 import json
+from ipaddress import ip_address
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -8,7 +9,7 @@ from django.test import SimpleTestCase, override_settings
 from oauth2_provider.models import AbstractApplication
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import fetch_and_upsert_cimd_application, get_application_by_client_id
+from posthog.api.oauth.cimd import fetch_and_upsert_cimd_application
 from posthog.api.oauth.raycast_metadata import RAYCAST_SCOPES
 from posthog.scopes import UNPRIVILEGED_SCOPES
 
@@ -67,8 +68,8 @@ class TestRaycastClientMetadataView(SimpleTestCase):
 
 @override_settings(SITE_URL="https://us.posthog.com")
 class TestRaycastClientMetadataRegistration(APIBaseTest):
-    @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-    @patch("posthog.api.oauth.cimd.requests.get")
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_document_registers_through_cimd(self, mock_get, _url_mock):
         # Serve the live document back through the CIMD fetch path (the HTTP fetch
         # is patched since CIMD client_ids must be HTTPS), then assert it registers
@@ -82,13 +83,10 @@ class TestRaycastClientMetadataRegistration(APIBaseTest):
 
         assert app is not None
         assert app.is_cimd_client
-        assert app.cimd_metadata_url == client_id
+        assert app.client_id == client_id
         assert app.name == "Raycast extension for PostHog"
         assert app.client_type == AbstractApplication.CLIENT_PUBLIC
         assert app.authorization_grant_type == AbstractApplication.GRANT_AUTHORIZATION_CODE
         assert app.redirect_uris == " ".join(document["redirect_uris"])
         assert set(app.scopes) == set(RAYCAST_SCOPES)
         assert app.organization is None
-
-        # The authorize-time lookup resolves the URL-form client_id back to this app.
-        assert get_application_by_client_id(client_id).pk == app.pk

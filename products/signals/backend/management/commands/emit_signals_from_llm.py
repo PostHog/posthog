@@ -8,9 +8,9 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import Team
-from posthog.temporal.data_imports.signals import get_signal_config
-from posthog.temporal.data_imports.signals.pipeline import run_signal_pipeline
 
+from products.signals.backend.emission import get_signal_config
+from products.signals.backend.emission.pipeline import run_signal_pipeline
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.eval.llm_gen import SOURCE_KINDS, WRAPPERS, generate_canonical_signals
 from products.signals.eval.llm_gen.client import CanonicalSignal
@@ -230,6 +230,14 @@ class Command(BaseCommand):
             config = get_signal_config(registry_source, registry_schema)
             if config is None:
                 raise CommandError(f"No signal config registered for {registry_source}/{registry_schema}")
+            # Same lookup the production activities do, so team steering applies here too.
+            source_config = (
+                SignalSourceConfig.objects.filter(
+                    team_id=team.id, source_product=config.source_product, source_type=config.source_type
+                )
+                .values_list("config", flat=True)
+                .first()
+            )
             self.stdout.write(f"Emitting {len(records)} {source_kind} records through run_signal_pipeline...")
             result = asyncio.run(
                 run_signal_pipeline(
@@ -237,6 +245,7 @@ class Command(BaseCommand):
                     config=config,
                     records=records,
                     extra={"command": "emit_signals_from_llm", "source": source_kind},
+                    source_config=source_config if isinstance(source_config, dict) else None,
                 )
             )
             emit_summary[source_kind] = (

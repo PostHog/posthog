@@ -1,3 +1,4 @@
+import os
 import re
 import json
 import time
@@ -14,10 +15,12 @@ from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
-from django.db import connection
+from django.db import (
+    connection,
+    connections as db_connections,
+)
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.http.response import HttpResponseRedirectBase
 from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
@@ -26,11 +29,10 @@ from django.utils.deprecation import MiddlewareMixin
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
 import structlog
-import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
-from prometheus_client import Histogram
+from prometheus_client import Counter, Histogram
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
@@ -42,6 +44,7 @@ from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
+from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.models import Team, User
 from posthog.models.activity_logging.utils import (
@@ -50,19 +53,54 @@ from posthog.models.activity_logging.utils import (
     activity_storage,
 )
 from posthog.models.utils import generate_random_token
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
-from posthog.utils import _is_valid_ip_address, get_ip_address
+from posthog.utils import get_ip_address, get_trusted_client_ip
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from .auth import PersonalAPIKeyAuthentication
+
+logger = structlog.get_logger(__name__)
+
+# A finished request that grew the worker's RSS by at least this many MiB is logged as
+# `request_memory_growth`. Tunable via env so the threshold can be tightened/relaxed in
+# prod without a worker restart / code change. Set to 0 to log every request's growth
+# (noisy — debugging only). Parsed defensively: a malformed value must never crash the
+# module at import (which would take the worker down before it serves a request) — fall
+# back to the default instead.
+try:
+    REQUEST_RSS_GROWTH_LOG_MB = float(os.getenv("WEB_REQUEST_RSS_GROWTH_LOG_MB", "100"))
+except ValueError:
+    REQUEST_RSS_GROWTH_LOG_MB = 100.0
+
+# Page size is invariant for the lifetime of the process — hoist it so current_rss_mb()
+# doesn't pay the sysconf syscall on every call. Fall back to 4096 (the common default)
+# if sysconf is unavailable on the host (e.g. an exotic OS).
+try:
+    _PAGE_SIZE_BYTES: int = os.sysconf("SC_PAGE_SIZE")
+except (OSError, ValueError):
+    _PAGE_SIZE_BYTES = 4096
+
+
+def current_rss_mb() -> float | None:
+    """Resident set size of the current worker process in MiB, read from
+    /proc/self/statm (field 2 = resident pages). Returns None when unavailable,
+    e.g. on non-Linux dev machines where /proc is absent."""
+    try:
+        with open("/proc/self/statm") as statm:
+            resident_pages = int(statm.read().split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return resident_pages * _PAGE_SIZE_BYTES / (1024 * 1024)
+
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
@@ -85,55 +123,15 @@ cookie_api_paths_to_ignore = {"api", "flags", "scim"}
 
 
 class AllowIPMiddleware:
-    trusted_proxies: list[str] = []
-
     def __init__(self, get_response):
         if not settings.ALLOWED_IP_BLOCKS and not settings.BLOCKED_GEOIP_REGIONS:
             # this will make Django skip this middleware for all future requests
             raise MiddlewareNotUsed()
         self.ip_blocks = settings.ALLOWED_IP_BLOCKS
-
-        if settings.TRUSTED_PROXIES:
-            self.trusted_proxies = [item.strip() for item in settings.TRUSTED_PROXIES.split(",")]
         self.get_response = get_response
 
-    def get_forwarded_for(self, request: HttpRequest):
-        forwarded_for = request.headers.get("x-forwarded-for")
-        if forwarded_for is not None:
-            return [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
-        else:
-            return []
-
-    def _normalize_ip(self, ip: str) -> str | None:
-        """Strip port from IP and validate format."""
-        # IPv6 with port: [2001:db8::1]:8080 -> 2001:db8::1
-        if ip.startswith("["):
-            bracket_end = ip.find("]")
-            if bracket_end != -1:
-                ip = ip[1:bracket_end]
-        # IPv4 with port: 192.168.1.1:8080 -> 192.168.1.1
-        elif ip.count(":") == 1:
-            ip = ip.split(":")[0]
-
-        if not _is_valid_ip_address(ip):
-            return None
-        return ip
-
     def extract_client_ip(self, request: HttpRequest) -> str | None:
-        client_ip = request.META["REMOTE_ADDR"]
-        if getattr(settings, "USE_X_FORWARDED_HOST", False):
-            forwarded_for = self.get_forwarded_for(request)
-            if forwarded_for:
-                closest_proxy = client_ip
-                client_ip = forwarded_for.pop(0)
-                if settings.TRUST_ALL_PROXIES:
-                    return self._normalize_ip(client_ip)
-                proxies = [closest_proxy, *forwarded_for]
-                for proxy in proxies:
-                    normalized = self._normalize_ip(proxy)
-                    if normalized is None or normalized not in self.trusted_proxies:
-                        return None
-        return self._normalize_ip(client_ip)
+        return get_trusted_client_ip(request)
 
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)
@@ -528,7 +526,9 @@ class QueryTimeCountingMiddleware:
         if "api" in path and any(key in path for key in self.ALLOW_LIST_ROUTES):
             return True
         try:
-            return resolve(path).func.__name__ == "home"
+            # Frontend page loads resolve to either the `home` view (unauthenticated routes)
+            # or its `home_with_region_redirect` wrapper (the authenticated catch-all).
+            return resolve(path).func.__name__ in ("home", "home_with_region_redirect")
         except Exception:
             return False
 
@@ -552,36 +552,35 @@ class ShortCircuitMiddleware:
         return response
 
 
-class HttpResponseTemporaryRedirectPreserveMethod(HttpResponseRedirectBase):
-    status_code = 307
+ENVIRONMENTS_PREFIX_REQUESTS = Counter(
+    "posthog_environments_prefix_requests",
+    "Requests to the legacy /api/environments/* prefix, by how the middleware served them: "
+    "`rewritten` to /api/projects, or `env_only` (no projects counterpart, served on the legacy "
+    "route and NOT routed to /api/projects).",
+    ["outcome"],
+)
 
 
-class EnvironmentsRedirectMiddleware:
-    """Redirects /api/environments/* to the equivalent /api/projects/* path.
+class EnvironmentsRewriteMiddleware:
+    """Serves /api/environments/* through the canonical /api/projects/* viewsets.
 
     /api/projects/ is a backwards-compatible superset of /api/environments/ (a Project
     and its primary Team share the same numeric id, so the id segment — including
-    @current — carries over unchanged). Uses 307 so clients re-send the original method
-    and body; a 301/302 would let clients downgrade writes to GET and drop the body.
+    @current — carries over unchanged). The request path is rewritten in place to
+    /api/projects/* and re-routed to the projects viewset, so the client gets a normal
+    200 on the original URL. This is deliberately NOT a 307/308: many API clients (httpx,
+    Guzzle, …) don't follow redirects by default, so a redirect silently breaks them — an
+    in-process rewrite is transparent to every client and keeps method, body, query
+    string, and auth on the same request.
 
     Only paths whose rewritten /api/projects/* form resolves to a registered route are
-    redirected — the few environment-only routes with no projects counterpart yet (see
-    test_environments_redirect.KNOWN_ENVIRONMENT_ONLY_RESOURCES) pass through untouched,
-    so a redirect can never land on a 404.
-
-    Gated by the `api-environments-redirect` feature flag, evaluated locally per request
-    (no network call, no flag events) — turning the flag off disables the redirect
-    instantly without a deploy or restart. If the flag can't be evaluated (missing,
-    local evaluation unavailable, SDK disabled) the redirect stays OFF. Whether or not
-    the redirect is enabled, redirectable /api/environments/* responses carry
-    `Deprecation`, `Sunset`, and `Link` headers announcing the successor path to
-    integrators.
+    rewritten — the few environment-only paths with no projects counterpart pass through
+    untouched. Rewritable /api/environments/* responses carry `Deprecation`, `Sunset`, and
+    `Link` headers announcing the successor path to integrators.
     """
 
     ENVIRONMENTS_PREFIX = "/api/environments"
     PROJECTS_PREFIX = "/api/projects"
-    FEATURE_FLAG_KEY = "api-environments-redirect"
-    FEATURE_FLAG_DISTINCT_ID = "environments_api_redirect"
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response
@@ -593,36 +592,28 @@ class EnvironmentsRedirectMiddleware:
 
         target_path = self.PROJECTS_PREFIX + path[len(self.ENVIRONMENTS_PREFIX) :]
         if not self._projects_route_exists(target_path):
+            # No /api/projects counterpart — served on the legacy route, never routed to projects.
+            ENVIRONMENTS_PREFIX_REQUESTS.labels(outcome="env_only").inc()
             return self.get_response(request)
 
         query_string = request.META.get("QUERY_STRING", "")
-        location = f"{target_path}?{query_string}" if query_string else target_path
+        successor = f"{target_path}?{query_string}" if query_string else target_path
 
-        response: HttpResponse
-        if self._redirect_enabled():
-            response = HttpResponseTemporaryRedirectPreserveMethod(location)
-        else:
-            response = self.get_response(request)
+        # Re-route URL resolution to the projects viewset with no client-visible
+        # redirect; method, body, query string, and auth stay on the same request.
+        request.path = target_path
+        request.path_info = target_path
+        request.META["PATH_INFO"] = target_path
+        ENVIRONMENTS_PREFIX_REQUESTS.labels(outcome="rewritten").inc()
+
+        response = self.get_response(request)
 
         response["Deprecation"] = "true"
-        response["Link"] = f'<{location}>; rel="successor-version"'
+        response["Link"] = f'<{successor}>; rel="successor-version"'
         sunset = self._sunset_http_date()
         if sunset:
             response["Sunset"] = sunset
         return response
-
-    @classmethod
-    def _redirect_enabled(cls) -> bool:
-        # only_evaluate_locally keeps this off the network on every request; a constant
-        # distinct id makes the flag an instance-wide on/off switch (roll out 0% or 100%).
-        return bool(
-            posthoganalytics.feature_enabled(
-                cls.FEATURE_FLAG_KEY,
-                cls.FEATURE_FLAG_DISTINCT_ID,
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
 
     @staticmethod
     def _projects_route_exists(target_path: str) -> bool:
@@ -668,10 +659,19 @@ def per_request_logging_context_middleware(
         # roll out CloudFront in front of app.posthog.com. We can get the host
         # header from NGINX, but we really want to have a way to get to the
         # team_id given a host header, and we can't do that with NGINX.
+        # Capture the worker's RSS at the start of the request and bind it to the
+        # logging context, so it rides along on `request_started`/`request_finished`.
+        # A worker OOM-killed mid-request (SIGKILL, uncatchable) never logs
+        # `request_finished` — but its `request_started` line carries `rss_mb` and the
+        # `worker_pid`, so the request in flight when a worker died is identifiable
+        # after the fact. See `request_memory_growth` below for the finished-request view.
+        rss_mb_start = current_rss_mb()
         structlog.contextvars.bind_contextvars(
             host=request.headers.get("host", ""),
             container_hostname=settings.CONTAINER_HOSTNAME,
             x_forwarded_for=request.headers.get("x-forwarded-for", ""),
+            worker_pid=os.getpid(),
+            rss_mb=round(rss_mb_start, 1) if rss_mb_start is not None else None,
         )
 
         # Forwarded by the PostHog MCP server (services/mcp) on every API call.
@@ -706,7 +706,58 @@ def per_request_logging_context_middleware(
             if mcp_conversation_id:
                 span.set_attribute("mcp.conversation_id", mcp_conversation_id)
 
-        return get_response(request)
+        response: HttpResponse | None = None
+        try:
+            response = get_response(request)
+        finally:
+            # Flag requests that materially grew this worker's footprint. Steady
+            # accumulation of these on a pod is the in-app fingerprint of the request
+            # mix that walks RSS up to the cgroup limit and triggers the OOM kill.
+            # This runs even when get_response raises — exception paths (large error
+            # payloads, failed serialisation) are exactly the requests most likely to
+            # spike RSS. worker_pid is added explicitly because django_structlog's
+            # RequestMiddleware clears contextvars before this finally block fires.
+            rss_mb_end = current_rss_mb()
+            if (
+                rss_mb_start is not None
+                and rss_mb_end is not None
+                and rss_mb_end - rss_mb_start >= REQUEST_RSS_GROWTH_LOG_MB
+            ):
+                logger.warning(
+                    "request_memory_growth",
+                    rss_mb_start=round(rss_mb_start, 1),
+                    rss_mb_end=round(rss_mb_end, 1),
+                    rss_mb_delta=round(rss_mb_end - rss_mb_start, 1),
+                    request_path=request.path,
+                    method=request.method,
+                    worker_pid=os.getpid(),
+                )
+            # Detect streaming responses that are holding DB connections open.
+            # Under ASGI, a StreamingHttpResponse keeps the request alive until
+            # the stream ends — any connection still open at this point stays
+            # pinned to a pgbouncer slot for the entire stream duration, which
+            # can be minutes for SSE endpoints (AI chat, dashboard tiles, etc.).
+            # Endpoints that use sse_streaming_response() release connections
+            # before returning, so this only fires for ones that don't.
+            if response is not None and getattr(response, "streaming", False):
+                held = [
+                    conn.alias
+                    for conn in db_connections.all(initialized_only=True)
+                    if conn.connection is not None and not conn.in_atomic_block
+                ]
+                if held:
+                    _user = getattr(request, "user", None)
+                    logger.warning(
+                        "stream_with_held_connections",
+                        held_connections=len(held),
+                        aliases=held,
+                        request_path=request.path,
+                        method=request.method,
+                        worker_pid=os.getpid(),
+                        team_id=_user.current_team_id if _user is not None and _user.is_authenticated else None,
+                    )
+
+        return response
 
     return middleware
 
@@ -1062,6 +1113,10 @@ class ActivityLoggingMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
+        # Lets bearer-auth code (which runs later, inside the view) attribute activity safely,
+        # knowing the finally block below will clean up.
+        activity_storage.mark_request_scoped()
+
         # Set user in activity storage if authenticated
         if request.user.is_authenticated:
             activity_storage.set_user(request.user)
@@ -1082,6 +1137,31 @@ class ActivityLoggingMiddleware:
         return response
 
 
+_POSTHOG_CSP_REPORT_ENDPOINT = f"{PH_US_HOST}/report/?token={PH_US_API_KEY}&v=2"
+
+
+def csp_report_endpoint(**params: str) -> str:
+    """The URL browsers report CSP violations and crashes to, or "" when reporting is turned off."""
+    endpoint = settings.CSP_REPORT_ENDPOINT
+    if endpoint is None:
+        # Only deployments PostHog runs report to PostHog. Violations from an instance we do not
+        # run tell us nothing we can act on, and reporting sends that instance's document URLs to a
+        # destination its operator never chose. The gate is cloud rather than hobby because a
+        # self-hosted install with DEBUG set runs in the local mode, not the hobby one.
+        endpoint = _POSTHOG_CSP_REPORT_ENDPOINT if is_cloud() else ""
+    if not endpoint or not params:
+        return endpoint
+    # The endpoint carries the destination's project token, so it normally already has a query
+    # string; one an operator sets may not.
+    separator = "&" if "?" in endpoint else "?"
+    return f"{endpoint}{separator}{urlencode(params)}"
+
+
+# The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
+# prefix match would also hand the app document this policy and stop it from starting.
+REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
+
+
 class CSPMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1097,6 +1177,40 @@ class CSPMiddleware:
         # csp headers only matter on html documents, so for defense in depth, add strong csp to all other requests
         if "text/html" not in content_type:
             response.headers["Content-Security-Policy"] = "default-src 'none'"
+            return response
+
+        if request.path == REPLAY_PLAYER_FRAME_PATH:
+            # rrweb's own iframe is on about:blank, and a frame on a local scheme inherits its
+            # parent's policy wholesale. Mounting rrweb inside this document rather than the app's
+            # makes this policy the one a recorded page is judged against.
+            #
+            # Recorded pages load whatever they loaded when recorded, so the media directives are
+            # open on purpose. Scripts are the exception: rrweb sandboxes its frame without
+            # allow-scripts, so nothing recorded ever executes, and 'none' states that rather than
+            # leaving it to the sandbox attribute alone.
+            #
+            # No report-uri: violations here describe a customer's site, not ours.
+            #
+            # frame-ancestors stays open because shared and embedded recordings put the app itself
+            # in a customer's page, which makes this frame's ancestor chain cross-origin. The
+            # document holds no data and cannot be scripted into cross-origin, so framing it
+            # elsewhere yields a blank page.
+            response.headers["Content-Security-Policy"] = "; ".join(
+                [
+                    "default-src 'none'",
+                    "script-src 'none'",
+                    "style-src * 'unsafe-inline' data: blob:",
+                    "img-src * data: blob:",
+                    "font-src * data: blob:",
+                    "media-src * data: blob:",
+                    "connect-src *",
+                    "frame-src *",
+                    "child-src *",
+                    "form-action 'none'",
+                    "base-uri 'none'",
+                    "frame-ancestors *",
+                ]
+            )
             return response
 
         is_admin_view = request.path.startswith("/admin/")
@@ -1115,14 +1229,19 @@ class CSPMiddleware:
                 # used by the error page
                 "frame-src https://posthog.com",
                 "base-uri 'self'",
-                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2",
-                "report-to posthog",
             ]
 
-            response.headers["Reporting-Endpoints"] = (
-                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"'
-            )
+            admin_report_endpoint = csp_report_endpoint()
+            if admin_report_endpoint:
+                csp_parts += [f"report-uri {admin_report_endpoint}", "report-to posthog"]
+                # Browsers only deliver crash reports to the endpoint named `default`; the CSP
+                # `report-to posthog` directive keeps routing violations to `posthog`.
+                response.headers["Reporting-Endpoints"] = (
+                    f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
+                )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
+        elif getattr(response, "_posthog_canvas_artifact", False) and "Content-Security-Policy" in response.headers:
+            return response
         else:
             resource_url = "https://*.posthog.com"
             if settings.DEBUG or settings.TEST:
@@ -1134,26 +1253,55 @@ class CSPMiddleware:
             csp_parts = [
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
-                f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com",
-                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://d1sdjtjk6xzm7.cloudfront.net https://fonts.gstatic.com https://cdn.jsdelivr.net https://assets.faircado.com https://use.typekit.net",
+                # 'wasm-unsafe-eval' permits WebAssembly compilation and nothing else. It is not
+                # 'unsafe-eval': it does not permit eval() or the Function constructor. Compiling a
+                # module still requires calling WebAssembly.instantiate from JavaScript, so it grants
+                # nothing to an attacker who cannot already run script, and nothing further to one who
+                # can. Session replay decompresses snapshots with snappy-wasm and the HogQL editor
+                # parses with a WebAssembly build, so both break without it.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com",
+                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
                 "worker-src 'self'",
                 "child-src 'none'",
                 "object-src 'none'",
                 "media-src https://res.cloudinary.com",
-                f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
+                # `https:` is here for the OAuth authorize page, which renders an application's icon
+                # from a URL its registrant supplied. There is no allowlist that covers those, so
+                # until we serve them ourselves the directive has to accept any host.
+                #
+                # The named origins below are the set we actually load images from, and `https:`
+                # makes them redundant. They stay so that removing `https:` is a one-line change
+                # rather than an archaeology exercise.
+                #
+                # Do not promote this to an enforced header as-is. An open `img-src` is an
+                # exfiltration channel: an attacker who injects markup but cannot run script still
+                # gets a beacon out through an image URL.
+                f"img-src 'self' data: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
-                # allow all sites for displaying heatmaps
-                "frame-src https:",
+                # https: lets heatmaps frame a customer's site. 'self' is for the replay player
+                # frame, whose document is same-origin: an http origin does not match https:.
+                "frame-src 'self' https:",
                 "manifest-src 'self'",
                 "base-uri 'self'",
-                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2",
-                "report-to posthog",
+                # form-action has no default-src fallback, so leaving it unset lets an injected
+                # form post anywhere. Every form we serve targets a same-origin path.
+                "form-action 'self'",
             ]
 
-            response.headers["Reporting-Endpoints"] = (
-                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2"'
-            )
+            report_uri = csp_report_endpoint(sample_rate="0.1")
+            if report_uri:
+                csp_parts += [f"report-uri {report_uri}", "report-to posthog"]
+                report_endpoint = report_uri
+                user = getattr(request, "user", None)
+                if user is not None and user.is_authenticated and getattr(user, "distinct_id", None):
+                    # Crash reports arrive after the tab already died, so the report body is the
+                    # only chance to attribute them; carrying the distinct_id in the endpoint URL
+                    # ties the event to the person instead of a random per-report id.
+                    report_endpoint = csp_report_endpoint(sample_rate="0.1", distinct_id=user.distinct_id)
+                # Browsers only deliver crash reports to the endpoint named `default`; the CSP
+                # `report-to posthog` directive keeps routing violations to `posthog`.
+                response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
             response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
 
         return response
@@ -1179,7 +1327,7 @@ class SocialAuthExceptionMiddleware:
 
         # Handle AuthCanceled (user cancelled OAuth flow)
         if isinstance(exception, AuthCanceled):
-            return redirect("/login?error_code=oauth_cancelled")
+            return redirect(sso_failure_redirect_url(request, "oauth_cancelled"))
 
         # Handle AuthFailed with specific error codes that have dedicated frontend messages
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
@@ -1190,14 +1338,16 @@ class SocialAuthExceptionMiddleware:
                 "github_sso_enforced",
                 "gitlab_sso_enforced",
                 "sso_enforced",
+                "reauth_user_mismatch",
             ):
-                return redirect(f"/login?error_code={error}")
+                return redirect(sso_failure_redirect_url(request, error))
 
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
             error_detail = self._get_error_detail(exception)
-            params = urlencode({"error_code": "social_login_failure", "error_detail": error_detail})
-            return redirect(f"/login?{params}")
+            url = sso_failure_redirect_url(request, "social_login_failure")
+            separator = "&" if "?" in url else "?"
+            return redirect(f"{url}{separator}{urlencode({'error_detail': error_detail})}")
 
         return None
 
@@ -1259,6 +1409,11 @@ class ActiveOrganizationMiddleware:
 # Session key used to mark an impersonation session as read-only
 IMPERSONATION_READ_ONLY_SESSION_KEY = "impersonation_read_only"
 
+# Session key holding the reason the operator gave when impersonation started (or was
+# up/downgraded). Persisted server-side so the reason survives both Django-admin and
+# in-app starts and can be surfaced to the frontend and the activity log.
+IMPERSONATION_REASON_SESSION_KEY = "impersonation_reason"
+
 
 def is_read_only_impersonation(request: HttpRequest) -> bool:
     """Check if the current session is a read-only impersonation session."""
@@ -1268,40 +1423,76 @@ def is_read_only_impersonation(request: HttpRequest) -> bool:
 # HTTP methods that are considered idempotent/safe and allowed during impersonation
 IMPERSONATION_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
-# Paths that are allowed for non-idempotent requests during read-only impersonation.
-# These should be paths that are safe or necessary for the impersonated session to function.
-# Supports both prefix strings and compiled regex patterns.
-READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
-    # These endpoints use POST but are read-only:
-    # /query/[A-Z][A-Za-z]* matches query-kind segments, while the schema-upgrade POST action
-    # /query/upgrade/ needs an explicit "|upgrade" branch as that starts with a lowercase letter
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query(?:/[A-Za-z]+)?/?$"),
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/materialization_preview/?$"),
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$"),
+# Requests allowed despite using a non-idempotent method during read-only impersonation,
+# as (method, path) pairs. These should be requests that are safe or necessary for the
+# impersonated session to function. Each entry permits a single method so a path match
+# can't authorize other mutating methods on overlapping routes (e.g. DELETE
+# /api/.../query/<id>/ cancels a query and must stay blocked).
+# Paths support both prefix strings and compiled regex patterns.
+READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = [
+    # These endpoints use POST but are read-only: the optional segment matches the
+    # schema-upgrade action /query/upgrade/ and query-kind paths, which start uppercase
+    # and may contain digits (e.g. PathsV2Query), mirroring the route in posthog/api/query.py
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query(?:/(?:upgrade|[A-Z][A-Za-z0-9]*))?/?$"),
+    ),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$")),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$")),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$")),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/materialization_preview/?$")),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$")),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$")),
     # POST but read-only: loads stack frame records (source context) for error tracking UI
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$"),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$")),
     # POST but read-only: returns metadata about available incremental fields / columns
     # for a data warehouse schema. Validates external credentials and lists schemas
     # against the customer's source — no PostHog-side mutations.
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/external_data_schemas/[^/]+/incremental_fields/?$"),
+    (
+        "POST",
+        re.compile(
+            r"^/api/(environments|projects)/([0-9]+|@current)/external_data_schemas/[^/]+/incremental_fields/?$"
+        ),
+    ),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$"),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
+    # POST but read-only: the Logs product sends its queries as POST because the filter payload
+    # is too large for a query string. Action names are enumerated rather than allowing the whole
+    # `logs/` prefix, which also hosts writing CRUD viewsets (alerts, views, sampling_rules,
+    # retention_rules, metric_rules, anomalies).
+    (
+        "POST",
+        re.compile(
+            r"^/api/(environments|projects)/([0-9]+|@current)/logs/"
+            r"(query|sparkline|facet_values|count-ranges|count|services|patterns_diff|patterns|group-by)/?$"
+        ),
+    ),
+    # POST but read-only: same reasoning for the Traces (tracing spans) product
+    (
+        "POST",
+        re.compile(
+            r"^/api/(environments|projects)/([0-9]+|@current)/tracing/spans/"
+            r"(query|count|symbol-stats|sparkline|duration-histogram|latency-heatmap|aggregate|tree"
+            r"|attribute-breakdown|trace/[a-zA-Z0-9]+)/?$"
+        ),
+    ),
+    # POST but read-only: same reasoning for the Metrics product
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metrics/(query|samples|characterize|explain)/?$"),
+    ),
     # Allow upgrading from read-only to read-write impersonation
-    "/admin/impersonation/upgrade/",
+    ("POST", "/admin/impersonation/upgrade/"),
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),
     # while Django's URL config accepts both via opt_slash_path — match both forms.
-    re.compile(r"^/logout/?$"),
+    ("POST", re.compile(r"^/logout/?$")),
     # OAuth consent submission and token exchange. Both run as POST during the OAuth flow.
     # Scopes minted while read-only impersonation is active are filtered through
     # `posthog.scopes.downgrade_scopes_to_read_only` in `OAuthAuthorizationView` so the
     # resulting tokens can't grant write access. Tokens minted here are also tagged with
     # the impersonator and revoked when impersonation ends.
-    re.compile(r"^/oauth/authorize/?$"),
-    re.compile(r"^/oauth/token/?$"),
+    ("POST", re.compile(r"^/oauth/authorize/?$")),
+    ("POST", re.compile(r"^/oauth/token/?$")),
 ]
 
 
@@ -1332,7 +1523,7 @@ class ImpersonationReadOnlyMiddleware:
         if request.method in IMPERSONATION_SAFE_METHODS:
             return self.get_response(request)
 
-        if self._is_path_allowlisted(request.path):
+        if self._is_request_allowlisted(request):
             return self.get_response(request)
 
         if self._is_allowed_users_request(request):
@@ -1347,12 +1538,14 @@ class ImpersonationReadOnlyMiddleware:
             status=403,
         )
 
-    def _is_path_allowlisted(self, path: str) -> bool:
-        for allowed_path in READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS:
+    def _is_request_allowlisted(self, request: HttpRequest) -> bool:
+        for allowed_method, allowed_path in READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS:
+            if request.method != allowed_method:
+                continue
             if isinstance(allowed_path, re.Pattern):
-                if allowed_path.match(path):
+                if allowed_path.match(request.path):
                     return True
-            elif path.startswith(allowed_path):
+            elif request.path.startswith(allowed_path):
                 return True
         return False
 

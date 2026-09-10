@@ -1,24 +1,36 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { toDisplayOrderFrames } from 'lib/components/Errors/displayOrder'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
 
 export const useStacktraceDisplay = (): { ready: boolean; stacktraceText: string; copyableStacktraceText: string } => {
-    const { exceptionList, stackFrameRecords, stackFrameRecordsLoading } = useValues(errorPropertiesLogic)
+    const { exceptionList, stackFrameRecords, stackFrameRecordsLoading, framesStoredCrashFirst } =
+        useValues(errorPropertiesLogic)
 
     const stacktraceText = useMemo(() => {
         return exceptionList
-            .map((exception) => generateExceptionText(exception, stackFrameRecords, { includeInAppMarkers: true }))
+            .map((exception) =>
+                generateExceptionText(exception, stackFrameRecords, {
+                    includeInAppMarkers: true,
+                    storedCrashFirst: framesStoredCrashFirst,
+                })
+            )
             .join('\n\n')
-    }, [exceptionList, stackFrameRecords])
+    }, [exceptionList, stackFrameRecords, framesStoredCrashFirst])
 
     const copyableStacktraceText = useMemo(() => {
         return exceptionList
-            .map((exception) => generateExceptionText(exception, stackFrameRecords, { includeInAppMarkers: false }))
+            .map((exception) =>
+                generateExceptionText(exception, stackFrameRecords, {
+                    includeInAppMarkers: false,
+                    storedCrashFirst: framesStoredCrashFirst,
+                })
+            )
             .join('\n\n')
-    }, [exceptionList, stackFrameRecords])
+    }, [exceptionList, stackFrameRecords, framesStoredCrashFirst])
 
     const ready = exceptionList.length > 0 && !stackFrameRecordsLoading
 
@@ -28,11 +40,12 @@ export const useStacktraceDisplay = (): { ready: boolean; stacktraceText: string
 function generateExceptionText(
     exception: ErrorTrackingException,
     stackFrameRecords: Record<string, any>,
-    options: { includeInAppMarkers: boolean }
+    options: { includeInAppMarkers: boolean; storedCrashFirst: boolean }
 ): string {
     let result = `${formatType(exception)}${exception.value ? `: ${exception.value}` : ''}`
 
-    const frames = exception.stacktrace?.frames || []
+    // match the on-screen order: most recent call first
+    const frames = toDisplayOrderFrames(exception.stacktrace?.frames || [], options.storedCrashFirst)
 
     for (const frame of frames) {
         const inAppMarker = options.includeInAppMarkers && frame.in_app ? ' [IN-APP]' : ''

@@ -1,8 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { fn } from 'storybook/test'
 
 import { MarkdownNotebook, MarkdownNotebookProps } from './MarkdownNotebook'
 import { NotebookCollaborationConflict } from './types'
@@ -40,9 +44,9 @@ const componentCatalogNotebook = `# Component catalog
 
 <Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
 
-<Python title="Python" code="print('hello')" />
+<PythonV2 title="Python" code="print('hello')" />
 
-<DuckSQL title="SQL (DuckDB)" code="select * from events" returnVariable="duck_df" />
+<SQLV2 title="SQL" code="select * from events" returnVariable="sql_df" />
 
 <RecordingPlaylist title="Session recordings" />
 
@@ -64,6 +68,37 @@ const embedsNotebook = `# Embeds
 
 <Latex content="E=mc^2" />`
 
+const mermaidNotebook = `# Release flow
+
+A \`\`\`mermaid\`\`\` fence renders as a diagram in view mode while the source stays editable.
+
+\`\`\`mermaid
+flowchart LR
+    A[Start] --> B{Tests pass?}
+    B -->|Yes| C[Ship it]
+    B -->|No| D[Fix it]
+    D --> A
+\`\`\``
+
+const wideMermaidNotebook = `# Wide diagram
+
+A diagram wider than the notebook column keeps its natural size and scrolls horizontally instead of shrinking.
+
+\`\`\`mermaid
+flowchart LR
+    A[Signup form submitted] --> B[Validate email domain] --> C[Create organization] --> D[Provision default project] --> E[Send verification email] --> F[Track activation event] --> G[Redirect to onboarding] --> H[Show product tour]
+\`\`\``
+
+const invalidMermaidNotebook = `# Broken diagram
+
+Invalid mermaid falls back to the plain source instead of crashing.
+
+\`\`\`mermaid
+flowchart LR
+    A --> B -->
+    this is not valid mermaid ]]]
+\`\`\``
+
 const malformedNotebook = `# Broken input
 
 <Query query={{"kind":`
@@ -80,6 +115,8 @@ const meta: Meta<StoryArgs> = {
     tags: ['autodocs'],
     args: {
         showDebug: true,
+        onInteractionStateChange: () => {},
+        onCaretChange: fn(),
     },
     render: (props) => <ControlledNotebook {...props} />,
 }
@@ -155,6 +192,17 @@ export const TextOnlyNotebook: Story = {
     },
 }
 
+export const CanvasHeader: Story = {
+    args: {
+        value: textNotebook,
+        canvasHeader: (
+            <div className="mb-2 w-full rounded border border-primary bg-surface-secondary p-2">
+                A panel in the canvas header takes the same left and right edges as the blocks below it.
+            </div>
+        ),
+    },
+}
+
 export const HeadingsAndInlineFormatting: Story = {
     args: {
         value: `# Heading 1
@@ -189,6 +237,34 @@ export const ListsAndLinks: Story = {
     },
 }
 
+export const TablesInProse: Story = {
+    args: {
+        value: `## Weekly activation review
+
+Signup completion improved after the onboarding changes.
+
+| Step | Completion | Change |
+| --- | ---: | ---: |
+| Signup form | 82% | +4% |
+| Workspace setup | 61% | +1% |
+
+Both tables above and below belong to this passage, so they share its card.
+
+| Segment | Invite acceptance |
+| --- | ---: |
+| Self-serve | 44% |
+| Enterprise | 71% |
+
+The table below was added as a node of its own, so it keeps a card of its own.
+
+
+| Owner | Follow-up |
+| --- | --- |
+| Growth | Retry the invite email |
+| Onboarding | Shorten the setup step |`,
+    },
+}
+
 export const QueryBlock: Story = {
     args: {
         value: queryNotebook,
@@ -204,6 +280,58 @@ export const ComponentCatalog: Story = {
 export const Embeds: Story = {
     args: {
         value: embedsNotebook,
+    },
+}
+
+export const MermaidDiagram: Story = {
+    args: {
+        value: mermaidNotebook,
+        mode: 'view',
+    },
+    // Mermaid renders asynchronously (lazy chunk + async render); wait for the finished SVG
+    // so the snapshot isn't captured mid-render.
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="mermaid-rendered"]' },
+    },
+}
+
+export const MermaidDiagramEditor: Story = {
+    args: {
+        value: mermaidNotebook,
+        mode: 'edit',
+    },
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="notebook-mermaid-editor"]' },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const editButton = await canvas.findByLabelText('Edit diagram')
+        editButton.focus()
+        await userEvent.keyboard('{Enter}')
+        await screen.findByLabelText('Mermaid definition')
+    },
+}
+
+export const MermaidDiagramWide: Story = {
+    args: {
+        value: wideMermaidNotebook,
+        mode: 'view',
+    },
+    // Mermaid renders asynchronously (lazy chunk + async render); wait for the finished SVG
+    // so the snapshot isn't captured mid-render.
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="mermaid-rendered"]' },
+    },
+}
+
+export const MermaidDiagramFallback: Story = {
+    args: {
+        value: invalidMermaidNotebook,
+        mode: 'view',
+    },
+    // Invalid mermaid resolves asynchronously to the error fallback; wait for it before snapshotting.
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="mermaid-error"]' },
     },
 }
 

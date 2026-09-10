@@ -1,5 +1,5 @@
-import { DependencyUnavailableError } from '../../../src/utils/db/error'
-import { PostgresUse, handlePostgresError, isTransientPgError } from '../../../src/utils/db/postgres'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
+import { PostgresUse, handlePostgresError, isTransientPgError } from '~/common/utils/db/postgres'
 
 describe('isTransientPgError', () => {
     it.each([

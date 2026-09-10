@@ -1,0 +1,99 @@
+# paths-filter (vendored)
+
+A vendored fork of [`dorny/paths-filter`](https://github.com/dorny/paths-filter) `v4.0.1`
+(commit `fbd0ab8f3e69293af611ebaee6363fc25e6d187d`, MIT — see [LICENSE](./LICENSE)).
+
+Use it exactly like the upstream action, but reference it by path instead of by tag:
+
+```yaml
+- uses: ./.github/actions/paths-filter
+  id: filter
+  with:
+    filters: |
+      backend:
+        - 'posthog/**'
+```
+
+## Why we forked
+
+Upstream's `predicate-quantifier` is global per filter and can't express a common need:
+**"run on everything in folder X, except `*.md`"** — i.e. `(match A OR B) AND (NOT *.md)`.
+
+- With the default `some` (OR) quantifier, `!` patterns are silently ignored: any non-`.md`
+  file still matches the positive glob, so the filter passes.
+- With `every` (AND), the `!` excludes work, but the positive patterns can no longer be
+  OR-ed together — a file must match _all_ of them.
+
+## How matching works
+
+This fork drops upstream's `some`/`every` quantifiers and always uses include/exclude
+matching (there is no `predicate-quantifier` input):
+
+- Positive patterns are **includes**, OR-ed together.
+- Every `!`-prefixed pattern is an **exclude** that vetoes a match.
+- A file matches when it matches at least one include (or there are no includes) **and**
+  matches no exclude.
+
+```yaml
+- uses: ./.github/actions/paths-filter
+  with:
+    filters: |
+      backend:
+        - 'posthog/**'
+        - 'products/**/backend/**'
+        - '!**/*.md'
+```
+
+For a filter with only positive patterns this behaves exactly like upstream's default
+`some` — so plain filters are unaffected.
+
+### Limitation: excludes must be top-level entries
+
+An exclude is only recognised when the `!` pattern is its own entry in the filter list.
+A `!` pattern nested inside a change-status array is rejected with an error rather than
+silently falling through to picomatch's raw negation (which would match every file outside
+the pattern) — that fallthrough is the upstream footgun this fork exists to avoid. Write
+excludes as separate entries:
+
+```yaml
+# do this
+changed:
+  - added|modified: 'src/**'
+  - '!src/vendor/**'
+# not this — throws "'!' patterns are not supported inside a change-status array"
+changed:
+  - added|modified: ['src/**', '!src/vendor/**']
+```
+
+## Shadow comparison (opt-in)
+
+Set `PATHS_FILTER_SHADOW_POSTHOG_TOKEN` on a step to have that run compare the API's
+changed-file list against the same list derived from the pull request's merge commit,
+and send the verdict to PostHog. The comparison never changes what the filter answers.
+
+```yaml
+- uses: ./.github/actions/paths-filter
+  env:
+    PATHS_FILTER_SHADOW_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+```
+
+Without the variable the action does no extra work. Set it in one workflow that runs on
+every pull request; that keeps the merge-ref fetch off the critical path of the other
+gating jobs. This is temporary, and goes away with the decision it exists to inform.
+
+The event carries the differing paths and, in `selection_changed` and `keys_lost`, which
+filter keys answer differently on the two lists. The keys are what gate a job, so they are
+what the decision reads; the paths are there to explain a flip.
+
+## Rebuilding after source changes
+
+The action runs the committed `dist/index.js` bundle. After editing anything under `src/`,
+regenerate it and re-run the tests:
+
+```bash
+npm ci
+npm test
+npx ncc build src/main.ts -o dist
+```
+
+Commit the updated `dist/index.js` alongside the source change.

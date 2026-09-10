@@ -11,7 +11,10 @@ from products.signals.backend.artefact_schemas import (
     CodeReference,
     Commit,
     NoteArtefact,
+    SuggestedReviewerEntry,
+    SummaryChange,
     TaskRunArtefact,
+    TitleChange,
     artefact_type_for,
     parse_artefact_content,
 )
@@ -88,6 +91,20 @@ class TestArtefactSchemas(SimpleTestCase):
         with self.assertRaises(ValidationError):
             NoteArtefact(note="   ")
 
+    def test_title_change_allows_null_old_title(self):
+        # A report with no prior title (null) is a valid before-state for the first edit.
+        change = TitleChange(new_title="A title")
+        assert change.old_title is None
+        assert change.new_title == "A title"
+
+    def test_title_change_rejects_blank_new_title(self):
+        with self.assertRaises(ValidationError):
+            TitleChange(old_title="old", new_title="   ")
+
+    def test_summary_change_rejects_blank_new_summary(self):
+        with self.assertRaises(ValidationError):
+            SummaryChange(old_summary="old", new_summary="   ")
+
 
 class TestValidateArtefactContent(SimpleTestCase):
     @parameterized.expand(
@@ -104,14 +121,23 @@ class TestValidateArtefactContent(SimpleTestCase):
             ),
             ("repo_selection", {"repository": None, "reason": "no candidates"}),
             ("suggested_reviewers", [{"github_login": "octocat", "github_name": None, "relevant_commits": []}]),
+            ("channel_assignment", {"channel_id": "00000000-0000-0000-0000-000000000001"}),
             ("dismissal", {"reason": "not_a_bug", "note": None, "user_id": 1, "user_uuid": None}),
             ("video_segment", {"anything": "goes"}),
             ("note", {"note": "hello"}),
             (
                 "commit",
-                {"repository": "PostHog/posthog", "branch": "b", "commit_sha": "abc123f", "message": "fix: x"},
+                {
+                    "repository": "PostHog/posthog",
+                    "branch": "b",
+                    "commit_sha": "abc123f",
+                    "message": "fix: x",
+                    "diff": "@@ -1 +1 @@\n-a\n+b",
+                },
             ),
             ("task_run", {"task_id": "t1", "run_id": None, "product": "signals", "type": "implementation"}),
+            ("title_change", {"old_title": "before", "new_title": "after"}),
+            ("summary_change", {"old_summary": None, "new_summary": "after"}),
         ]
     )
     def test_accepts_valid_content_for_type(self, artefact_type, content):
@@ -128,6 +154,7 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("signal_finding", {"signal_id": "s1"}),
             ("repo_selection", {"reason": 5}),
             ("suggested_reviewers", [{"github_name": "no login"}]),
+            ("channel_assignment", {"channel_id": "not-a-uuid"}),
             ("note", {"note": "   "}),
             ("commit", {"repository": "PostHog/posthog", "branch": "b", "commit_sha": "  ", "message": "m"}),
             ("task_run", {"task_id": "t1", "product": "Not Safe!", "type": "research"}),
@@ -136,6 +163,11 @@ class TestValidateArtefactContent(SimpleTestCase):
     def test_rejects_invalid_content_for_type(self, artefact_type, content):
         with self.assertRaises(ArtefactContentValidationError):
             parse_artefact_content(artefact_type, content)
+
+    def test_suggested_reviewer_login_is_stripped(self):
+        # Enrichment and autostart look logins up with `login.lower()` and no strip, so a padded
+        # login that survived to storage would count as suggested but never match a user.
+        assert SuggestedReviewerEntry(github_login=" Octocat ").github_login == "Octocat"
 
     def test_parsing_normalizes_to_the_schema(self):
         # Parsing into the typed model is the boundary: unknown keys are not persisted, and

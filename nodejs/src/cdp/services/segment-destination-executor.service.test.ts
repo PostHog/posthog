@@ -2,9 +2,9 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime, Settings } from 'luxon'
 
-import { defaultConfig } from '~/config/config'
+import { defaultConfig } from '~/common/config/config'
+import { parseJSON } from '~/common/utils/json-parse'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { parseJSON } from '~/utils/json-parse'
 
 import { createHogFunction } from '../_tests/fixtures'
 import {
@@ -506,6 +506,45 @@ describe('SegmentDestinationExecutorService', () => {
                     expect(endpoint).toBe('https://posthog-sandbox.pipedrive.com/api/v1/activities?api_token=api-key')
                 }
             }
+        })
+
+        it.each([
+            ['omits them when enabled', true, false],
+            ['keeps them when disabled', false, true],
+        ])('internal_omit_empty_values %s', async (_name, omitEmptyValues, expectEmptyValues) => {
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'segment-actions-iterable',
+            })
+
+            const invocation = createExampleSegmentInvocation(fn, {
+                apiKey: 'api-key',
+                dataCenterLocation: 'united_states',
+                email: 'max@posthog.com',
+                userId: 'user-id',
+                phoneNumber: null,
+                dataFields: {
+                    plan: 'enterprise',
+                    // The customer-facing case: a property that is only set on some events
+                    last_seen_at: null,
+                    company: '',
+                },
+                mergeNestedObjects: true,
+                internal_partner_action: 'updateUser',
+                internal_omit_empty_values: omitEmptyValues,
+            })
+
+            await service.execute(invocation)
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            const requestBody = parseJSON(mockFetch.mock.calls[0][1].body)
+
+            expect(requestBody.email).toBe('max@posthog.com')
+            expect(requestBody.dataFields.plan).toBe('enterprise')
+
+            expect('last_seen_at' in requestBody.dataFields).toBe(expectEmptyValues)
+            expect('company' in requestBody.dataFields).toBe(expectEmptyValues)
+            expect('phoneNumber' in requestBody.dataFields).toBe(expectEmptyValues)
         })
     })
 })

@@ -21,10 +21,12 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from enum import Enum
-from typing import Any, cast
+from typing import Any, Literal, cast
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
+from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -51,12 +53,9 @@ class ActionabilityChoice(str, Enum):
     NOT_ACTIONABLE = "not_actionable"
 
 
-class Priority(str, Enum):
-    P0 = "P0"
-    P1 = "P1"
-    P2 = "P2"
-    P3 = "P3"
-    P4 = "P4"
+# Report priority scale (P0–P4). Aliased to the shared signal taxonomy enum so the product has a
+# single P0–P4 source; kept under the `Priority` name for existing callers.
+Priority = ReportPriority
 
 
 class SignalFinding(BaseModel):
@@ -76,9 +75,15 @@ class SignalFinding(BaseModel):
         description=(
             "A mapping of 'git commit short SHA (7 characters)' -> 'reason'. "
             "Values are short explanations of WHY each commit is relevant. "
-            "Use `git blame` on the most critical code paths to identify commits that caused, or are most closely related to, "
-            "the issue described by this report. Prioritize causative commits "
-            "(e.g. the commit that introduced a bug) over general authorship commits. Include 1-5 commits."
+            "Use `git blame --ignore-revs-file $(git rev-parse --show-toplevel)/.git-blame-ignore-revs` on "
+            "the most critical code paths to identify commits that caused, or are most closely related to, "
+            "the issue described by this report. Prioritize causative commits (e.g. the commit that introduced a bug) "
+            "over general authorship commits. "
+            "Exclude commits authored by bots (any GitHub login ending in `[bot]`), "
+            "commits authored by known LLM authors (such as Claude, OpenAI, etc.), "
+            "and commits whose only relationship to the code is a repo-wide mechanical change "
+            "(linting, formatting, import sorting, bulk refactor) — those authors "
+            "didn't meaningfully shape this code and must not be surfaced as reviewers. Include 1-5 commits."
         ),
     )
     data_queried: str = Field(
@@ -109,8 +114,12 @@ class ActionabilityAssessment(BaseModel):
     )
     already_addressed: bool = Field(
         description=(
-            "Whether the core issue described by this report appears to have been "
-            "already fixed or addressed in recent code changes. Tracked separately from `actionability`."
+            "Whether the core issue described by this report is already being handled — either fixed "
+            "in recent code changes, or with a fix already in flight: an open pull request, a recently "
+            "active branch, or an assigned / in-progress issue or agent task covering the same problem. "
+            "True in any of those cases; only a fix nobody has started is False. This gates autonomous "
+            "PRs, so a wrong False opens a duplicate PR against work a human or another agent already "
+            "has going. Tracked separately from `actionability`."
         ),
     )
 
@@ -174,25 +183,105 @@ class RelevantCommit(BaseModel):
 
 
 class SuggestedReviewerEntry(BaseModel):
-    """One reviewer in a `suggested_reviewers` artefact's content list."""
+    """One reviewer in a `suggested_reviewers` artefact's content list.
 
-    github_login: str = Field(description="GitHub login identifying the reviewer (stored lowercased).")
+    A reviewer is a PostHog user; a GitHub login is an attribute some of them have. An entry carries
+    `user_uuid`, `github_login`, or both, and readers match on either — so a teammate who never
+    connected GitHub still routes a report. Entries written before `user_uuid` existed carry a login
+    alone, and read-time enrichment resolves those the way it always did.
+    """
+
+    github_login: str | None = Field(
+        default=None,
+        description=(
+            "GitHub login identifying the reviewer (stored lowercased). Null when the reviewer has "
+            "no linked GitHub account."
+        ),
+    )
+    user_uuid: str | None = Field(
+        default=None,
+        description="UUID of the PostHog user this entry routes to. Null on entries written before reviewers carried one.",
+    )
     github_name: str | None = Field(default=None, description="Optional human-readable display name.")
     relevant_commits: list[RelevantCommit] = Field(
         default_factory=list,
         description="Commit evidence explaining why this reviewer is relevant.",
     )
+    reason: str | None = Field(
+        default=None,
+        description="Why this reviewer was chosen — the evidence behind the routing (e.g. recent author on the affected surface, human correction precedent).",
+    )
+    is_skill_owner: bool = Field(
+        default=False,
+        description=(
+            "True when this entry was injected by the scout owner guardrail (an editor-controlled "
+            "`LLMSkillOwner`), rather than derived from commit authorship. Such entries route the "
+            "report but must never select the autostart task identity — otherwise a skill editor "
+            "could name a privileged teammate as owner and have an implementation agent run as them."
+        ),
+    )
+    source_skill: str | None = Field(
+        default=None,
+        description=(
+            "Name of the scout skill whose run wrote this entry, stamped server-side at the write. "
+            "Autostart unions this skill's current owners into its identity exclusion, so the "
+            "exclusion holds even when the run's best-effort edit tally was lost — the provenance "
+            "commits atomically with the pick itself. None for entries no scout wrote (pipeline, "
+            "custom agent, human edits)."
+        ),
+    )
 
     @field_validator("github_login")
     @classmethod
-    def github_login_must_not_be_empty(cls, v: str) -> str:
+    def github_login_must_not_be_empty(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
-        return v
+        # Strip on the way in: read-time enrichment and autostart look logins up with
+        # `login.lower()` and no strip, so a padded login would persist but never match.
+        return v.strip()
+
+    @field_validator("user_uuid")
+    @classmethod
+    def user_uuid_must_be_a_uuid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        # Canonicalize rather than keep the caller's spelling: readers match this value with a jsonb
+        # containment filter, where a differently-formatted UUID for the same user never hits.
+        try:
+            return str(UUID(v.strip()))
+        except (ValueError, AttributeError):
+            raise ValueError("must be a UUID")
+
+    @model_validator(mode="after")
+    def must_identify_a_reviewer(self) -> SuggestedReviewerEntry:
+        if not self.github_login and not self.user_uuid:
+            raise ValueError("must carry a github_login, a user_uuid, or both")
+        return self
 
 
 class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
     """Content schema for a `suggested_reviewers` artefact — the content root is a JSON list."""
+
+
+class ChannelAssignment(BaseModel):
+    """The space that currently owns a report. The latest assignment wins."""
+
+    channel_id: UUID | None = Field(description="Channel UUID, or null to leave the report unassigned.")
+
+
+# Reason code shared by the dismissal writer (the state API) and the corrections reader
+# (`repo_corrections`), defined here so the two cannot drift apart.
+DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
+# Bounds shared by the state API and this schema, so the generic artefact endpoint cannot store a
+# dismissal the state API would reject. Readers scan these rows in bulk (`repo_corrections`), so an
+# unbounded row is a cost on every repository selection, not just on the write.
+DISMISSAL_NOTE_MAX_LENGTH = 4000
+DISMISSAL_REASON_MAX_LENGTH = 128
+# GitHub caps owners at 39 and repositories at 100 characters.
+DISMISSAL_REPOSITORY_MAX_LENGTH = 512
+DISMISSAL_IDENTITY_MAX_LENGTH = 128
 
 
 class Dismissal(BaseModel):
@@ -202,12 +291,37 @@ class Dismissal(BaseModel):
     rows and readers; new rows also carry attribution on the artefact row itself.
     """
 
-    reason: str | None = Field(default=None, description="Caller-owned dismissal reason code.")
-    note: str | None = Field(default=None, description="Free-form dismissal note.")
+    reason: str | None = Field(
+        default=None, max_length=DISMISSAL_REASON_MAX_LENGTH, description="Caller-owned dismissal reason code."
+    )
+    note: str | None = Field(
+        default=None, max_length=DISMISSAL_NOTE_MAX_LENGTH, description="Free-form dismissal note."
+    )
+    selected_repository: str | None = Field(
+        default=None,
+        max_length=DISMISSAL_REPOSITORY_MAX_LENGTH,
+        description=(
+            "Repository the pipeline had selected when the report was dismissed, in 'owner/repo' "
+            "format. Recorded on wrong-repo dismissals so selection mistakes are queryable without "
+            "joining the repo_selection artefact history."
+        ),
+    )
+    corrected_repository: str | None = Field(
+        default=None,
+        max_length=DISMISSAL_REPOSITORY_MAX_LENGTH,
+        description=(
+            "Repository the dismisser said the report should have targeted, in 'owner/repo' format. "
+            "Fed back into future repository selection for the project."
+        ),
+    )
     user_id: int | None = Field(default=None, description="ID of the dismissing user, when known.")
-    user_uuid: str | None = Field(default=None, description="UUID of the dismissing user, when known.")
+    user_uuid: str | None = Field(
+        default=None, max_length=DISMISSAL_IDENTITY_MAX_LENGTH, description="UUID of the dismissing user, when known."
+    )
     slack_user_id: str | None = Field(
-        default=None, description="Slack user who dismissed via a Slack action, when that's where the click came from."
+        default=None,
+        max_length=DISMISSAL_IDENTITY_MAX_LENGTH,
+        description="Slack user who dismissed via a Slack action, when that's where the click came from.",
     )
 
 
@@ -280,6 +394,9 @@ class Commit(BaseModel):
     artefact per commit), so the report log shows exactly what landed, when, and from which task.
     A `commit` artefact only ever records a commit that has already been pushed to a remote branch;
     recording an unpushed or local-only commit is always a mistake.
+
+    `diff` is an optional point-in-time snapshot of the reviewed code, set only by consumers that
+    snapshot what they reviewed (e.g. ReviewHog's per-turn diff); the Signals pipeline never sets it.
     """
 
     repository: str = Field(description="GitHub repository the commit was pushed to, as `owner/repo`.")
@@ -287,6 +404,11 @@ class Commit(BaseModel):
     commit_sha: str = Field(description="Full or abbreviated SHA of the pushed commit.")
     message: str = Field(description="The commit message headline.")
     note: str | None = Field(default=None, description="Optional short note on what this commit does.")
+    diff: str | None = Field(
+        default=None,
+        description="Optional point-in-time unified diff of the reviewed code, set only by "
+        "snapshotting consumers (e.g. ReviewHog); the Signals pipeline never populates it.",
+    )
 
     @field_validator("repository", "branch", "commit_sha", "message")
     @classmethod
@@ -348,6 +470,11 @@ SIGNALS_PRODUCT = "signals"
 TASK_RUN_TYPE_REPO_SELECTION = "repo_selection"
 TASK_RUN_TYPE_RESEARCH = "research"
 TASK_RUN_TYPE_IMPLEMENTATION = "implementation"
+# A discuss-the-report task started by a user from the Inbox (not the automated research run).
+TASK_RUN_TYPE_DISCUSSION = "discussion"
+# The scout run that authored the report via `emit_report` (or first touched it via `edit_report`) —
+# links the report back to the scout's own run so its transcript is reachable from the work log.
+TASK_RUN_TYPE_SCOUT = "scout"
 
 # Generic identifiers for a legacy `SignalReportTask` row with no `(product, type)` label — an
 # unlabelled link from the brief link-only window before associations carried identifiers.
@@ -355,7 +482,12 @@ _LEGACY_TASK_RUN_PRODUCT = "tasks"
 _LEGACY_TASK_RUN_TYPE = "agent_run"
 
 _SIGNALS_TASK_RUN_TYPES = frozenset(
-    {TASK_RUN_TYPE_REPO_SELECTION, TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_IMPLEMENTATION}
+    {
+        TASK_RUN_TYPE_REPO_SELECTION,
+        TASK_RUN_TYPE_RESEARCH,
+        TASK_RUN_TYPE_IMPLEMENTATION,
+        TASK_RUN_TYPE_DISCUSSION,
+    }
 )
 
 
@@ -384,15 +516,123 @@ class NoteArtefact(BaseModel):
         return v
 
 
+class TitleChange(BaseModel):
+    """Content schema for a `title_change` artefact: a record of an edit to the report's title.
+
+    Appended automatically by the report edit path whenever the title actually changes, capturing
+    the value before and after so the report carries an audit trail of who renamed it and when.
+    Never written through the generic artefact API (it is read-only there) — it only ever reflects
+    a real edit that was applied to the report.
+    """
+
+    old_title: str | None = Field(
+        default=None, description="The report's title before this edit (null if it had no title)."
+    )
+    new_title: str = Field(description="The report's title after this edit.")
+
+    @field_validator("new_title")
+    @classmethod
+    def new_title_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
+class SummaryChange(BaseModel):
+    """Content schema for a `summary_change` artefact: a record of an edit to the report's summary
+    (its human-facing description).
+
+    Appended automatically by the report edit path whenever the summary actually changes, capturing
+    the value before and after. Like `title_change`, it is read-only through the generic artefact
+    API and only ever reflects a real edit applied to the report.
+    """
+
+    old_summary: str | None = Field(
+        default=None, description="The report's summary before this edit (null if it had no summary)."
+    )
+    new_summary: str = Field(description="The report's summary after this edit.")
+
+    @field_validator("new_summary")
+    @classmethod
+    def new_summary_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
+class RelatedTo(BaseModel):
+    """Content schema for a `related_to` artefact: an untyped link from this report to another
+    `SignalReport`. Written symmetrically (both reports get an entry pointing at the other), so the
+    link is discoverable from either side without a model change and the grouping dataset can be
+    reconstructed later. Direction isn't tracked — the two rows' `created_at` order captures it. The
+    grouping pipeline writes this pair when a signal that would have grouped into an already-resolved
+    report spawns a fresh report instead (resolved reports never reopen).
+    """
+
+    report_id: str = Field(description="UUID of the related SignalReport.")
+
+    @field_validator("report_id")
+    @classmethod
+    def report_id_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
+class CodeReviewCounts(BaseModel):
+    """One review turn's valid findings by effective priority (threshold-independent)."""
+
+    must_fix: int = Field(default=0, description="Validator-confirmed findings at must_fix priority.")
+    should_fix: int = Field(default=0, description="Validator-confirmed findings at should_fix priority.")
+    consider: int = Field(default=0, description="Validator-confirmed findings at consider priority.")
+
+
+class CodeReview(BaseModel):
+    """Content schema for a `code_review` artefact: one ReviewHog review turn over the report's
+    implementation output.
+
+    Pointer-first: counts + links + the `review_report_id` drill-down handle (the SQL join key into
+    the review_hog tables). The full rendered body lives on `ReviewReport.report_markdown` — even for
+    stored-only turns — and is never duplicated here. System-generated: the ReviewHog workflow is the
+    only writer, so the type is read-only through the generic artefact API.
+    """
+
+    review_report_id: str = Field(description="ReviewHog ReviewReport UUID — the drill-down handle (SQL join key).")
+    repository: str = Field(description="GitHub repository the reviewed code lives in, as 'owner/repo'.")
+    head_sha: str = Field(description="The reviewed head commit SHA.")
+    head_branch: str = Field(description="The reviewed head branch.")
+    base_branch: str = Field(description="The branch the reviewed diff was computed against.")
+    pr_number: int | None = Field(default=None, description="PR number; absent for branch-only targets.")
+    pr_url: str | None = Field(default=None, description="PR URL; absent for branch-only targets.")
+    review_url: str | None = Field(default=None, description="GitHub review permalink, when published.")
+    outcome: Literal["published", "stored", "failed"] = Field(
+        description=(
+            "What the turn did: 'published' (comments posted to the PR), 'stored' (findings persisted "
+            "only — no PR, nothing publishable, or publishing off), or 'failed' (the turn errored)."
+        )
+    )
+    counts: CodeReviewCounts = Field(
+        default_factory=CodeReviewCounts,
+        description="Valid (is_valid=True) findings by effective priority, independent of the publish threshold.",
+    )
+
+
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
 # Content models that describe the report's current state (latest row of each type wins) vs
 # entries that record discrete work (accumulate). `SignalFinding` (keyed by signal_id) and
 # `Dismissal` (stacking) have their own semantics; `VideoSegment` is a legacy plain append.
 StatusArtefactContent = (
-    SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
+    SafetyJudgment
+    | ActionabilityAssessment
+    | PriorityAssessment
+    | RepoSelectionResult
+    | SuggestedReviewers
+    | ChannelAssignment
 )
-LogArtefactContent = CodeReference | Commit | TaskRunArtefact | NoteArtefact
+LogArtefactContent = (
+    CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview | RelatedTo
+)
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
 # Keys are `SignalReportArtefact.ArtefactType` values, kept as plain strings so this module stays
@@ -405,11 +645,16 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "signal_finding": SignalFinding,
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
+    "channel_assignment": ChannelAssignment,
     "dismissal": Dismissal,
     "code_reference": CodeReference,
     "commit": Commit,
     "task_run": TaskRunArtefact,
     "note": NoteArtefact,
+    "title_change": TitleChange,
+    "summary_change": SummaryChange,
+    "code_review": CodeReview,
+    "related_to": RelatedTo,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -418,7 +663,15 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # (`dict | list`, so even `{}` validates) that predates the typed-content contract; accepting writes
 # would let callers persist arbitrary or empty payloads. It stays readable so stored legacy rows
 # still parse, but new ones can never be created or updated through the API.
-NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset({"video_segment"})
+# `title_change` / `summary_change` are system-generated edit-history records: the report edit path
+# is their only writer, so accepting them through the generic API would let a caller fabricate edits
+# that never happened. They stay readable (and so show up in the report's artefact log) but cannot
+# be created or edited directly.
+# `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
+# it through the API would let a caller fabricate review receipts for reviews that never ran.
+NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
+    {"video_segment", "title_change", "summary_change", "code_review"}
+)
 
 
 def artefact_type_for(content: BaseModel) -> str:

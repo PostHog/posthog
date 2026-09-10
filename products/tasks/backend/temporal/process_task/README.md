@@ -52,7 +52,7 @@ User ─────────────────────────
 
 ### PostHog API
 
-`backend/api.py` — `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and calls `execute_task_processing_workflow()` which starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `_signal_workflow_completion`.
+`backend/presentation/views/api.py` (thin viewsets) over `backend/facade/api.py` (behavior) — every user-triggered cloud launch path, including prewarming, checks server-side PostHog Desktop access before provisioning or activating a run. Composer prewarming carries the complete ordered repository selection, so single- and multi-repository submissions can reuse only a matching sandbox. A terminal task can also prewarm a successor through `POST .../tasks/{id}/warm/`; the source run must remain the task's latest terminal run, and the normal `run` request activates that successor with `resume_from_run_id`. Runtime, model, branch, permission mode, and sandbox configuration must match; reasoning effort may change and is applied before the warmed agent's first turn. Full-filesystem resume snapshots bundle their agent binary, so prewarming probes for the deferred-resume capability and falls back to a fresh sandbox when an old snapshot lacks it. `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `signal_workflow_completion`. `TaskRunViewSet.cancel` (`POST .../runs/{id}/cancel/`) is the user-facing kill switch: `cancel_task_run` interrupts the in-flight agent turn, signals `complete_task("cancelled")` so the workflow snapshots the session and tears down the sandbox, and falls back to finalizing the run directly when no workflow is running.
 
 ### Temporal workflow
 
@@ -64,6 +64,23 @@ User ─────────────────────────
 4. **wait_condition** — Blocks with a 2-hour inactivity timeout. The agent sends `heartbeat` signals to keep the workflow alive; each heartbeat resets the timer. The workflow exits when it receives a `complete_task` signal or when no heartbeat arrives within 2 hours
 5. **cleanup_sandbox** — Destroys the sandbox container (always runs via `finally`)
 
+#### History management (`continue_as_new`)
+
+Long interactive runs accumulate a large event history — mostly streamed agent updates and
+periodic heartbeats. A very large history makes a single workflow-task activation (notably a
+cold replay after cache eviction or a deploy) slow enough to trip Temporal's 2-second deadlock
+detector (`[TMPRL1101]`). Two mechanisms bound this:
+
+- The relay coalesces streamed `agent_message_chunk` deltas into one `agent_text_delta` signal
+  per second (and at turn/tool boundaries), rather than one signal per chunk — see
+  `TEXT_DELTA_FLUSH_INTERVAL_SECONDS` in `activities/relay_sandbox_events.py`.
+- When enabled, the workflow calls `continue_as_new` from a clean idle point once its history is
+  large (Temporal's `is_continue_as_new_suggested()`, or `TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD`
+  events), re-attaching to the same running sandbox instead of re-provisioning. It's off by
+  default and toggled per-org by the `tasks-cloud-run-continue-as-new` feature flag; `TASKS_CONTINUE_AS_NEW_ENABLED`
+  force-enables it (local E2E / emergency on). The enable decision is captured at workflow start,
+  so in-flight runs and the trigger stay deterministic across replay.
+
 ### Temporal client
 
 `backend/temporal/client.py` — `execute_task_processing_workflow()` (sync) and `execute_task_processing_workflow_async()` check the `tasks` feature flag, then fire-and-forget the workflow. Workflow IDs follow the pattern `task-processing-{task_id}-{run_id}`.
@@ -72,7 +89,7 @@ User ─────────────────────────
 
 `backend/services/sandbox.py` — Protocol-based abstraction. `get_sandbox_class()` returns `DockerSandbox` when `SANDBOX_PROVIDER=docker` (requires `DEBUG=True`), otherwise `ModalSandbox`.
 
-- **DockerSandbox** (`backend/services/docker_sandbox.py`) — Local dev. Internal port 47821 (host port is dynamically assigned), no auth token needed. Automatically rewrites `POSTHOG_API_URL` so the container can reach the host: `localhost`/`127.0.0.1` → `host.docker.internal`, port `8010` (Caddy) → `8000` (Django direct, since Caddy returns empty responses from inside Docker). `SANDBOX_API_URL` should not be set when using Docker — the auto-transform handles it. Builds images from `backend/sandbox/images/Dockerfile.sandbox-base`.
+- **DockerSandbox** (`backend/services/docker_sandbox.py`) — Local dev. Internal port 47821 (host port is dynamically assigned), no auth token needed. Automatically rewrites `POSTHOG_API_URL` so the container can reach the host: `localhost`/`127.0.0.1` → `host.docker.internal`, port `8010` (Caddy) → `8000` (Django direct, since Caddy returns empty responses from inside Docker). `SANDBOX_API_URL` should not be set when using Docker — the auto-transform handles it. Builds the published agent from `backend/sandbox/images/Dockerfile.sandbox-base` by default. Set `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` to build local agent packages in a cached image layer.
 - **ModalSandbox** (`backend/services/modal_sandbox.py`) — Production. Port 8080, gVisor isolation, Modal connect tokens for authenticated access. Images from `ghcr.io/posthog/posthog-sandbox-base`.
 
 ### Agent server and runner
@@ -97,9 +114,11 @@ Environment variables consumed inside the sandbox:
 4. **update_task_run_status** — Sets status to IN_PROGRESS
 5. **get_sandbox_for_repository** — Gets GitHub token from integration, creates OAuth access token, provisions sandbox, clones repo (unless snapshot used), stores sandbox credentials in TaskRun.state
 6. **start_agent_server** — Starts `npx agent-server` in sandbox, polls `/health` until ready
-7. **wait_condition** — Workflow blocks with a 2-hour inactivity timeout, extended by `heartbeat` signals from the agent. PostHog Code or the agent server signals completion via the API
+7. **wait_condition** — Workflow blocks with a 2-hour inactivity timeout, extended by `heartbeat` signals from the agent. PostHog Desktop or the agent server signals completion via the API
 8. Agent server calls `PATCH /api/projects/{team_id}/task_runs/{run_id}/` with terminal status
 9. API handler sends `complete_task(status, error_message)` signal to the Temporal workflow
+   - A user can end the run early via `POST .../runs/{run_id}/cancel/`, which sends the same signal with status `cancelled`
+   - For wizard cloud runs, the GitHub merge webhook sends the same signal with status `completed`, so the run ends at merge instead of riding out the sandbox TTL
 10. **cleanup_sandbox** — Sandbox destroyed
 
 ## Data model
@@ -129,6 +148,34 @@ Per-team configuration for sandbox execution: network access level (trusted/full
 | Sandbox JWT     | RS256 tokens from `backend/services/connection_token.py`. 24h expiry, audience `posthog:sandbox_connection`       |
 | GitHub App      | Installation access tokens via the team's GitHub integration                                                      |
 | API permissions | `PostHogFeatureFlagPermission` + `APIScopePermission` on all endpoints                                            |
+
+### Claude subscription token relay
+
+A run created with `claude_model_access: "own-subscription"` uses the user's Claude plan for model usage.
+Sandbox compute still uses PostHog credits.
+The `posthog-code-claude-own-subscription-cloud` flag controls rollout.
+If the backend cannot confirm that the flag is enabled, an explicitly requested subscription run fails without switching to PostHog billing.
+
+Desktop stores a `claude setup-token` token in its encrypted local store.
+The server records the user who selected subscription billing in protected run state.
+Desktop and the command endpoint check this owner before sending a token.
+Sandbox credentials cannot select subscription billing or inherit it from a resumed run.
+The response uses the authenticated `/command/` proxy, with redirects blocked and a five-second request timeout.
+Subscription runs always use direct event ingest so the request can reach Desktop before session readiness.
+The separate event-ingest rollout flag does not control this path.
+The request metadata can be replayed through the durable event stream; the token is never included in that stream, task state, logs, or analytics.
+If no token arrives within 120 seconds, the run fails with setup instructions.
+
+Subscription runs require the `--claudeSubscription` startup option.
+The launcher checks support before starting the process.
+Health polls stop at a wall-clock budget (120 seconds, or 150 for subscription runs) even when each poll is slow, and the exec limit sits a few seconds above that budget, leaving time for setup and diagnostics within the five-minute activity.
+When the exec limit is still hit, the launcher collects the same startup diagnostics as a failed poll and raises `SandboxTimeoutError` with them, because the Modal SDK reports an expired exec as return code -1 rather than raising.
+The PID check applies only when the PID file exists, so servers launched before deployment can still pass the health check.
+Continuation inherits the selected billing mode unless the caller explicitly changes it.
+Subscription runs do not reuse prewarmed sessions, because those processes have already selected their credentials.
+
+Keep the flag off while deploying the backend and publishing the sandbox agent build, then enable it for the intended users.
+Desktop and backend use the same flag; a stale client cannot bypass the backend check.
 
 ## Sandbox providers
 
@@ -185,15 +232,16 @@ Set `SANDBOX_API_URL` to the ngrok URL. `SITE_URL` stays as `http://localhost:80
 
 ## Frontend
 
-- **TaskDetailPage** (`frontend/components/TaskDetailPage.tsx`) — Task detail view with run history, "Run task" button, "Open in PostHog Code" link
+- **TaskDetailPage** (`frontend/components/TaskDetailPage.tsx`) — Task detail view with run history, "Run task" button, and an "Open in PostHog Desktop" link for users with Desktop access
 - **TaskSessionView** (`frontend/components/TaskSessionView.tsx`) — Live log streaming with hedgehog animation during agent execution
-- PostHog Code integration via `posthog-code://task/{id}` deep links
+- PostHog Desktop integration via `posthog-code://task/{id}` deep links
 
 ## Key files
 
 | File                                        | Role                                                          |
 | ------------------------------------------- | ------------------------------------------------------------- |
-| `backend/api.py`                            | REST API — TaskViewSet, TaskRunViewSet                        |
+| `backend/presentation/views/api.py`         | REST API — TaskViewSet, TaskRunViewSet                        |
+| `backend/facade/api.py`                     | Facade services behind the viewsets (incl. `cancel_task_run`) |
 | `backend/models.py`                         | Task, TaskRun, SandboxSnapshot, SandboxEnvironment            |
 | `backend/temporal/client.py`                | Workflow triggering, feature flag check                       |
 | `backend/temporal/process_task/workflow.py` | ProcessTaskWorkflow orchestration                             |

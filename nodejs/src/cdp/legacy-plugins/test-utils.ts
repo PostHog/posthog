@@ -5,7 +5,7 @@
  * These utilities are loosely typed (returning `any`) to match the behavior of the
  * original untyped JavaScript module.
  */
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 export function createEvent(changes: Record<string, any> = {}): any {
     return {
@@ -91,7 +91,6 @@ export function createCache(): {
 let testMeta: any = {
     config: {},
     cache: createCache(),
-    storage: createCache(),
     global: {},
     attachments: {},
 }
@@ -100,7 +99,6 @@ export function resetMeta(meta: Record<string, any> = {}): any {
     testMeta = {
         config: {},
         cache: createCache(),
-        storage: createCache(),
         global: {},
         attachments: {},
         ...meta,

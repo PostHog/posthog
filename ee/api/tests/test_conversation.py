@@ -37,7 +37,7 @@ from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAg
 
 from products.posthog_ai.backend.message_routing import SandboxRouteResult
 from products.posthog_ai.backend.models.assistant import Conversation
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskRun
 
 from ee.api.conversation import ConversationViewSet
 
@@ -119,7 +119,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -147,7 +147,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 conversation = Conversation.objects.create(user=self.user, team=self.team)
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
@@ -178,7 +178,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -236,7 +236,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 for _ in range(11):  # Assuming burst limit is less than this
                     response = self.client.post(
                         f"/api/environments/{self.team.id}/conversations/",
@@ -268,7 +268,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_stream_conversation:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -304,7 +304,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {
@@ -470,7 +470,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_stream_conversation:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {
@@ -656,7 +656,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 # First 3 requests should succeed (3/minute limit)
                 for i in range(3):
                     response = self.client.post(
@@ -693,7 +693,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 # First 3 new research conversations should succeed (3/minute limit)
                 for i in range(3):
                     response = self.client.post(
@@ -734,7 +734,7 @@ class TestConversation(APIBaseTest):
                 return_value=_async_generator(),
             ):
                 with patch(
-                    "ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response
+                    "posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response
                 ):
                     # Should exceed the 3/minute burst limit without being throttled
                     for i in range(5):
@@ -756,7 +756,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 # First 10 requests should succeed (10/minute limit)
                 for i in range(10):
                     response = self.client.post(
@@ -792,7 +792,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -816,7 +816,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -862,7 +862,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {
@@ -884,7 +884,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -924,7 +924,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 # Not patching is_impersonated_session, so it defaults to False (not impersonated)
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -955,7 +955,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_astream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {
@@ -990,7 +990,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_astream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {
@@ -1021,7 +1021,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_astream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {
@@ -1054,7 +1054,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 # First message converts DEEP_RESEARCH → ASSISTANT
                 self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -1083,7 +1083,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {
@@ -1124,7 +1124,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_astream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 billing_data = self.billing_context.model_dump()
                 billing_data["spend_history"] = self._make_spend_history(21)
                 response = self.client.post(
@@ -1145,7 +1145,7 @@ class TestConversation(APIBaseTest):
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_astream:
-            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+            with patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
                 billing_data = self.billing_context.model_dump()
                 billing_data["spend_history"] = self._make_spend_history(20)
                 response = self.client.post(
@@ -1381,6 +1381,58 @@ class TestConversationSandboxRoute(APIBaseTest):
         self.assertEqual(passed_conversation.task_id, task.id)
         self.mock_select_repo.assert_not_awaited()
 
+    def test_open_rejects_binding_a_pi_task(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            runtime=Task.Runtime.PI,
+            created_by=self.user,
+        )
+        conversation_id = str(uuid.uuid4())
+
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+                {"content": "continue this task", "trace_id": str(uuid.uuid4()), "task_id": str(task.id)},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Conversation.objects.filter(id=conversation_id).exists())
+        m_session.return_value.open.assert_not_called()
+
+    def test_open_rejects_existing_pi_task_conversation(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            runtime=Task.Runtime.PI,
+            created_by=self.user,
+        )
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            task=task,
+        )
+
+        with patch("ee.api.conversation.SandboxSession") as m_session:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "continue this task", "trace_id": str(uuid.uuid4())},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        m_session.return_value.open.assert_not_called()
+
     def test_open_rejects_task_id_from_another_team(self):
         # IDOR guard: a Task from another team isn't visible, so the serializer rejects it (400) and
         # no conversation row is created.
@@ -1432,12 +1484,17 @@ class TestConversationSandboxRoute(APIBaseTest):
         self.assertFalse(Conversation.objects.filter(id=conversation_id).exists())
         m_session.return_value.open.assert_not_called()
 
-    def test_retrieve_other_users_sandbox_conversation_includes_task(self):
-        # Read follows the conversation (the share-by-link unit): a teammate handed the link reads its
-        # backing task too, even though a direct task read would hide a non-creator's task (task_visibility_q).
+    def test_retrieve_other_users_private_task_conversation_returns_404(self):
         teammate = User.objects.create_and_join(self.organization, "reader@posthog.com", "password")
+        channel = Channel.objects.unscoped().create(
+            team=self.team,
+            name=Channel.PERSONAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=teammate,
+        )
         task = Task.objects.create(
             team=self.team,
+            channel=channel,
             title="t",
             description="secret description",
             repository="acme/widgets",
@@ -1455,9 +1512,7 @@ class TestConversationSandboxRoute(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["task"]["id"], str(task.id))
-        self.assertEqual(response.json()["task"]["repository"], "acme/widgets")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_open_other_users_conversation_rejected(self):
         # Write/send stays creator-only: a teammate can read the shared conversation but cannot provision
@@ -2006,7 +2061,7 @@ class TestConversationCreateRuntime(APIBaseTest):
             patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
             patch("ee.api.conversation.SandboxSession") as m_routing,
             patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()),
-            patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._mock_streaming_response),
+            patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._mock_streaming_response),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/",
@@ -2054,7 +2109,7 @@ class TestConversationCreateRuntime(APIBaseTest):
             patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=False),
             patch("ee.api.conversation.SandboxSession") as m_routing,
             patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()),
-            patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._mock_streaming_response),
+            patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._mock_streaming_response),
         ):
             response = self._send(conversation, content="keep me on langgraph")
 

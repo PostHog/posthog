@@ -16,14 +16,17 @@ import type {
     BulkKeysResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    CopyFlagsDependencyRequirementsRequestApi,
+    CopyFlagsDependencyRequirementsResponseApi,
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
     DependentFlagApi,
-    EnvironmentsEvaluationContextSuggestionsDestroyParams,
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
     FeatureFlagCreateRequestSchemaApi,
+    FeatureFlagRequestUsageListParams,
+    FeatureFlagRequestUsageResponseApi,
     FeatureFlagStatusResponseApi,
     FeatureFlagTestEvaluationRequestApi,
     FeatureFlagTestEvaluationResponseApi,
@@ -33,9 +36,15 @@ import type {
     FeatureFlagsEvaluationReasonsRetrieveParams,
     FeatureFlagsListParams,
     FeatureFlagsMyFlagsRetrieveParams,
+    FeatureFlagsStaffCacheEntryRetrieveParams,
+    FeatureFlagsStaffCacheListParams,
+    FeatureFlagsStaffTeamConfigListParams,
+    FeatureFlagsStaffTeamsListParams,
     FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
     MyFlagsResponseApi,
+    OrgFeatureFlagsKeysParams,
+    OrganizationFeatureFlagKeysResponseApi,
     OrganizationsProjectsEvaluationContextSuggestionsDestroyParams,
     PaginatedFeatureFlagListApi,
     PaginatedScheduledChangeListApi,
@@ -43,6 +52,16 @@ import type {
     PatchedScheduledChangeApi,
     ScheduledChangeApi,
     ScheduledChangesListParams,
+    StaffCacheEntryResponseApi,
+    StaffCacheMutationApi,
+    StaffCacheMutationResponseApi,
+    StaffCacheStatusResponseApi,
+    StaffTeamConfigApi,
+    StaffTeamConfigListResponseApi,
+    StaffTeamConfigMutationApi,
+    StaffTeamSearchResponseApi,
+    StaffWarmRunCancelResponseApi,
+    StaffWarmRunResponseApi,
     UserBlastRadiusRequestApi,
     UserBlastRadiusResponseApi,
 } from './api.schemas'
@@ -63,6 +82,270 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getFeatureFlagsStaffCacheListUrl = (params: FeatureFlagsStaffCacheListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/feature_flags_staff_cache/?${stringifiedParams}`
+        : `/api/feature_flags_staff_cache/`
+}
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheList = async (
+    params: FeatureFlagsStaffCacheListParams,
+    options?: RequestInit
+): Promise<StaffCacheStatusResponseApi> => {
+    return apiMutator<StaffCacheStatusResponseApi>(getFeatureFlagsStaffCacheListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffCacheClearCreateUrl = () => {
+    return `/api/feature_flags_staff_cache/clear/`
+}
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheClearCreate = async (
+    staffCacheMutationApi: StaffCacheMutationApi,
+    options?: RequestInit
+): Promise<StaffCacheMutationResponseApi> => {
+    return apiMutator<StaffCacheMutationResponseApi>(getFeatureFlagsStaffCacheClearCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(staffCacheMutationApi),
+    })
+}
+
+export const getFeatureFlagsStaffCacheEntryRetrieveUrl = (params: FeatureFlagsStaffCacheEntryRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/feature_flags_staff_cache/entry/?${stringifiedParams}`
+        : `/api/feature_flags_staff_cache/entry/`
+}
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheEntryRetrieve = async (
+    params: FeatureFlagsStaffCacheEntryRetrieveParams,
+    options?: RequestInit
+): Promise<StaffCacheEntryResponseApi> => {
+    return apiMutator<StaffCacheEntryResponseApi>(getFeatureFlagsStaffCacheEntryRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffCacheRebuildCreateUrl = () => {
+    return `/api/feature_flags_staff_cache/rebuild/`
+}
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheRebuildCreate = async (
+    staffCacheMutationApi: StaffCacheMutationApi,
+    options?: RequestInit
+): Promise<StaffCacheMutationResponseApi> => {
+    return apiMutator<StaffCacheMutationResponseApi>(getFeatureFlagsStaffCacheRebuildCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(staffCacheMutationApi),
+    })
+}
+
+export const getFeatureFlagsStaffCacheWarmRunRetrieveUrl = () => {
+    return `/api/feature_flags_staff_cache/warm_run/`
+}
+
+/**
+ * Status of the most recent warm-all run, published by the Rust warmer.
+ */
+export const featureFlagsStaffCacheWarmRunRetrieve = async (
+    options?: RequestInit
+): Promise<StaffWarmRunResponseApi> => {
+    return apiMutator<StaffWarmRunResponseApi>(getFeatureFlagsStaffCacheWarmRunRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffCacheWarmRunCancelCreateUrl = () => {
+    return `/api/feature_flags_staff_cache/warm_run/cancel/`
+}
+
+/**
+ * Request cancellation of the active warm-all run.
+ *
+ * Sets the cancel key the warmer polls between status heartbeats; the run winds down after
+ * in-flight teams finish. Cancelling a stale run is allowed (the key is scoped to the run id,
+ * so a dead process simply never reads it).
+ */
+export const featureFlagsStaffCacheWarmRunCancelCreate = async (
+    options?: RequestInit
+): Promise<StaffWarmRunCancelResponseApi> => {
+    return apiMutator<StaffWarmRunCancelResponseApi>(getFeatureFlagsStaffCacheWarmRunCancelCreateUrl(), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getFeatureFlagsStaffTeamConfigListUrl = (params: FeatureFlagsStaffTeamConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/feature_flags_staff_team_config/?${stringifiedParams}`
+        : `/api/feature_flags_staff_team_config/`
+}
+
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+ * per-team feature-flag count override.
+ *
+ * Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+ * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+ * bulk operation, unlike the cache tools' rebuild and clear.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const featureFlagsStaffTeamConfigList = async (
+    params: FeatureFlagsStaffTeamConfigListParams,
+    options?: RequestInit
+): Promise<StaffTeamConfigListResponseApi> => {
+    return apiMutator<StaffTeamConfigListResponseApi>(getFeatureFlagsStaffTeamConfigListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffTeamConfigSetCreateUrl = () => {
+    return `/api/feature_flags_staff_team_config/set/`
+}
+
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+ * per-team feature-flag count override.
+ *
+ * Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+ * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+ * bulk operation, unlike the cache tools' rebuild and clear.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const featureFlagsStaffTeamConfigSetCreate = async (
+    staffTeamConfigMutationApi: StaffTeamConfigMutationApi,
+    options?: RequestInit
+): Promise<StaffTeamConfigApi> => {
+    return apiMutator<StaffTeamConfigApi>(getFeatureFlagsStaffTeamConfigSetCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(staffTeamConfigMutationApi),
+    })
+}
+
+export const getFeatureFlagsStaffTeamsListUrl = (params: FeatureFlagsStaffTeamsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/feature_flags_staff_teams/?${stringifiedParams}`
+        : `/api/feature_flags_staff_teams/`
+}
+
+/**
+ * Staff-only, unscoped team search across every organization.
+ *
+ * Unlike TeamViewSet (membership-scoped via TeamAndOrgViewSetMixin), staff need to look up
+ * teams they do not belong to in order to inspect and rebuild flag caches. Registered on the
+ * root router so it is not team-nested. Exposes the same fields Django admin's TeamAdmin
+ * already shows staff un-redacted, so no new data exposure.
+ */
+export const featureFlagsStaffTeamsList = async (
+    params: FeatureFlagsStaffTeamsListParams,
+    options?: RequestInit
+): Promise<StaffTeamSearchResponseApi> => {
+    return apiMutator<StaffTeamSearchResponseApi>(getFeatureFlagsStaffTeamsListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getOrgFeatureFlagsRetrieveUrl = (organizationId: string, featureFlagKey: string) => {
     return `/api/organizations/${organizationId}/feature_flags/${featureFlagKey}/`
@@ -93,6 +376,59 @@ export const featureFlagsCopyFlagsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(copyFlagsRequestApi),
+    })
+}
+
+export const getFeatureFlagsCopyFlagsDependencyRequirementsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/feature_flags/copy_flags/dependency_requirements/`
+}
+
+export const featureFlagsCopyFlagsDependencyRequirementsCreate = async (
+    organizationId: string,
+    copyFlagsDependencyRequirementsRequestApi: CopyFlagsDependencyRequirementsRequestApi,
+    options?: RequestInit
+): Promise<CopyFlagsDependencyRequirementsResponseApi> => {
+    return apiMutator<CopyFlagsDependencyRequirementsResponseApi>(
+        getFeatureFlagsCopyFlagsDependencyRequirementsCreateUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(copyFlagsDependencyRequirementsRequestApi),
+        }
+    )
+}
+
+export const getOrgFeatureFlagsKeysUrl = (organizationId: string, params?: OrgFeatureFlagsKeysParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/feature_flags/keys/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/feature_flags/keys/`
+}
+
+/**
+ * Paginated, de-duplicated list of feature flag keys across the org's compared projects.
+ *
+ * Unlike the project-scoped flag list, this enumerates the union of flag keys across every
+ * compared project, so flags that exist only in another project still appear as rows.
+ */
+export const orgFeatureFlagsKeys = async (
+    organizationId: string,
+    params?: OrgFeatureFlagsKeysParams,
+    options?: RequestInit
+): Promise<OrganizationFeatureFlagKeysResponseApi> => {
+    return apiMutator<OrganizationFeatureFlagKeysResponseApi>(getOrgFeatureFlagsKeysUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -164,38 +500,7 @@ export const organizationsProjectsEvaluationContextSuggestionsDestroy = async (
     )
 }
 
-export const getEnvironmentsEvaluationContextSuggestionsCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/`
-}
-
-/**
- * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
- *
- * POST hides the name; DELETE restores it. The underlying context row and any flags already
- * using it are never modified — this only controls what gets suggested.
- */
-export const environmentsEvaluationContextSuggestionsCreate = async (
-    projectId: string,
-    id: number,
-    evaluationContextSuggestionRequestApi: EvaluationContextSuggestionRequestApi,
-    options?: RequestInit
-): Promise<EvaluationContextSuggestionResponseApi> => {
-    return apiMutator<EvaluationContextSuggestionResponseApi>(
-        getEnvironmentsEvaluationContextSuggestionsCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(evaluationContextSuggestionRequestApi),
-        }
-    )
-}
-
-export const getEnvironmentsEvaluationContextSuggestionsDestroyUrl = (
-    projectId: string,
-    id: number,
-    params: EnvironmentsEvaluationContextSuggestionsDestroyParams
-) => {
+export const getFeatureFlagRequestUsageListUrl = (projectId: string, params: FeatureFlagRequestUsageListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -207,29 +512,19 @@ export const getEnvironmentsEvaluationContextSuggestionsDestroyUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/?${stringifiedParams}`
-        : `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/`
+        ? `/api/projects/${projectId}/feature_flag_request_usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/feature_flag_request_usage/`
 }
 
-/**
- * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
- *
- * POST hides the name; DELETE restores it. The underlying context row and any flags already
- * using it are never modified — this only controls what gets suggested.
- */
-export const environmentsEvaluationContextSuggestionsDestroy = async (
+export const featureFlagRequestUsageList = async (
     projectId: string,
-    id: number,
-    params: EnvironmentsEvaluationContextSuggestionsDestroyParams,
+    params: FeatureFlagRequestUsageListParams,
     options?: RequestInit
-): Promise<EvaluationContextSuggestionResponseApi> => {
-    return apiMutator<EvaluationContextSuggestionResponseApi>(
-        getEnvironmentsEvaluationContextSuggestionsDestroyUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'DELETE',
-        }
-    )
+): Promise<FeatureFlagRequestUsageResponseApi> => {
+    return apiMutator<FeatureFlagRequestUsageResponseApi>(getFeatureFlagRequestUsageListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getFeatureFlagsListUrl = (projectId: string, params?: FeatureFlagsListParams) => {
@@ -403,6 +698,30 @@ export const featureFlagsActivityRetrieve = async (
     })
 }
 
+export const getFeatureFlagsArchiveCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/archive/`
+}
+
+/**
+ * Archive a feature flag, hiding it from the default flag list.
+ *
+ * Sets `archived` to true. An archived flag must be disabled, so an enabled flag also gets
+ * `active` set to false in the same write. Targeting, variants and payloads are left as
+ * they are, and linked experiment and survey history is preserved. Archiving an enabled
+ * flag is refused when other active flags depend on it. An already-archived flag is
+ * returned unchanged.
+ */
+export const featureFlagsArchiveCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<FeatureFlagApi> => {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsArchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/create_static_cohort_for_flag/`
 }
@@ -419,29 +738,6 @@ export const featureFlagsCreateStaticCohortForFlagCreate = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getFeatureFlagsCreateStaticCohortForFlagCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
-    })
-}
-
-export const getFeatureFlagsDashboardCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/feature_flags/${id}/dashboard/`
-}
-
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
- *
- * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const featureFlagsDashboardCreate = async (
-    projectId: string,
-    id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsDashboardCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -467,26 +763,51 @@ export const featureFlagsDependentFlagsList = async (
     })
 }
 
-export const getFeatureFlagsEnrichUsageDashboardCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/feature_flags/${id}/enrich_usage_dashboard/`
+export const getFeatureFlagsDisableCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/disable/`
 }
 
 /**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ * Disable a feature flag.
  *
- * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ * Sets `active` to false and changes nothing else. Targeting, variants, payloads, tags and
+ * archived state are left as they are. Refused when other active flags depend on this one.
+ * An already-disabled flag is returned unchanged.
+ *
+ * A disabled flag stops evaluating for every consumer, including a linked experiment or a
+ * session replay setting. Read the full definition first to report that impact.
  */
-export const featureFlagsEnrichUsageDashboardCreate = async (
+export const featureFlagsDisableCreate = async (
     projectId: string,
     id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsEnrichUsageDashboardCreateUrl(projectId, id), {
+): Promise<FeatureFlagApi> => {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsDisableCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+    })
+}
+
+export const getFeatureFlagsEnableCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/enable/`
+}
+
+/**
+ * Enable a feature flag.
+ *
+ * Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
+ * archived state are left as they are. An archived flag is refused: unarchive it first. A
+ * flag whose own flag dependencies are disabled is also refused. An already-enabled flag
+ * is returned unchanged.
+ */
+export const featureFlagsEnableCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<FeatureFlagApi> => {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsEnableCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -552,6 +873,27 @@ export const featureFlagsTestEvaluationCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(featureFlagTestEvaluationRequestApi),
+    })
+}
+
+export const getFeatureFlagsUnarchiveCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/unarchive/`
+}
+
+/**
+ * Restore an archived feature flag to the default flag list.
+ *
+ * Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
+ * with a separate call. An already-unarchived flag is returned unchanged.
+ */
+export const featureFlagsUnarchiveCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<FeatureFlagApi> => {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsUnarchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

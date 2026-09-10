@@ -1,9 +1,9 @@
-import { isDropResult, isOkResult } from '~/ingestion/framework/results'
 import {
     FeatureFlagCalledDedupMode,
     FeatureFlagCalledDedupService,
     featureFlagCalledDedupKey,
-} from '~/ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
+} from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { isDropResult, isOkResult } from '~/ingestion/framework/results'
 import { getMetricValues, resetMetrics } from '~/tests/helpers/metrics'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
@@ -114,7 +114,7 @@ describe('createDedupeFeatureFlagCalledStep', () => {
         expect(results).toHaveLength(2)
         // Two identical tuples produce the same claim key in one claimKeys
         // call, each tagged with its own event uuid.
-        const expectedKey = featureFlagCalledDedupKey(1, 'user-1', 'my-flag', true, undefined)
+        const expectedKey = featureFlagCalledDedupKey(1, 'user-1', 'my-flag', true, undefined, undefined)
         expect(service.claimKeys).toHaveBeenCalledWith([
             { key: expectedKey, claimId: 'uuid-1' },
             { key: expectedKey, claimId: 'uuid-2' },
@@ -171,7 +171,7 @@ describe('createDedupeFeatureFlagCalledStep', () => {
         expect(isOkResult(results[1])).toBe(true)
         expect(isOkResult(results[2])).toBe(true)
         expect(isDropResult(results[3])).toBe(true)
-        const expectedKey = featureFlagCalledDedupKey(1, 'user-1', 'my-flag', true, undefined)
+        const expectedKey = featureFlagCalledDedupKey(1, 'user-1', 'my-flag', true, undefined, undefined)
         expect(service.claimKeys).toHaveBeenCalledWith([
             { key: expectedKey, claimId: 'uuid-1' },
             { key: expectedKey, claimId: 'uuid-2' },
@@ -206,6 +206,22 @@ describe('createDedupeFeatureFlagCalledStep', () => {
 
         const claims = service.claimKeys.mock.calls[0][0]
         expect(new Set(claims.map((claim) => claim.key)).size).toBe(4)
+    })
+
+    it('builds different claim keys when only $feature_flag_has_experiment differs', async () => {
+        // Experiment exposures must not be deduped against otherwise-identical
+        // non-experiment calls, so the property has to reach the key.
+        const service = createMockService('drop')
+        service.claimKeys.mockResolvedValue([true, true])
+        const step = createDedupeFeatureFlagCalledStep(service)
+
+        await step([
+            createInput({ $feature_flag: 'flag-a', $feature_flag_response: true, $feature_flag_has_experiment: true }),
+            createInput({ $feature_flag: 'flag-a', $feature_flag_response: true, $feature_flag_has_experiment: false }),
+        ])
+
+        const claims = service.claimKeys.mock.calls[0][0]
+        expect(claims[0].key).not.toBe(claims[1].key)
     })
 
     it('builds identical claim keys for identical tuples', async () => {

@@ -23,6 +23,14 @@ export const SURVEY_PAGE_SIZE = 100
 
 export const LINK_PAGE_SIZE = 100
 
+// Max recurring-survey iterations. Mirrors MAX_ITERATION_COUNT in products/surveys/backend/models.py,
+// which caps the generated iteration windows (and the API enforces the same limit).
+export const MAX_ITERATION_COUNT = 500
+
+// Stamped into a translation's choices/text fields when the editor auto-fills a spot that needs
+// a human translation. Must never be treated as real translated content.
+export const TRANSLATION_NEEDED_PLACEHOLDER = '[Translation needed]'
+
 export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.Open]: 'Freeform text',
     [SurveyQuestionType.Rating]: 'Rating',

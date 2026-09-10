@@ -17,7 +17,7 @@ Only act on recommendations that are not `completed` and not dismissed.
 
 - `alerts` — `meta.alerts` is a list of `{ key, enabled }` for the `issue-created`/`issue-reopened`/`issue-spiking` triggers; `enabled: false` means no alert is wired. To act, use the `authoring-error-tracking-alerts` skill (or the `error-tracking-alerts-create` tool).
 - `rate_limits` — `meta.rate_limits` is a list of `{ key, enabled }` for the `project` and `per_issue` ingestion limits; `enabled: false` means it isn't set. To act, check and set them via `error-tracking-settings-get` / `error-tracking-settings-update`.
-- `source_maps` — `meta` carries frame-resolution stats (`unresolved_pct` vs `threshold_pct` over a sample); a high unresolved share means stack traces aren't symbolicated. The fix is uploading source maps from the build via the setup wizard (append `--region eu` for EU projects):
+- `source_maps` — `meta` carries frame-resolution stats (`unresolved_pct` vs `threshold_pct` over a sample); a high unresolved share means stack traces aren't symbolicated. The fix is uploading source maps from the build via the setup wizard:
 
   ```sh
   npx -y @posthog/wizard@latest upload-source-maps

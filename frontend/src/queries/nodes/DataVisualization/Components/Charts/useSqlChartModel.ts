@@ -3,12 +3,13 @@ import { useEffect, useMemo } from 'react'
 
 import { type ChartTheme, type Series } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
+import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { ChartDisplayType } from '~/types'
 
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import {
     type BuildBarConfigArgs,
     type SqlLineSeriesMeta,
@@ -25,12 +26,11 @@ export interface SqlChartModel<TConfig> {
     config: TConfig
 }
 
-export function useSqlChartModel<TConfig>(
-    { xData, yData, visualizationType, chartSettings, dashboardId, goalLines }: LineGraphProps,
+export function useSqlChartModel<TConfig extends object>(
+    { xData, yData, visualizationType, chartSettings, dashboardId, goalLines, embedded }: SqlChartProps,
     buildConfig: (args: BuildBarConfigArgs) => TConfig
 ): SqlChartModel<TConfig> | null {
     const { timezone } = useValues(teamLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
 
     useEffect(() => {
         if (exceedsMaxSeries(yData, dashboardId)) {
@@ -45,10 +45,11 @@ export function useSqlChartModel<TConfig>(
         [ySeriesData, visualizationType]
     )
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
-    const config = useMemo(
+    const legendRenderItem = useChartLegendSeriesMenu({ surface: 'sql', seriesCount: series.length })
+
+    const config = useChartConfig(
         () =>
             xData
                 ? buildConfig({
@@ -58,14 +59,36 @@ export function useSqlChartModel<TConfig>(
                       goalLines,
                       visualizationType,
                       ySeriesData,
+                      series,
+                      legendRenderItem,
+                      embedded,
                   })
                 : undefined,
-        [xData, chartSettings, timezone, goalLines, visualizationType, buildConfig, ySeriesData]
+        [
+            xData,
+            chartSettings,
+            timezone,
+            goalLines,
+            visualizationType,
+            buildConfig,
+            ySeriesData,
+            series,
+            legendRenderItem,
+            embedded,
+        ]
+    )
+
+    const labels = useMemo(
+        () =>
+            visualizationType === ChartDisplayType.ActionsBarValue
+                ? (xData?.data.map((_, index) => String(index)) ?? [])
+                : (xData?.data ?? []),
+        [visualizationType, xData]
     )
 
     if (!xData || !ySeriesData || series.length === 0 || !config) {
         return null
     }
 
-    return { series, labels: xData.data, theme, config }
+    return { series, labels, theme, config }
 }

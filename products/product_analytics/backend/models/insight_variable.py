@@ -2,21 +2,21 @@ from django.db import models
 
 from posthog.models.utils import CreatedMetaFields, RootTeamMixin, UpdatedMetaFields, UUIDTModel, sane_repr
 
+from products.product_analytics.backend.facade import enums
+
 
 class InsightVariable(UUIDTModel, RootTeamMixin, CreatedMetaFields, UpdatedMetaFields):
-    class Type(models.TextChoices):
-        STRING = "String", "String"
-        NUMBER = "Number", "Number"
-        BOOLEAN = "Boolean", "Boolean"
-        LIST = "List", "List"
-        DATE = "Date", "Date"
+    Type = enums.InsightVariableType
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=400)
     code_name = models.CharField(max_length=400, null=True, blank=True)
     type = models.CharField(max_length=128, choices=Type)
     default_value = models.JSONField(null=True, blank=True)
     values = models.JSONField(null=True, blank=True)
+    is_multi = models.BooleanField(default=False, db_default=False)
+    values_query = models.TextField(null=True, blank=True)
+    values_query_connection_id = models.TextField(null=True, blank=True)
 
     __repr__ = sane_repr("id")
 

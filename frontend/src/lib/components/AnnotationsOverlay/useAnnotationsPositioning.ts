@@ -1,6 +1,17 @@
 import { useMemo } from 'react'
 
-import { Chart } from 'lib/Chart'
+/** The chart geometry annotations are positioned against. Charts derive it from their own layout
+ *  (the trends charts read quill's `useChartLayout()`), so the overlay stays library-agnostic. */
+export interface AnnotationsChartGeometry {
+    /** Visible x-axis ticks, as indices into `pointsX`. */
+    xTicks: { value: number }[]
+    /** Pixel x of every data point, index-aligned with the chart's labels. */
+    pointsX: number[]
+    /** Pixel x of the plot area's left edge. */
+    plotLeft: number
+    /** Pixel y of the plot area's bottom edge. */
+    plotBottom: number
+}
 
 export interface AnnotationsPositioning {
     tickIntervalPx: number
@@ -9,36 +20,24 @@ export interface AnnotationsPositioning {
     getDataPointX: (dataIndex: number) => number | null
 }
 
-export function useAnnotationsPositioning(
-    chart: Chart | undefined,
-    chartWidth: number,
-    chartHeight: number,
-    datasetIndex = 0
-): AnnotationsPositioning {
+export function useAnnotationsPositioning(geometry: AnnotationsChartGeometry): AnnotationsPositioning {
     // Calculate chart content coordinates for annotations overlay positioning
     return useMemo<AnnotationsPositioning>(() => {
-        // @ts-expect-error - _metasets is not officially exposed
-        const metasets = chart?._metasets as PointMetaset[] | undefined
-        const points = metasets?.[datasetIndex]?.data ?? metasets?.[0]?.data ?? null
-
-        if (chart && chart.scales.x.ticks.length > 1 && points && points.length > 0) {
-            const tickCount = chart.scales.x.ticks.length
-            // NOTE: If there are lots of points on the X axis, Chart.js only renders a tick once n data points
-            // so that the axis is readable. We use that mechanism to aggregate annotations for readability too.
-            // We use the internal _metasets instead just taking graph area width, because it's NOT guaranteed that the
-            // last tick is positioned at the right edge of the graph area. We need to find out where it is.
-            const firstTickPointIndex = chart.scales.x.ticks[0].value
-            const lastTickPointIndex = chart.scales.x.ticks[tickCount - 1].value
+        const { xTicks, pointsX } = geometry
+        // NOTE: If there are lots of points on the X axis, only one tick is rendered per n data points
+        // so that the axis is readable. We use that mechanism to aggregate annotations for readability
+        // too. We use the data points' own pixel positions instead of just taking the graph area width,
+        // because it's NOT guaranteed that the last tick is positioned at the right edge of the graph
+        // area. We need to find out where it is.
+        if (xTicks.length > 1 && pointsX.length > 0) {
+            const tickCount = xTicks.length
             // Fall back to zero for resiliency against temporary chart inconsistencies during loading
-            const firstTickLeftPx = points[firstTickPointIndex]?.x ?? 0
-            const lastTickLeftPx = points[lastTickPointIndex]?.x ?? 0
+            const firstTickLeftPx = pointsX[xTicks[0].value] ?? 0
+            const lastTickLeftPx = pointsX[xTicks[tickCount - 1].value] ?? 0
             return {
                 tickIntervalPx: (lastTickLeftPx - firstTickLeftPx) / (tickCount - 1),
                 firstTickLeftPx,
-                getDataPointX: (dataIndex: number) => {
-                    const point = points[dataIndex]
-                    return point ? point.x : null
-                },
+                getDataPointX: (dataIndex: number) => pointsX[dataIndex] ?? null,
             }
         }
         return {
@@ -46,5 +45,5 @@ export function useAnnotationsPositioning(
             firstTickLeftPx: 0,
             getDataPointX: () => null,
         }
-    }, [chart, chartWidth, chartHeight, datasetIndex])
+    }, [geometry])
 }

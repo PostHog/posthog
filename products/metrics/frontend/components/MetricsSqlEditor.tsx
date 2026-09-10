@@ -1,12 +1,15 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
 import { METRICS_SQL_EDITOR_TAB_ID, metricsSceneLogic } from '../metricsSceneLogic'
 import { metricsSqlEditorTrackingLogic } from './metricsSqlEditorTrackingLogic'
@@ -22,14 +25,20 @@ export const MetricsSqlEditor = (): JSX.Element => {
     const logic = sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
     const { queryInput } = useValues(logic)
     const { setQueryInput, setSourceQuery, runQuery } = useActions(logic)
+    const warehouseViewerDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.WarehouseObjects,
+        AccessControlLevel.Viewer
+    )
     useMountedLogic(metricsSqlEditorTrackingLogic({ sqlEditorTabId }))
 
     useEffect(() => {
-        keepSqlEditorMounted(sqlEditorTabId)
-    }, [sqlEditorTabId]) // eslint-disable-line react-hooks/exhaustive-deps
+        if (!warehouseViewerDisabledReason) {
+            keepSqlEditorMounted(sqlEditorTabId)
+        }
+    }, [sqlEditorTabId, warehouseViewerDisabledReason]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        if (queryInput === null) {
+        if (queryInput === null && !warehouseViewerDisabledReason) {
             setQueryInput(DEFAULT_METRICS_QUERY)
             setSourceQuery({
                 kind: NodeKind.DataVisualizationNode,
@@ -42,6 +51,10 @@ export const MetricsSqlEditor = (): JSX.Element => {
             runQuery(DEFAULT_METRICS_QUERY)
         }
     }, [queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    if (warehouseViewerDisabledReason) {
+        return <LemonBanner type="warning">{warehouseViewerDisabledReason}</LemonBanner>
+    }
 
     return (
         <div className="flex flex-col flex-1 min-h-0 min-w-0 border rounded overflow-hidden">

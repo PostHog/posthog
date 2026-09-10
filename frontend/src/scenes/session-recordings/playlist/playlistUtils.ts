@@ -15,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { cohortsModelType } from '~/models/cohortsModelType'
+import type { cohortsModelType } from '~/models/cohortsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     PropertyOperator,

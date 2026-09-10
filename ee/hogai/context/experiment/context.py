@@ -3,6 +3,7 @@ from posthog.schema import MaxExperimentMetricResult
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARIZE
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import Experiment
 
@@ -97,16 +98,14 @@ class ExperimentContext:
             variants_section = EXPERIMENT_VARIANTS_TEMPLATE.format(variants_list=variants_list)
 
         feature_flag_variants_section = ""
-        if experiment.parameters:
-            params = experiment.parameters
-            if params.get("feature_flag_variants"):
-                variants_list = "\n".join(
-                    f"- {v.get('key', 'unknown')}: {v.get('rollout_percentage', 0)}%"
-                    for v in params["feature_flag_variants"]
-                )
-                feature_flag_variants_section = EXPERIMENT_FEATURE_FLAG_VARIANTS_TEMPLATE.format(
-                    variants_list=variants_list
-                )
+        flag_variants = experiment.feature_flag.variants if experiment.feature_flag else []
+        if flag_variants:
+            variants_list = "\n".join(
+                f"- {v.get('key', 'unknown')}: {v.get('rollout_percentage', 0)}%" for v in flag_variants
+            )
+            feature_flag_variants_section = EXPERIMENT_FEATURE_FLAG_VARIANTS_TEMPLATE.format(
+                variants_list=variants_list
+            )
 
         return EXPERIMENT_CONTEXT_TEMPLATE.format(
             experiment_name=experiment.name,
@@ -135,8 +134,7 @@ class ExperimentContext:
 
         stats_method = get_experiment_stats_method(experiment)
 
-        multivariate = experiment.feature_flag.filters.get("multivariate", {})
-        variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
+        variants = [v.get("key") for v in experiment.feature_flag.variants if v.get("key")]
 
         lines.append(f"## Experiment: {experiment.name}")
         lines.append(f"**ID:** {experiment.id}")
@@ -175,7 +173,7 @@ class ExperimentContext:
                 return
 
             lines.append(f"\n### {section_name}")
-            for metric in metrics[:10]:
+            for metric in metrics[:MAX_METRICS_TO_SUMMARIZE]:
                 lines.append(f"\n**Metric: {metric.name}**")
                 if metric.goal and metric.goal.value:
                     lines.append(f"Goal: {metric.goal.value.title()}")
@@ -210,6 +208,10 @@ class ExperimentContext:
                             lines.append(f"  - Delta (effect size): {variant.delta:.1%}")
 
                         lines.append(f"  - Significant: {'Yes' if variant.significant else 'No'}")
+
+            omitted = len(metrics) - MAX_METRICS_TO_SUMMARIZE
+            if omitted > 0:
+                lines.append(f"\n**Note:** {omitted} more {section_name.lower()} were omitted from this summary.")
 
         format_metrics_section(primary_metrics_results or [], "Primary Metrics")
         format_metrics_section(secondary_metrics_results or [], "Secondary Metrics")

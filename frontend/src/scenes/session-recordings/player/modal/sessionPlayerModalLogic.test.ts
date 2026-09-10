@@ -53,5 +53,23 @@ describe('sessionPlayerModalLogic', () => {
                 logic.actionCreators.openSessionPlayer({ id: 'abc' }, 12345678),
             ])
         })
+
+        it('clears guided heatmap context when the player closes', () => {
+            expectLogic(logic, () =>
+                logic.actions.openSessionPlayer({ id: 'abc' }, null, {
+                    type: 'heatmap-background-selection',
+                    targetUrl: 'https://example.com/pricing',
+                    matchingRecordingCount: 3,
+                })
+            ).toMatchValues({
+                modalContext: {
+                    type: 'heatmap-background-selection',
+                    targetUrl: 'https://example.com/pricing',
+                    matchingRecordingCount: 3,
+                },
+            })
+
+            expectLogic(logic, () => logic.actions.closeSessionPlayer()).toMatchValues({ modalContext: null })
+        })
     })
 })

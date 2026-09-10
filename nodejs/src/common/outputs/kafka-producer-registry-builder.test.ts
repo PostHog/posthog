@@ -1,9 +1,9 @@
-import { KafkaProducerWrapper } from '~/kafka/producer'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 
 import { AllowedConfigKey } from './kafka-producer-config'
 import { KafkaProducerRegistryBuilder } from './kafka-producer-registry-builder'
 
-jest.mock('~/kafka/producer')
+jest.mock('~/common/kafka/producer')
 
 describe('KafkaProducerRegistryBuilder', () => {
     beforeEach(() => {

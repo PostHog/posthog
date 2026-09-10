@@ -1,8 +1,8 @@
-from datetime import datetime
 from typing import cast
 from warnings import warn
 
 from django.db import models
+from django.utils import timezone
 
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 
@@ -23,15 +23,15 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         warn("DataWarehouseViewLink is deprecated, use DataWarehouseJoin", DeprecationWarning, stacklevel=2)
         super().__init__(*args, **kwargs)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     table = models.CharField(max_length=128)
     from_join_key = models.CharField(max_length=400)
-    saved_query = models.ForeignKey("data_modeling.DataWarehouseSavedQuery", on_delete=models.CASCADE)
+    saved_query = models.ForeignKey("data_modeling.DataWarehouseSavedQuery", on_delete=models.CASCADE, related_name="+")
     to_join_key = models.CharField(max_length=400)
 
 
 class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     source_table_name = models.CharField(max_length=400)
     source_table_key = models.CharField(max_length=400)
     joining_table_name = models.CharField(max_length=400)
@@ -48,5 +48,16 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
     def soft_delete(self):
         self.deleted = True
-        self.deleted_at = datetime.now()
+        self.deleted_at = timezone.now()
         self.save()
+
+    @classmethod
+    def create_if_missing(cls, **attrs: object) -> None:
+        """Create a join with these attributes unless a matching one already exists.
+
+        Tolerates pre-existing duplicates: several paths create the same join and there's no
+        unique constraint, so more than one un-deleted match can exist. A plain get_or_create
+        would then raise MultipleObjectsReturned and surface as a 500 during source setup.
+        """
+        if not cls.objects.filter(**attrs).exists():
+            cls.objects.create(**attrs)

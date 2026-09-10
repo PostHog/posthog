@@ -40,7 +40,6 @@ import {
     isGroupsQuery,
     isHogQLQuery,
     isPersonsNode,
-    isRevenueExampleEventsQuery,
     isTracesQuery,
     trimQuotes,
 } from '~/queries/utils'
@@ -275,11 +274,11 @@ export function renderColumn(
                         })
                     }}
                 >
-                    <Property value={record.properties[propertyKey]} />
+                    <Property value={record.properties[propertyKey]} propertyKey={propertyKey} />
                 </Link>
             )
         }
-        return <Property value={record.properties[propertyKey]} />
+        return <Property value={record.properties[propertyKey]} propertyKey={propertyKey} />
     } else if (!Array.isArray(record) && key.startsWith('person.properties.')) {
         // TODO: remove after removing the old events table
         const eventRecord = record as EventType
@@ -321,11 +320,11 @@ export function renderColumn(
                         })
                     }}
                 >
-                    <Property value={eventRecord.person?.properties?.[propertyKey]} />
+                    <Property value={eventRecord.person?.properties?.[propertyKey]} propertyKey={propertyKey} />
                 </Link>
             )
         }
-        return <Property value={eventRecord.person?.properties?.[propertyKey]} />
+        return <Property value={eventRecord.person?.properties?.[propertyKey]} propertyKey={propertyKey} />
     } else if (key === 'person') {
         const personRecord = record as PersonType
         const displayProps: PersonDisplayProps = {
@@ -334,7 +333,7 @@ export function renderColumn(
             noPopover: true,
         }
 
-        if (isEventsQuery(query.source) || isRevenueExampleEventsQuery(query.source)) {
+        if (isEventsQuery(query.source)) {
             displayProps.person = value.distinct_id ? (value as EventsQueryPersonColumn) : value
             displayProps.noPopover = false // If we are in an events list, the popover experience is better
         }

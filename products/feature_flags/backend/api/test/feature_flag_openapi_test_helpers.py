@@ -12,7 +12,6 @@ from products.feature_flags.backend.api.feature_flag import FeatureFlagSerialize
 FEATURE_FLAG_REQUEST_SCHEMA_EXCLUDED_RUNTIME_FIELDS: frozenset[str] = frozenset(
     {
         "_create_in_folder",  # create-only write_only helper for folder placement
-        "_should_create_usage_dashboard",  # create-only write_only internal toggle
         "analytics_dashboards",  # relational link managed via dashboards, not the flag create/update surface
         "created_at",  # server-managed timestamp, not agent-facing
         "creation_context",  # write_only origin-product marker set by internal callers
@@ -20,8 +19,6 @@ FEATURE_FLAG_REQUEST_SCHEMA_EXCLUDED_RUNTIME_FIELDS: frozenset[str] = frozenset(
         "has_encrypted_payloads",  # server-managed, derived from payload encryption
         "has_enriched_analytics",  # internal analytics flag, not agent-facing
         "last_called_at",  # server-managed usage timestamp, not agent-facing
-        "performed_rollback",  # internal rollback state
-        "rollback_conditions",  # legacy rollback config, not agent-facing
         "version",  # server-managed optimistic-concurrency counter
     }
 )

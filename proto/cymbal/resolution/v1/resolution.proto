@@ -60,6 +60,11 @@ message Done {
   // remapping. It replaces only the submitted exception item, not the full
   // event or exception list.
   bytes resolved_exception_json = 1;
+  // UUID of the most recently created release bound to a symbol set this
+  // item's frames reference, as a hyphenated string. Empty when no referenced
+  // symbol set has a release, and on servers that predate this field, so
+  // callers must treat empty as "no release".
+  string release_id = 2;
 }
 
 // Error is a terminal item failure. The kind enum is the shared control-flow
@@ -126,4 +131,9 @@ message LoadEvent {
   uint64 sequence = 4;
   // Optional short human-readable note. Not interpreted by the router.
   string message = 5;
+  // Current server-side exception items in flight on this pod. Routers use
+  // this as a soft load signal, not as an admission guarantee.
+  uint32 in_flight = 6;
+  // Server-side item concurrency cap used to interpret `in_flight`.
+  uint32 max_in_flight = 7;
 }

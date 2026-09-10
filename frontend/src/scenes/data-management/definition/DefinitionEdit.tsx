@@ -26,7 +26,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getPrimaryPropertyForEvent, hasTaxonomyPrimaryProperty } from 'lib/utils/events'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
-import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
+import {
+    DefinitionLogicProps,
+    decodeDefinitionId,
+    definitionLogic,
+} from 'scenes/data-management/definition/definitionLogic'
 import { PropertyAccessControl } from 'scenes/data-management/definition/PropertyAccessControl'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -46,13 +50,15 @@ import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/Def
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionEdit,
     logic: definitionLogic,
-    paramsToProps: ({ params: { id } }) => ({ id }),
+    paramsToProps: ({ params: { id } }) => ({ id: decodeDefinitionId(id) }),
 }
 
-export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
+export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
+    // The app renders scene components with raw route params, so decode the id like paramsToProps does
+    const props = { ...rawProps, id: decodeDefinitionId(rawProps.id) }
     const logic = definitionEditLogic(props)
     const definitionLogicInstance = definitionLogic(props)
-    const { definitionLoading, definitionMissing, isProperty } = useValues(definitionLogicInstance)
+    const { definitionLoading, definitionMissing, isProperty, singular } = useValues(definitionLogicInstance)
     const { editDefinition } = useValues(logic)
     const { saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
@@ -80,7 +86,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const mediaPreviewDragTarget = createRef<HTMLDivElement>()
 
     if (definitionMissing) {
-        return <NotFound object="event" />
+        return <NotFound object={singular} />
     }
     return (
         <Form logic={definitionEditLogic} props={props} formKey="editDefinition">
@@ -307,34 +313,32 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                             })()}
 
                         {!isProperty && !hasTaxonomyPrimaryProperty(editDefinition.name) && (
-                            <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
-                                <div className="ph-ignore-input">
-                                    <LemonField
-                                        name="primary_property"
-                                        label={
-                                            <LemonLabel info="When set, PostHog surfaces like the session replay inspector show this property's value alongside the event. Choose the single property that best summarizes each occurrence of the event.">
-                                                Primary property
-                                            </LemonLabel>
-                                        }
-                                        data-attr="definition-primary-property"
-                                    >
-                                        {({ value, onChange }) => (
-                                            <TaxonomicPopover<string>
-                                                allowClear
-                                                data-attr="definition-primary-property-picker"
-                                                groupType={TaxonomicFilterGroupType.EventProperties}
-                                                eventNames={[editDefinition.name]}
-                                                value={value ?? null}
-                                                onChange={(changedValue) =>
-                                                    onChange(typeof changedValue === 'string' ? changedValue : null)
-                                                }
-                                                placeholder="Select a primary property"
-                                                selectingKeyOnly
-                                            />
-                                        )}
-                                    </LemonField>
-                                </div>
-                            </FlaggedFeature>
+                            <div className="ph-ignore-input">
+                                <LemonField
+                                    name="primary_property"
+                                    label={
+                                        <LemonLabel info="When set, PostHog surfaces like the session replay inspector show this property's value alongside the event. Choose the single property that best summarizes each occurrence of the event.">
+                                            Primary property
+                                        </LemonLabel>
+                                    }
+                                    data-attr="definition-primary-property"
+                                >
+                                    {({ value, onChange }) => (
+                                        <TaxonomicPopover<string>
+                                            allowClear
+                                            data-attr="definition-primary-property-picker"
+                                            groupType={TaxonomicFilterGroupType.EventProperties}
+                                            eventNames={[editDefinition.name]}
+                                            value={value ?? null}
+                                            onChange={(changedValue) =>
+                                                onChange(typeof changedValue === 'string' ? changedValue : null)
+                                            }
+                                            placeholder="Select a primary property"
+                                            selectingKeyOnly
+                                        />
+                                    )}
+                                </LemonField>
+                            </div>
                         )}
                     </div>
                 )}
@@ -346,7 +350,10 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                             title="Access control"
                             description="Control who can see this property's values, and who can edit them from the PostHog UI."
                         >
-                            <PayGateMini feature={AvailableFeature.PROPERTY_ACCESS_CONTROL}>
+                            <PayGateMini
+                                feature={AvailableFeature.PROPERTY_ACCESS_CONTROL}
+                                featureDetail="property-definition-access-control"
+                            >
                                 <PropertyAccessControl
                                     propertyDefinitionId={editDefinition.id}
                                     teamId={currentTeamId}

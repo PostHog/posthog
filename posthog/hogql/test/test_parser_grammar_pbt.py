@@ -18,12 +18,11 @@ Contract — **bidirectional parity** between the two backends:
     3. If one accepts and the other rejects → test fails: the two
        backends must agree on the accepted grammar surface.
 
-The comparison is between the Python parser (the original reference
-implementation, an ANTLR4-generated parser + a parse-tree visitor in
-``HogQLParseTreeConverter``) and the C++ parser (a hand-ported visitor
-over the same ANTLR4-generated parser, exposed to Python via the
-``hogql_parser`` wheel). Both consume the same ``.g4`` grammar; AST
-divergences here are visitor-implementation bugs in one of them.
+The comparison is between the rust parser (``rust-py``, the production
+default, a hand-written recursive-descent parser exposed via the
+``hogql_parser_rs`` wheel) and the C++ parser (the reference oracle, a
+hand-ported ANTLR4 visitor exposed via the ``hogql_parser`` wheel). AST
+divergences here are parser-implementation bugs in one of them.
 
 Opt-in via ``RUN_PBT=1`` — the grind is slow and intended for offline
 audit runs rather than every CI build.
@@ -511,11 +510,10 @@ def _apply_grammar_mutation(query: str) -> st.SearchStrategy[str]:
 # Differential parsing harness
 # ---------------------------------------------------------------------------
 
-# The two backends under comparison. Both implement the same `.g4`
-# grammar — the Python one via an ANTLR4-generated parser + a
-# HogQLParseTreeConverter visitor, the C++ one via a hand-ported
-# visitor exposed through the `hogql_parser` wheel.
-_BACKEND_A = "python"
+# The two backends under comparison: the rust parser (`rust-py`, the
+# production default) against the C++ parser (the reference oracle,
+# exposed through the `hogql_parser` wheel).
+_BACKEND_A = "rust-py"
 _BACKEND_B = "cpp-json"
 
 

@@ -1,0 +1,101 @@
+@layer components {
+    /*
+     * A found page: bullet · title · url · out-arrow, on one dense line. The bullet carries the
+     * fetch state; the title is what the reader scans, so it holds the foreground while the url
+     * stays muted behind it.
+     */
+
+    /*
+     * Rows bleed 0.25rem past their text on both sides so the hover fill isn't cramped against it.
+     * On the start side that bleed lands in the rail's padding; on the end side there's nothing to
+     * land in, so the list reserves it here. Without this the row overhangs the component's right
+     * edge, which becomes a horizontal scrollbar the moment a parent is tight or clips.
+     */
+    .quill-chat-source-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        padding-inline-end: 0.25rem;
+        margin: 0;
+        list-style: none;
+    }
+
+    .quill-chat-source {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        min-width: 0;
+        padding-inline: 0.25rem;
+        margin-inline: -0.25rem;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        color: var(--muted-foreground);
+        text-decoration: none;
+        border-radius: 0.375rem;
+    }
+
+    a.quill-chat-source:hover {
+        background-color: var(--fill-hover);
+    }
+
+    a.quill-chat-source:focus-visible {
+        background-color: var(--fill-hover);
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 50%, transparent);
+    }
+
+    /*
+     * The line the reader is actually here for, so it shrinks last — but it does shrink. A
+     * `flex-shrink: 0` title lets its box run past the row, where it clips against an edge nobody
+     * can see and the ellipsis never appears.
+     */
+    .quill-chat-source__title {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--foreground);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .quill-chat-source-item[data-status='pending'] .quill-chat-source__title {
+        color: var(--muted-foreground);
+    }
+
+    /*
+     * Supporting detail, so it's the first thing to give up room — the outsized shrink factor is
+     * what makes it yield almost entirely before the title gives up a pixel. The separator lives
+     * here rather than in the markup: it belongs to the url, and it should disappear with it.
+     */
+    .quill-chat-source__url {
+        flex-shrink: 9999;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .quill-chat-source__url::before {
+        margin-inline-end: 0.375rem;
+        content: '·';
+    }
+
+    .quill-chat-source__arrow {
+        flex-shrink: 0;
+        width: 0.75rem;
+        height: 0.75rem;
+        margin-inline-start: auto;
+        opacity: 0;
+        transition: opacity 150ms ease;
+    }
+
+    a.quill-chat-source:hover .quill-chat-source__arrow,
+    a.quill-chat-source:focus-visible .quill-chat-source__arrow {
+        opacity: 1;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-chat-source__arrow {
+            transition: none;
+        }
+    }
+}

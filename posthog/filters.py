@@ -11,6 +11,17 @@ from rest_framework.views import APIView
 _MT = TypeVar("_MT", bound=models.Model)
 
 
+class PhraseSearchFilter(filters.SearchFilter):
+    """Matches `?search=` as one literal substring instead of splitting it into independent terms.
+
+    DRF's SearchFilter ANDs the whitespace-separated parts, so `NON PROD` also matches `Non-prod`.
+    """
+
+    def get_search_terms(self, request: Request) -> list[str]:
+        term = request.query_params.get(self.search_param, "").replace("\x00", "").strip()
+        return [term] if term else []
+
+
 class TermSearchFilterBackend(filters.BaseFilterBackend):
     """
     Allows fuzzy searching based on the pg_trgm extension.
@@ -64,7 +75,16 @@ def term_search_filter_sql(
     search_fields: list[str],
     search_terms: Optional[str] = "",
     search_extra: Optional[str] = "",
+    avoid_trigram_index: bool = False,
 ) -> tuple[str, dict]:
+    """Builds the `?search=` predicate: every space-separated term must match one of the fields.
+
+    `field ILIKE pattern` lets the planner answer from a trigram GIN index on the field. Where that
+    index is global and the query is already scoped to one tenant, the planner still often reads the
+    posting lists for the whole index. `avoid_trigram_index` emits the equivalent
+    `lower(field) LIKE lower(pattern)`, which no trigram index on `field` can serve, so the planner
+    has to start from the tenant-scoped index instead.
+    """
     if not search_fields or not search_terms:
         return "", {}
 
@@ -76,7 +96,10 @@ def term_search_filter_sql(
         search_filter_query = []
         for idx, search_field in enumerate(search_fields):
             index = term_idx * len(search_fields) + idx
-            search_filter_query.append(f"{search_field} ilike %(search_{index})s")
+            if avoid_trigram_index:
+                search_filter_query.append(f"lower({search_field}) like lower(%(search_{index})s)")
+            else:
+                search_filter_query.append(f"{search_field} ilike %(search_{index})s")
             kwargs[f"search_{index}"] = f"%{search_term}%"
         term_filter.append(f"({' OR '.join(search_filter_query)})")
 

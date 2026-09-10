@@ -36,7 +36,7 @@ def DROP_SESSION_VIEW_SQL():
 # or had contacted support about an issue.
 # This list exists because we want to reduce the number of writes happening to this table, and so we don't write to it
 # for any team not in this list. Adding a team to this is possible if needed, but would require changing this MV in
-# production and backfilling this table with the management command backfill_sessions_table.
+# production and backfilling this table from events.
 ALLOWED_TEAM_IDS = [
     # posthog
     1,
@@ -314,44 +314,3 @@ FROM sessions
 GROUP BY session_id, team_id
 """
 )
-
-SELECT_SESSION_PROP_STRING_VALUES_SQL = """
-SELECT
-    value,
-    count(value)
-FROM (
-    SELECT
-        {property_expr} as value
-    FROM
-        sessions
-    WHERE
-        team_id = %(team_id)s AND
-        {property_expr} IS NOT NULL AND
-        {property_expr} != ''
-    ORDER BY session_id DESC
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY count(value) DESC
-LIMIT 20
-"""
-
-SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER = """
-SELECT
-    value,
-    count(value)
-FROM (
-    SELECT
-        {property_expr} as value
-    FROM
-        sessions
-    WHERE
-        team_id = %(team_id)s AND
-        {property_expr} ILIKE %(value)s
-    ORDER BY session_id DESC
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY count(value) DESC
-LIMIT 20
-"""

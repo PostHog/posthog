@@ -2,8 +2,10 @@
 Management command to verify flag definitions cache consistency.
 
 Compares cached flag definitions data against database to detect discrepancies.
-Verifies both cache variants (with-cohorts and without-cohorts). When --fix is
-used, each variant's cache is updated independently.
+When --fix is used, the cache is updated to match the database.
+
+IMPORTANT: This command requires FLAGS_REDIS_URL to be set. Without it, the command
+prints an error and stops without verifying anything, to prevent misleading results.
 
 Usage:
     # Verify all teams
@@ -29,7 +31,6 @@ from posthog.models.team import Team
 
 from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
-    FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
     verify_team_flag_definitions,
 )
 
@@ -71,8 +72,10 @@ class Command(BaseHyperCacheCommand):
             self.stdout.write(f"  Flag '{flag_key}': {diff_type}")
 
     def handle(self, *args, **options):
-        # No check_dedicated_cache_configured() needed — flag definitions use the
-        # default cache (REDIS_URL), not the dedicated flags cache (FLAGS_REDIS_URL).
+        # Check if dedicated flags cache is configured (fail fast)
+        if not self.check_dedicated_cache_configured():
+            return
+
         team_ids = options.get("team_ids")
         sample_size = options.get("sample")
         verbose = options.get("verbose", False)
@@ -83,38 +86,21 @@ class Command(BaseHyperCacheCommand):
             if not self.validate_sample_size(sample_size):
                 return
 
-        configs_to_verify = [
-            (FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG, True, "with cohorts"),
-            (FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG, False, "without cohorts"),
-        ]
-
-        for config, include_cohorts, variant_name in configs_to_verify:
-            self.stdout.write(f"\n{'=' * 70}")
-            self.stdout.write(self.style.SUCCESS(f"Verifying flag definitions cache ({variant_name})"))
-            self.stdout.write("=" * 70)
-
-            # Store config and include_cohorts for the verify_team method
-            # Note: Not thread-safe, but management commands run single-threaded
-            self._current_config = config
-            self._include_cohorts = include_cohorts
-
-            self.run_verification(
-                team_ids=team_ids,
-                sample_size=sample_size,
-                verbose=verbose,
-                fix=fix,
-            )
+        self.run_verification(
+            team_ids=team_ids,
+            sample_size=sample_size,
+            verbose=verbose,
+            fix=fix,
+        )
 
     def get_hypercache_config(self):
         """Return the HyperCache management configuration."""
-        return getattr(self, "_current_config", FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG)
+        return FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG
 
     def verify_team(self, team: Team, verbose: bool, batch_data: dict[int, Any] | None = None) -> dict[str, Any]:
         """Verify a single team's flag definitions cache against the database."""
-        include_cohorts = getattr(self, "_include_cohorts", True)
         return verify_team_flag_definitions(
             team,
             db_batch_data=batch_data,
-            include_cohorts=include_cohorts,
             verbose=verbose,
         )

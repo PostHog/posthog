@@ -115,16 +115,6 @@ class TraceClusterMetadata:
 
 
 @dataclass
-class ClusterSentiment:
-    """Aggregate sentiment for a cluster."""
-
-    label: str  # "positive", "neutral", "negative"
-    score: float  # 0-1
-    counts: dict[str, int]  # {"positive": N, "neutral": N, "negative": N}
-    total: int  # number of items with sentiment data
-
-
-@dataclass
 class ClusterAggregateMetrics:
     """Pre-computed aggregate metrics for a cluster, baked into the event.
 
@@ -146,7 +136,6 @@ class ClusterAggregateMetrics:
     error_rate: float | None = None
     error_count: int = 0
     item_count: int = 0
-    sentiment: ClusterSentiment | None = None
     # Evaluation-only fields (None for trace/generation levels)
     pass_rate: float | None = None
     na_rate: float | None = None
@@ -282,10 +271,20 @@ class GenerateLabelsActivityInputs:
     # Fields with defaults must come after fields without defaults
     analysis_level: AnalysisLevel = "trace"  # "trace" or "generation"
     batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
+    trace_id: str = ""
+    session_id: str = ""
+    clustering_run_id: str = ""
+    clustering_job_id: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
-        return {"team_id": self.team_id}
+        return {
+            "team_id": self.team_id,
+            "trace_id": self.trace_id,
+            "session_id": self.session_id,
+            "clustering_run_id": self.clustering_run_id,
+            "clustering_job_id": self.clustering_job_id,
+        }
 
 
 @dataclass

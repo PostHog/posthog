@@ -25,14 +25,20 @@ export function LegendOptionsFilter(): JSX.Element {
     return (
         <div className="flex items-center justify-between gap-2 p-1 px-2">
             <LemonCheckbox
-                onChange={(checked) => updateInsightFilter({ showLegend: checked })}
+                onChange={(checked) =>
+                    updateInsightFilter({
+                        showLegend: checked,
+                        // Seed bottom on first enable — old insights without a saved position render right (chart-config fallback).
+                        ...(checked && legendPosition == null ? { legendPosition: 'bottom' } : {}),
+                    })
+                }
                 checked={!!showLegend}
                 label={<span className="font-normal">Show legend</span>}
                 size="small"
             />
             <LemonSelect
                 size="small"
-                value={(legendPosition ?? 'bottom') as LegendPosition}
+                value={(legendPosition ?? (showLegend ? 'right' : 'bottom')) as LegendPosition}
                 options={POSITION_OPTIONS}
                 disabledReason={!showLegend ? 'Enable the legend to set its position' : undefined}
                 onChange={(position) => updateInsightFilter({ legendPosition: position })}

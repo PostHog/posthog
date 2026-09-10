@@ -1,4 +1,4 @@
-import type { IdentityMatchingLinkApi } from './generated/api.schemas'
+import type { IdentityMatchingLinkApi, IdentityMatchingPersonApi } from './generated/api.schemas'
 
 /** Very permissive email format — matches the person-utils pattern. */
 const EMAIL_REGEX = /.+@.+\..+/i
@@ -8,13 +8,62 @@ export function extractEmail(identifier: string): string | null {
     return EMAIL_REGEX.test(identifier) ? identifier : null
 }
 
-/** Build a PersonPropType-shaped object from a distinct ID, attaching email when it looks like one. */
-export function personFromDistinctId(distinctId: string): {
-    properties?: Record<string, unknown>
-    distinct_id: string
-} {
-    const email = extractEmail(distinctId)
-    return email ? { properties: { email }, distinct_id: distinctId } : { distinct_id: distinctId }
+/**
+ * Build a PersonDisplay-shaped object for one side of a link, preferring the resolved person's real
+ * email/name and falling back to a distinct ID that already looks like an email. This is what makes
+ * people show by their email everywhere — table, dialog, and paid attribution.
+ */
+export function linkPersonDisplay(
+    person: IdentityMatchingPersonApi | null | undefined,
+    distinctId: string
+): { properties?: Record<string, unknown>; distinct_id: string } {
+    const email = person?.email ?? extractEmail(distinctId)
+    const properties: Record<string, unknown> = {}
+    if (email) {
+        properties.email = email
+    }
+    if (person?.name) {
+        properties.name = person.name
+    }
+    return Object.keys(properties).length > 0 ? { properties, distinct_id: distinctId } : { distinct_id: distinctId }
+}
+
+/** A non-empty property value to show, or null when the person is missing or the value is unset. */
+export function personField(
+    person: IdentityMatchingPersonApi | null | undefined,
+    key: keyof IdentityMatchingPersonApi
+): string | null {
+    const value = person?.[key]
+    return value != null && value !== '' ? String(value) : null
+}
+
+export interface PersonFieldSpec {
+    key: keyof IdentityMatchingPersonApi
+    label: string
+}
+
+/** Location/device fields shown side-by-side for match validation — they mirror the match signals. */
+export const PERSON_SIGNAL_FIELDS: PersonFieldSpec[] = [
+    { key: 'city', label: 'City' },
+    { key: 'country', label: 'Country' },
+    { key: 'browser', label: 'Browser' },
+    { key: 'os', label: 'OS' },
+    { key: 'device_type', label: 'Device' },
+    { key: 'timezone', label: 'Timezone' },
+]
+
+/** Campaign attribution fields — surfaced prominently in the paid attribution tab. */
+export const PERSON_CAMPAIGN_FIELDS: PersonFieldSpec[] = [
+    { key: 'utm_source', label: 'Source' },
+    { key: 'utm_medium', label: 'Medium' },
+    { key: 'utm_campaign', label: 'Campaign' },
+    { key: 'referring_domain', label: 'Referrer' },
+    { key: 'gclid', label: 'Google click ID' },
+]
+
+/** True when this person carries any campaign attribution worth showing. */
+export function hasCampaign(person: IdentityMatchingPersonApi | null | undefined): boolean {
+    return PERSON_CAMPAIGN_FIELDS.some((field) => personField(person, field.key) !== null)
 }
 
 export type Tier = 'high' | 'medium' | 'low'

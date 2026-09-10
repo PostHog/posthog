@@ -138,6 +138,30 @@ class TestFetchItemEmbeddingsForClustering:
         assert "rendering_legacy" not in call_kwargs["placeholders"]
 
     @patch("posthog.temporal.ai_observability.trace_clustering.data.execute_hogql_query")
+    def test_strips_and_dedupes_job_suffix_from_document_id(self, mock_execute, mock_team):
+        # document_id is `{item_id}::{job_id}`; the read recovers the bare item id and dedupes a
+        # trace summarized by multiple jobs (and a bare pre-suffix row) into one clustering item.
+        mock_result = MagicMock()
+        mock_result.results = [
+            ("trace_1::job-a", [0.1, 0.2], "detailed", "batch_1"),
+            ("trace_1::job-b", [0.1, 0.2], "detailed", "batch_2"),
+            ("trace_2::job-a", [0.3, 0.4], "detailed", "batch_1"),
+            ("trace_3", [0.5, 0.6], "detailed", "batch_1"),  # pre-suffix bare id
+        ]
+        mock_execute.return_value = mock_result
+
+        trace_ids, embeddings_map, _batch_run_ids = fetch_item_embeddings_for_clustering(
+            team=mock_team,
+            window_start=datetime(2025, 1, 1, tzinfo=UTC),
+            window_end=datetime(2025, 1, 8, tzinfo=UTC),
+            max_samples=100,
+            job_id="job-a",
+        )
+
+        assert trace_ids == ["trace_1", "trace_2", "trace_3"]
+        assert embeddings_map == {"trace_1": [0.1, 0.2], "trace_2": [0.3, 0.4], "trace_3": [0.5, 0.6]}
+
+    @patch("posthog.temporal.ai_observability.trace_clustering.data.execute_hogql_query")
     def test_returns_empty_when_no_results(self, mock_execute, mock_team):
         mock_result = MagicMock()
         mock_result.results = []
@@ -287,12 +311,22 @@ class TestFetchItemSummaries:
 
         assert summaries == {}
 
+    @pytest.mark.parametrize(
+        "trace_ts,expected",
+        [
+            (datetime(2025, 1, 5, 10, 30, 45), datetime(2025, 1, 5, 10, 30, 45).isoformat()),
+            ("2025-01-05T10:30:45", "2025-01-05T10:30:45"),
+            # The summarizer writes the property with str(datetime), so a space separates the date.
+            ("2025-01-05 10:30:45+00:00", "2025-01-05T10:30:45+00:00"),
+            ("not a timestamp", "not a timestamp"),
+            (None, ""),
+        ],
+    )
     @patch("posthog.temporal.ai_observability.trace_clustering.data.execute_hogql_query")
-    def test_extracts_timestamp_as_iso_string(self, mock_execute, mock_team):
-        test_timestamp = datetime(2025, 1, 5, 10, 30, 45)
+    def test_converts_timestamp_to_string(self, mock_execute, mock_team, trace_ts, expected):
         mock_result = MagicMock()
         mock_result.results = [
-            ("trace_1", "Title", "Flow", "Bullets", "Notes", test_timestamp, "batch_123", "trace_1"),
+            ("trace_1", "Title", "Flow", "Bullets", "Notes", trace_ts, "batch_123", "trace_1"),
         ]
         mock_result.clickhouse = "SELECT ..."
         mock_execute.return_value = mock_result
@@ -305,4 +339,4 @@ class TestFetchItemSummaries:
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
         )
 
-        assert summaries["trace_1"]["trace_timestamp"] == test_timestamp.isoformat()
+        assert summaries["trace_1"]["trace_timestamp"] == expected

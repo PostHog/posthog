@@ -61,12 +61,13 @@ import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
 import type { TablePreviewExpressionColumn } from 'lib/components/TablePreview/types'
 import { Link } from 'lib/lemon-ui/Link'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { urls } from 'scenes/urls'
 
 import type { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
+
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 import { defaultDataWarehousePopoverFields } from '../taxonomicFilterLogic'
 import { DataWarehousePopoverField, TaxonomicDefinitionTypes } from '../types'
@@ -418,27 +419,28 @@ function ActiveFieldEditor({
 
                 <ColumnSelect options={options} value={value} onChange={onChange} allowHogQL={!!field.allowHogQL} />
 
-                {field.allowHogQL && isHogQL && (
-                    // Render the rich `HogQLEditor` inline (full width) —
-                    // skipping the legacy `HogQLDropdown` button-trigger
-                    // wrapper — so users see the editor + placeholder
-                    // examples + "Update SQL expression" button + "Learn
-                    // more about SQL" link without an extra click.
-                    <HogQLEditor
-                        value={value}
-                        onChange={(v) => onChange(v)}
-                        metadataSource={{
-                            kind: NodeKind.HogQLQuery,
-                            query: `SELECT * FROM ${field.tableName ?? tableName}`,
-                        }}
-                        placeholder={
-                            linkedTables.length
-                                ? `Enter an SQL Expression, for example:\n- json_column.my_person_id\n- person_distinct_ids.person_id\n\nYou can also reference these linked tables: ${linkedTables.join(', ')}`
-                                : `Enter an SQL Expression, for example:\n- json_column.my_person_id\n- person_distinct_ids.person_id`
-                        }
-                        disableAutoFocus
-                    />
-                )}
+                {field.allowHogQL &&
+                    isHogQL && (
+                        // Render the rich `HogQLEditor` inline (full width) —
+                        // skipping the legacy `HogQLDropdown` button-trigger
+                        // wrapper — so users see the editor + placeholder
+                        // examples + "Update SQL expression" button + "Learn
+                        // more about SQL" link without an extra click.
+                        <HogQLEditor
+                            value={value}
+                            onChange={(v) => onChange(v)}
+                            metadataSource={{
+                                kind: NodeKind.HogQLQuery,
+                                query: `SELECT * FROM ${field.tableName ?? tableName}`,
+                            }}
+                            placeholder={
+                                linkedTables.length
+                                    ? `Enter an SQL Expression, for example:\n- json_column.my_person_id\n- person_distinct_ids.person_id\n\nYou can also reference these linked tables: ${linkedTables.join(', ')}`
+                                    : `Enter an SQL Expression, for example:\n- json_column.my_person_id\n- person_distinct_ids.person_id`
+                            }
+                            disableAutoFocus
+                        />
+                    )}
             </FieldContent>
         </Field>
     )

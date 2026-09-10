@@ -2,11 +2,11 @@ import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 
 import { withSpan } from '~/common/tracing/tracing-utils'
+import { RedisOperationError } from '~/common/utils/db/error'
+import { timeoutGuard } from '~/common/utils/db/utils'
+import { parseJSON } from '~/common/utils/json-parse'
+import { tryTwice } from '~/common/utils/utils'
 import { CacheOptions } from '~/plugin-scaffold'
-import { RedisOperationError } from '~/utils/db/error'
-import { timeoutGuard } from '~/utils/db/utils'
-import { parseJSON } from '~/utils/json-parse'
-import { tryTwice } from '~/utils/utils'
 
 /** The recommended way of accessing the database. */
 export class RedisHelpers {

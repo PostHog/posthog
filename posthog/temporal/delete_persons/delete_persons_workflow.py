@@ -2,117 +2,103 @@ import json
 import typing
 import asyncio
 import datetime as dt
+import itertools
 import dataclasses
 
-from django.conf import settings
-
-import psycopg
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 from structlog import get_logger
 
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.models.person import Person
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
 
-# Templates with {{person_table}} placeholder for dynamic table name
-SELECT_QUERY_TEMPLATE = """
-    SELECT id
-    FROM {{person_table}}
-    WHERE team_id=%(team_id)s {person_ids_filter}
-    ORDER BY id ASC
-    LIMIT %(limit)s
-"""
+# Personhog RPC request caps (see proto/personhog/types/v1/person.proto).
+GET_PERSONS_MAX_IDS = 250
+DELETE_PERSONS_MAX_UUIDS = 1000
 
-DELETE_QUERY_PERSON_DISTINCT_IDS = """
-    WITH to_delete AS ({select_query})
-    DELETE FROM posthog_persondistinctid
-    WHERE person_id IN (SELECT id FROM to_delete);
-"""
 
-DELETE_QUERY_PERSON_OVERRIDE = """
-    WITH to_delete AS ({select_query})
-    DELETE FROM posthog_personoverride
-    WHERE (old_person_id IN (SELECT id FROM to_delete) OR override_person_id IN (SELECT id FROM to_delete));
-"""
+def _chunked(items: list, size: int) -> typing.Iterator[list]:
+    it = iter(items)
+    while chunk := list(itertools.islice(it, size)):
+        yield chunk
 
-DELETE_QUERY_COHORT_PEOPLE = """
-    WITH to_delete AS ({select_query})
-    DELETE FROM posthog_cohortpeople
-    WHERE person_id IN (SELECT id FROM to_delete);
-"""
 
-DELETE_QUERY_PERSON_TEMPLATE = """
-    WITH to_delete AS ({select_query})
-    DELETE FROM {{person_table}}
-    WHERE id IN (SELECT id FROM to_delete);
-"""
+def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) -> int:
+    """Delete specific persons by id via personhog.
 
-# Format templates with person table name at module level
-SELECT_QUERY = SELECT_QUERY_TEMPLATE.replace("{{person_table}}", Person._meta.db_table)
-DELETE_QUERY_PERSON = DELETE_QUERY_PERSON_TEMPLATE.replace("{{person_table}}", Person._meta.db_table)
+    Resolves ids -> uuids with GetPersons (capped at 250/call) and deletes with
+    DeletePersons (capped at 1000/call). DeletePersons cascades the per-person
+    cohortpeople cleanup, so no separate cohort delete is needed here.
+    """
+    from posthog.personhog_client.caller_tag import personhog_caller_tag
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeletePersonsRequest, GetPersonsRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    with personhog_caller_tag("delete-persons/by-ids"):
+        uuids: list[str] = []
+        for id_chunk in _chunked(person_ids, GET_PERSONS_MAX_IDS):
+            persons_resp = client.get_persons(GetPersonsRequest(team_id=team_id, person_ids=id_chunk))
+            uuids.extend(person.uuid for person in persons_resp.persons)
+
+        deleted = 0
+        for uuid_chunk in _chunked(uuids, DELETE_PERSONS_MAX_UUIDS):
+            delete_resp = client.delete_persons(DeletePersonsRequest(team_id=team_id, person_uuids=uuid_chunk))
+            deleted += delete_resp.deleted_count
+        return deleted
+
+
+def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int) -> int:
+    """Delete up to `batch_size` of a team's persons via personhog, returning the count."""
+    from posthog.personhog_client.caller_tag import personhog_caller_tag
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeletePersonsBatchForTeamRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    with personhog_caller_tag("delete-persons/by-team"):
+        resp = client.delete_persons_batch_for_team(
+            DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=batch_size)
+        )
+        return resp.deleted_count
 
 
 @dataclasses.dataclass
-class MogrifyDeleteQueriesActivityInputs:
-    """Inputs for the `mogrify_delete_queries_activity`."""
+class PrecleanCohortMembersActivityInputs:
+    """Inputs for the `preclean_cohort_members_activity`."""
 
     team_id: int
-    person_ids: list[int] = dataclasses.field(default_factory=list)
-    batch_size: int = 1000
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
-        return {
-            "team_id": self.team_id,
-            "batch_size": self.batch_size,
-        }
+        return {"team_id": self.team_id}
 
 
 @temporalio.activity.defn
-async def mogrify_delete_queries_activity(inputs: MogrifyDeleteQueriesActivityInputs) -> None:
-    """Mogrify and log queries to delete persons and associated entities."""
+async def preclean_cohort_members_activity(inputs: PrecleanCohortMembersActivityInputs) -> None:
+    """Whole-team mode: clear the team's cohort memberships by cohort before deleting persons.
+
+    posthog_cohortpeople has no FK to posthog_person, so it must be cleared explicitly.
+    For a whole-team delete we use the existing by-cohort RPC path (the same one the
+    team-teardown flow uses); the per-person DeletePersons cascade covers the by-ids mode.
+    """
+    from django.db import close_old_connections
+
+    from posthog.models.team.util import _delete_cohort_members_for_all_teams
+
     async with Heartbeater():
-        logger = LOGGER.bind()
-
-        select_query = SELECT_QUERY.format(
-            person_ids_filter=f"AND id IN {tuple(inputs.person_ids)}" if inputs.person_ids else ""
-        )
-        delete_query_person_distinct_ids = DELETE_QUERY_PERSON_DISTINCT_IDS.format(select_query=select_query)
-        delete_query_person_override = DELETE_QUERY_PERSON_OVERRIDE.format(select_query=select_query)
-        delete_query_cohort_people = DELETE_QUERY_COHORT_PEOPLE.format(select_query=select_query)
-        delete_query_person = DELETE_QUERY_PERSON.format(select_query=select_query)
-
-        conn = await psycopg.AsyncConnection.connect(settings.DATABASE_URL)
-        conn.cursor_factory = psycopg.AsyncClientCursor
-        async with conn:
-            async with conn.cursor() as cursor:
-                cursor = typing.cast(psycopg.AsyncClientCursor, cursor)
-
-                prepared_person_distinct_ids_query = cursor.mogrify(
-                    delete_query_person_distinct_ids,
-                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-                )
-                prepared_person_override_query = cursor.mogrify(
-                    delete_query_person_override,
-                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-                )
-                prepared_cohort_people_query = cursor.mogrify(
-                    delete_query_cohort_people,
-                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-                )
-                prepared_person_query = cursor.mogrify(
-                    delete_query_person,
-                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-                )
-        logger.info("Delete query for person distinct ids: %s", prepared_person_distinct_ids_query)
-        logger.info("Delete query for person overrides: %s", prepared_person_override_query)
-        logger.info("Delete query for cohort people: %s", prepared_cohort_people_query)
-        logger.info("Delete query for person: %s", prepared_person_query)
+        logger = LOGGER.bind(team_id=inputs.team_id)
+        await asyncio.to_thread(close_old_connections)
+        await asyncio.to_thread(_delete_cohort_members_for_all_teams, [inputs.team_id])
+        await logger.ainfo("Cleared cohort memberships for team")
 
 
 @dataclasses.dataclass
@@ -121,7 +107,7 @@ class DeletePersonsActivityInputs:
 
     team_id: int
     person_ids: list[int] = dataclasses.field(default_factory=list)
-    batch_number: int = 1
+    batch_number: int = 0
     batches: int = 1
     batch_size: int = 1000
 
@@ -137,54 +123,28 @@ class DeletePersonsActivityInputs:
 
 @temporalio.activity.defn
 async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[int, bool]:
-    """Run queries to delete persons and associated entities."""
+    """Delete one batch of persons via personhog, returning (deleted_count, should_continue)."""
     async with Heartbeater():
         logger = LOGGER.bind()
-        tag_queries(team_id=inputs.team_id)
+        logger.info("Deleting batch %d of %d", inputs.batch_number, inputs.batches)
 
-        select_query = SELECT_QUERY.format(
-            person_ids_filter=f"AND id IN {tuple(inputs.person_ids)}" if inputs.person_ids else ""
-        )
-        delete_query_person_distinct_ids = DELETE_QUERY_PERSON_DISTINCT_IDS.format(select_query=select_query)
-        delete_query_person_override = DELETE_QUERY_PERSON_OVERRIDE.format(select_query=select_query)
-        delete_query_cohort_people = DELETE_QUERY_COHORT_PEOPLE.format(select_query=select_query)
-        delete_query_person = DELETE_QUERY_PERSON.format(select_query=select_query)
+        if inputs.person_ids:
+            # Specific persons: process this batch's slice of the id list.
+            start = inputs.batch_number * inputs.batch_size
+            id_slice = inputs.person_ids[start : start + inputs.batch_size]
+            if not id_slice:
+                return 0, False
+            deleted = await asyncio.to_thread(_delete_specific_persons_via_personhog, inputs.team_id, id_slice)
+            should_continue = start + inputs.batch_size < len(inputs.person_ids)
+        else:
+            # Whole team: delete up to batch_size and keep going until a batch is short.
+            deleted = await asyncio.to_thread(
+                _delete_team_persons_batch_via_personhog, inputs.team_id, inputs.batch_size
+            )
+            should_continue = deleted >= inputs.batch_size
 
-        conn = await psycopg.AsyncConnection.connect(settings.DATABASE_URL)
-        async with conn:
-            async with conn.cursor() as cursor:
-                logger.info("Deleting batch %d of %d (%d rows)", inputs.batch_number, inputs.batches, inputs.batch_size)
-
-                await cursor.execute(
-                    delete_query_person_distinct_ids,
-                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-                )
-                logger.info("Deleted %d distinct_ids", cursor.rowcount)
-
-                await cursor.execute(
-                    delete_query_person_override,
-                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-                )
-                logger.info("Deleted %d person overrides", cursor.rowcount)
-
-                await cursor.execute(
-                    delete_query_cohort_people,
-                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-                )
-                logger.info(f"Deleted %d cohort people", cursor.rowcount)
-
-                await cursor.execute(
-                    delete_query_person,
-                    {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
-                )
-                logger.info("Deleted %d persons", cursor.rowcount)
-
-                should_continue = True
-                if cursor.rowcount < inputs.batch_size:
-                    await logger.ainfo("Workflow will exit early as we received less than %d rows", inputs.batch_size)
-                    should_continue = False
-
-                return cursor.rowcount, should_continue
+        logger.info("Deleted %d persons", deleted)
+        return deleted, should_continue
 
 
 @dataclasses.dataclass
@@ -207,7 +167,13 @@ class DeletePersonsWorkflowInputs:
 
 @temporalio.workflow.defn(name="delete-persons")
 class DeletePersonsWorkflow(PostHogWorkflow):
-    """Workflow to delete persons and associated entities from the PostHog database."""
+    """Workflow to delete persons and their dependent rows from the persons database via personhog.
+
+    All deletion goes through personhog RPCs (no direct database connection). For a
+    whole-team delete, cohort memberships are cleared up front by cohort and persons are
+    then removed in batches; for a delete scoped to specific person_ids, GetPersons +
+    DeletePersons handle persons, distinct_ids, and per-person cohort memberships together.
+    """
 
     def __init__(self) -> None:
         self.lock = asyncio.Lock()
@@ -224,31 +190,26 @@ class DeletePersonsWorkflow(PostHogWorkflow):
     async def run(self, inputs: DeletePersonsWorkflowInputs):
         """Run all batches to delete persons.
 
-        Before running batches, we will mogrify the queries and wait for a confirmation
-        signal to be delivered.
-
-        Before running every batch, we check to see if the `paused` signal has been
-        received. If so, we halt execution until the signal is received again to unpause.
+        We wait for a confirmation signal before deleting anything. Before each batch we
+        check the `paused` flag and halt until it is toggled off again.
         """
-        mogrify_delete_queries_activity_inputs = MogrifyDeleteQueriesActivityInputs(
-            team_id=inputs.team_id,
-            person_ids=inputs.person_ids,
-            batch_size=inputs.batch_size,
-        )
-
-        await temporalio.workflow.execute_activity(
-            mogrify_delete_queries_activity,
-            mogrify_delete_queries_activity_inputs,
-            heartbeat_timeout=dt.timedelta(seconds=30),
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
-                non_retryable_error_types=[],
-            ),
-        )
         await temporalio.workflow.wait_condition(lambda: self.confirmed)
+
+        # Whole-team deletes clear cohort memberships by cohort up front; the by-ids path
+        # relies on the per-person DeletePersons cascade instead.
+        if not inputs.person_ids:
+            await temporalio.workflow.execute_activity(
+                preclean_cohort_members_activity,
+                PrecleanCohortMembersActivityInputs(team_id=inputs.team_id),
+                heartbeat_timeout=dt.timedelta(seconds=30),
+                start_to_close_timeout=dt.timedelta(hours=2),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=360),
+                    maximum_attempts=0,
+                    non_retryable_error_types=[],
+                ),
+            )
 
         for batch_number in range(0, inputs.batches):
             await temporalio.workflow.wait_condition(lambda: not self.paused)
@@ -287,7 +248,4 @@ class DeletePersonsWorkflow(PostHogWorkflow):
     async def pause(self) -> None:
         """Signal handler for workflow to pause or unpause."""
         async with self.lock:
-            if self.paused is True:
-                self.paused = False
-            else:
-                self.paused = True
+            self.paused = not self.paused

@@ -3,6 +3,7 @@ use std::net::IpAddr;
 use axum::http::{header, HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use chrono::{DateTime, Utc};
+use common_ingestion_warnings::{WarningRequestContext, UNKNOWN_ATTRIBUTION};
 use uuid::Uuid;
 
 use crate::token::validate_token;
@@ -32,6 +33,8 @@ pub struct RequestContext {
     pub created_at: Option<String>,
     pub capture_internal: bool,
     pub historical_migration: bool,
+    /// AI-gateway provenance signature parsed from the request headers, if present.
+    pub gateway_signature: Option<super::gateway_provenance::GatewaySignature>,
 }
 
 /// Extracts a required header as &str, assuming presence was already checked.
@@ -63,6 +66,24 @@ impl RequestContext {
             return None;
         }
         Some((lib, version))
+    }
+
+    /// Attribution stamped onto every ingestion warning this request produces.
+    ///
+    /// [`Self::sdk_lib_and_version`] is all-or-nothing — the header is a single
+    /// `name/version` string — so both fields fall back together. Unlike the
+    /// injection callers, a warning always needs both keys present, so this
+    /// stamps the unknown placeholder rather than skipping them.
+    pub fn warning_context(&self) -> WarningRequestContext {
+        let (lib, lib_version) = self
+            .sdk_lib_and_version()
+            .unwrap_or((UNKNOWN_ATTRIBUTION, UNKNOWN_ATTRIBUTION));
+        WarningRequestContext {
+            token: self.api_token.clone(),
+            lib: lib.to_string(),
+            lib_version: lib_version.to_string(),
+            path: self.path.to_string(),
+        }
     }
 
     pub fn new(
@@ -159,6 +180,8 @@ impl RequestContext {
         let user_agent = header_str(headers, "user-agent")?.to_string();
         let sdk_info = header_str(headers, POSTHOG_SDK_INFO)?.to_string();
 
+        let gateway_signature = super::gateway_provenance::parse_signature(headers);
+
         Ok(Self {
             api_token,
             user_agent,
@@ -176,6 +199,7 @@ impl RequestContext {
             created_at: None,
             capture_internal: false,
             historical_migration: false,
+            gateway_signature,
         })
     }
 

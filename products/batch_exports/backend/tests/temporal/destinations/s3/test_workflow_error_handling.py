@@ -30,6 +30,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
+    InternalStageResult,
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import assert_clickhouse_records_in_s3
@@ -62,12 +63,13 @@ async def test_s3_export_workflow_handles_unexpected_insert_activity_errors(
         batch_export_id=str(s3_compatible_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        integration_id=s3_compatible_batch_export.destination.integration_id,
         **s3_compatible_batch_export.destination.config,
     )
 
     @activity.defn(name="insert_into_internal_stage_activity")
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
-        return
+        return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -125,6 +127,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(
         batch_export_id=str(s3_compatible_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        integration_id=s3_compatible_batch_export.destination.integration_id,
         **s3_compatible_batch_export.destination.config,
     )
 
@@ -133,7 +136,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(
 
     @activity.defn(name="insert_into_internal_stage_activity")
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
-        return
+        return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -181,12 +184,13 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_compatible_batc
         batch_export_id=str(s3_compatible_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        integration_id=s3_compatible_batch_export.destination.integration_id,
         **s3_compatible_batch_export.destination.config,
     )
 
     @activity.defn(name="insert_into_internal_stage_activity")
     async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
-        return
+        return InternalStageResult(stage_folder="test-stage-folder", records_total=None)
 
     @activity.defn(name="insert_into_s3_activity_from_stage")
     async def never_finish_activity_from_stage(_):
@@ -231,7 +235,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_compatible_batc
 async def test_s3_export_workflow_with_request_timeouts(
     clickhouse_client,
     ateam,
-    minio_client,
+    object_storage_client,
     bucket_name,
     interval,
     s3_compatible_batch_export,
@@ -260,7 +264,7 @@ async def test_s3_export_workflow_with_request_timeouts(
                 async def faulty_upload_part(*args, **kwargs):
                     nonlocal raised
 
-                    if raised < 5:
+                    if raised < ConcurrentS3Consumer.UPLOAD_PART_MAX_ATTEMPTS:
                         raised = raised + 1
                         raise botocore.exceptions.ClientError(
                             error_response={
@@ -284,6 +288,7 @@ async def test_s3_export_workflow_with_request_timeouts(
         batch_export_model=batch_export_model,
         batch_export_schema=batch_export_schema,
         interval=interval,
+        integration_id=s3_compatible_batch_export.destination.integration_id,
         **s3_compatible_batch_export.destination.config,
     )
 
@@ -353,7 +358,7 @@ async def test_s3_export_workflow_with_request_timeouts(
         second=data_interval_end.strftime("%S"),
     )
 
-    objects = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=expected_key_prefix)
+    objects = await object_storage_client.list_objects_v2(Bucket=bucket_name, Prefix=expected_key_prefix)
     key = objects["Contents"][0].get("Key")
     assert len(objects.get("Contents", [])) == 1
     assert key.startswith(expected_key_prefix)
@@ -366,7 +371,7 @@ async def test_s3_export_workflow_with_request_timeouts(
             sort_key = "session_id"
 
     await assert_clickhouse_records_in_s3(
-        s3_compatible_client=minio_client,
+        s3_compatible_client=object_storage_client,
         clickhouse_client=clickhouse_client,
         bucket_name=bucket_name,
         key_prefix=expected_key_prefix,

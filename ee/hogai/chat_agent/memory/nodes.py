@@ -105,10 +105,11 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
     ) -> CacheMissResponse | QueryStatusResponse | CachedEventTaxonomyQueryResponse:
         def run_query() -> CacheMissResponse | QueryStatusResponse | CachedEventTaxonomyQueryResponse:
             runner = EventTaxonomyQueryRunner(
-                team=self._team, query=EventTaxonomyQuery(event=event, properties=[property])
+                team=self._team, query=EventTaxonomyQuery(event=event, properties=[property]), user=self._user
             )
             return runner.run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                user=self._user,
                 analytics_props={"source": EventSource.POSTHOG_AI},
             )
 
@@ -301,7 +302,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
                 question = self._format_question(response)
                 await core_memory.aappend_question_to_initial_text(question)
                 return PartialAssistantState(onboarding_question=question)
-        return PartialAssistantState(onboarding_question=None, answers_left=None)
+        return PartialAssistantState(onboarding_question=None)
 
     @property
     def _model(self):

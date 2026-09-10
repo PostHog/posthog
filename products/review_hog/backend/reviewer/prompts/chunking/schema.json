@@ -1,0 +1,98 @@
+{
+  "$defs": {
+    "Chunk": {
+      "properties": {
+        "chunk_id": {
+          "description": "Unique identifier for the chunk, ordered by review priority",
+          "title": "Chunk Id",
+          "type": "integer"
+        },
+        "files": {
+          "description": "List of files that belong to this chunk",
+          "items": {
+            "$ref": "#/$defs/FileInfo"
+          },
+          "minItems": 1,
+          "title": "Files",
+          "type": "array"
+        },
+        "chunk_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "infrastructure",
+                "data_model",
+                "business_logic",
+                "api",
+                "frontend",
+                "tests",
+                "documentation",
+                "configuration",
+                "refactoring",
+                "feature",
+                "bugfix"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Type of changes in this chunk",
+          "title": "Chunk Type"
+        },
+        "key_changes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Bullet points highlighting the most important changes",
+          "title": "Key Changes"
+        }
+      },
+      "required": [
+        "chunk_id",
+        "files"
+      ],
+      "title": "Chunk",
+      "type": "object"
+    },
+    "FileInfo": {
+      "properties": {
+        "filename": {
+          "description": "Path to the file",
+          "title": "Filename",
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename"
+      ],
+      "title": "FileInfo",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "chunks": {
+      "description": "List of chunks",
+      "items": {
+        "$ref": "#/$defs/Chunk"
+      },
+      "title": "Chunks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "chunks"
+  ],
+  "title": "ChunksList",
+  "type": "object"
+}

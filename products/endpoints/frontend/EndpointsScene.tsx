@@ -1,14 +1,11 @@
 import { BindLogic, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { BigLeaguesHog } from 'lib/components/hedgehogs'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -19,6 +16,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { endpointsEmptyState } from './emptyState/endpointsEmptyState'
 import { Endpoints } from './Endpoints'
 import { endpointsLogic } from './endpointsLogic'
 import { EndpointsUsage } from './EndpointsUsage'
@@ -26,15 +24,11 @@ import { endpointsUsageLogic } from './endpointsUsageLogic'
 import { InsightPickerEndpointModal } from './InsightPickerEndpointModal'
 import { OverlayForNewEndpointMenu } from './newEndpointMenu'
 
-const ENDPOINTS_PRODUCT_DESCRIPTION =
-    'Create reusable SQL queries and expose them as API endpoints. Query your data programmatically from any application.'
-const ENDPOINTS_USAGE_PRODUCT_DESCRIPTION =
-    'Monitor endpoint execution metrics including bytes read, CPU usage, and query duration. Compare materialized vs inline executions.'
-
 export const scene: SceneExport = {
     component: EndpointsScene,
     logic: endpointsLogic,
     productKey: ProductKey.ENDPOINTS,
+    emptyState: endpointsEmptyState,
 }
 
 export function EndpointsScene(): JSX.Element {
@@ -65,7 +59,7 @@ export function EndpointsScene(): JSX.Element {
                             type: sceneConfigurations[Scene.EndpointsScene].iconType || 'default_icon_type',
                         }}
                         actions={
-                            <AppShortcut
+                            <Shortcut
                                 name="EndpointsNew"
                                 keybind={[keyBinds.new]}
                                 intent="New endpoint"
@@ -95,20 +89,8 @@ export function EndpointsScene(): JSX.Element {
                                         New
                                     </LemonButton>
                                 </AccessControlAction>
-                            </AppShortcut>
+                            </Shortcut>
                         }
-                    />
-                    <ProductIntroduction
-                        productName="endpoints"
-                        productKey={ProductKey.ENDPOINTS}
-                        thingName="endpoint"
-                        description={
-                            activeTab === 'usage' ? ENDPOINTS_USAGE_PRODUCT_DESCRIPTION : ENDPOINTS_PRODUCT_DESCRIPTION
-                        }
-                        docsURL="https://posthog.com/docs/endpoints"
-                        customHog={BigLeaguesHog}
-                        isEmpty={false}
-                        action={() => router.actions.push(urls.sqlEditor({ source: 'endpoint' }))}
                     />
                     <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
                     <InsightPickerEndpointModal />

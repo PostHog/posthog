@@ -1,10 +1,10 @@
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { ProducerName } from '~/ingestion/common/producers'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { TeamManagerComponent } from '~/common/utils/team-manager'
+import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { newScope } from '~/ingestion/common/scopes'
 import { IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
-import { PostgresRouter } from '~/utils/db/postgres'
-import { TeamManagerComponent } from '~/utils/team-manager'
 
 import { ClientWarningsConsumerConfig, ClientWarningsSharedScope, createClientWarningsConsumer } from './consumer'
 import * as pipelineModule from './pipeline'

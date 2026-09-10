@@ -53,6 +53,9 @@ def create_internal_test_users_cohorts_op(
     # No race condition: the INTERNAL_TEST_USERS kind can only be set by this
     # backfill (or get_or_create_internal_test_users_cohort), not by users
     # through the UI, so no concurrent creation can happen.
+    # bulk_create bypasses Cohort.save(), so condition_type must be set explicitly here
+    # rather than relying on the save()-time derivation.
+    condition_type = Cohort.compute_condition_type(_INTERNAL_TEST_USERS_FILTERS)
     cohorts_to_create = [
         Cohort(
             team=team,
@@ -61,6 +64,7 @@ def create_internal_test_users_cohorts_op(
             is_static=False,
             kind=CohortKind.INTERNAL_TEST_USERS,
             filters=_INTERNAL_TEST_USERS_FILTERS,
+            condition_type=condition_type,
         )
         for team in teams_needing_cohort
     ]

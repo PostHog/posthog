@@ -6,20 +6,20 @@ import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { setupExpressApp } from '~/api/router'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_tests/examples'
 import { insertHogFunction as _insertHogFunction, insertBatchExport } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
+import { setupExpressApp } from '~/common/api/router'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } from '~/tests/helpers/sql'
+import { createTestTeamFixture, updateOrganizationAvailableFeatures } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { UUIDT } from '~/utils/utils'
 
 import { GroupTypeIndex, TeamId } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
 import { GroupsManagerService } from './managers/groups-manager.service'
 
 describe('BatchExportHogFunctionService', () => {
@@ -45,7 +45,6 @@ describe('BatchExportHogFunctionService', () => {
 
     beforeAll(async () => {
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
-        team = await getFirstTeam(hub.postgres)
 
         api = new CdpApi(hub, createCdpConsumerDeps(hub), {
             hogQueue: createMockJobQueue(),
@@ -57,7 +56,7 @@ describe('BatchExportHogFunctionService', () => {
     })
 
     beforeEach(async () => {
-        await resetTestDatabase()
+        team = (await createTestTeamFixture(hub.postgres)).team
         mockFetch.mockClear()
 
         clickhouseEvent = {

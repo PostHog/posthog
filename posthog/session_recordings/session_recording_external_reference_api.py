@@ -156,9 +156,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         if integration.kind == Integration.IntegrationKind.LINEAR:
             title = config.get("title", "")
             config["description"] = f"{config.get('description', '')}\n\nPostHog recording: {recording_url}"
-            external_context = LinearIntegration(integration).create_issue(
-                team.pk, session_recording.session_id, config
-            )
+            external_context = LinearIntegration(integration).create_issue(recording_url, config)
             external_context["title"] = title
         elif integration.kind == Integration.IntegrationKind.GITHUB:
             title = config.get("title", "")

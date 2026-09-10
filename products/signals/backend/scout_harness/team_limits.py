@@ -76,6 +76,13 @@ MAX_RUNS_PER_TEAM_PER_DAY: int | None = None
 # Key inside `team_configs` / `default_team_config` that overrides `MAX_RUNS_PER_TEAM_PER_DAY`.
 TEAM_CONFIG_MAX_RUNS_PER_DAY = "max_runs_per_day"
 
+# Key inside `team_configs` / `default_team_config` controlling whether report-channel scouts get
+# the `gh` evidence-gathering prompt guidance (reviewer routing from commit history by path, PR
+# metadata — backed by the read-only token every scout sandbox gets regardless). Default ON so it
+# just works for every enrolled team with a usable GitHub install; set `false` per-team via
+# `team_configs` or fleet-wide via `default_team_config` as the kill switch, no deploy either way.
+TEAM_CONFIG_GITHUB_READ_ACCESS = "github_read_access"
+
 # Per-scout holdback denylist. A list of canonical scout skill names a team must NOT get: the
 # scout is never seeded into that team's skill namespace, never config-enabled, and never
 # dispatched to it. The knob for dogfooding an unreleased scout on a single project (e.g. error
@@ -109,6 +116,22 @@ def _fallback_team_ids() -> list[int]:
     return list(DEFAULT_ENROLLED_TEAM_IDS) if (is_cloud() or settings.DEBUG) else []
 
 
+def read_flag_payload(flag_key: str, distinct_id: str = SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID) -> dict | None:
+    """Read + parse one flag's JSON payload for the synthetic discovery distinct id.
+
+    Returns the parsed dict, or `None` when the payload is absent / not an object / unreadable; a
+    read error never breaks the caller, which applies its own fallback to `None`.
+    """
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(flag_key, distinct_id, match_value=True)
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        return payload if isinstance(payload, dict) else None
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
 def _read_flag_payload() -> dict | None:
     """Read + parse the `signals-scout` flag's JSON payload once.
 
@@ -119,16 +142,7 @@ def _read_flag_payload() -> dict | None:
     Enrollment and per-team configs both derive from a single call to this so they always see
     the same snapshot. Mirrors `posthog/temporal/ai_observability/team_discovery.py`.
     """
-    try:
-        payload = posthoganalytics.get_feature_flag_payload(
-            SIGNALS_SCOUT_DOGFOOD_FLAG, SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID, match_value=True
-        )
-        if isinstance(payload, str):
-            payload = json.loads(payload)
-        return payload if isinstance(payload, dict) else None
-    except Exception as error:
-        capture_exception(error)
-        return None
+    return read_flag_payload(SIGNALS_SCOUT_DOGFOOD_FLAG)
 
 
 # Sentinel inside `guaranteed_team_ids` that enrolls EVERY team which already has scout configs,
@@ -316,6 +330,59 @@ def _resolve_global_max_runs_per_tick(payload: dict | None, default: int) -> int
     return default
 
 
+DISPATCH_SMEAR_SECONDS_KEY = "dispatch_smear_seconds"
+
+
+def _resolve_dispatch_smear_seconds(payload: dict | None, default: int) -> int:
+    if payload is None:
+        return default
+    override = payload.get(DISPATCH_SMEAR_SECONDS_KEY)
+    if isinstance(override, int) and not isinstance(override, bool) and override >= 0:
+        return override
+    return default
+
+
+# Flag payload key toggling slot-aligned dispatch anchors (the coordinator's `_slot_anchor`). On,
+# a dispatched scout's `last_run_at` is stamped at its own stable slot on the tick grid, so tick
+# latency stops pushing whole cohorts onto later ticks and merging them into ever larger waves.
+# Set `false` to fall back to stamping the wall clock, which is the only way back to the previous
+# behaviour without a deploy. Absent / malformed → on.
+SLOT_ALIGNED_DISPATCH_KEY = "slot_aligned_dispatch"
+
+
+def _resolve_slot_aligned_dispatch(payload: dict | None) -> bool:
+    """Whether the coordinator stamps slot-aligned dispatch anchors. Only a literal boolean is
+    honored, so a typo'd override can't silently flip the fleet's dispatch spread either way."""
+    if payload is None:
+        return True
+    override = payload.get(SLOT_ALIGNED_DISPATCH_KEY)
+    if isinstance(override, bool):
+        return override
+    return True
+
+
+def _resolve_github_read_access(team_id: int, team_configs: dict[int, dict], default_team_config: dict) -> bool:
+    """Whether report-channel scouts on this team get the `gh` evidence prompt guidance,
+    most-specific layer first: `team_configs[team_id]` → `default_team_config` → on. Only a
+    literal boolean is honored at each layer; anything else falls through, so a typo'd override
+    can't silently flip the posture either way. Defaulting on is safe because the guidance is
+    additionally preflighted on a mintable team-level install, and the token itself is read-only.
+    """
+    for source in ((team_configs.get(team_id) or {}), default_team_config):
+        override = source.get(TEAM_CONFIG_GITHUB_READ_ACCESS)
+        if isinstance(override, bool):
+            return override
+    return True
+
+
+def github_read_access_for_team(canonical_team_id: int) -> bool:
+    """One-shot flag-payload read → whether this (canonical) team's report-channel scouts get the
+    `gh` evidence prompt guidance. Missing/unreadable payload → on (the default posture)."""
+    payload = _read_flag_payload()
+    team_configs = _canonicalize_team_config_keys(_team_configs(payload))
+    return _resolve_github_read_access(canonical_team_id, team_configs, _default_team_config(payload))
+
+
 def _resolve_withheld_skills(team_id: int, team_configs: dict[int, dict], default_team_config: dict) -> set[str]:
     """Skill names held back from a team, resolved most-specific layer first.
 
@@ -337,7 +404,7 @@ def withheld_skills_for_team(canonical_team_id: int) -> set[str]:
     """Resolve the holdback denylist for one (canonical) team in a single flag-payload read.
 
     The coordinator resolves withholding from a payload it already read for the tick; this is the
-    one-shot equivalent for request-context callers (the on-demand `signals-scout-config-sync`
+    one-shot equivalent for request-context callers (the on-demand `scout-config-sync`
     endpoint), so the HTTP path enforces the same holdback as the scheduled path and a held-back
     scout can't be seeded/enabled by a manual fleet materialization. `canonical_team_id` must be
     the parent/project id; `team_configs` keys are canonicalized so a child-keyed override still

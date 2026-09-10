@@ -39,6 +39,11 @@ pub enum TokenAuthData {
         scoped_teams: Option<Vec<i32>>,
         scoped_orgs: Option<Vec<String>>,
         scopes: Option<Vec<String>>,
+        /// The user's `current_team_id`, used only by remote_config's `@current` resolution.
+        /// `#[serde(default)]` keeps backwards compatibility with cached entries that predate
+        /// this field (they resolve as `None` until the entry refreshes).
+        #[serde(default)]
+        current_team_id: Option<i32>,
     },
     #[serde(rename = "project_secret")]
     ProjectSecret {
@@ -49,6 +54,25 @@ pub enum TokenAuthData {
         #[serde(default)]
         api_token: Option<String>,
     },
+}
+
+/// A validated `phs_` bearer token. `project_secret_key_id` is set only when the token was a
+/// project secret API key; the team-level secret token has no key row to stamp usage on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretTokenAuth {
+    pub team_id: i32,
+    pub api_token: Option<String>,
+    pub project_secret_key_id: Option<String>,
+}
+
+impl SecretTokenAuth {
+    pub fn method_label(&self) -> &'static str {
+        if self.project_secret_key_id.is_some() {
+            "project_secret_api_key"
+        } else {
+            "secret_api_key"
+        }
+    }
 }
 
 /// Extracts bearer token from Authorization header
@@ -73,26 +97,18 @@ pub fn extract_personal_api_key(headers: &HeaderMap) -> Result<Option<String>, F
     Ok(extract_bearer_token(headers).filter(|token| !token.starts_with(SECRET_TOKEN_PREFIX)))
 }
 
-/// Validates a phs_-prefixed token against both Team secret tokens and ProjectSecretAPIKeys.
-///
-/// The unified loader tries Team.secret_api_token first, then posthog_projectsecretapikey.
-/// Both share the same cache key space (posthog:auth_token:{hash}), so a single loader
-/// prevents negative-cache poisoning when one source misses but the other would hit.
-///
-/// Returns the matched TokenAuthData variant on success for metric labeling.
 /// Validates a phs_-prefixed token and checks it belongs to the expected team.
-/// Returns `(team_id, api_token, is_project_secret)` — same as
-/// `validate_secret_api_token` but with the team_id cross-check.
+/// Same as `validate_secret_api_token` but with the team_id cross-check.
 pub async fn validate_secret_api_token_for_team(
     state: &AppState,
     token: &str,
     expected_team_id: i32,
-) -> Result<(i32, Option<String>, bool), FlagError> {
+) -> Result<SecretTokenAuth, FlagError> {
     let result = validate_secret_api_token(state, token).await?;
 
-    if result.0 != expected_team_id {
+    if result.team_id != expected_team_id {
         warn!(
-            cached_team_id = result.0,
+            cached_team_id = result.team_id,
             expected_team_id = expected_team_id,
             "Token belongs to a different team"
         );
@@ -105,14 +121,14 @@ pub async fn validate_secret_api_token_for_team(
 /// Validates a phs_-prefixed token without checking against a specific team.
 ///
 /// Used when the `?token=` query parameter is omitted and the team must be derived
-/// from the secret token itself. Returns `(team_id, api_token, is_project_secret)`.
+/// from the secret token itself.
 ///
 /// Only works for Secret and ProjectSecret tokens (which are team-scoped).
 /// Personal API keys are multi-team and cannot be used to derive a team.
 pub async fn validate_secret_api_token(
     state: &AppState,
     token: &str,
-) -> Result<(i32, Option<String>, bool), FlagError> {
+) -> Result<SecretTokenAuth, FlagError> {
     let token_hash = hash_token_value(token);
     let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
     let token_owned = token.to_string();
@@ -133,16 +149,27 @@ pub async fn validate_secret_api_token(
                 team_id = team_id,
                 "Secret API token validated (no token param)"
             );
-            Ok((team_id, api_token, false))
+            Ok(SecretTokenAuth {
+                team_id,
+                api_token,
+                project_secret_key_id: None,
+            })
         }
         Some(TokenAuthData::ProjectSecret {
-            team_id, api_token, ..
+            team_id,
+            api_token,
+            key_id,
+            ..
         }) => {
             debug!(
                 team_id = team_id,
                 "Project secret API key validated (no token param)"
             );
-            Ok((team_id, api_token, true))
+            Ok(SecretTokenAuth {
+                team_id,
+                api_token,
+                project_secret_key_id: Some(key_id),
+            })
         }
         _ => Err(FlagError::SecretApiTokenInvalid),
     }
@@ -233,6 +260,7 @@ async fn load_personal_key_from_pg(
             pak.scoped_teams,
             pak.scoped_organizations,
             u.id as user_id,
+            u.current_team_id,
             ARRAY(
                 SELECT om.organization_id::text
                 FROM posthog_organizationmembership om
@@ -257,6 +285,7 @@ async fn load_personal_key_from_pg(
             let scoped_organizations: Option<Vec<String>> = row.try_get("scoped_organizations")?;
             let scopes: Option<Vec<String>> = row.try_get("scopes")?;
             let org_ids: Vec<String> = row.try_get("org_ids")?;
+            let current_team_id: Option<i32> = row.try_get("current_team_id")?;
 
             Ok(Some(TokenAuthData::Personal {
                 user_id,
@@ -265,12 +294,46 @@ async fn load_personal_key_from_pg(
                 scoped_teams,
                 scoped_orgs: scoped_organizations,
                 scopes,
+                current_team_id,
             }))
         }
         None => {
             warn!("Personal API key not found");
             Ok(None)
         }
+    }
+}
+
+/// Resolves the current team id for a personal API key's user — Django's `user.current_team`,
+/// used only by the remote_config endpoint's `@current` project resolution. Goes through the
+/// shared `auth_token_cache` (same loader as `validate_personal_api_key_with_scopes_for_team`),
+/// so it does no uncached DB work before the request is authenticated and throttled, and the
+/// subsequent `authenticate` call reuses the warm cache entry. Returns `Ok(None)` when the key is
+/// valid but the user has no current team set (Django: 404), and `Err(PersonalApiKeyInvalid)`
+/// (401) when the key is unknown or the user is inactive.
+pub async fn current_team_id_for_personal_api_key(
+    state: &AppState,
+    key: &str,
+) -> Result<Option<i32>, FlagError> {
+    let sha256_hash = hash_token_value(key);
+    let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
+    let hash_for_loader = sha256_hash.clone();
+
+    let result = state
+        .auth_token_cache
+        .get_or_load(&sha256_hash, |_key| async move {
+            load_personal_key_from_pg(pg_reader, &hash_for_loader).await
+        })
+        .await?;
+
+    match &result.value {
+        Some(TokenAuthData::Personal {
+            current_team_id, ..
+        }) => Ok(*current_team_id),
+        // Unknown key, inactive user, or a non-personal credential hashing to this value: an
+        // invalid credential (-> 401), not a missing project. Matches
+        // `validate_personal_api_key_with_scopes_for_team`'s not-found behaviour.
+        Some(_) | None => Err(FlagError::PersonalApiKeyInvalid),
     }
 }
 
@@ -542,6 +605,7 @@ mod tests {
             scoped_teams: Some(vec![1, 2]),
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:read".to_string()]),
+            current_team_id: None,
         };
         let json = serde_json::to_string(&data).unwrap();
         assert!(json.contains("\"type\":\"personal\""));
@@ -626,6 +690,7 @@ mod tests {
             scoped_teams: Some(vec![1, 2]),
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:read".to_string()]),
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -648,6 +713,7 @@ mod tests {
             scoped_teams: Some(vec![1, 2]),
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:read".to_string()]),
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -670,6 +736,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: None,
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -692,6 +759,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: None,
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -714,6 +782,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: Some(vec!["*".to_string()]),
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -736,6 +805,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: Some(vec!["550e8400-e29b-41d4-a716-446655440000".to_string()]),
             scopes: None,
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -758,6 +828,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: Some(vec!["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string()]),
             scopes: None,
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -780,6 +851,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: Some(vec!["session_recording:read".to_string()]),
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -840,6 +912,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:write".to_string()]),
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -865,6 +938,7 @@ mod tests {
                 "session_recording:read".to_string(),
                 "feature_flag:read".to_string(),
             ]),
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -889,6 +963,7 @@ mod tests {
             scoped_teams: Some(vec![]), // empty = no restriction, team 99 should pass
             scoped_orgs: Some(vec![]),  // empty = no restriction
             scopes: None,               // None = no restriction
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -913,6 +988,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: Some(vec![]),
+            current_team_id: None,
         };
 
         assert!(matches!(
@@ -936,6 +1012,7 @@ mod tests {
             scoped_teams: None,
             scoped_orgs: None,
             scopes: None,
+            current_team_id: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());

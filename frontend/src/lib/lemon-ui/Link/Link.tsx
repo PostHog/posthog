@@ -9,11 +9,11 @@ import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/But
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { isExternalLink } from 'lib/utils/url'
-import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { hasDangerousScheme, isExternalLink } from 'lib/utils/url'
 import { urlToResource } from 'scenes/urls'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
+import { useLinkDrag } from './useLinkDrag'
 
 type RoutePart = string | Record<string, any>
 
@@ -102,6 +102,11 @@ function resolveHref(to: LinkPrimitiveProps['to'], disableClientSideRouting?: bo
     if (typeof to !== 'string') {
         return '#'
     }
+    // Never let a javascript:/vbscript: target become an href, not even when
+    // disableClientSideRouting would otherwise skip the routing rewrite below.
+    if (hasDangerousScheme(to)) {
+        return '#'
+    }
     return isDirectLink(to) || disableClientSideRouting ? to : addProjectIdIfMissing(to)
 }
 
@@ -139,9 +144,7 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
         ref
     ) => {
         const externalLink = isExternalLink(to)
-        const { elementProps: draggableProps } = useNotebookDrag({
-            href: typeof to === 'string' ? to : undefined,
-        })
+        const { elementProps: draggableProps } = useLinkDrag(typeof to === 'string' ? to : undefined)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {

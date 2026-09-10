@@ -7,17 +7,10 @@ from hogql_parser_rs import parse_string_literal_text as parse_string_rust
 
 from posthog.hogql.constants import HogQLParserBackend
 from posthog.hogql.errors import SyntaxError
-from posthog.hogql.parse_string import parse_string_literal_text as parse_string_py
 
 
 def parse_string_test_factory(backend: HogQLParserBackend):
-    parse_string: Callable[[str], str]
-    if backend == "python":
-        parse_string = parse_string_py
-    elif backend.startswith("rust"):
-        parse_string = parse_string_rust
-    else:
-        parse_string = parse_string_cpp
+    parse_string: Callable[[str], str] = parse_string_rust if backend.startswith("rust") else parse_string_cpp
 
     class TestParseString(BaseTest):
         def test_quote_types(self):

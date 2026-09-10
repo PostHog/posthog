@@ -1,9 +1,14 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import {
     HealthCheckResult,
     ISOTimestamp,
@@ -12,11 +17,6 @@ import {
     ProjectId,
     RawClickHouseEvent,
 } from '../../types'
-import { PostgresUse } from '../../utils/db/postgres'
-import { parseJSON } from '../../utils/json-parse'
-import { LazyLoader } from '../../utils/lazy-loader'
-import { logger } from '../../utils/logger'
-import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { LegacyWebhookService } from '../legacy-webhooks/legacy-webhook-service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import type {
@@ -242,11 +242,6 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                     inputs[key] = { value }
                 }
             }
-        }
-
-        // Add legacy_plugin_config_id for plugins that use legacy storage
-        if (pluginId === 'customerio-plugin') {
-            inputs.legacy_plugin_config_id = { value: pluginConfig.id }
         }
 
         // Create a HogFunctionType

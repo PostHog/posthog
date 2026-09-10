@@ -1,10 +1,12 @@
 import { Meta } from '@storybook/react'
 
-import { GraphsHog } from 'lib/components/hedgehogs'
+import * as chartPng from '@posthog/brand/hoggies/png/chart'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { pngHoggie } from 'lib/brand/hoggies'
 
 import { ProductIntroduction, ProductIntroductionProps } from './ProductIntroduction'
+
+const HedgehogChart = pngHoggie(chartPng)
 
 const meta: Meta<ProductIntroductionProps> = {
     title: 'Components/Product Empty State',
@@ -15,8 +17,6 @@ export default meta
 export function ProductIntroduction_(): JSX.Element {
     return (
         <ProductIntroduction
-            productName="Cohorts"
-            productKey={ProductKey.COHORTS}
             thingName="cohort"
             description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
             docsURL="https://posthog.com/docs/data/cohorts"
@@ -29,8 +29,6 @@ export function ProductIntroduction_(): JSX.Element {
 export function emptyWithAction(): JSX.Element {
     return (
         <ProductIntroduction
-            productName="Cohorts"
-            productKey={ProductKey.COHORTS}
             thingName="cohort"
             description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
             docsURL="https://posthog.com/docs/data/cohorts"
@@ -43,42 +41,25 @@ export function emptyWithAction(): JSX.Element {
 export function emptyNoAction(): JSX.Element {
     return (
         <ProductIntroduction
-            productName="Feature Flags"
-            productKey={ProductKey.FEATURE_FLAGS}
             thingName="history record"
-            description={`History shows any feature flag changes that have been made. After making changes you'll see them logged here.`}
+            description="History shows any feature flag changes that have been made. After making changes you'll see them logged here."
         />
     )
 }
 
-export function notEmptyWithAction(): JSX.Element {
-    return (
-        <ProductIntroduction
-            productName="Cohorts"
-            productKey={ProductKey.COHORTS}
-            thingName="cohort"
-            description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
-            docsURL="https://posthog.com/docs/data/cohorts"
-            action={() => alert('You clicked the button!')}
-            isEmpty={false}
-        />
-    )
-}
-
-/** Dashboard empty-state–style intro: matches `EmptyDashboardComponent` copy, with `GraphsHog` + responsive layout. */
+/** Dashboard empty-state-style intro: matches `EmptyDashboardComponent` copy, with `HedgehogChart` + responsive layout. */
 function DashboardEmptyResponsiveIntro({
     useMainContentContainerQueries,
 }: Partial<Pick<ProductIntroductionProps, 'useMainContentContainerQueries'>> = {}): JSX.Element {
     return (
         <ProductIntroduction
-            productName="Dashboard"
             thingName="insight"
             titleOverride="So empty. So much potential."
             description="A simple first step is to add an insight from your library. Over time this becomes the home for the data you care about most."
             docsURL="https://posthog.com/docs/product-analytics/dashboards"
             action={() => alert('CTA clicked')}
             isEmpty={true}
-            customHog={GraphsHog}
+            customHog={HedgehogChart}
             hogLayout="responsive"
             useMainContentContainerQueries={useMainContentContainerQueries}
         />

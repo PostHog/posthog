@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto'
 
+import { HogFlow, HogFlowAction, HogFlowEdge } from '~/cdp/schema/hogflow'
 import { findActionByType } from '~/cdp/services/hogflows/hogflow-utils'
-import { HogFlow, HogFlowAction, HogFlowEdge } from '~/schema/hogflow'
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { HOG_FILTERS_EXAMPLES } from '../examples'
 
@@ -121,6 +121,11 @@ export class FixtureHogFlowBuilder {
 
     withConversion(conversion: HogFlow['conversion']): this {
         this.hogFlow.conversion = conversion
+        return this
+    }
+
+    withTriggerMasking(triggerMasking: HogFlow['trigger_masking']): this {
+        this.hogFlow.trigger_masking = triggerMasking
         return this
     }
 

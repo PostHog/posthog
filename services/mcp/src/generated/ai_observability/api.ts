@@ -3,13 +3,13 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 51 enabled ops
+ * PostHog API - MCP 76 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
- * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache.
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Pass `bucket_minutes` (5, 15, 30, or 60; the window may span at most 600 buckets) to additionally get `by_bucket`, a time-ascending series with per-bucket cost split into uncached input / output / cache read / cache creation components. Use `refresh=true` to bypass the 5-minute response cache.
  */
 export const llmAnalyticsPersonalSpendListQueryDateFromDefault = `-30d`
 export const llmAnalyticsPersonalSpendListQueryDateFromMax = 32
@@ -23,7 +23,13 @@ export const llmAnalyticsPersonalSpendListQueryProductMax = 64
 
 export const llmAnalyticsPersonalSpendListQueryRefreshDefault = false
 
-export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsPersonalSpendListQueryParams = () => zod.object({
+    bucket_minutes: zod
+        .union([zod.literal(5), zod.literal(15), zod.literal(30), zod.literal(60)])
+        .optional()
+        .describe(
+            'When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input \/ output \/ cache read \/ cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).\n\n\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60'
+        ),
     date_from: zod
         .string()
         .min(1)
@@ -50,7 +56,7 @@ export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.obje
         .min(1)
         .max(llmAnalyticsPersonalSpendListQueryProductMax)
         .describe(
-            'Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.'
+            'Required `ai_product` key to scope the tool \/ model \/ trace breakdowns to a single product. Only the following products are currently supported: posthog_code.'
         ),
     refresh: zod
         .boolean()
@@ -59,22 +65,449 @@ export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.obje
 })
 
 /**
+ * List a dataset's current items or its exact contents at a prior revision.
+ */
+export const DatasetItemsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const datasetItemsListQueryArchivedDefault = false
+
+export const DatasetItemsListQueryParams = () => zod.object({
+    archived: zod
+        .boolean()
+        .default(datasetItemsListQueryArchivedDefault)
+        .describe('Return archived items instead of active items.'),
+    dataset: zod.string().describe('Dataset whose items should be returned.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    revision: zod.number().min(1).optional().describe('Return the exact dataset snapshot at this revision.'),
+})
+
+/**
+ * Create an item and its first immutable version. An identical client item ID retry returns the existing item. A different payload or an archived match returns a conflict.
+ */
+export const DatasetItemsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const datasetItemsCreateBodyClientItemIdMax = 255
+
+export const datasetItemsCreateBodySourceTraceIdMax = 255
+
+export const datasetItemsCreateBodySourceEventIdMax = 255
+
+export const DatasetItemsCreateBody = () => zod.object({
+    dataset: zod.string().describe('Dataset that will own the item.'),
+    client_item_id: zod
+        .string()
+        .max(datasetItemsCreateBodyClientItemIdMax)
+        .nullish()
+        .describe('Optional case-sensitive stable key used for idempotent creates. It cannot be changed.'),
+    input: zod
+        .union([
+            zod.record(zod.string(), zod.unknown()),
+            zod.array(zod.unknown()),
+            zod.string(),
+            zod.number(),
+            zod.boolean(),
+        ])
+        .describe('Input supplied to the system under test. Any non-null JSON value is accepted.'),
+    expected_output: zod
+        .union([
+            zod.union([
+                zod.record(zod.string(), zod.unknown()),
+                zod.array(zod.unknown()),
+                zod.string(),
+                zod.number(),
+                zod.boolean(),
+            ]),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Optional user-authored expected output.'),
+    source_output: zod
+        .union([
+            zod.union([
+                zod.record(zod.string(), zod.unknown()),
+                zod.array(zod.unknown()),
+                zod.string(),
+                zod.number(),
+                zod.boolean(),
+            ]),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Optional actual output captured from the source trace.'),
+    metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Optional JSON object with item metadata.'),
+    source_trace_id: zod
+        .string()
+        .max(datasetItemsCreateBodySourceTraceIdMax)
+        .nullish()
+        .describe('Trace ID copied from the source event.'),
+    source_event_id: zod
+        .string()
+        .max(datasetItemsCreateBodySourceEventIdMax)
+        .nullish()
+        .describe('Event ID copied from the source trace.'),
+    source_timestamp: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Timestamp needed to retrieve the event-backed source trace.'),
+})
+
+/**
+ * Retrieve the current item version or the version visible at an exact dataset revision.
+ */
+export const DatasetItemsRetrieveParams = () => zod.object({
+    dataset_item_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DatasetItemsRetrieveQueryParams = () => zod.object({
+    revision: zod.number().min(1).optional().describe('Return the item as it appeared at this exact dataset revision.'),
+})
+
+/**
+ * Create a new immutable item version from editable fields.
+ */
+export const DatasetItemsPartialUpdateParams = () => zod.object({
+    dataset_item_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DatasetItemsPartialUpdateBody = () => zod.object({
+    base_version: zod.number().min(1).describe('Current item version observed by the caller.'),
+    input: zod
+        .union([
+            zod.record(zod.string(), zod.unknown()),
+            zod.array(zod.unknown()),
+            zod.string(),
+            zod.number(),
+            zod.boolean(),
+        ])
+        .optional()
+        .describe('Replacement input. Omit to keep the current value.'),
+    expected_output: zod
+        .union([
+            zod.record(zod.string(), zod.unknown()),
+            zod.array(zod.unknown()),
+            zod.string(),
+            zod.number(),
+            zod.boolean(),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Replacement expected output. Send null to clear it.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Replacement metadata object. Send an empty object to clear it.'),
+})
+
+/**
+ * Archive an active item by creating a new immutable version.
+ */
+export const DatasetItemsArchiveParams = () => zod.object({
+    dataset_item_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DatasetItemsArchiveBody = () => zod.object({
+    base_version: zod.number().min(1).describe('Current item version observed by the caller.'),
+})
+
+/**
+ * Restore an archived item by copying content into a new immutable version.
+ */
+export const DatasetItemsRestoreParams = () => zod.object({
+    dataset_item_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DatasetItemsRestoreBody = () => zod.object({
+    base_version: zod.number().min(1).describe('Current item version observed by the caller.'),
+    source_version: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe("Historical version to copy. Omit to restore the archived version's content."),
+})
+
+/**
+ * List every immutable version of an item, newest first.
+ */
+export const DatasetItemsVersionsListParams = () => zod.object({
+    dataset_item_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DatasetItemsVersionsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * List active datasets by default, or archived datasets when requested.
+ */
+export const DatasetsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const datasetsListQueryArchivedDefault = false
+export const datasetsListQueryIdInMax = 100
+
+export const datasetsListQueryOrderByDefault = `-created_at`
+
+export const DatasetsListQueryParams = () => zod.object({
+    archived: zod
+        .boolean()
+        .default(datasetsListQueryArchivedDefault)
+        .describe('Return archived datasets instead of active datasets.'),
+    id__in: zod
+        .array(zod.string())
+        .min(1)
+        .max(datasetsListQueryIdInMax)
+        .optional()
+        .describe('Filter to these dataset IDs. Repeat the parameter or pass one comma-separated list, up to 100 IDs.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order_by: zod
+        .string()
+        .min(1)
+        .default(datasetsListQueryOrderByDefault)
+        .describe(
+            'Field and direction used to order results.\n\n\* `created_at` - created_at\n\* `-created_at` - -created_at\n\* `updated_at` - updated_at\n\* `-updated_at` - -updated_at'
+        ),
+    search: zod.string().min(1).optional().describe('Search dataset names, descriptions, and metadata.'),
+})
+
+/**
+ * Create an empty dataset. Its first revision is created with its first item.
+ */
+export const DatasetsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const datasetsCreateBodyNameMax = 400
+
+export const datasetsCreateBodyDescriptionDefault = ``
+export const datasetsCreateBodyDescriptionMax = 10000
+
+export const DatasetsCreateBody = () => zod.object({
+    name: zod.string().max(datasetsCreateBodyNameMax).describe('Dataset name. Names are unique within a project.'),
+    description: zod
+        .string()
+        .max(datasetsCreateBodyDescriptionMax)
+        .default(datasetsCreateBodyDescriptionDefault)
+        .describe('Optional description of what the dataset contains.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Optional JSON object with descriptive dataset metadata.'),
+})
+
+/**
+ * Retrieve an active or archived dataset.
+ */
+export const DatasetsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this dataset.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Update descriptive dataset fields without changing its revision.
+ */
+export const DatasetsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this dataset.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const datasetsPartialUpdateBodyNameMax = 400
+
+export const datasetsPartialUpdateBodyDescriptionMax = 10000
+
+export const DatasetsPartialUpdateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(datasetsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('New dataset name. Names are unique within a project.'),
+    description: zod
+        .string()
+        .max(datasetsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('New dataset description.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Replacement JSON object for descriptive dataset metadata.'),
+})
+
+/**
+ * Archive a dataset. Archived datasets remain readable and reject item mutations.
+ */
+export const DatasetsArchiveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this dataset.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Restore an archived dataset without changing its item states.
+ */
+export const DatasetsRestoreParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this dataset.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * List immutable dataset revisions, newest first.
+ */
+export const DatasetsRevisionsListParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this dataset.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DatasetsRevisionsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const EvaluationDirectoriesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EvaluationDirectoriesCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const evaluationDirectoriesCreateBodyNameMax = 400
+
+export const EvaluationDirectoriesCreateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(evaluationDirectoriesCreateBodyNameMax)
+        .describe('Directory name shown in the online evals list.'),
+})
+
+export const EvaluationDirectoriesRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this evaluation directory.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EvaluationDirectoriesPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this evaluation directory.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const evaluationDirectoriesPartialUpdateBodyNameMax = 400
+
+export const EvaluationDirectoriesPartialUpdateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(evaluationDirectoriesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Directory name shown in the online evals list.'),
+})
+
+export const EvaluationDirectoriesDestroyParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this evaluation directory.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Create a new evaluation run.
  *
  * This endpoint validates the request and enqueues a Temporal workflow
  * to asynchronously execute the evaluation.
  */
-export const EvaluationRunsCreateParams = /* @__PURE__ */ zod.object({
+export const EvaluationRunsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const evaluationRunsCreateBodyEventDefault = `$ai_generation`
 
-export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
+export const EvaluationRunsCreateBody = () => zod.object({
     evaluation_id: zod.string().describe('UUID of the evaluation to run.'),
     target_event_id: zod.string().describe('UUID of the $ai_generation event to evaluate.'),
     timestamp: zod.iso
@@ -87,16 +520,24 @@ export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
     distinct_id: zod.string().nullish().describe('Distinct ID of the event (optional, improves lookup performance).'),
 })
 
-export const EvaluationsListParams = /* @__PURE__ */ zod.object({
+export const EvaluationsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const EvaluationsListQueryParams = /* @__PURE__ */ zod.object({
+export const EvaluationsListQueryParams = () => zod.object({
+    directory_id: zod.string().optional().describe('Filter evaluations by directory UUID.'),
+    directory_id__isnull: zod.boolean().optional().describe('Filter evaluations by whether they are at the top level.'),
     enabled: zod.boolean().optional().describe('Filter by enabled status'),
+    evaluation_type: zod
+        .enum(['hog', 'llm_judge', 'sentiment'])
+        .optional()
+        .describe(
+            'Filter by evaluation type\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis'
+        ),
     id__in: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -104,303 +545,471 @@ export const EvaluationsListQueryParams = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe(
-            'Ordering\n\n* `created_at` - Created At\n* `-created_at` - Created At (descending)\n* `updated_at` - Updated At\n* `-updated_at` - Updated At (descending)\n* `name` - Name\n* `-name` - Name (descending)'
+            'Ordering\n\n\* `created_at` - Created At\n\* `-created_at` - Created At (descending)\n\* `updated_at` - Updated At\n\* `-updated_at` - Updated At (descending)\n\* `name` - Name\n\* `-name` - Name (descending)'
         ),
     search: zod.string().optional().describe('Search in name or description'),
 })
 
-export const EvaluationsCreateParams = /* @__PURE__ */ zod.object({
+export const EvaluationsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
-export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
 
+export const evaluationsCreateBodyTargetConfigOneWindowSecondsMin = 10
+export const evaluationsCreateBodyTargetConfigOneWindowSecondsMax = 604800
+
+export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
+export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax = 86400
+
+export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin = 60
+export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax = 604800
+
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
-export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(evaluationsCreateBodyNameMax).describe('Name of the evaluation.'),
-    description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
-    enabled: zod
-        .boolean()
-        .optional()
-        .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
-    evaluation_type: zod
-        .enum(['llm_judge', 'hog', 'sentiment'])
-        .describe('* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis')
-        .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis"
-        ),
-    evaluation_config: zod
-        .union([
-            zod.object({
-                prompt: zod
-                    .string()
-                    .min(1)
-                    .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
-            }),
-            zod.object({
-                source: zod
-                    .string()
-                    .min(1)
-                    .describe('Hog source code. Must return true (pass), false (fail), or null for N/A.'),
-            }),
-            zod.object({
-                source: zod
-                    .enum(['user_messages'])
-                    .default(evaluationsCreateBodyEvaluationConfigThreeSourceDefault)
-                    .describe('Classify sentiment from user messages in the generation input.'),
-            }),
-        ])
-        .optional()
-        .describe(
-            "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
-        ),
-    output_type: zod
-        .enum(['boolean', 'sentiment'])
-        .describe('* `boolean` - Boolean (Pass/Fail)\n* `sentiment` - Sentiment')
-        .describe(
-            "Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.\n\n* `boolean` - Boolean (Pass/Fail)\n* `sentiment` - Sentiment"
-        ),
-    output_config: zod
-        .object({
-            allows_na: zod
-                .boolean()
-                .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
-                .describe('Whether the evaluation can return N/A for non-applicable generations.'),
-        })
-        .optional()
-        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
-    conditions: zod
-        .array(
-            zod
-                .object({
-                    id: zod
+export const EvaluationsCreateBody = () => zod
+    .object({
+        name: zod.string().max(evaluationsCreateBodyNameMax).describe('Name of the evaluation.'),
+        description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
+        directory_id: zod
+            .string()
+            .nullish()
+            .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
+        evaluation_type: zod
+            .enum(['llm_judge', 'hog', 'sentiment'])
+            .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis')
+            .describe(
+                "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
+            ),
+        evaluation_config: zod
+            .union([
+                zod.object({
+                    prompt: zod
                         .string()
-                        .max(evaluationsCreateBodyConditionsItemIdMax)
-                        .describe('Stable identifier for this condition set.'),
-                    rollout_percentage: zod
-                        .number()
-                        .min(evaluationsCreateBodyConditionsItemRolloutPercentageMin)
-                        .max(evaluationsCreateBodyConditionsItemRolloutPercentageMax)
-                        .default(evaluationsCreateBodyConditionsItemRolloutPercentageDefault)
+                        .min(1)
+                        .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                }),
+                zod.object({
+                    source: zod
+                        .string()
+                        .min(1)
                         .describe(
-                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                            'Hog source code. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
                         ),
-                    properties: zod
-                        .array(zod.record(zod.string(), zod.unknown()))
+                }),
+                zod.object({
+                    source: zod
+                        .enum(['user_messages'])
+                        .default(evaluationsCreateBodyEvaluationConfigThreeSourceDefault)
+                        .describe(
+                            "Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents."
+                        ),
+                }),
+            ])
+            .optional()
+            .describe(
+                "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
+            ),
+        output_type: zod
+            .enum(['boolean', 'sentiment'])
+            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
+            .describe(
+                "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
+            ),
+        output_config: zod
+            .object({
+                allows_na: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_failure: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    ),
+            })
+            .optional()
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem."
+            ),
+        conditions: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .max(evaluationsCreateBodyConditionsItemIdMax)
+                            .describe('Stable identifier for this condition set.'),
+                        rollout_percentage: zod
+                            .number()
+                            .min(evaluationsCreateBodyConditionsItemRolloutPercentageMin)
+                            .max(evaluationsCreateBodyConditionsItemRolloutPercentageMax)
+                            .default(evaluationsCreateBodyConditionsItemRolloutPercentageDefault)
+                            .describe(
+                                'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                            ),
+                        properties: zod
+                            .array(zod.record(zod.string(), zod.unknown()))
+                            .optional()
+                            .describe(
+                                'Property filters (event or person) that scope which generations match this condition set.'
+                            ),
+                    })
+                    .describe('A trigger condition set controlling which generations an evaluation runs on.')
+            )
+            .optional()
+            .describe(
+                'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
+            ),
+        target: zod
+            .enum(['generation', 'trace', 'session'])
+            .describe('\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session')
+            .optional()
+            .describe(
+                "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
+            ),
+        target_config: zod
+            .union([
+                zod.object({
+                    strategy: zod
+                        .enum(['fixed_window'])
+                        .describe('Wait a fixed window after the first matching generation, then evaluate.'),
+                    window_seconds: zod
+                        .number()
+                        .min(evaluationsCreateBodyTargetConfigOneWindowSecondsMin)
+                        .max(evaluationsCreateBodyTargetConfigOneWindowSecondsMax)
                         .optional()
                         .describe(
-                            'Property filters (event or person) that scope which generations match this condition set.'
+                            "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
                         ),
-                })
-                .describe('A trigger condition set controlling which generations an evaluation runs on.')
-        )
-        .optional()
-        .describe(
-            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
-        ),
-    model_configuration: zod
-        .union([
-            zod
-                .object({
-                    provider: zod
-                        .enum([
-                            'openai',
-                            'anthropic',
-                            'gemini',
-                            'openrouter',
-                            'fireworks',
-                            'azure_openai',
-                            'together_ai',
-                        ])
+                }),
+                zod.object({
+                    strategy: zod
+                        .enum(['inactivity'])
+                        .describe('Evaluate once the unit has had no new activity for the quiet period.'),
+                    quiet_period_seconds: zod
+                        .number()
+                        .min(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin)
+                        .max(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax)
+                        .optional()
                         .describe(
-                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                            "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
                         ),
-                    model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
-                    provider_key_id: zod.uuid().nullish(),
-                    provider_key_name: zod.string().nullish(),
-                })
-                .describe('Nested serializer for model configuration.'),
-            zod.null(),
-        ])
-        .optional(),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
-})
+                    max_age_seconds: zod
+                        .number()
+                        .min(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin)
+                        .max(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax)
+                        .optional()
+                        .describe(
+                            "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                        ),
+                }),
+            ])
+            .optional()
+            .describe(
+                "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
+            ),
+        model_configuration: zod
+            .union([
+                zod
+                    .object({
+                        provider: zod
+                            .enum([
+                                'openai',
+                                'anthropic',
+                                'gemini',
+                                'openrouter',
+                                'fireworks',
+                                'azure_openai',
+                                'together_ai',
+                                'minimax',
+                                'zeabur',
+                            ])
+                            .describe(
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                            ),
+                        model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
+                        provider_key_id: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
+                            ),
+                        provider_key_name: zod.string().nullish(),
+                    })
+                    .describe('Nested serializer for model configuration.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+            ),
+        deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
+    })
+    .describe('An evaluation that scores LLM generations, traces, or sessions.')
 
-export const EvaluationsRetrieveParams = /* @__PURE__ */ zod.object({
+export const EvaluationsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const EvaluationsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const EvaluationsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
-export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
 
+export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin = 10
+export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax = 604800
+
+export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
+export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax = 86400
+
+export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin = 60
+export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax = 604800
+
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
-export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(evaluationsPartialUpdateBodyNameMax).optional().describe('Name of the evaluation.'),
-    description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
-    enabled: zod
-        .boolean()
-        .optional()
-        .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
-    evaluation_type: zod
-        .enum(['llm_judge', 'hog', 'sentiment'])
-        .describe('* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis')
-        .optional()
-        .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis"
-        ),
-    evaluation_config: zod
-        .union([
-            zod.object({
-                prompt: zod
-                    .string()
-                    .min(1)
-                    .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
-            }),
-            zod.object({
-                source: zod
-                    .string()
-                    .min(1)
-                    .describe('Hog source code. Must return true (pass), false (fail), or null for N/A.'),
-            }),
-            zod.object({
-                source: zod
-                    .enum(['user_messages'])
-                    .default(evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault)
-                    .describe('Classify sentiment from user messages in the generation input.'),
-            }),
-        ])
-        .optional()
-        .describe(
-            "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
-        ),
-    output_type: zod
-        .enum(['boolean', 'sentiment'])
-        .describe('* `boolean` - Boolean (Pass/Fail)\n* `sentiment` - Sentiment')
-        .optional()
-        .describe(
-            "Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.\n\n* `boolean` - Boolean (Pass/Fail)\n* `sentiment` - Sentiment"
-        ),
-    output_config: zod
-        .object({
-            allows_na: zod
-                .boolean()
-                .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
-                .describe('Whether the evaluation can return N/A for non-applicable generations.'),
-        })
-        .optional()
-        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
-    conditions: zod
-        .array(
-            zod
-                .object({
-                    id: zod
+export const EvaluationsPartialUpdateBody = () => zod
+    .object({
+        name: zod.string().max(evaluationsPartialUpdateBodyNameMax).optional().describe('Name of the evaluation.'),
+        description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
+        directory_id: zod
+            .string()
+            .nullish()
+            .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
+        evaluation_type: zod
+            .enum(['llm_judge', 'hog', 'sentiment'])
+            .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis')
+            .optional()
+            .describe(
+                "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
+            ),
+        evaluation_config: zod
+            .union([
+                zod.object({
+                    prompt: zod
                         .string()
-                        .max(evaluationsPartialUpdateBodyConditionsItemIdMax)
-                        .describe('Stable identifier for this condition set.'),
-                    rollout_percentage: zod
-                        .number()
-                        .min(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin)
-                        .max(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax)
-                        .default(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault)
+                        .min(1)
+                        .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                }),
+                zod.object({
+                    source: zod
+                        .string()
+                        .min(1)
                         .describe(
-                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                            'Hog source code. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
                         ),
-                    properties: zod
-                        .array(zod.record(zod.string(), zod.unknown()))
+                }),
+                zod.object({
+                    source: zod
+                        .enum(['user_messages'])
+                        .default(evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault)
+                        .describe(
+                            "Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents."
+                        ),
+                }),
+            ])
+            .optional()
+            .describe(
+                "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
+            ),
+        output_type: zod
+            .enum(['boolean', 'sentiment'])
+            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
+            .optional()
+            .describe(
+                "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
+            ),
+        output_config: zod
+            .object({
+                allows_na: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_failure: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    ),
+            })
+            .optional()
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem."
+            ),
+        conditions: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .max(evaluationsPartialUpdateBodyConditionsItemIdMax)
+                            .describe('Stable identifier for this condition set.'),
+                        rollout_percentage: zod
+                            .number()
+                            .min(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin)
+                            .max(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax)
+                            .default(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault)
+                            .describe(
+                                'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                            ),
+                        properties: zod
+                            .array(zod.record(zod.string(), zod.unknown()))
+                            .optional()
+                            .describe(
+                                'Property filters (event or person) that scope which generations match this condition set.'
+                            ),
+                    })
+                    .describe('A trigger condition set controlling which generations an evaluation runs on.')
+            )
+            .optional()
+            .describe(
+                'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
+            ),
+        target: zod
+            .enum(['generation', 'trace', 'session'])
+            .describe('\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session')
+            .optional()
+            .describe(
+                "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
+            ),
+        target_config: zod
+            .union([
+                zod.object({
+                    strategy: zod
+                        .enum(['fixed_window'])
+                        .describe('Wait a fixed window after the first matching generation, then evaluate.'),
+                    window_seconds: zod
+                        .number()
+                        .min(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin)
+                        .max(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax)
                         .optional()
                         .describe(
-                            'Property filters (event or person) that scope which generations match this condition set.'
+                            "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
                         ),
-                })
-                .describe('A trigger condition set controlling which generations an evaluation runs on.')
-        )
-        .optional()
-        .describe(
-            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
-        ),
-    model_configuration: zod
-        .union([
-            zod
-                .object({
-                    provider: zod
-                        .enum([
-                            'openai',
-                            'anthropic',
-                            'gemini',
-                            'openrouter',
-                            'fireworks',
-                            'azure_openai',
-                            'together_ai',
-                        ])
+                }),
+                zod.object({
+                    strategy: zod
+                        .enum(['inactivity'])
+                        .describe('Evaluate once the unit has had no new activity for the quiet period.'),
+                    quiet_period_seconds: zod
+                        .number()
+                        .min(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin)
+                        .max(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax)
+                        .optional()
                         .describe(
-                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                            "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
                         ),
-                    model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
-                    provider_key_id: zod.uuid().nullish(),
-                    provider_key_name: zod.string().nullish(),
-                })
-                .describe('Nested serializer for model configuration.'),
-            zod.null(),
-        ])
-        .optional(),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
-})
+                    max_age_seconds: zod
+                        .number()
+                        .min(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin)
+                        .max(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
+                        .optional()
+                        .describe(
+                            "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
+                        ),
+                }),
+            ])
+            .optional()
+            .describe(
+                "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
+            ),
+        model_configuration: zod
+            .union([
+                zod
+                    .object({
+                        provider: zod
+                            .enum([
+                                'openai',
+                                'anthropic',
+                                'gemini',
+                                'openrouter',
+                                'fireworks',
+                                'azure_openai',
+                                'together_ai',
+                                'minimax',
+                                'zeabur',
+                            ])
+                            .describe(
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                            ),
+                        model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
+                        provider_key_id: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
+                            ),
+                        provider_key_name: zod.string().nullish(),
+                    })
+                    .describe('Nested serializer for model configuration.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+            ),
+        deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
+    })
+    .describe('An evaluation that scores LLM generations, traces, or sessions.')
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const EvaluationsDestroyParams = /* @__PURE__ */ zod.object({
+export const EvaluationsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
  * Test Hog evaluation code against sample events without saving.
  */
-export const EvaluationsTestHogCreateParams = /* @__PURE__ */ zod.object({
+export const EvaluationsTestHogCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -408,12 +1017,22 @@ export const evaluationsTestHogCreateBodySampleCountDefault = 5
 export const evaluationsTestHogCreateBodySampleCountMax = 10
 
 export const evaluationsTestHogCreateBodyAllowsNaDefault = false
+export const evaluationsTestHogCreateBodyTargetDefault = `generation`
+export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsDefault = 1800
+export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMin = 10
+export const evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMax = 7200
 
-export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
+export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsDefault = 3600
+export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMin = 10
+export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMax = 86400
+
+export const EvaluationsTestHogCreateBody = () => zod.object({
     source: zod
         .string()
         .min(1)
-        .describe('Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.'),
+        .describe(
+            'Hog source code to test. Must return true or false, or null for N\/A. Output settings determine which boolean counts as a failure.'
+        ),
     sample_count: zod
         .number()
         .min(1)
@@ -423,64 +1042,184 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
     allows_na: zod
         .boolean()
         .default(evaluationsTestHogCreateBodyAllowsNaDefault)
-        .describe('Whether the evaluation can return N/A for non-applicable generations.'),
+        .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
     conditions: zod
         .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe('Optional trigger conditions to filter which events are sampled.'),
+    target: zod
+        .enum(['generation', 'trace', 'session'])
+        .describe('\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session')
+        .default(evaluationsTestHogCreateBodyTargetDefault)
+        .describe(
+            "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
+        ),
+    target_config: zod
+        .object({
+            window_seconds: zod
+                .number()
+                .min(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMin)
+                .max(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsMax)
+                .default(evaluationsTestHogCreateBodyTargetConfigOneWindowSecondsDefault)
+                .describe('Aggregation window for trace samples, in seconds.'),
+            quiet_period_seconds: zod
+                .number()
+                .min(evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMin)
+                .max(evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMax)
+                .default(evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsDefault)
+                .describe(
+                    'For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.'
+                ),
+        })
+        .optional()
+        .describe('Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.'),
 })
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * Team-level clustering configuration (event filters for automated pipelines).
  */
-export const LlmAnalyticsClusteringJobsListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringConfigListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsClusteringJobsListQueryParams = /* @__PURE__ */ zod.object({
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const LlmAnalyticsClusteringConfigSetEventFiltersCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const LlmAnalyticsClusteringConfigSetEventFiltersCreateBody = () => zod.object({
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .describe(
+            'PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters.'
+        ),
+})
+
+/**
+ * CRUD for clustering job configurations (max 10 per team).
+ */
+export const LlmAnalyticsClusteringJobsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const LlmAnalyticsClusteringJobsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
-export const LlmAnalyticsClusteringJobsRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringJobsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const llmAnalyticsClusteringJobsCreateBodyNameMax = 100
+
+export const LlmAnalyticsClusteringJobsCreateBody = () => zod.object({
+    name: zod.string().max(llmAnalyticsClusteringJobsCreateBodyNameMax),
+    analysis_level: zod
+        .enum(['trace', 'generation', 'evaluation'])
+        .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .optional()
+        .describe('PostHog property filters that scope this clustering job. Empty array means no filters.'),
+    enabled: zod.boolean().optional(),
+})
+
+/**
+ * CRUD for clustering job configurations (max 10 per team).
+ */
+export const LlmAnalyticsClusteringJobsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this clustering job.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * CRUD for clustering job configurations (max 10 per team).
+ */
+export const LlmAnalyticsClusteringJobsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this clustering job.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const llmAnalyticsClusteringJobsPartialUpdateBodyNameMax = 100
+
+export const LlmAnalyticsClusteringJobsPartialUpdateBody = () => zod.object({
+    name: zod.string().max(llmAnalyticsClusteringJobsPartialUpdateBodyNameMax).optional(),
+    analysis_level: zod
+        .enum(['trace', 'generation', 'evaluation'])
+        .optional()
+        .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .optional()
+        .describe('PostHog property filters that scope this clustering job. Empty array means no filters.'),
+    enabled: zod.boolean().optional(),
+})
+
+/**
+ * CRUD for clustering job configurations (max 10 per team).
+ */
+export const LlmAnalyticsClusteringJobsDestroyParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this clustering job.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
  * Get the evaluation config for this team
  */
-export const LlmAnalyticsEvaluationConfigRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationConfigRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
  * Set the active provider key for evaluations
  */
-export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = () => zod.object({
     key_id: zod
         .string()
         .describe(
@@ -491,15 +1230,16 @@ export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = /* @__PURE__ *
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const LlmAnalyticsEvaluationReportsListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsEvaluationReportsListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsListQueryParams = () => zod.object({
+    evaluation: zod.string().optional().describe('Only return report configs for this evaluation UUID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -507,20 +1247,18 @@ export const LlmAnalyticsEvaluationReportsListQueryParams = /* @__PURE__ */ zod.
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const LlmAnalyticsEvaluationReportsCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
-
-export const llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax = 64
 
 export const llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMin = -2147483648
 export const llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMax = 2147483647
 
-export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMin = 10
+export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMin = 100
 export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMax = 10000
 
 export const llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMin = 60
@@ -528,33 +1266,20 @@ export const llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMax = 1440
 
 export const llmAnalyticsEvaluationReportsCreateBodyDailyRunCapMax = 24
 
-export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsCreateBody = () => zod.object({
     evaluation: zod.string().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
-        .describe('* `scheduled` - Scheduled\n* `every_n` - Every N')
+        .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
         ),
     rrule: zod
         .string()
         .optional()
         .describe(
-            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    starts_at: zod.iso
-        .datetime({ offset: true })
-        .nullish()
-        .describe(
-            "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    timezone_name: zod
-        .string()
-        .max(llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax)
-        .optional()
-        .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
+            "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     delivery_targets: zod
         .unknown()
@@ -569,7 +1294,6 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .optional()
         .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
     enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
@@ -582,7 +1306,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .max(llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMax)
         .nullish()
         .describe(
-            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'."
         ),
     cooldown_minutes: zod
         .number()
@@ -605,33 +1329,31 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const LlmAnalyticsEvaluationReportsRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation report.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const LlmAnalyticsEvaluationReportsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation report.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
-
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyTimezoneNameMax = 64
 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyMaxSampleSizeMin = -2147483648
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyMaxSampleSizeMax = 2147483647
 
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMin = 10
+export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMin = 100
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMax = 10000
 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMin = 60
@@ -639,33 +1361,19 @@ export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax = 
 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMax = 24
 
-export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    evaluation: zod.string().optional().describe('UUID of the evaluation this report config belongs to.'),
+export const LlmAnalyticsEvaluationReportsPartialUpdateBody = () => zod.object({
     frequency: zod
         .enum(['scheduled', 'every_n'])
-        .describe('* `scheduled` - Scheduled\n* `every_n` - Every N')
+        .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
         ),
     rrule: zod
         .string()
         .optional()
         .describe(
-            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    starts_at: zod.iso
-        .datetime({ offset: true })
-        .nullish()
-        .describe(
-            "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    timezone_name: zod
-        .string()
-        .max(llmAnalyticsEvaluationReportsPartialUpdateBodyTimezoneNameMax)
-        .optional()
-        .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
+            "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     delivery_targets: zod
         .unknown()
@@ -680,7 +1388,6 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .optional()
         .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
     enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
@@ -693,7 +1400,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMax)
         .nullish()
         .describe(
-            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'."
         ),
     cooldown_minutes: zod
         .number()
@@ -714,129 +1421,101 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
 })
 
 /**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const LlmAnalyticsEvaluationReportsDestroyParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this evaluation report.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-/**
  * Trigger immediate report generation.
  */
-export const LlmAnalyticsEvaluationReportsGenerateCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsGenerateCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation report.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
  * List report runs (history) for this report.
  */
-export const LlmAnalyticsEvaluationReportsRunsListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsRunsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation report.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsEvaluationReportsRunsListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsRunsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**
- *
- * Generate an AI-powered summary of evaluation results.
- *
- * This endpoint analyzes evaluation runs and identifies patterns in passing
- * and failing evaluations, providing actionable recommendations.
- *
- * Data is fetched server-side by evaluation ID to ensure data integrity.
- *
- * **Use Cases:**
- * - Understand why evaluations are passing or failing
- * - Identify systematic issues in LLM responses
- * - Get recommendations for improving response quality
- * - Review patterns across many evaluation runs at once
- *
+ * List available models, for one provider or for every supported provider.
  */
-export const LlmAnalyticsEvaluationSummaryCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsModelsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const llmAnalyticsEvaluationSummaryCreateBodyFilterDefault = `all`
-export const llmAnalyticsEvaluationSummaryCreateBodyGenerationIdsMax = 250
-
-export const llmAnalyticsEvaluationSummaryCreateBodyForceRefreshDefault = false
-
-export const LlmAnalyticsEvaluationSummaryCreateBody = /* @__PURE__ */ zod
-    .object({
-        evaluation_id: zod.string().describe('UUID of the evaluation config to summarize'),
-        filter: zod
-            .enum(['all', 'pass', 'fail', 'na'])
-            .describe('* `all` - all\n* `pass` - pass\n* `fail` - fail\n* `na` - na')
-            .default(llmAnalyticsEvaluationSummaryCreateBodyFilterDefault)
-            .describe(
-                "Filter type to apply ('all', 'pass', 'fail', or 'na')\n\n* `all` - all\n* `pass` - pass\n* `fail` - fail\n* `na` - na"
-            ),
-        generation_ids: zod
-            .array(zod.string())
-            .max(llmAnalyticsEvaluationSummaryCreateBodyGenerationIdsMax)
-            .optional()
-            .describe('Optional: specific generation IDs to include in summary (max 250)'),
-        force_refresh: zod
-            .boolean()
-            .default(llmAnalyticsEvaluationSummaryCreateBodyForceRefreshDefault)
-            .describe('If true, bypass cache and generate a fresh summary'),
-    })
-    .describe('Request serializer for evaluation summary - accepts IDs only, fetches data server-side.')
-
-/**
- * List available models for a provider.
- */
-export const LlmAnalyticsModelsRetrieveParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsModelsRetrieveQueryParams = () => zod.object({
     key_id: zod
         .string()
         .optional()
         .describe(
-            'Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.'
+            'Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.'
         ),
     provider: zod
-        .enum(['anthropic', 'azure_openai', 'fireworks', 'gemini', 'openai', 'openrouter', 'together_ai'])
-        .describe('LLM provider to list models for. Must be one of the supported providers.'),
+        .enum([
+            'anthropic',
+            'azure_openai',
+            'fireworks',
+            'gemini',
+            'minimax',
+            'openai',
+            'openrouter',
+            'together_ai',
+            'zeabur',
+        ])
+        .optional()
+        .describe(
+            'LLM provider to list models for. Omit it to list every supported provider and its models in one call.'
+        ),
 })
 
-export const LlmAnalyticsReviewQueueItemsListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsProviderKeysListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsReviewQueueItemsListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsProviderKeysListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const LlmAnalyticsProviderKeysRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this llm provider key.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const LlmAnalyticsReviewQueueItemsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const LlmAnalyticsReviewQueueItemsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod.string().optional().describe('Order by `created_at` or `updated_at`.'),
@@ -846,17 +1525,17 @@ export const LlmAnalyticsReviewQueueItemsListQueryParams = /* @__PURE__ */ zod.o
     trace_id__in: zod.string().optional().describe('Filter by multiple trace IDs separated by commas.'),
 })
 
-export const LlmAnalyticsReviewQueueItemsCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const llmAnalyticsReviewQueueItemsCreateBodyTraceIdMax = 255
 
-export const LlmAnalyticsReviewQueueItemsCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsCreateBody = () => zod.object({
     queue_id: zod.string().describe('Review queue ID that should own this pending trace.'),
     trace_id: zod
         .string()
@@ -864,46 +1543,46 @@ export const LlmAnalyticsReviewQueueItemsCreateBody = /* @__PURE__ */ zod.object
         .describe('Trace ID to add to the selected review queue.'),
 })
 
-export const LlmAnalyticsReviewQueueItemsRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue item.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsReviewQueueItemsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue item.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsReviewQueueItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsPartialUpdateBody = () => zod.object({
     queue_id: zod.string().optional().describe('Review queue ID that should own this pending trace.'),
 })
 
-export const LlmAnalyticsReviewQueueItemsDestroyParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue item.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsReviewQueuesListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsReviewQueuesListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     name: zod.string().optional(),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -911,41 +1590,41 @@ export const LlmAnalyticsReviewQueuesListQueryParams = /* @__PURE__ */ zod.objec
     search: zod.string().optional().describe('Search review queue names.'),
 })
 
-export const LlmAnalyticsReviewQueuesCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const llmAnalyticsReviewQueuesCreateBodyNameMax = 255
 
-export const LlmAnalyticsReviewQueuesCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesCreateBody = () => zod.object({
     name: zod.string().max(llmAnalyticsReviewQueuesCreateBodyNameMax).describe('Human-readable queue name.'),
 })
 
-export const LlmAnalyticsReviewQueuesRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsReviewQueuesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const llmAnalyticsReviewQueuesPartialUpdateBodyNameMax = 255
 
-export const LlmAnalyticsReviewQueuesPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(llmAnalyticsReviewQueuesPartialUpdateBodyNameMax)
@@ -953,24 +1632,24 @@ export const LlmAnalyticsReviewQueuesPartialUpdateBody = /* @__PURE__ */ zod.obj
         .describe('Human-readable queue name.'),
 })
 
-export const LlmAnalyticsReviewQueuesDestroyParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsScoreDefinitionsListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsScoreDefinitionsListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsListQueryParams = () => zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state.'),
     kind: zod.string().optional().describe('Filter by scorer kind.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
@@ -979,11 +1658,11 @@ export const LlmAnalyticsScoreDefinitionsListQueryParams = /* @__PURE__ */ zod.o
     search: zod.string().optional().describe('Search scorers by name or description.'),
 })
 
-export const LlmAnalyticsScoreDefinitionsCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -994,14 +1673,14 @@ export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemKeyMax
 
 export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
-export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
     description: zod.string().nullish().describe('Optional human-readable description.'),
     kind: zod
         .enum(['categorical', 'numeric', 'boolean'])
-        .describe('* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean')
+        .describe('\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean')
         .describe(
-            'Scorer kind. This cannot be changed after creation.\n\n* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean'
+            'Scorer kind. This cannot be changed after creation.\n\n\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean'
         ),
     archived: zod
         .boolean()
@@ -1028,10 +1707,10 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
                     .describe('Ordered categorical options available to the scorer.'),
                 selection_mode: zod
                     .enum(['single', 'multiple'])
-                    .describe('* `single` - single\n* `multiple` - multiple')
+                    .describe('\* `single` - single\n\* `multiple` - multiple')
                     .optional()
                     .describe(
-                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple'
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n\* `single` - single\n\* `multiple` - multiple'
                     ),
                 min_selections: zod
                     .number()
@@ -1064,27 +1743,27 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
         .describe('Initial immutable scorer configuration.'),
 })
 
-export const LlmAnalyticsScoreDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this score definition.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsScoreDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this score definition.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
 
-export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax)
@@ -1094,12 +1773,12 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     archived: zod.boolean().optional().describe('Whether the scorer is archived.'),
 })
 
-export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this score definition.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1107,7 +1786,7 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptions
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
-export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object({
     config: zod
         .union([
             zod.object({
@@ -1129,10 +1808,10 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
                     .describe('Ordered categorical options available to the scorer.'),
                 selection_mode: zod
                     .enum(['single', 'multiple'])
-                    .describe('* `single` - single\n* `multiple` - multiple')
+                    .describe('\* `single` - single\n\* `multiple` - multiple')
                     .optional()
                     .describe(
-                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n* `single` - single\n* `multiple` - multiple'
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n\* `single` - single\n\* `multiple` - multiple'
                     ),
                 min_selections: zod
                     .number()
@@ -1172,43 +1851,6 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
         ),
 })
 
-export const LlmAnalyticsSentimentCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const llmAnalyticsSentimentCreateBodyIdsMax = 5
-
-export const llmAnalyticsSentimentCreateBodyAnalysisLevelDefault = `trace`
-export const llmAnalyticsSentimentCreateBodyForceRefreshDefault = false
-
-export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.string())
-        .min(1)
-        .max(llmAnalyticsSentimentCreateBodyIdsMax)
-        .describe('Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).'),
-    analysis_level: zod
-        .enum(['trace', 'generation'])
-        .describe('* `trace` - trace\n* `generation` - generation')
-        .default(llmAnalyticsSentimentCreateBodyAnalysisLevelDefault)
-        .describe(
-            "Whether the IDs are 'trace' IDs or 'generation' IDs.\n\n* `trace` - trace\n* `generation` - generation"
-        ),
-    force_refresh: zod
-        .boolean()
-        .default(llmAnalyticsSentimentCreateBodyForceRefreshDefault)
-        .describe('If true, bypass cache and reclassify.'),
-    date_from: zod
-        .string()
-        .nullish()
-        .describe("Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d."),
-    date_to: zod.string().nullish().describe('End of date range for the lookup. Defaults to now.'),
-})
-
 /**
  *
  * Generate an AI-powered summary of an LLM trace or event.
@@ -1233,31 +1875,31 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
  * The response includes the structured summary, the text representation, and metadata.
  *
  */
-export const LlmAnalyticsSummarizationCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsSummarizationCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const llmAnalyticsSummarizationCreateBodyModeDefault = `minimal`
 export const llmAnalyticsSummarizationCreateBodyForceRefreshDefault = false
 
-export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsSummarizationCreateBody = () => zod.object({
     summarize_type: zod
         .enum(['trace', 'event'])
-        .describe('* `trace` - trace\n* `event` - event')
+        .describe('\* `trace` - trace\n\* `event` - event')
         .optional()
         .describe(
-            'Type of entity to summarize. Inferred automatically when using trace_id or generation_id.\n\n* `trace` - trace\n* `event` - event'
+            'Type of entity to summarize. Inferred automatically when using trace_id or generation_id.\n\n\* `trace` - trace\n\* `event` - event'
         ),
     mode: zod
         .enum(['minimal', 'detailed'])
-        .describe('* `minimal` - minimal\n* `detailed` - detailed')
+        .describe('\* `minimal` - minimal\n\* `detailed` - detailed')
         .default(llmAnalyticsSummarizationCreateBodyModeDefault)
         .describe(
-            "Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points\n\n* `minimal` - minimal\n* `detailed` - detailed"
+            "Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points\n\n\* `minimal` - minimal\n\* `detailed` - detailed"
         ),
     data: zod
         .unknown()
@@ -1289,15 +1931,15 @@ export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
     date_to: zod.string().nullish().describe('End of date range for ID-based lookup. Defaults to now.'),
 })
 
-export const LlmAnalyticsTraceReviewsListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsTraceReviewsListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsListQueryParams = () => zod.object({
     definition_id: zod.string().optional().describe('Filter by a stable scorer definition ID.'),
     definition_id__in: zod
         .string()
@@ -1311,11 +1953,11 @@ export const LlmAnalyticsTraceReviewsListQueryParams = /* @__PURE__ */ zod.objec
     trace_id__in: zod.string().optional().describe('Filter by multiple trace IDs separated by commas.'),
 })
 
-export const LlmAnalyticsTraceReviewsCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1325,7 +1967,7 @@ export const llmAnalyticsTraceReviewsCreateBodyScoresItemCategoricalValuesItemMa
 
 export const llmAnalyticsTraceReviewsCreateBodyScoresItemNumericValueRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,6})?$')
 
-export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsCreateBody = () => zod.object({
     trace_id: zod
         .string()
         .max(llmAnalyticsTraceReviewsCreateBodyTraceIdMax)
@@ -1336,7 +1978,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
             zod.object({
                 definition_id: zod.string().describe('Stable scorer definition ID.'),
                 definition_version_id: zod
-                    .uuid()
+                    .string()
                     .nullish()
                     .describe("Optional immutable scorer version ID. Defaults to the scorer's current version."),
                 categorical_values: zod
@@ -1354,28 +1996,28 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Full desired score set for this review. Omit scorers you want to leave blank.'),
     queue_id: zod
-        .uuid()
+        .string()
         .nullish()
         .describe(
             'Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.'
         ),
 })
 
-export const LlmAnalyticsTraceReviewsRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this trace review.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmAnalyticsTraceReviewsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this trace review.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1387,7 +2029,7 @@ export const llmAnalyticsTraceReviewsPartialUpdateBodyScoresItemNumericValueRegE
     '^-?\\d{0,6}(?:\\.\\d{0,6})?$'
 )
 
-export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsPartialUpdateBody = () => zod.object({
     trace_id: zod
         .string()
         .max(llmAnalyticsTraceReviewsPartialUpdateBodyTraceIdMax)
@@ -1399,7 +2041,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
             zod.object({
                 definition_id: zod.string().describe('Stable scorer definition ID.'),
                 definition_version_id: zod
-                    .uuid()
+                    .string()
                     .nullish()
                     .describe("Optional immutable scorer version ID. Defaults to the scorer's current version."),
                 categorical_values: zod
@@ -1419,82 +2061,122 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
         .optional()
         .describe('Full desired score set for this review. Omit scorers you want to leave blank.'),
     queue_id: zod
-        .uuid()
+        .string()
         .nullish()
         .describe(
             'Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.'
         ),
 })
 
-export const LlmAnalyticsTraceReviewsDestroyParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this trace review.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const LlmPromptsListParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const llmPromptsListQueryContentDefault = `full`
+export const llmPromptsListQueryLabelMax = 128
 
-export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
+export const llmPromptsListQueryOrderByDefault = `-created_at`
+
+export const LlmPromptsListQueryParams = () => zod.object({
     content: zod
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsListQueryContentDefault)
         .describe(
-            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
         ),
     created_by_id: zod.number().optional().describe('Filter prompts by the ID of the user who created them.'),
+    label: zod
+        .string()
+        .min(1)
+        .max(llmPromptsListQueryLabelMax)
+        .optional()
+        .describe(
+            "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order_by: zod
+        .string()
+        .min(1)
+        .default(llmPromptsListQueryOrderByDefault)
+        .describe(
+            "Field to sort the prompt list by. Prefix with '-' for descending order.\n\n\* `name` - name\n\* `-name` - -name\n\* `created_at` - created_at\n\* `-created_at` - -created_at\n\* `updated_at` - updated_at\n\* `-updated_at` - -updated_at\n\* `version` - version\n\* `-version` - -version\n\* `latest_version` - latest_version\n\* `-latest_version` - -latest_version\n\* `version_count` - version_count\n\* `-version_count` - -version_count\n\* `first_version_created_at` - first_version_created_at\n\* `-first_version_created_at` - -first_version_created_at\n\* `prompt_size_bytes` - prompt_size_bytes\n\* `-prompt_size_bytes` - -prompt_size_bytes"
+        ),
     search: zod.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
 })
 
-export const LlmPromptsCreateParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const llmPromptsCreateBodyNameMax = 255
 
-export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
+export const llmPromptsCreateBodyVersionDescriptionMax = 400
+
+export const LlmPromptsCreateBody = () => zod.object({
     name: zod
         .string()
         .max(llmPromptsCreateBodyNameMax)
         .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
     prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
+    config: zod
+        .looseObject({})
+        .nullish()
+        .describe(
+            "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt."
+        ),
+    version_description: zod
+        .string()
+        .max(llmPromptsCreateBodyVersionDescriptionMax)
+        .nullish()
+        .describe('Optional note describing what changed in this version. Set when the version is published.'),
 })
 
-export const llmPromptsNameRetrievePathPromptNameRegExp = new RegExp('^[^/]+$')
+export const llmPromptsNameRetrievePathPromptNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmPromptsNameRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsNameRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     prompt_name: zod.string().regex(llmPromptsNameRetrievePathPromptNameRegExp),
 })
 
 export const llmPromptsNameRetrieveQueryContentDefault = `full`
+export const llmPromptsNameRetrieveQueryLabelMax = 128
 
-export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsNameRetrieveQueryParams = () => zod.object({
     content: zod
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsNameRetrieveQueryContentDefault)
         .describe(
-            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
+        ),
+    label: zod
+        .string()
+        .min(1)
+        .max(llmPromptsNameRetrieveQueryLabelMax)
+        .optional()
+        .describe(
+            "Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version."
         ),
     version: zod
         .number()
@@ -1503,18 +2185,20 @@ export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .describe('Specific prompt version to fetch. If omitted, the latest version is returned.'),
 })
 
-export const llmPromptsNamePartialUpdatePathPromptNameRegExp = new RegExp('^[^/]+$')
+export const llmPromptsNamePartialUpdatePathPromptNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmPromptsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsNamePartialUpdateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     prompt_name: zod.string().regex(llmPromptsNamePartialUpdatePathPromptNameRegExp),
 })
 
-export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
+export const llmPromptsNamePartialUpdateBodyVersionDescriptionMax = 400
+
+export const LlmPromptsNamePartialUpdateBody = () => zod.object({
     prompt: zod
         .unknown()
         .optional()
@@ -1528,29 +2212,40 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            "List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt."
+            "List of find\/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt."
+        ),
+    config: zod
+        .looseObject({})
+        .nullish()
+        .describe(
+            "JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt."
         ),
     base_version: zod
         .number()
         .min(1)
         .optional()
         .describe('Latest version you are editing from. Used for optimistic concurrency checks.'),
+    version_description: zod
+        .string()
+        .max(llmPromptsNamePartialUpdateBodyVersionDescriptionMax)
+        .optional()
+        .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
-export const llmPromptsNameDuplicateCreatePathPromptNameRegExp = new RegExp('^[^/]+$')
+export const llmPromptsNameDuplicateCreatePathPromptNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmPromptsNameDuplicateCreateParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsNameDuplicateCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     prompt_name: zod.string().regex(llmPromptsNameDuplicateCreatePathPromptNameRegExp),
 })
 
 export const llmPromptsNameDuplicateCreateBodyNewNameMax = 255
 
-export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
+export const LlmPromptsNameDuplicateCreateBody = () => zod.object({
     new_name: zod
         .string()
         .max(llmPromptsNameDuplicateCreateBodyNewNameMax)
@@ -1559,15 +2254,50 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const TaggersListParams = /* @__PURE__ */ zod.object({
+export const llmPromptsNameLabelsUpdatePathLabelNameRegExp = new RegExp('^[^\/]+$')
+export const llmPromptsNameLabelsUpdatePathPromptNameRegExp = new RegExp('^[^\/]+$')
+
+export const LlmPromptsNameLabelsUpdateParams = () => zod.object({
+    label_name: zod.string().regex(llmPromptsNameLabelsUpdatePathLabelNameRegExp),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    prompt_name: zod.string().regex(llmPromptsNameLabelsUpdatePathPromptNameRegExp),
+})
+
+export const LlmPromptsNameLabelsUpdateBody = () => zod.object({
+    version: zod
+        .number()
+        .min(1)
+        .describe(
+            'Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.'
         ),
 })
 
-export const TaggersListQueryParams = /* @__PURE__ */ zod.object({
+export const llmPromptsNameLabelsDestroyPathLabelNameRegExp = new RegExp('^[^\/]+$')
+export const llmPromptsNameLabelsDestroyPathPromptNameRegExp = new RegExp('^[^\/]+$')
+
+export const LlmPromptsNameLabelsDestroyParams = () => zod.object({
+    label_name: zod.string().regex(llmPromptsNameLabelsDestroyPathLabelNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    prompt_name: zod.string().regex(llmPromptsNameLabelsDestroyPathPromptNameRegExp),
+})
+
+export const TaggersListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const TaggersListQueryParams = () => zod.object({
     enabled: zod.boolean().optional().describe('Filter by enabled status'),
     id__in: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
@@ -1576,16 +2306,16 @@ export const TaggersListQueryParams = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe(
-            'Ordering\n\n* `created_at` - Created At\n* `-created_at` - Created At (descending)\n* `updated_at` - Updated At\n* `-updated_at` - Updated At (descending)\n* `name` - Name\n* `-name` - Name (descending)'
+            'Ordering\n\n\* `created_at` - Created At\n\* `-created_at` - Created At (descending)\n\* `updated_at` - Updated At\n\* `-updated_at` - Updated At (descending)\n\* `name` - Name\n\* `-name` - Name (descending)'
         ),
     search: zod.string().optional().describe('Search in name or description'),
 })
 
-export const TaggersCreateParams = /* @__PURE__ */ zod.object({
+export const TaggersCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1613,13 +2343,13 @@ export const taggersCreateBodyConditionsItemRolloutPercentageMax = 100
 
 export const taggersCreateBodyModelConfigurationOneModelMax = 100
 
-export const TaggersCreateBody = /* @__PURE__ */ zod.object({
+export const TaggersCreateBody = () => zod.object({
     name: zod.string().max(taggersCreateBodyNameMax),
     description: zod.string().optional(),
     enabled: zod.boolean().optional(),
     tagger_type: zod
         .enum(['llm', 'hog'])
-        .describe('* `llm` - LLM\n* `hog` - Hog')
+        .describe('\* `llm` - LLM\n\* `hog` - Hog')
         .default(taggersCreateBodyTaggerTypeDefault),
     tagger_config: zod
         .union([
@@ -1695,22 +2425,32 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.object({
                 provider: zod
-                    .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+                    .enum([
+                        'openai',
+                        'anthropic',
+                        'gemini',
+                        'openrouter',
+                        'fireworks',
+                        'azure_openai',
+                        'together_ai',
+                        'minimax',
+                        'zeabur',
+                    ])
                     .describe(
-                        '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
                     ),
                 model: zod
                     .string()
                     .max(taggersCreateBodyModelConfigurationOneModelMax)
                     .describe('Provider model identifier to use for this tagger.'),
                 provider_key_id: zod
-                    .uuid()
+                    .string()
                     .nullish()
                     .describe(
-                        'Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.'
+                        'Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit\/null when no provider key should be pinned.'
                     ),
             }),
             zod.null(),
@@ -1721,11 +2461,11 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Test Hog tagger code against sample events without saving.
  */
-export const TaggersTestHogCreateParams = /* @__PURE__ */ zod.object({
+export const TaggersTestHogCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1737,7 +2477,7 @@ export const taggersTestHogCreateBodyTagsItemNameMax = 100
 export const taggersTestHogCreateBodyTagsItemDescriptionDefault = ``
 export const taggersTestHogCreateBodyTagsItemDescriptionMax = 500
 
-export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
+export const TaggersTestHogCreateBody = () => zod.object({
     source: zod
         .string()
         .min(1)

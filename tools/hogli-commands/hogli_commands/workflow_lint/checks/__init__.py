@@ -16,7 +16,10 @@ from .cache_writes import CacheWriteGateCheck
 from .checkout_full_depth import CheckoutFullDepthCheck
 from .dorny_negation import DornyNegationCheck
 from .job_timeouts import JobTimeoutsCheck
+from .mcp_filter_coverage import McpFilterCoverageCheck
 from .pr_concurrency import PrConcurrencyCheck
+from .pr_event_fanout import PrEventFanoutCheck
+from .required_gates import RequiredGateCheck
 from .semgrep_services_coverage import SemgrepServicesCoverageCheck
 
 CHECKS: list[WorkflowCheck] = [
@@ -26,6 +29,9 @@ CHECKS: list[WorkflowCheck] = [
     SemgrepServicesCoverageCheck(),
     CheckoutFullDepthCheck(),
     CacheWriteGateCheck(),
+    RequiredGateCheck(),
+    PrEventFanoutCheck(),
+    McpFilterCoverageCheck(),
 ]
 
 

@@ -35,7 +35,7 @@ class ButtonTile(UUIDModel):
         max_length=10, choices=[("primary", "Primary"), ("secondary", "Secondary")], default="primary"
     )
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
         "posthog.User",
@@ -45,7 +45,7 @@ class ButtonTile(UUIDModel):
         related_name="modified_button_tiles",
     )
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     class Meta:
         db_table = "posthog_buttontile"
@@ -76,6 +76,7 @@ class DashboardTile(models.Model):
         on_delete=models.CASCADE,
         related_name="dashboard_tiles",
         null=True,
+        db_index=False,
     )
     widget = models.ForeignKey(
         "dashboards.DashboardWidget",
@@ -89,7 +90,7 @@ class DashboardTile(models.Model):
     # Auto-populated in save() when omitted. The index is created concurrently
     # outside Django state (migration 0004) and not declared here, so db_index=False
     # keeps state and DB in sync.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False, related_name="+")
 
     # Tile layout and style
     layouts = models.JSONField(default=dict)
@@ -160,7 +161,7 @@ class DashboardTile(models.Model):
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
             if has_no_filters_hash and self.insight.filters != {}:
-                from products.product_analytics.backend.models.insight import generate_insight_filters_hash
+                from products.product_analytics.backend.facade.models import generate_insight_filters_hash
 
                 self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
 
@@ -168,13 +169,6 @@ class DashboardTile(models.Model):
                     update_fields.append("filters_hash")
 
         super().save(*args, **kwargs)
-
-    @property
-    def caching_state(self):
-        # uses .all and not .first so that prefetching can be used
-        for state in self.caching_states.all():
-            return state
-        return None
 
     def clean(self):
         super().clean()
@@ -275,12 +269,17 @@ class DashboardTile(models.Model):
     def sort_tiles_by_layout(
         tiles: list["DashboardTile"] | QuerySet["DashboardTile"], layout_size: str = "sm"
     ) -> list["DashboardTile"]:
-        """Sort tiles by their layout position (y, then x)."""
+        """Sort tiles by their layout position (y, then x), then by id.
+
+        Tiles without a layout all fall back to the same position, so without the id
+        tiebreak their order would be whatever the database happened to return.
+        """
         return sorted(
             tiles,
             key=lambda tile: (
                 tile.layouts.get(layout_size, {}).get("y", 100),
                 tile.layouts.get(layout_size, {}).get("x", 100),
+                tile.pk or 0,
             ),
         )
 

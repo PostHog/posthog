@@ -56,15 +56,72 @@ export interface KnowledgeSearchResultApi {
     readonly content: string
 }
 
+export interface KnowledgeGapSuggestionApi {
+    /** Unique identifier for this gap suggestion. */
+    readonly id: string
+    /** The ticket that surfaced this gap. */
+    readonly ticket_id: string
+    /** Raw topic the AI couldn't answer. */
+    readonly topic: string
+    /** Normalized cluster key for grouping. */
+    readonly normalized_topic: string
+    /** Ticket classification type. */
+    readonly ticket_type: string
+    /** Pipeline outcome that produced this gap. */
+    readonly outcome: string
+    /** Current status: pending, accepted, or dismissed. */
+    readonly status: string
+    /**
+     * Knowledge source created to fill this gap.
+     * @nullable
+     */
+    readonly resolved_source_id: string | null
+    /** When this gap was first recorded. */
+    readonly created_at: string
+}
+
+export interface PaginatedKnowledgeGapSuggestionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: KnowledgeGapSuggestionApi[]
+}
+
+export interface GapActionApi {
+    /**
+     * Optional knowledge source to link when accepting.
+     * @nullable
+     */
+    resolved_source_id?: string | null
+}
+
+export interface GapTopicActionApi {
+    /** The normalized topic key identifying the gap cluster to act on. */
+    normalized_topic: string
+    /**
+     * Optional knowledge source to link when accepting.
+     * @nullable
+     */
+    resolved_source_id?: string | null
+}
+
+export interface GapTopicActionResultApi {
+    /** The normalized topic cluster that was acted on. */
+    readonly normalized_topic: string
+    /** Number of gap rows whose status changed. */
+    readonly updated: number
+}
+
 /**
  * * `text` - Text
  * * `url` - URL
  * * `file` - File
  */
-export type KnowledgeSourceSourceTypeEnumApi =
-    (typeof KnowledgeSourceSourceTypeEnumApi)[keyof typeof KnowledgeSourceSourceTypeEnumApi]
+export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
 
-export const KnowledgeSourceSourceTypeEnumApi = {
+export const SourceTypeEnumApi = {
     Text: 'text',
     Url: 'url',
     File: 'file',
@@ -76,10 +133,9 @@ export const KnowledgeSourceSourceTypeEnumApi = {
  * * `ready` - Ready
  * * `error` - Error
  */
-export type KnowledgeSourceStatusEnumApi =
-    (typeof KnowledgeSourceStatusEnumApi)[keyof typeof KnowledgeSourceStatusEnumApi]
+export type SourceStatusEnumApi = (typeof SourceStatusEnumApi)[keyof typeof SourceStatusEnumApi]
 
-export const KnowledgeSourceStatusEnumApi = {
+export const SourceStatusEnumApi = {
     Pending: 'pending',
     Processing: 'processing',
     Ready: 'ready',
@@ -91,9 +147,9 @@ export const KnowledgeSourceStatusEnumApi = {
  * * `not_modified` - Not modified
  * * `error` - Error
  */
-export type LastRefreshStatusEnumApi = (typeof LastRefreshStatusEnumApi)[keyof typeof LastRefreshStatusEnumApi]
+export type RefreshStatusEnumApi = (typeof RefreshStatusEnumApi)[keyof typeof RefreshStatusEnumApi]
 
-export const LastRefreshStatusEnumApi = {
+export const RefreshStatusEnumApi = {
     Success: 'success',
     NotModified: 'not_modified',
     Error: 'error',
@@ -143,8 +199,8 @@ export interface KnowledgeSourceApi {
     readonly id: string
     readonly team_id: number
     readonly name: string
-    readonly source_type: KnowledgeSourceSourceTypeEnumApi
-    readonly status: KnowledgeSourceStatusEnumApi
+    readonly source_type: SourceTypeEnumApi
+    readonly status: SourceStatusEnumApi
     readonly error_message: string
     /** Number of documents belonging to this source. */
     readonly document_count: number
@@ -156,7 +212,7 @@ export interface KnowledgeSourceApi {
     readonly source_url: string
     /** @nullable */
     readonly last_refresh_at: string | null
-    readonly last_refresh_status: LastRefreshStatusEnumApi
+    readonly last_refresh_status: RefreshStatusEnumApi
     readonly last_refresh_error: string
     readonly refresh_interval: RefreshIntervalEnumApi
     /**
@@ -238,6 +294,21 @@ export type BusinessKnowledgeDocumentsSearchListParams = {
      * When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.
      */
     rerank?: boolean
+}
+
+export type BusinessKnowledgeGapSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
+     */
+    ticket_id?: string
 }
 
 export type BusinessKnowledgeSourcesListParams = {

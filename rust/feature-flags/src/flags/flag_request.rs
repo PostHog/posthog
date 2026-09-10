@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use bytes::Bytes;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -11,6 +12,8 @@ use crate::handler::flags::EvaluationRuntime;
 /// This limit ensures compatibility with batch export destinations (Redshift, Postgres)
 /// which use VARCHAR(200). The main persons tables allow up to 400 chars.
 pub const MAX_DISTINCT_ID_LEN: usize = 200;
+
+const MAX_LIB_LEN: usize = 64;
 
 fn deserialize_distinct_id<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
@@ -60,6 +63,13 @@ pub struct FlagRequest {
         default
     )]
     pub distinct_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_at: Option<DateTime<Utc>>,
+    /// Skips the MaxMind lookup that adds `$geoip_*` properties to `person_properties`.
+    /// Only affects keys the request didn't send, since request-supplied `$geoip_*` values take
+    /// precedence over the lookup either way. With the lookup skipped, a flag targeting
+    /// `$geoip_*` falls back to the person's stored properties rather than matching on nothing.
+    /// See `docs/internal/feature-flags/rust-service-overview.md`.
     pub geoip_disable: Option<bool>,
     // Web and mobile clients can configure this parameter to disable flags for a request.
     // It's mostly used for folks who want to save money on flag evaluations while still using
@@ -91,6 +101,14 @@ pub struct FlagRequest {
 }
 
 impl FlagRequest {
+    pub fn resolve_sent_at(&self, query_sent_at: Option<i64>) -> Option<u64> {
+        self.sent_at
+            .as_ref()
+            .map(DateTime::timestamp_millis)
+            .and_then(|sent_at| u64::try_from(sent_at).ok())
+            .or_else(|| query_sent_at.and_then(|sent_at| u64::try_from(sent_at).ok()))
+    }
+
     /// Takes a request payload and tries to read it.
     /// Only supports base64 encoded payloads or uncompressed utf-8 as json.
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
@@ -158,6 +176,25 @@ impl FlagRequest {
         }
     }
 
+    fn extract_person_property_string(&self, key: &str) -> Option<String> {
+        self.person_properties
+            .as_ref()
+            .and_then(|properties| properties.get(key))
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+
+    pub fn extract_lib(&self) -> Option<String> {
+        self.extract_person_property_string("$lib")
+            .map(|lib| lib.chars().take(MAX_LIB_LEN).collect())
+    }
+
+    pub fn extract_lib_version(&self) -> Option<String> {
+        self.extract_person_property_string("$lib_version")
+            .map(|version| version.chars().take(MAX_LIB_LEN).collect())
+    }
+
     /// Extracts the token from the request.
     /// If the token is missing or empty, an error is returned.
     pub fn extract_token(&self) -> Result<String, FlagError> {
@@ -201,17 +238,10 @@ impl FlagRequest {
     /// person_properties.$device_id for SDKs that only send it as a property.
     pub fn extract_device_id(&self) -> Option<String> {
         self.device_id
-            .as_ref()
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .or_else(|| {
-                self.person_properties
-                    .as_ref()
-                    .and_then(|props| props.get("$device_id"))
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-            })
+            .as_deref()
+            .filter(|device_id| !device_id.is_empty())
+            .map(str::to_string)
+            .or_else(|| self.extract_person_property_string("$device_id"))
     }
 
     /// Checks if feature flags should be disabled for this request.
@@ -230,7 +260,7 @@ mod tests {
     use crate::api::errors::FlagError;
 
     use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
-    use crate::flags::flag_request::{FlagRequest, MAX_DISTINCT_ID_LEN};
+    use crate::flags::flag_request::{FlagRequest, MAX_DISTINCT_ID_LEN, MAX_LIB_LEN};
     use crate::flags::flag_service::FlagService;
     use crate::utils::test_utils::{
         insert_new_team_in_redis, setup_hypercache_reader, setup_pg_reader_client,
@@ -495,6 +525,31 @@ mod tests {
                 case.name
             );
         }
+    }
+
+    #[test]
+    fn test_resolve_sent_at_prefers_body_and_falls_back_to_query() {
+        assert_eq!(
+            FlagRequest {
+                sent_at: Some("2023-11-14T22:13:20Z".parse().unwrap()),
+                ..Default::default()
+            }
+            .resolve_sent_at(Some(1_600_000_000_000)),
+            Some(1_700_000_000_000)
+        );
+        assert_eq!(
+            FlagRequest::default().resolve_sent_at(Some(1_600_000_000_000)),
+            Some(1_600_000_000_000)
+        );
+        assert_eq!(
+            FlagRequest {
+                sent_at: Some("1969-12-31T23:59:59Z".parse().unwrap()),
+                ..Default::default()
+            }
+            .resolve_sent_at(Some(1_600_000_000_000)),
+            Some(1_600_000_000_000)
+        );
+        assert_eq!(FlagRequest::default().resolve_sent_at(Some(-1)), None);
     }
 
     #[test]
@@ -849,6 +904,53 @@ mod tests {
         assert_eq!(props.len(), 2);
         assert_eq!(props.get("email").unwrap(), &json!("user@example.com"));
         assert_eq!(props.get("age").unwrap(), &json!(25));
+    }
+
+    #[test]
+    fn test_sdk_info_is_extracted_from_person_properties() {
+        let flag_payload = FlagRequest::from_bytes(Bytes::from(
+            json!({
+                "distinct_id": "user123",
+                "token": "my_token1",
+                "person_properties": {
+                    "$lib": "web",
+                    "$lib_version": "1.2.3"
+                }
+            })
+            .to_string(),
+        ))
+        .expect("failed to parse request");
+
+        assert_eq!(flag_payload.extract_lib().as_deref(), Some("web"));
+        assert_eq!(flag_payload.extract_lib_version().as_deref(), Some("1.2.3"));
+    }
+
+    #[test]
+    fn test_sdk_info_is_truncated() {
+        let flag_payload = FlagRequest {
+            person_properties: Some(HashMap::from([
+                ("$lib".to_string(), json!("a".repeat(MAX_LIB_LEN + 1))),
+                (
+                    "$lib_version".to_string(),
+                    json!("🦔".repeat(MAX_LIB_LEN + 1)),
+                ),
+            ])),
+            ..Default::default()
+        };
+
+        let expected_lib = "a".repeat(MAX_LIB_LEN);
+        assert_eq!(
+            flag_payload.extract_lib().as_deref(),
+            Some(expected_lib.as_str())
+        );
+        assert_eq!(
+            flag_payload
+                .extract_lib_version()
+                .expect("expected lib version")
+                .chars()
+                .count(),
+            MAX_LIB_LEN
+        );
     }
 
     #[test]

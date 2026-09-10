@@ -12,15 +12,15 @@ import * as zod from 'zod'
  * Create, read, update, and resolve toolbar field notes — UI feedback a user
  * points at on their own site, surfaced to coding agents over MCP.
  */
-export const FieldNotesListParams = /* @__PURE__ */ zod.object({
+export const FieldNotesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const FieldNotesListQueryParams = /* @__PURE__ */ zod.object({
+export const FieldNotesListQueryParams = () => zod.object({
     field_note_status: zod
         .enum(['acknowledged', 'dismissed', 'pending', 'resolved'])
         .optional()
@@ -34,12 +34,12 @@ export const FieldNotesListQueryParams = /* @__PURE__ */ zod.object({
  * Create, read, update, and resolve toolbar field notes — UI feedback a user
  * points at on their own site, surfaced to coding agents over MCP.
  */
-export const FieldNotesRetrieveParams = /* @__PURE__ */ zod.object({
+export const FieldNotesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this field note.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -47,12 +47,12 @@ export const FieldNotesRetrieveParams = /* @__PURE__ */ zod.object({
  * Create, read, update, and resolve toolbar field notes — UI feedback a user
  * points at on their own site, surfaced to coding agents over MCP.
  */
-export const FieldNotesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const FieldNotesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this field note.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -72,7 +72,7 @@ export const fieldNotesPartialUpdateBodyElementChainMax = 20000
 
 export const fieldNotesPartialUpdateBodyScreenshotUrlMax = 2048
 
-export const FieldNotesPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const FieldNotesPartialUpdateBody = () => zod.object({
     comment: zod
         .string()
         .max(fieldNotesPartialUpdateBodyCommentMax)
@@ -81,11 +81,11 @@ export const FieldNotesPartialUpdateBody = /* @__PURE__ */ zod.object({
     field_note_status: zod
         .enum(['pending', 'acknowledged', 'resolved', 'dismissed'])
         .describe(
-            '* `pending` - Pending\n* `acknowledged` - Acknowledged\n* `resolved` - Resolved\n* `dismissed` - Dismissed'
+            '\* `pending` - Pending\n\* `acknowledged` - Acknowledged\n\* `resolved` - Resolved\n\* `dismissed` - Dismissed'
         )
         .optional()
         .describe(
-            'Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.\n\n* `pending` - Pending\n* `acknowledged` - Acknowledged\n* `resolved` - Resolved\n* `dismissed` - Dismissed'
+            'Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.\n\n\* `pending` - Pending\n\* `acknowledged` - Acknowledged\n\* `resolved` - Resolved\n\* `dismissed` - Dismissed'
         ),
     resolution: zod
         .string()

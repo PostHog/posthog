@@ -9,18 +9,28 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
 )
 
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
-from posthog.models.team.team import Team
+from posthog.dataclasses import frozen
+from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
 
 if TYPE_CHECKING:
     from posthog.schema import RevenueAnalyticsEventItem
 
+    from posthog.models.team.team import Team
+
 
 class ExchangeRateTable(DANGEROUS_NoTeamIdCheckTable):
+    description: str = (
+        "Daily currency-to-USD conversion rates used by revenue analytics. One row per currency per date; "
+        "shared across all teams (not team-scoped)."
+    )
     fields: dict[str, FieldOrTable] = {
-        "currency": StringDatabaseField(name="currency", nullable=False),
-        "date": DateDatabaseField(name="date", nullable=False),
-        "rate": DecimalDatabaseField(name="rate", nullable=False),
+        "currency": StringDatabaseField(
+            name="currency", nullable=False, description="ISO 4217 currency code, e.g. 'EUR' or 'GBP'."
+        ),
+        "date": DateDatabaseField(name="date", nullable=False, description="Calendar date the rate applies to."),
+        "rate": DecimalDatabaseField(
+            name="rate", nullable=False, description="This currency's rate relative to USD on the given date."
+        ),
     }
 
     def to_printed_clickhouse(self, context):
@@ -45,7 +55,7 @@ def convert_currency_call(
 
 
 # Given an event config and the base config, figure out what the currency should look like
-def currency_expression_for_events(team: Team, event_config: "RevenueAnalyticsEventItem") -> ast.Expr:
+def currency_expression_for_events(team: "Team", event_config: "RevenueAnalyticsEventItem") -> ast.Expr:
     # Shouldn't happen but we need it here to make the type checker happy
     if not event_config.revenueCurrencyProperty:
         return ast.Constant(value=team.base_currency)
@@ -62,15 +72,20 @@ def currency_expression_for_events(team: Team, event_config: "RevenueAnalyticsEv
     return ast.Constant(value=team.base_currency)
 
 
-# Tuple of (comparison_expr, value_expr) that can be used to:
-# - Check whether the event is the one we're looking for
-# - Convert the revenue to the base currency if needed
+@frozen
+class RevenueEventExprs:
+    # Checks whether the event is the one we're looking for
+    comparison_expr: ast.Expr
+    # Converts the revenue to the base currency if needed
+    value_expr: ast.Expr
+
+
 def revenue_comparison_and_value_exprs_for_events(
-    team: Team,
+    team: "Team",
     event_config: "RevenueAnalyticsEventItem",
     do_currency_conversion: bool = True,
     amount_expr: ast.Expr | None = None,
-) -> tuple[ast.Expr, ast.Expr]:
+) -> RevenueEventExprs:
     if amount_expr is None:
         amount_expr = ast.Field(chain=["events", "properties", event_config.revenueProperty])
 
@@ -113,4 +128,4 @@ def revenue_comparison_and_value_exprs_for_events(
             ],
         )
 
-    return (comparison_expr, value_expr)
+    return RevenueEventExprs(comparison_expr=comparison_expr, value_expr=value_expr)

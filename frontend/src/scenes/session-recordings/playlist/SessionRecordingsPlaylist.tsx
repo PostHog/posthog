@@ -1,8 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
+import * as directorPng from '@posthog/brand/hoggies/png/director'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
@@ -19,13 +21,17 @@ import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
-export function SessionRecordingsPlaylist({
-    ...props
-}: SessionRecordingPlaylistLogicProps & {
+const HedgehogDirector = pngHoggie(directorPng)
+
+type SessionRecordingsPlaylistProps = SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
     isSynthetic?: boolean
     description?: string
-}): JSX.Element {
+    /** Replaces the shared replay troubleshooting panel when the list comes back empty. */
+    listEmptyState?: JSX.Element
+}
+
+export function SessionRecordingsPlaylist({ ...props }: SessionRecordingsPlaylistProps): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
@@ -52,13 +58,7 @@ export function SessionRecordingsPlaylist({
     )
 }
 
-function HorizontalLayout({
-    ...props
-}: SessionRecordingPlaylistLogicProps & {
-    showContent?: boolean
-    isSynthetic?: boolean
-    description?: string
-}): JSX.Element {
+function HorizontalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Element {
     const playlistRef = useRef<HTMLDivElement>(null)
 
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
@@ -103,13 +103,7 @@ function HorizontalLayout({
     )
 }
 
-function VerticalLayout({
-    ...props
-}: SessionRecordingPlaylistLogicProps & {
-    showContent?: boolean
-    isSynthetic?: boolean
-    description?: string
-}): JSX.Element {
+function VerticalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Element {
     const playerRef = useRef<HTMLDivElement>(null)
 
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
@@ -251,7 +245,7 @@ function PlayerWrapper({
 
                     {/* Centered hedgehog overlay */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        <FilmCameraHog className="w-60 h-60" />
+                        <HedgehogDirector className="w-60 h-60" />
                         <div className="mt-4 flex items-center gap-2">
                             <Spinner textColored />
                             <span className="text-secondary">Loading recordings...</span>

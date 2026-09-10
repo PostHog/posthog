@@ -8,36 +8,55 @@ duplicate; the level-specific prompts, tools, and state TypedDicts live with
 each individual agent so per-level prompt iteration stays local.
 """
 
-import os
-
-from django.conf import settings
+from collections.abc import Mapping
 
 from langchain_openai import ChatOpenAI
 
-from posthog.cloud_utils import is_cloud
+from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS
+from posthog.temporal.ai_observability.llm_endpoint import build_langchain_chat_client
 from posthog.temporal.ai_observability.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.ai_observability.trace_clustering.models import ClusterLabel
 
+# Per-call timeouts, capped so no single call can outlive the 600s labeling activity: flex
+# 120s x 1 attempt (the standard-tier fallback call is the retry), standard 240s x 2 attempts.
+# The ai-gateway cuts non-streaming calls at ~290s anyway, so longer client timeouts are
+# unreachable.
+LABELING_FLEX_CALL_TIMEOUT = 120.0
+LABELING_STANDARD_CALL_TIMEOUT = 240.0
 
-def get_labeling_llm(model: str, timeout: float) -> ChatOpenAI:
-    """Return an OpenAI chat client configured for cluster labeling.
 
-    Enforces the same environment guardrails the trace clustering agent has
-    always used: AI features only run in Cloud or local DEBUG builds, and the
-    OpenAI key must be explicitly configured.
+def get_labeling_llm(
+    model: str,
+    timeout: float,
+    *,
+    trace_id: str,
+    session_id: str,
+    properties: Mapping[str, str],
+    distinct_id: str,
+    flex: bool = True,
+) -> ChatOpenAI:
+    """Return a ChatOpenAI client for cluster labeling.
+
+    Shared by the trace and evaluation labeling agents. Routes through the
+    ai-gateway when configured; see
+    ``posthog.temporal.ai_observability.llm_endpoint``. Enforces the same
+    guardrail as before: AI features only run in Cloud or local DEBUG builds.
+
+    Labeling runs as a daily batch, so allowlisted models request the flex
+    service tier for half-price tokens; ``FlexFirstChatOpenAI`` retries a failed
+    flex call on the standard tier.
     """
-    if not settings.DEBUG and not is_cloud():
-        raise Exception("AI features are only available in PostHog Cloud")
-
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise Exception("OpenAI API key is not configured")
-
-    return ChatOpenAI(
-        model=model,
-        api_key=api_key,
-        timeout=timeout,
-        max_retries=2,
+    use_flex = flex and model in FLEX_CAPABLE_MODELS
+    return build_langchain_chat_client(
+        model,
+        LABELING_FLEX_CALL_TIMEOUT if use_flex else min(timeout, LABELING_STANDARD_CALL_TIMEOUT),
+        ai_product="aio_clustering",
+        trace_id=trace_id,
+        session_id=session_id,
+        properties=properties,
+        distinct_id=distinct_id,
+        service_tier="flex" if use_flex else None,
+        max_retries=0 if use_flex else 1,
     )
 
 

@@ -9,13 +9,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-from posthog.temporal.data_imports.sources.common.sql.location import fill_missing_from_dotted_name, normalize_namespace
-
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.source_management import (
+    DottedNameParts,
+    SourceRegistry,
+    SQLSource,
+    fill_missing_from_dotted_name,
+    normalize_namespace,
+)
+from products.warehouse_sources.backend.facade.sources import NamingConvention
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def _source_has_optional_schema_field(source: Any) -> bool:
@@ -101,7 +104,7 @@ def apply_on_schema_clear(source: ExternalDataSource, old_schema: str) -> None:
     """Pin legacy rows to the OLD schema before the next refresh sees `default_schema=None` and
     misroutes them to `"public"`.
     """
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     rows = list(ExternalDataSchema.objects.filter(team_id=source.team_id, source_id=source.id, deleted=False))
     rows_by_name = {row.name: row for row in rows}
@@ -141,8 +144,8 @@ def detect_schema_clear_transition(
     return existing.strip()
 
 
-def _extract_source_location_from_row(row: Any) -> tuple[str | None, str | None]:
-    """`(source_schema, source_table_name)` — metadata first, dotted name fallback, else `(None, None)`."""
+def _extract_source_location_from_row(row: Any) -> DottedNameParts:
+    """Source schema/table for a row: metadata first, dotted name fallback, else both `None`."""
     metadata = (row.sync_type_config or {}).get("schema_metadata")
     source_schema: str | None = None
     source_table_name: str | None = None
@@ -151,7 +154,7 @@ def _extract_source_location_from_row(row: Any) -> tuple[str | None, str | None]
             source_schema = metadata["source_schema"]
         if isinstance(metadata.get("source_table_name"), str):
             source_table_name = metadata["source_table_name"]
-    return fill_missing_from_dotted_name(source_schema, source_table_name, row.name)
+    return fill_missing_from_dotted_name(schema=source_schema, table=source_table_name, display_name=row.name)
 
 
 def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, str]:
@@ -161,7 +164,7 @@ def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, s
     falls back to `"public"` when `job_inputs.schema` is blank, missing the actual schema.
     Returns `{old_name: new_name}` for callers feeding `sync_old_schemas_with_new_schemas`.
     """
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     rows = list(
         ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related("table")
@@ -171,9 +174,9 @@ def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, s
     unqualified_rows: list[ExternalDataSchema] = []
     for row in rows:
         if "." in row.name:
-            source_schema, source_table_name = _extract_source_location_from_row(row)
-            if source_schema and source_table_name:
-                qualified_rows_by_table_name.setdefault(source_table_name, []).append((source_schema, row))
+            location = _extract_source_location_from_row(row)
+            if location.schema and location.table:
+                qualified_rows_by_table_name.setdefault(location.table, []).append((location.schema, row))
         else:
             unqualified_rows.append(row)
 
@@ -181,17 +184,17 @@ def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, s
     name_substitutions: dict[str, str] = {}
 
     for legacy in unqualified_rows:
-        legacy_metadata_source_schema, legacy_metadata_source_table_name = _extract_source_location_from_row(legacy)
+        legacy_location = _extract_source_location_from_row(legacy)
         qualified_matches = qualified_rows_by_table_name.get(legacy.name, [])
 
         # Disambiguate multi-match using legacy's own pinned metadata.
-        if len(qualified_matches) > 1 and legacy_metadata_source_schema is not None:
-            filtered = [m for m in qualified_matches if m[0] == legacy_metadata_source_schema]
+        if len(qualified_matches) > 1 and legacy_location.schema is not None:
+            filtered = [m for m in qualified_matches if m[0] == legacy_location.schema]
             if len(filtered) == 1:
                 qualified_matches = filtered
 
         target_source_schema: str | None
-        target_source_table_name: str | None = legacy_metadata_source_table_name
+        target_source_table_name: str | None = legacy_location.table
         duplicate: Any | None = None
 
         if len(qualified_matches) == 1:
@@ -199,8 +202,8 @@ def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, s
         elif len(qualified_matches) > 1:
             # Ambiguous — let the user resolve via the UI.
             continue
-        elif legacy_metadata_source_schema is not None:
-            target_source_schema = legacy_metadata_source_schema
+        elif legacy_location.schema is not None:
+            target_source_schema = legacy_location.schema
         elif default_schema is not None:
             target_source_schema = default_schema
         else:

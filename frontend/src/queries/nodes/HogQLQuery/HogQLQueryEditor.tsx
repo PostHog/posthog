@@ -44,6 +44,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         if (router.values.location.pathname.includes(urls.sqlEditor())) {
             setKey(router.values.location.pathname)
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally re-run to reset the editor key when the SQL editor route changes
     }, [router.values.location.pathname])
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(

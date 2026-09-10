@@ -7,7 +7,7 @@ from posthog.schema import HogQLNotice, HogQLQuery
 
 from posthog.models import EventDefinition
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.mcp_tool import (
@@ -34,6 +34,19 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         self.assertIn("test_event", content)
+
+    async def test_result_has_no_prompt_framing(self):
+        _create_event(team=self.team, distinct_id="user1", event="test_event")
+
+        content = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(query="SELECT event, count() as cnt FROM events GROUP BY event"),
+        )
+
+        # The MCP tool returns the data table straight to an external agent, so the human-assistant
+        # framing (format description + "Here is the results table of the ... insight:" reminder) is stripped.
+        self.assertIn("test_event", content)
+        self.assertNotIn("You are given a table with the results of a SQL query", content)
+        self.assertNotIn("Here is the results table", content)
 
     async def test_validation_error_for_invalid_query(self):
         with self.assertRaises(MaxToolRetryableError) as ctx:
@@ -167,3 +180,26 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             await self.tool.execute(
                 ExecuteSQLMCPToolArgs(query="   ", connectionId="conn_abc"),
             )
+
+    async def test_send_raw_query_reaches_the_runner(self):
+        captured: dict = {}
+
+        async def fake_execute_and_format(self, *args, **kwargs):
+            captured["query"] = self.query
+            return "ok"
+
+        with patch(
+            "ee.hogai.tools.execute_sql.mcp_tool.InsightContext.execute_and_format",
+            new=fake_execute_and_format,
+        ):
+            await self.tool.execute(
+                ExecuteSQLMCPToolArgs(query="SELECT to_regclass('orders')", connectionId="conn_abc", sendRawQuery=True),
+            )
+
+        self.assertTrue(captured["query"].sendRawQuery)
+
+    async def test_send_raw_query_without_a_connection_raises(self):
+        # There is nothing to send it to, and silently compiling it as HogQL instead would run
+        # something other than what the caller asked for.
+        with self.assertRaises(MaxToolRetryableError):
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query="SELECT 1", sendRawQuery=True))

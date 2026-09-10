@@ -1,11 +1,17 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 
-import { MetricCard, useChartTheme } from '@posthog/quill-charts'
+import { useChartTheme } from '@posthog/quill-charts'
+import {
+    Metric,
+    MetricDelta,
+    MetricHeader,
+    MetricSparkline,
+    MetricSubtitle,
+    MetricValue,
+} from '@posthog/quill-components/metric'
 
-import { dayjs } from 'lib/dayjs'
 import { hexToRGBA } from 'lib/utils/colors'
-import { DATE_FORMAT_WITHOUT_YEAR, formatDate } from 'lib/utils/datetime'
 import {
     defaultAggregationAxisFormatForDisplay,
     formatAggregationAxisValue,
@@ -21,6 +27,7 @@ import { insightLogic } from '../../insightLogic'
 import {
     computeMetricSummary,
     computeMetricSummaryChange,
+    formatMetricLabel,
     getMetricChangeTooltip,
     METRIC_COLOR_BY_DIRECTION_DEFAULT,
     METRIC_DEFAULT_DECREASE_COLOR,
@@ -28,6 +35,7 @@ import {
     METRIC_SHOW_CHANGE_DEFAULT,
     METRIC_SUMMARY_DEFAULT,
     METRIC_SUMMARY_LABELS,
+    resolveMetricLineColor,
     selectCurrentSeries,
     selectPreviousSeriesSummary,
 } from './Metric.utils'
@@ -37,7 +45,7 @@ const makeChangeColor = (hex: string): { background: string; foreground: string 
     foreground: hex,
 })
 
-export function Metric({ inCardView }: ChartParams): JSX.Element {
+export function MetricCard({ inCardView }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightData, trendsFilter, interval } = useValues(insightVizDataLogic(insightProps))
     const { incompletenessOffsetFromEnd } = useValues(trendsDataLogic(insightProps))
@@ -49,7 +57,7 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
 
     // `count` is typed as a number but can be absent at runtime, which would render a blank tile.
     if (!resultSeries || resultSeries.count == null) {
-        return <InsightEmptyState />
+        return <InsightEmptyState sampleDataVariant="number" />
     }
 
     const summary = trendsFilter?.metricSummary ?? METRIC_SUMMARY_DEFAULT
@@ -64,21 +72,20 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
     )
     const changeTooltip = getMetricChangeTooltip(summary, previousSeries != null, interval)
 
-    const isIncrease = (change?.value ?? 0) >= 0
     const pillColors = {
         positiveColor: makeChangeColor(trendsFilter?.metricChangeIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR),
         negativeColor: makeChangeColor(trendsFilter?.metricChangeDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR),
     }
-    const lineIncreaseColor = trendsFilter?.metricLineIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR
-    const lineDecreaseColor = trendsFilter?.metricLineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR
-    let lineColor: string | undefined
-    if ((trendsFilter?.metricColorByDirection ?? METRIC_COLOR_BY_DIRECTION_DEFAULT) && change != null) {
-        lineColor = isIncrease ? lineIncreaseColor : lineDecreaseColor
-    }
+    const lineColor = resolveMetricLineColor({
+        colorByDirection: trendsFilter?.metricColorByDirection ?? METRIC_COLOR_BY_DIRECTION_DEFAULT,
+        change,
+        increaseColor: trendsFilter?.metricLineIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR,
+        decreaseColor: trendsFilter?.metricLineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR,
+    })
 
-    // Format the backend day labels the app's way, without the year ("June 16" rather than "16-Jun-2026").
-    const labels =
-        resultSeries.days?.map((day) => formatDate(dayjs(day), DATE_FORMAT_WITHOUT_YEAR)) ?? resultSeries.labels
+    // Raw bucket keys, not display text: the sparkline positions its points off these strings, and
+    // "June 16" repeats once a range spans a year. `formatMetricLabel` handles the display side.
+    const labels = resultSeries.days ?? resultSeries.labels
 
     // Dash the trailing in-progress period, matching the line chart. The offset is negative from the end.
     const dashedFromIndex =
@@ -89,14 +96,10 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
 
     return (
         <div className={clsx('Metric ph-no-capture flex flex-col w-full p-2', inCardView && 'flex-1')}>
-            <MetricCard
-                className={inCardView ? 'flex-1' : undefined}
+            <Metric
+                className={clsx('px-0', inCardView && 'flex-1')}
                 sparklineFill={inCardView}
-                // No title — the insight/card header already shows the name.
-                title={null}
                 value={headlineValue}
-                changeSize="md"
-                changeInline
                 change={change}
                 changeTooltip={changeTooltip}
                 hoverChangeFromPreviousPoint
@@ -104,6 +107,7 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
                 restingSubtitle={METRIC_SUMMARY_LABELS[summary]}
                 data={resultSeries.data}
                 labels={labels}
+                formatLabel={formatMetricLabel}
                 theme={theme}
                 color={lineColor}
                 showChange={showChange}
@@ -112,9 +116,16 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
                 }
                 sparklineDashedFromIndex={dashedFromIndex}
                 sparklineHeight={120}
-                sparklineClassName="mt-4 -mx-2"
                 dataAttr="metric-value"
-            />
+            >
+                {/* No title — the insight/card header already shows the name; the pill sits inline. */}
+                <MetricHeader className="items-center">
+                    <MetricValue />
+                    <MetricDelta className="h-auto gap-1 px-2.5 py-1 text-sm [&>svg]:size-3!" />
+                </MetricHeader>
+                <MetricSubtitle className="mt-1" />
+                <MetricSparkline className="mt-4 -mx-2 -mb-2" />
+            </Metric>
         </div>
     )
 }

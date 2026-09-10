@@ -2,7 +2,7 @@ import './DataTable.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -10,7 +10,6 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -58,6 +57,7 @@ import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { SessionPropertyFilters } from '~/queries/nodes/SessionsNode/SessionPropertyFilters'
+import { TracesSearch } from '~/queries/nodes/TracesQuery/TracesSearch'
 import {
     ActorsQuery,
     AnyResponseType,
@@ -68,7 +68,6 @@ import {
     HogQLQuery,
     MarketingAnalyticsTableQuery,
     NodeKind,
-    NonIntegratedConversionsColumnsSchemaNames,
     PersonsNode,
     SessionAttributionExplorerQuery,
     SessionsQuery,
@@ -84,14 +83,14 @@ import {
     isHogQLQuery,
     isInsightActorsQuery,
     isMarketingAnalyticsTableQuery,
-    isRevenueExampleEventsQuery,
     isSessionsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
+    taxonomicSessionFilterToHogQL,
 } from '~/queries/utils'
-import { NonIntegratedConversionsCellActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsCellActions'
-import { NonIntegratedConversionsRowActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsRowActions'
+import { CampaignMappingCellActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/CampaignMappingCellActions'
+import { getMappableColumn } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/mappingUtils'
 import { EventType, InsightLogicProps } from '~/types'
 
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
@@ -135,6 +134,21 @@ const eventGroupTypes = [
     TaxonomicFilterGroupType.EventFeatureFlags,
 ]
 const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFilterGroupType.PersonProperties]
+const sessionGroupTypes = [
+    TaxonomicFilterGroupType.HogQLExpression,
+    TaxonomicFilterGroupType.SessionProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+]
+
+// Stable empty-rows reference: a fresh `[]` per render would defeat row memoization downstream.
+const NO_ROWS: DataTableRow[] = []
+
+const DEFAULT_COLUMN_FEATURES = [
+    ColumnFeature.canSort,
+    ColumnFeature.canEdit,
+    ColumnFeature.canAddColumns,
+    ColumnFeature.canRemove,
+]
 
 let uniqueNode = 0
 
@@ -156,12 +170,7 @@ export function DataTable({
     }
 
     // support for existing column features by default
-    const columnFeatures = context?.columnFeatures || [
-        ColumnFeature.canSort,
-        ColumnFeature.canEdit,
-        ColumnFeature.canAddColumns,
-        ColumnFeature.canRemove,
-    ]
+    const columnFeatures = context?.columnFeatures || DEFAULT_COLUMN_FEATURES
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
@@ -170,12 +179,15 @@ export function DataTable({
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
+        maxPaginationRows: context?.dataTableMaxPaginationRows,
         limitContext: context?.limitContext,
     }
     const {
         response,
         responseLoading,
         responseError,
+        responseErrorObject,
+        queryId,
         queryCancelled,
         nextDataLoading,
         newDataLoading,
@@ -251,20 +263,31 @@ export function DataTable({
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
     const recordingColumnShown =
         showRecordingColumn && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
+    const hideRecordingButton = recordingColumnShown || context?.hideRecordingButton
 
-    const allColumns = sourceFeatures.has(QueryFeature.columnsInResponse)
-        ? (columnsInResponse ?? columnsInQuery)
-        : columnsInQuery
-    const columnsInLemonTable = allColumns.filter((colName) => {
-        const col = getContextColumn(colName, context?.columns)
-        return !col?.queryContextColumn?.hidden
-    })
-    const orderByForKey = (key: string): string => {
-        const rawSelect = sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
-            ? ((query.source as EventsQuery).select ?? [])
-            : []
-        return orderByForSelectKey(key, rawSelect)
-    }
+    const allColumns = useMemo(
+        () =>
+            sourceFeatures.has(QueryFeature.columnsInResponse) ? (columnsInResponse ?? columnsInQuery) : columnsInQuery,
+        [sourceFeatures, columnsInResponse, columnsInQuery]
+    )
+    const contextColumns = context?.columns
+    const columnsInLemonTable = useMemo(
+        () =>
+            allColumns.filter((colName) => {
+                const col = getContextColumn(colName, contextColumns)
+                return !col?.queryContextColumn?.hidden
+            }),
+        [allColumns, contextColumns]
+    )
+    const orderByForKey = useCallback(
+        (key: string): string => {
+            const rawSelect = sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
+                ? ((query.source as EventsQuery).select ?? [])
+                : []
+            return orderByForSelectKey(key, rawSelect)
+        },
+        [sourceFeatures, query.source]
+    )
     const rowFillFractionIndex = allColumns.findIndex((colName) => {
         const col = getContextColumn(colName, context?.columns)
         return col?.queryContextColumn?.isRowFillFraction
@@ -297,388 +320,476 @@ export function DataTable({
         [contextRowPropsFn, rowFillFractionIndex]
     )
 
-    const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
+    const groupTypes = isActorsQuery(query.source)
+        ? personGroupTypes
+        : isSessionsQuery(query.source)
+          ? sessionGroupTypes
+          : eventGroupTypes
 
-    const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
-        ...columnsInLemonTable.map((key, index) => {
-            return {
-                dataIndex: key as any,
-                ...renderColumnMeta(key, query, context),
-                render: function RenderDataTableColumn(
-                    _: any,
-                    { result, label }: DataTableRow,
-                    recordIndex: number,
-                    rowCount: number
-                ) {
-                    if (label) {
-                        if (index === (expandable ? 1 : 0)) {
-                            return {
-                                children: label,
-                                props: { colSpan: columnsInLemonTable.length + (recordingColumnShown ? 1 : 0) },
+    // Memoized so the columns array keeps its identity between data refreshes: LemonTable derives
+    // column groups from it and passes those to every memoized TableRow, so a per-render rebuild
+    // here re-renders every row each poll cycle. Intentionally NOT keyed on the response itself.
+    const lemonColumns: LemonTableColumn<DataTableRow, any>[] = useMemo(
+        () =>
+            [
+                ...columnsInLemonTable.map((key, index) => {
+                    return {
+                        dataIndex: key as any,
+                        ...renderColumnMeta(key, query, context),
+                        render: function RenderDataTableColumn(
+                            _: any,
+                            { result, label }: DataTableRow,
+                            recordIndex: number,
+                            rowCount: number
+                        ) {
+                            if (label) {
+                                if (index === (expandable ? 1 : 0)) {
+                                    return {
+                                        children: label,
+                                        props: { colSpan: columnsInLemonTable.length + (recordingColumnShown ? 1 : 0) },
+                                    }
+                                }
+                                return { props: { colSpan: 0 } }
+                            } else if (result) {
+                                const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
+                                    ? (result as any[])[index]
+                                    : (result as Record<string, any>)[key]
+                                return renderColumn(key, value, result, recordIndex, rowCount, query, setQuery, context)
                             }
-                        }
-                        return { props: { colSpan: 0 } }
-                    } else if (result) {
-                        const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
-                            ? (result as any[])[index]
-                            : (result as Record<string, any>)[key]
-                        return renderColumn(key, value, result, recordIndex, rowCount, query, setQuery, context)
-                    }
-                },
-                sorter: undefined, // using custom sorting code
-                cellActions:
-                    sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions) &&
-                    Object.values(NonIntegratedConversionsColumnsSchemaNames).includes(
-                        key as NonIntegratedConversionsColumnsSchemaNames
-                    )
-                        ? (_: unknown, record: DataTableRow) => {
-                              if (!record.result) {
-                                  return null
-                              }
-                              const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
-                                  ? (record.result as any[])[index]
-                                  : (record.result as Record<string, any>)[key]
-                              return <NonIntegratedConversionsCellActions columnName={key} value={value} />
-                          }
-                        : undefined,
-                more:
-                    !isReadOnly && showActions && sourceFeatures.has(QueryFeature.selectAndOrderByColumns) ? (
-                        <>
-                            <div className="px-2 py-1 max-w-md">
-                                <div className="font-mono font-bold truncate">{extractExpressionComment(key)}</div>
-                                {extractExpressionComment(key) !== removeExpressionComment(key) && (
-                                    <div className="font-mono truncate">{removeExpressionComment(key)}</div>
-                                )}
-                            </div>
-                            {(isEventsQuery(query.source) || isActorsQuery(query.source)) &&
-                            DATETIME_KEYS.includes(removeExpressionComment(key)) ? (
+                        },
+                        sorter: undefined, // using custom sorting code
+                        cellActions:
+                            sourceFeatures.has(QueryFeature.campaignMappingActions) && !!getMappableColumn(key)
+                                ? (_: unknown, record: DataTableRow) => {
+                                      if (!record.result) {
+                                          return null
+                                      }
+                                      const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
+                                          ? (record.result as any[])[index]
+                                          : (record.result as Record<string, any>)[key]
+                                      return <CampaignMappingCellActions columnName={key} value={value} />
+                                  }
+                                : undefined,
+                        more:
+                            !isReadOnly && showActions && sourceFeatures.has(QueryFeature.selectAndOrderByColumns) ? (
                                 <>
-                                    <LemonDivider />
-                                    <LemonButton
-                                        fullWidth
-                                        data-attr="datatable-toggle-absolute-time"
-                                        onClick={() => {
-                                            setQuery?.({
-                                                ...query,
-                                                showAbsoluteTime: !query.showAbsoluteTime,
-                                            })
-                                        }}
-                                    >
-                                        {query.showAbsoluteTime ? 'Show relative time' : 'Show absolute time'}
-                                    </LemonButton>
-                                </>
-                            ) : null}
-                            {columnFeatures.includes(ColumnFeature.canEdit) && (
-                                <>
-                                    <LemonDivider />
-                                    <TaxonomicPopover
-                                        groupType={TaxonomicFilterGroupType.HogQLExpression}
-                                        value={key}
-                                        groupTypes={groupTypes}
-                                        metadataSource={query.source}
-                                        renderValue={() => <>Edit column</>}
-                                        type="tertiary"
-                                        fullWidth
-                                        selectingKeyOnly
-                                        onChange={(v, g) => {
-                                            const hogQl = isActorsQuery(query.source)
-                                                ? taxonomicPersonFilterToHogQL(g, v)
-                                                : taxonomicEventFilterToHogQL(g, v)
-                                            if (
-                                                setQuery &&
-                                                hogQl &&
-                                                sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
-                                            ) {
-                                                // Typecasting to a query type with select and order_by fields.
-                                                // The actual query may or may not be an events query.
-                                                const source = query.source as EventsQuery
-                                                const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
-                                                const isAggregation = isHogQLAggregation(hogQl)
-                                                const orderKey = orderByForKey(key)
-                                                const isOrderBy = source.orderBy?.[0] === orderKey
-                                                const isDescOrderBy =
-                                                    source.orderBy?.[0] === `${orderKey} DESC` ||
-                                                    source.orderBy?.[0] === `${orderKey}\n DESC`
-                                                setQuery({
-                                                    ...query,
-                                                    source: {
-                                                        ...source,
-                                                        select: columns
-                                                            .map((s, i) => (i === index ? hogQl : s))
-                                                            .filter((c) =>
-                                                                isAggregation
-                                                                    ? c !== '*' && c !== 'person.$delete'
-                                                                    : true
-                                                            ),
-                                                        orderBy:
-                                                            isOrderBy || isDescOrderBy
-                                                                ? [
-                                                                      isDescOrderBy
-                                                                          ? `${removeAsAlias(hogQl)}\n DESC`
-                                                                          : removeAsAlias(hogQl),
-                                                                  ]
-                                                                : source.orderBy,
-                                                    },
-                                                })
-                                            }
-                                        }}
-                                    />
-                                </>
-                            )}
-                            {canSort &&
-                            key !== 'person.$delete' &&
-                            key !== 'person' &&
-                            columnFeatures.includes(ColumnFeature.canSort) ? (
-                                <>
-                                    <LemonDivider />
-                                    <LemonButton
-                                        fullWidth
-                                        data-attr="datatable-sort-asc"
-                                        onClick={() => {
-                                            const orderBy =
-                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
-                                                query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
-                                                    ? createMarketingAnalyticsOrderBy(key, 'ASC')
-                                                    : [orderByForKey(key)]
-                                            setQuery?.({
-                                                ...query,
-                                                source: {
-                                                    ...query.source,
-                                                    orderBy,
-                                                } as EventsQuery,
-                                            })
-                                        }}
-                                    >
-                                        Sort ascending
-                                    </LemonButton>
-                                    <LemonButton
-                                        fullWidth
-                                        data-attr="datatable-sort-desc"
-                                        onClick={() => {
-                                            const orderBy =
-                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
-                                                query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
-                                                    ? createMarketingAnalyticsOrderBy(key, 'DESC')
-                                                    : [`${orderByForKey(key)}\n DESC`]
-                                            setQuery?.({
-                                                ...query,
-                                                source: {
-                                                    ...query.source,
-                                                    orderBy,
-                                                } as EventsQuery,
-                                            })
-                                        }}
-                                    >
-                                        Sort descending
-                                    </LemonButton>
-                                    <LemonButton
-                                        fullWidth
-                                        data-attr="datatable-reset-sort"
-                                        onClick={() => {
-                                            setQuery?.({
-                                                ...query,
-                                                source: {
-                                                    ...query.source,
-                                                    orderBy: [],
-                                                } as EventsQuery,
-                                            })
-                                        }}
-                                    >
-                                        Reset sorting
-                                    </LemonButton>
-                                </>
-                            ) : null}
-
-                            {columnFeatures.includes(ColumnFeature.canAddColumns) && (
-                                <>
-                                    <LemonDivider />
-                                    <TaxonomicPopover
-                                        groupType={TaxonomicFilterGroupType.HogQLExpression}
-                                        value=""
-                                        groupTypes={groupTypes}
-                                        metadataSource={query.source}
-                                        placeholder={<span className="not-italic">Add column left</span>}
-                                        data-attr="datatable-add-column-left"
-                                        type="tertiary"
-                                        fullWidth
-                                        onChange={(v, g) => {
-                                            const hogQl = isActorsQuery(query.source)
-                                                ? taxonomicPersonFilterToHogQL(g, v)
-                                                : isGroupsQuery(query.source)
-                                                  ? taxonomicGroupFilterToHogQL(g, v)
-                                                  : taxonomicEventFilterToHogQL(g, v)
-                                            if (
-                                                setQuery &&
-                                                hogQl &&
-                                                sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
-                                            ) {
-                                                const isAggregation = isHogQLAggregation(hogQl)
-                                                const source = query.source as EventsQuery
-                                                const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
-                                                setQuery({
-                                                    ...query,
-                                                    source: {
-                                                        ...source,
-                                                        select: [
-                                                            ...columns.slice(0, index),
-                                                            hogQl,
-                                                            ...columns.slice(index),
-                                                        ].filter((c) =>
-                                                            isAggregation ? c !== '*' && c !== 'person.$delete' : true
-                                                        ),
-                                                    } as EventsQuery | ActorsQuery,
-                                                })
-                                            }
-                                        }}
-                                    />
-                                    <TaxonomicPopover
-                                        groupType={TaxonomicFilterGroupType.HogQLExpression}
-                                        value=""
-                                        groupTypes={groupTypes}
-                                        metadataSource={query.source}
-                                        placeholder={<span className="not-italic">Add column right</span>}
-                                        data-attr="datatable-add-column-right"
-                                        type="tertiary"
-                                        fullWidth
-                                        onChange={(v, g) => {
-                                            const hogQl = isActorsQuery(query.source)
-                                                ? taxonomicPersonFilterToHogQL(g, v)
-                                                : isGroupsQuery(query.source)
-                                                  ? taxonomicGroupFilterToHogQL(g, v)
-                                                  : taxonomicEventFilterToHogQL(g, v)
-                                            if (
-                                                setQuery &&
-                                                hogQl &&
-                                                sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
-                                            ) {
-                                                const isAggregation = isHogQLAggregation(hogQl)
-                                                const source = query.source as EventsQuery
-                                                const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
-                                                setQuery?.({
-                                                    ...query,
-                                                    source: {
-                                                        ...source,
-                                                        select: [
-                                                            ...columns.slice(0, index + 1),
-                                                            hogQl,
-                                                            ...columns.slice(index + 1),
-                                                        ].filter((c) =>
-                                                            isAggregation ? c !== '*' && c !== 'person.$delete' : true
-                                                        ),
-                                                    } as EventsQuery | ActorsQuery,
-                                                })
-                                            }
-                                        }}
-                                    />
-                                </>
-                            )}
-                            {columnsInQuery.filter((c) => c !== '*').length > 1 &&
-                                columnFeatures.includes(ColumnFeature.canRemove) && (
-                                    <>
-                                        <LemonDivider />
-                                        <LemonButton
-                                            fullWidth
-                                            status="danger"
-                                            data-attr="datatable-remove-column"
-                                            onClick={() => {
-                                                const cleanColumnKey = removeExpressionComment(key)
-                                                const newSource: EventsQuery = {
-                                                    ...(query.source as EventsQuery),
-                                                    select: (query.source as EventsQuery).select.filter(
-                                                        (_, i) => i !== index
-                                                    ),
-                                                    // remove the current column from orderBy if it's there
-                                                    orderBy: (
-                                                        query.source as EventsQuery | MarketingAnalyticsTableQuery
-                                                    ).orderBy?.find((orderKey) => {
-                                                        if (
-                                                            typeof orderKey === 'object' &&
-                                                            isMarketingAnalyticsTableQuery(query.source)
-                                                        ) {
-                                                            return orderKey[0] === cleanColumnKey
-                                                        } else if (typeof orderKey === 'string') {
-                                                            return (
-                                                                removeExpressionComment(orderKey) === cleanColumnKey ||
-                                                                removeExpressionComment(orderKey) ===
-                                                                    `-${cleanColumnKey}`
-                                                            )
-                                                        }
+                                    <div className="px-2 py-1 max-w-md">
+                                        <div className="font-mono font-bold truncate">
+                                            {extractExpressionComment(key)}
+                                        </div>
+                                        {extractExpressionComment(key) !== removeExpressionComment(key) && (
+                                            <div className="font-mono truncate">{removeExpressionComment(key)}</div>
+                                        )}
+                                    </div>
+                                    {(isEventsQuery(query.source) || isActorsQuery(query.source)) &&
+                                    DATETIME_KEYS.includes(removeExpressionComment(key)) ? (
+                                        <>
+                                            <LemonDivider />
+                                            <LemonButton
+                                                fullWidth
+                                                data-attr="datatable-toggle-absolute-time"
+                                                onClick={() => {
+                                                    setQuery?.({
+                                                        ...query,
+                                                        showAbsoluteTime: !query.showAbsoluteTime,
                                                     })
-                                                        ? undefined
-                                                        : (query.source as EventsQuery).orderBy,
-                                                }
-                                                const newPinnedColumns = query.pinnedColumns?.filter(
-                                                    (column) => column !== key
-                                                )
-                                                setQuery?.({
-                                                    ...query,
-                                                    source: newSource,
-                                                    pinnedColumns: newPinnedColumns,
-                                                })
-                                            }}
-                                        >
-                                            Remove column
-                                        </LemonButton>
-                                    </>
-                                )}
-                            {columnFeatures.includes(ColumnFeature.canPin) && (
-                                <>
-                                    <LemonDivider />
-                                    <LemonButton
-                                        fullWidth
-                                        data-attr="datatable-pin-column"
-                                        onClick={() => {
-                                            let newPinnedColumns = new Set(query.pinnedColumns ?? [])
-                                            if (newPinnedColumns.has(key)) {
-                                                newPinnedColumns.delete(key)
-                                            } else {
-                                                newPinnedColumns.add(key)
-                                            }
-                                            setQuery?.({
-                                                ...query,
-                                                pinnedColumns: Array.from(newPinnedColumns),
-                                            })
-                                        }}
-                                    >
-                                        {query.pinnedColumns?.includes(key) ? 'Unpin' : 'Pin column'}
-                                    </LemonButton>
+                                                }}
+                                            >
+                                                {query.showAbsoluteTime ? 'Show relative time' : 'Show absolute time'}
+                                            </LemonButton>
+                                        </>
+                                    ) : null}
+                                    {columnFeatures.includes(ColumnFeature.canEdit) && (
+                                        <>
+                                            <LemonDivider />
+                                            <TaxonomicPopover
+                                                groupType={TaxonomicFilterGroupType.HogQLExpression}
+                                                value={key}
+                                                groupTypes={groupTypes}
+                                                metadataSource={query.source}
+                                                renderValue={() => <>Edit column</>}
+                                                type="tertiary"
+                                                fullWidth
+                                                selectingKeyOnly
+                                                onChange={(v, g) => {
+                                                    const hogQl = isActorsQuery(query.source)
+                                                        ? taxonomicPersonFilterToHogQL(g, v)
+                                                        : isSessionsQuery(query.source)
+                                                          ? taxonomicSessionFilterToHogQL(g, v)
+                                                          : taxonomicEventFilterToHogQL(g, v)
+                                                    if (
+                                                        setQuery &&
+                                                        hogQl &&
+                                                        sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
+                                                    ) {
+                                                        // Typecasting to a query type with select and order_by fields.
+                                                        // The actual query may or may not be an events query.
+                                                        const source = query.source as EventsQuery
+                                                        const columns =
+                                                            columnsInLemonTable ?? getDataNodeDefaultColumns(source)
+                                                        const isAggregation = isHogQLAggregation(hogQl)
+                                                        const orderKey = orderByForKey(key)
+                                                        const isOrderBy = source.orderBy?.[0] === orderKey
+                                                        const isDescOrderBy =
+                                                            source.orderBy?.[0] === `${orderKey} DESC` ||
+                                                            source.orderBy?.[0] === `${orderKey}\n DESC`
+                                                        setQuery({
+                                                            ...query,
+                                                            source: {
+                                                                ...source,
+                                                                select: columns
+                                                                    .map((s, i) => (i === index ? hogQl : s))
+                                                                    .filter((c) =>
+                                                                        isAggregation
+                                                                            ? c !== '*' && c !== 'person.$delete'
+                                                                            : true
+                                                                    ),
+                                                                orderBy:
+                                                                    isOrderBy || isDescOrderBy
+                                                                        ? [
+                                                                              isDescOrderBy
+                                                                                  ? `${removeAsAlias(hogQl)}\n DESC`
+                                                                                  : removeAsAlias(hogQl),
+                                                                          ]
+                                                                        : source.orderBy,
+                                                            },
+                                                        })
+                                                    }
+                                                }}
+                                            />
+                                        </>
+                                    )}
+                                    {canSort &&
+                                    key !== 'person.$delete' &&
+                                    key !== 'person' &&
+                                    columnFeatures.includes(ColumnFeature.canSort) ? (
+                                        <>
+                                            <LemonDivider />
+                                            <LemonButton
+                                                fullWidth
+                                                data-attr="datatable-sort-asc"
+                                                onClick={() => {
+                                                    const orderBy =
+                                                        query.source.kind === NodeKind.MarketingAnalyticsTableQuery
+                                                            ? createMarketingAnalyticsOrderBy(key, 'ASC')
+                                                            : [orderByForKey(key)]
+                                                    setQuery?.({
+                                                        ...query,
+                                                        source: {
+                                                            ...query.source,
+                                                            orderBy,
+                                                        } as EventsQuery,
+                                                    })
+                                                }}
+                                            >
+                                                Sort ascending
+                                            </LemonButton>
+                                            <LemonButton
+                                                fullWidth
+                                                data-attr="datatable-sort-desc"
+                                                onClick={() => {
+                                                    const orderBy =
+                                                        query.source.kind === NodeKind.MarketingAnalyticsTableQuery
+                                                            ? createMarketingAnalyticsOrderBy(key, 'DESC')
+                                                            : [`${orderByForKey(key)}\n DESC`]
+                                                    setQuery?.({
+                                                        ...query,
+                                                        source: {
+                                                            ...query.source,
+                                                            orderBy,
+                                                        } as EventsQuery,
+                                                    })
+                                                }}
+                                            >
+                                                Sort descending
+                                            </LemonButton>
+                                            <LemonButton
+                                                fullWidth
+                                                data-attr="datatable-reset-sort"
+                                                onClick={() => {
+                                                    setQuery?.({
+                                                        ...query,
+                                                        source: {
+                                                            ...query.source,
+                                                            orderBy: [],
+                                                        } as EventsQuery,
+                                                    })
+                                                }}
+                                            >
+                                                Reset sorting
+                                            </LemonButton>
+                                        </>
+                                    ) : null}
+
+                                    {columnFeatures.includes(ColumnFeature.canAddColumns) && (
+                                        <>
+                                            <LemonDivider />
+                                            <TaxonomicPopover
+                                                groupType={TaxonomicFilterGroupType.HogQLExpression}
+                                                value=""
+                                                groupTypes={groupTypes}
+                                                metadataSource={query.source}
+                                                placeholder={<span className="not-italic">Add column left</span>}
+                                                data-attr="datatable-add-column-left"
+                                                type="tertiary"
+                                                fullWidth
+                                                onChange={(v, g) => {
+                                                    const hogQl = isActorsQuery(query.source)
+                                                        ? taxonomicPersonFilterToHogQL(g, v)
+                                                        : isGroupsQuery(query.source)
+                                                          ? taxonomicGroupFilterToHogQL(g, v)
+                                                          : isSessionsQuery(query.source)
+                                                            ? taxonomicSessionFilterToHogQL(g, v)
+                                                            : taxonomicEventFilterToHogQL(g, v)
+                                                    if (
+                                                        setQuery &&
+                                                        hogQl &&
+                                                        sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
+                                                    ) {
+                                                        const isAggregation = isHogQLAggregation(hogQl)
+                                                        const source = query.source as EventsQuery
+                                                        const columns =
+                                                            columnsInLemonTable ?? getDataNodeDefaultColumns(source)
+                                                        setQuery({
+                                                            ...query,
+                                                            source: {
+                                                                ...source,
+                                                                select: [
+                                                                    ...columns.slice(0, index),
+                                                                    hogQl,
+                                                                    ...columns.slice(index),
+                                                                ].filter((c) =>
+                                                                    isAggregation
+                                                                        ? c !== '*' && c !== 'person.$delete'
+                                                                        : true
+                                                                ),
+                                                            } as EventsQuery | ActorsQuery,
+                                                        })
+                                                    }
+                                                }}
+                                            />
+                                            <TaxonomicPopover
+                                                groupType={TaxonomicFilterGroupType.HogQLExpression}
+                                                value=""
+                                                groupTypes={groupTypes}
+                                                metadataSource={query.source}
+                                                placeholder={<span className="not-italic">Add column right</span>}
+                                                data-attr="datatable-add-column-right"
+                                                type="tertiary"
+                                                fullWidth
+                                                onChange={(v, g) => {
+                                                    const hogQl = isActorsQuery(query.source)
+                                                        ? taxonomicPersonFilterToHogQL(g, v)
+                                                        : isGroupsQuery(query.source)
+                                                          ? taxonomicGroupFilterToHogQL(g, v)
+                                                          : isSessionsQuery(query.source)
+                                                            ? taxonomicSessionFilterToHogQL(g, v)
+                                                            : taxonomicEventFilterToHogQL(g, v)
+                                                    if (
+                                                        setQuery &&
+                                                        hogQl &&
+                                                        sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
+                                                    ) {
+                                                        const isAggregation = isHogQLAggregation(hogQl)
+                                                        const source = query.source as EventsQuery
+                                                        const columns =
+                                                            columnsInLemonTable ?? getDataNodeDefaultColumns(source)
+                                                        setQuery?.({
+                                                            ...query,
+                                                            source: {
+                                                                ...source,
+                                                                select: [
+                                                                    ...columns.slice(0, index + 1),
+                                                                    hogQl,
+                                                                    ...columns.slice(index + 1),
+                                                                ].filter((c) =>
+                                                                    isAggregation
+                                                                        ? c !== '*' && c !== 'person.$delete'
+                                                                        : true
+                                                                ),
+                                                            } as EventsQuery | ActorsQuery,
+                                                        })
+                                                    }
+                                                }}
+                                            />
+                                        </>
+                                    )}
+                                    {columnsInQuery.filter((c) => c !== '*').length > 1 &&
+                                        columnFeatures.includes(ColumnFeature.canRemove) && (
+                                            <>
+                                                <LemonDivider />
+                                                <LemonButton
+                                                    fullWidth
+                                                    status="danger"
+                                                    data-attr="datatable-remove-column"
+                                                    onClick={() => {
+                                                        const cleanColumnKey = removeExpressionComment(key)
+                                                        const newSource: EventsQuery = {
+                                                            ...(query.source as EventsQuery),
+                                                            select: (query.source as EventsQuery).select.filter(
+                                                                (_, i) => i !== index
+                                                            ),
+                                                            // remove the current column from orderBy if it's there
+                                                            orderBy: (
+                                                                query.source as
+                                                                    | EventsQuery
+                                                                    | MarketingAnalyticsTableQuery
+                                                            ).orderBy?.find((orderKey) => {
+                                                                if (
+                                                                    typeof orderKey === 'object' &&
+                                                                    isMarketingAnalyticsTableQuery(query.source)
+                                                                ) {
+                                                                    return orderKey[0] === cleanColumnKey
+                                                                } else if (typeof orderKey === 'string') {
+                                                                    return (
+                                                                        removeExpressionComment(orderKey) ===
+                                                                            cleanColumnKey ||
+                                                                        removeExpressionComment(orderKey) ===
+                                                                            `-${cleanColumnKey}`
+                                                                    )
+                                                                }
+                                                            })
+                                                                ? undefined
+                                                                : (query.source as EventsQuery).orderBy,
+                                                        }
+                                                        const newPinnedColumns = query.pinnedColumns?.filter(
+                                                            (column) => column !== key
+                                                        )
+                                                        setQuery?.({
+                                                            ...query,
+                                                            source: newSource,
+                                                            pinnedColumns: newPinnedColumns,
+                                                        })
+                                                    }}
+                                                >
+                                                    Remove column
+                                                </LemonButton>
+                                            </>
+                                        )}
+                                    {columnFeatures.includes(ColumnFeature.canPin) && (
+                                        <>
+                                            <LemonDivider />
+                                            <LemonButton
+                                                fullWidth
+                                                data-attr="datatable-pin-column"
+                                                onClick={() => {
+                                                    let newPinnedColumns = new Set(query.pinnedColumns ?? [])
+                                                    if (newPinnedColumns.has(key)) {
+                                                        newPinnedColumns.delete(key)
+                                                    } else {
+                                                        newPinnedColumns.add(key)
+                                                    }
+                                                    setQuery?.({
+                                                        ...query,
+                                                        pinnedColumns: Array.from(newPinnedColumns),
+                                                    })
+                                                }}
+                                            >
+                                                {query.pinnedColumns?.includes(key) ? 'Unpin' : 'Pin column'}
+                                            </LemonButton>
+                                        </>
+                                    )}
                                 </>
-                            )}
-                        </>
-                    ) : undefined,
-            }
-        }),
-        ...(recordingColumnShown
-            ? [
-                  {
-                      dataIndex: '__recording' as any,
-                      title: '',
-                      render: function RenderRecording(_: any, { label, result }: DataTableRow) {
-                          if (label) {
-                              return { props: { colSpan: 0 } }
-                          }
-                          if (result && columnsInResponse?.includes('*')) {
-                              const event = (result as any[])[columnsInResponse.indexOf('*')]
-                              return (
-                                  <ViewRecordingButton
-                                      sessionId={event?.properties?.$session_id}
-                                      recordingStatus={event?.properties?.$recording_status}
-                                      timestamp={event?.timestamp}
-                                      hasRecording={event?.properties?.$has_recording as boolean | undefined}
-                                      openPlayerIn={RecordingPlayerType.Modal}
-                                      size="xsmall"
-                                      type="secondary"
-                                  />
-                              )
-                          }
+                            ) : undefined,
+                    }
+                }),
+                ...(recordingColumnShown
+                    ? [
+                          {
+                              dataIndex: '__recording' as any,
+                              title: '',
+                              render: function RenderRecording(_: any, { label, result }: DataTableRow) {
+                                  if (label) {
+                                      return { props: { colSpan: 0 } }
+                                  }
+                                  if (result && columnsInResponse?.includes('*')) {
+                                      const event = (result as any[])[columnsInResponse.indexOf('*')]
+                                      return (
+                                          <ViewRecordingButton
+                                              sessionId={event?.properties?.$session_id}
+                                              recordingStatus={event?.properties?.$recording_status}
+                                              timestamp={event?.timestamp}
+                                              hasRecording={event?.properties?.$has_recording as boolean | undefined}
+                                              openPlayerIn={RecordingPlayerType.Modal}
+                                              size="xsmall"
+                                              type="secondary"
+                                          />
+                                      )
+                                  }
+                                  return null
+                              },
+                              width: 100,
+                              align: 'center' as const,
+                          },
+                      ]
+                    : []),
+            ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*'),
+        [
+            columnsInLemonTable,
+            query,
+            setQuery,
+            context,
+            expandable,
+            recordingColumnShown,
+            sourceFeatures,
+            isReadOnly,
+            showActions,
+            columnFeatures,
+            groupTypes,
+            canSort,
+            columnsInQuery,
+            columnsInResponse,
+            orderByForKey,
+        ]
+    )
+
+    // Hoisted from the LemonTable JSX so these props keep their identity between renders — an
+    // inline object/closure would defeat TableRow's memo for every row on every render.
+    const contextExpandable = context?.expandable
+    const expandableConfig = useMemo(
+        () =>
+            contextExpandable
+                ? contextExpandable
+                : expandable && columnsInResponse?.includes('*')
+                  ? {
+                        isRowExpanded: (_: DataTableRow, rowIndex: number) => expandedRows.includes(rowIndex),
+                        onRowExpand: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
+                        onRowCollapse: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
+                        expandedRowRender: function renderExpand({ result }: DataTableRow) {
+                            if (isEventsQuery(query.source) && Array.isArray(result)) {
+                                return <EventDetails event={result[columnsInResponse.indexOf('*')] ?? {}} />
+                            }
+                            if (result && !Array.isArray(result)) {
+                                return <EventDetails event={result as EventType} />
+                            }
+                        },
+                        rowExpandable: ({ result }: DataTableRow) => !!result,
+                        noIndent: true,
+                    }
+                  : undefined,
+        [contextExpandable, expandable, columnsInResponse, expandedRows, toggleRowExpanded, query.source]
+    )
+
+    const rowActions = useMemo(
+        () =>
+            eventActionsColumnShown
+                ? ({ result, label }: DataTableRow) => {
+                      if (label) {
                           return null
-                      },
-                      width: 100,
-                      align: 'center' as const,
-                  },
-              ]
-            : []),
-    ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
+                      }
+                      if (result && columnsInResponse?.includes('*')) {
+                          return (
+                              <EventRowActions
+                                  event={(result as any[])[columnsInResponse.indexOf('*')]}
+                                  hideRecordingButton={hideRecordingButton}
+                              />
+                          )
+                      }
+                      return null
+                  }
+                : undefined,
+        [eventActionsColumnShown, columnsInResponse, hideRecordingButton, sourceFeatures]
+    )
 
     const setQuerySource = useCallback(
         (
@@ -729,10 +840,20 @@ export function DataTable({
             />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
-            <EventName key="event-name" query={query.source as EventsQuery | SessionsQuery} setQuery={setQuerySource} />
+            <EventName
+                key="event-name"
+                query={query.source as EventsQuery | SessionsQuery}
+                setQuery={setQuerySource}
+                includeHiddenEvents={context?.includeHiddenEvents}
+            />
         ) : null,
         showEventsFilter && isEventsQuery(query.source) ? (
-            <EventsFilter key="events-filter" query={query.source} setQuery={setQuerySource} />
+            <EventsFilter
+                key="events-filter"
+                query={query.source}
+                setQuery={setQuerySource}
+                includeHiddenEvents={context?.includeHiddenEvents}
+            />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
@@ -744,6 +865,9 @@ export function DataTable({
                 setQuery={setQuerySource}
                 groupTypeLabel={context?.groupTypeLabel}
             />
+        ) : null,
+        showSearch && sourceFeatures.has(QueryFeature.tracesSearch) ? (
+            <TracesSearch key="traces-search" query={query.source as TracesQuery} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter &&
         sourceFeatures.has(QueryFeature.eventPropertyFilters) &&
@@ -813,7 +937,9 @@ export function DataTable({
     const shouldShowCount = showCount && sourceFeatures.has(QueryFeature.showCount)
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
-        showCount && sourceFeatures.has(QueryFeature.showCount) ? <DataTableCount key="count" /> : null,
+        showCount && sourceFeatures.has(QueryFeature.showCount) ? (
+            <DataTableCount key="count" nouns={context?.dataTableNouns} />
+        ) : null,
         shouldShowCount && showElapsedTime ? <LemonDivider vertical={true} key="divider" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
@@ -838,6 +964,7 @@ export function DataTable({
                 query={query}
                 setQuery={setQuery}
                 fileNameForExport={context?.fileNameForExport}
+                excludedColumns={context?.dataTableExportExcludedColumns}
             />
         ) : null,
         showExport && showOpenEditorButton ? (
@@ -864,35 +991,73 @@ export function DataTable({
             secondRowRight.push(editorButton)
         }
     }
+
+    const compactToolbarLeft = [...(showFirstRow ? firstRowLeft : []), ...(showSecondRow ? secondRowLeft : [])]
+    const compactToolbarRight = [...(showFirstRow ? firstRowRight : []), ...(showSecondRow ? secondRowRight : [])]
+
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full flex flex-col gap-2 flex-1 h-full">
+                <div className="relative w-full flex flex-col gap-2 flex-1 h-full min-h-0">
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
-                    {showFirstRow && (
-                        <div className="flex gap-2 items-center flex-wrap">
-                            {firstRowLeft}
-                            {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
-                            {firstRowRight}
-                        </div>
-                    )}
-                    {showSavedFilters && uniqueKey && (
-                        <DataTableSavedFilters uniqueKey={String(uniqueKey)} query={query} setQuery={setQuery} />
-                    )}
-                    {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
-                    {showSecondRow && secondRowLeft.length > 0 && secondRowRight.length > 0 && (
-                        <div className="flex gap-2 justify-between flex-wrap DataTable__second-row empty:hidden">
-                            <div className="flex gap-2 items-center">{secondRowLeft}</div>
-                            <div className="flex gap-2 items-center">{secondRowRight}</div>
-                        </div>
+                    {context?.compactDataTableToolbar ? (
+                        <>
+                            {compactToolbarLeft.length > 0 || compactToolbarRight.length > 0 ? (
+                                <div className="flex gap-2 items-center flex-wrap">
+                                    {compactToolbarLeft}
+                                    {compactToolbarLeft.length > 0 && compactToolbarRight.length > 0 ? (
+                                        <div className="flex-1" />
+                                    ) : null}
+                                    {compactToolbarRight}
+                                </div>
+                            ) : null}
+                            {showSavedFilters && uniqueKey ? (
+                                <DataTableSavedFilters
+                                    uniqueKey={String(uniqueKey)}
+                                    query={query}
+                                    setQuery={setQuery}
+                                />
+                            ) : null}
+                        </>
+                    ) : (
+                        <>
+                            {showFirstRow && (
+                                <div className="flex gap-2 items-center flex-wrap">
+                                    {firstRowLeft}
+                                    {firstRowLeft.length > 0 && firstRowRight.length > 0 ? (
+                                        <div className="flex-1" />
+                                    ) : null}
+                                    {firstRowRight}
+                                </div>
+                            )}
+                            {showSavedFilters && uniqueKey && (
+                                <DataTableSavedFilters
+                                    uniqueKey={String(uniqueKey)}
+                                    query={query}
+                                    setQuery={setQuery}
+                                />
+                            )}
+                            {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
+                            {showSecondRow && secondRowLeft.length > 0 && secondRowRight.length > 0 && (
+                                <div className="flex gap-2 justify-between flex-wrap DataTable__second-row empty:hidden">
+                                    <div className="flex gap-2 items-center">{secondRowLeft}</div>
+                                    <div className="flex gap-2 items-center">{secondRowRight}</div>
+                                </div>
+                            )}
+                        </>
                     )}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
                         <div className="absolute right-0 z-10 p-1">{editorButton}</div>
                     ) : null}
                     {showResultsTable && (
-                        <div className="relative">
+                        <div
+                            className={clsx(
+                                'relative',
+                                context?.dataTableAllowContentScroll && 'min-h-0 flex-1 overflow-hidden'
+                            )}
+                        >
                             {usedWebAnalyticsLazyPrecompute ? (
                                 <PreAggregatedBadge
                                     variant="precomputed"
@@ -904,15 +1069,18 @@ export function DataTable({
                             <LemonTable
                                 data-attr={dataAttr}
                                 className="DataTable"
+                                allowContentScroll={context?.dataTableAllowContentScroll}
                                 loading={responseLoading && !nextDataLoading && !newDataLoading}
                                 columns={lemonColumns}
+                                tableLayout={context?.tableLayout}
+                                tableStyle={context?.tableStyle}
                                 embedded={embedded}
                                 key={
                                     [...(columnsInResponse ?? []), ...columnsInQuery].join(
                                         '::'
                                     ) /* Bust the LemonTable cache when columns change */
                                 }
-                                dataSource={dataTableRows ?? []}
+                                dataSource={dataTableRows ?? NO_ROWS}
                                 rowKey={(_, rowIndex) => {
                                     return rowIndex
                                 }}
@@ -923,7 +1091,10 @@ export function DataTable({
                                         sourceFeatures.has(QueryFeature.displayResponseError) ? (
                                             <InsightErrorState
                                                 query={query}
-                                                excludeDetail
+                                                queryId={responseErrorObject?.queryId ?? queryId}
+                                                titleStatus={responseErrorObject?.status}
+                                                // A cancel is the user's own action: no apology or bug-report guidance
+                                                excludeDetail={queryCancelled}
                                                 onRetry={() => loadData('force_blocking')}
                                                 title={
                                                     queryCancelled
@@ -944,38 +1115,12 @@ export function DataTable({
                                             heading={context?.emptyStateHeading}
                                             detail={context?.emptyStateDetail}
                                             icon={context?.emptyStateIcon}
+                                            sampleDataVariant="table"
+                                            insightProps={insightProps}
                                         />
                                     )
                                 }
-                                expandable={
-                                    context?.expandable
-                                        ? context.expandable
-                                        : expandable && columnsInResponse?.includes('*')
-                                          ? {
-                                                isRowExpanded: (_, rowIndex) => expandedRows.includes(rowIndex),
-                                                onRowExpand: (_, rowIndex) => toggleRowExpanded(rowIndex),
-                                                onRowCollapse: (_, rowIndex) => toggleRowExpanded(rowIndex),
-                                                expandedRowRender: function renderExpand({ result }) {
-                                                    if (
-                                                        (isEventsQuery(query.source) ||
-                                                            isRevenueExampleEventsQuery(query.source)) &&
-                                                        Array.isArray(result)
-                                                    ) {
-                                                        return (
-                                                            <EventDetails
-                                                                event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                                            />
-                                                        )
-                                                    }
-                                                    if (result && !Array.isArray(result)) {
-                                                        return <EventDetails event={result as EventType} />
-                                                    }
-                                                },
-                                                rowExpandable: ({ result }) => !!result,
-                                                noIndent: true,
-                                            }
-                                          : undefined
-                                }
+                                expandable={expandableConfig}
                                 rowClassName={({ result, label }) =>
                                     clsx('DataTable__row', {
                                         'DataTable__row--highlight_once': result && highlightedRows.has(result),
@@ -990,46 +1135,15 @@ export function DataTable({
                                 }
                                 footer={
                                     (dataTableRows ?? []).length > 0 &&
-                                    !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
-                                        <LoadNext query={query.source} />
+                                    (context?.showLoadNextButton ||
+                                        !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
+                                        <LoadNext query={query.source} nouns={context?.dataTableNouns} />
                                     ) : null
                                 }
+                                nouns={context?.dataTableNouns}
                                 onRow={onRow}
                                 pinnedColumns={query.pinnedColumns}
-                                rowActions={
-                                    eventActionsColumnShown
-                                        ? ({ result, label }) => {
-                                              if (label) {
-                                                  return null
-                                              }
-                                              if (result && columnsInResponse?.includes('*')) {
-                                                  return (
-                                                      <EventRowActions
-                                                          event={(result as any[])[columnsInResponse.indexOf('*')]}
-                                                          hideRecordingButton={recordingColumnShown}
-                                                      />
-                                                  )
-                                              }
-                                              return null
-                                          }
-                                        : sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions)
-                                          ? (row: DataTableRow) => {
-                                                if (row.label || !row.result || !columnsInResponse) {
-                                                    return null
-                                                }
-                                                return (
-                                                    <More
-                                                        overlay={
-                                                            <NonIntegratedConversionsRowActions
-                                                                result={row.result}
-                                                                columnsInResponse={columnsInResponse}
-                                                            />
-                                                        }
-                                                    />
-                                                )
-                                            }
-                                          : undefined
-                                }
+                                rowActions={rowActions}
                             />
                         </div>
                     )}

@@ -1,8 +1,8 @@
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -11,6 +11,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { transformationsEmptyState } from 'products/cdp/frontend/emptyState/transformationsEmptyState'
+
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
 import { transformationsSceneLogic } from './transformationsSceneLogic'
 
@@ -18,11 +20,12 @@ export const scene: SceneExport = {
     component: TransformationsScene,
     logic: transformationsSceneLogic,
     productKey: ProductKey.PIPELINE_TRANSFORMATIONS,
+    emptyState: transformationsEmptyState,
 }
 
 export function TransformationsScene(): JSX.Element {
     const action = (
-        <AppShortcut
+        <Shortcut
             name="NewPipelineTransformation"
             keybind={[keyBinds.new]}
             intent="New transformation"
@@ -39,7 +42,7 @@ export function TransformationsScene(): JSX.Element {
             >
                 New transformation
             </LemonButton>
-        </AppShortcut>
+        </Shortcut>
     )
 
     return (
@@ -52,7 +55,7 @@ export function TransformationsScene(): JSX.Element {
                 }}
                 actions={action}
             />
-            <DataPipelinesHogFunctions kind="transformation" action={action} />
+            <DataPipelinesHogFunctions kind="transformation" />
         </SceneContent>
     )
 }

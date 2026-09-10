@@ -3,9 +3,9 @@ from typing import cast
 import structlog
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notifications.backend.facade.enums import TargetType
 
 logger = structlog.get_logger(__name__)
@@ -16,13 +16,10 @@ class RecipientsResolver:
         if target_type == TargetType.USER:
             return [int(target_id)]
         elif target_type == TargetType.TEAM:
-            from posthog.models import OrganizationMembership
-
-            return list(
-                OrganizationMembership.objects.filter(
-                    organization__teams__id=int(target_id),
-                ).values_list("user_id", flat=True)
-            )
+            team = Team.objects.filter(id=int(target_id)).first()
+            if team is None:
+                return []
+            return list(team.all_users_with_access().values_list("id", flat=True))
         elif target_type == TargetType.ORGANIZATION:
             from posthog.models import OrganizationMembership
 
@@ -32,12 +29,14 @@ class RecipientsResolver:
                 ).values_list("user_id", flat=True)
             )
         elif target_type == TargetType.ROLE:
-            from ee.models.rbac.role import RoleMembership
+            from products.access_control.backend.models.role import RoleMembership
 
             return list(
                 RoleMembership.objects.filter(
                     role_id=target_id,
-                ).values_list("user_id", flat=True)
+                )
+                .valid_for_authorization()
+                .values_list("user_id", flat=True)
             )
 
         raise ValueError(f"Unknown target type: {target_type}")

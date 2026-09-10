@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { AsyncOutput } from '~/common/outputs'
 import { PersonContext, PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { PersonEventProcessor } from '~/ingestion/common/persons/person-event-processor'
+import type { MergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
 import { PersonMergeService } from '~/ingestion/common/persons/person-merge-service'
 import { determineMergeMode } from '~/ingestion/common/persons/person-merge-types'
 import { PersonPropertyService } from '~/ingestion/common/persons/person-property-service'
@@ -20,6 +21,8 @@ export type ProcessPersonsInput = {
     timestamp: DateTime
     personlessPerson?: Person
     personsStoreForBatch: PersonsStoreForBatch
+    /** The merge-fold planning decision for this event; `immediate` everywhere except planned $identify runs in the grouped analytics lane. */
+    mergeFold: MergeFoldDecision
 }
 
 export type ProcessPersonsOutput = {
@@ -58,7 +61,8 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             options.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
             mergeMode,
             options.PERSON_PROPERTIES_UPDATE_ALL,
-            shouldUpdateLastSeenAt
+            shouldUpdateLastSeenAt,
+            input.mergeFold.type === 'planned' ? input.mergeFold.plan : undefined
         )
 
         const processor = new PersonEventProcessor(

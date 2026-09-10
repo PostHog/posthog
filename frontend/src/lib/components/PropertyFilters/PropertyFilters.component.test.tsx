@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -92,8 +92,26 @@ describe('PropertyFilters recent selections', () => {
         await userEvent.click(screen.getByTestId(tabTestId))
     }
 
+    // Every debounced input in this flow settles the same way: fake timers skip the wait, then
+    // real timers resume so the MSW round trip settles normally instead of fighting fake-timer
+    // polling. One strategy for the property search (taxonomicFilterLogic's 500ms breakpoint) and
+    // for the value load (propertyDefinitionsModel's 300ms breakpoint) keeps the test deterministic.
+    // setImmediate is excluded like queueMicrotask (see jest.config.ts) — it also drives MSW v2's
+    // response pump.
+    async function typeWithDebounce(field: HTMLElement, text: string): Promise<void> {
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'setImmediate'] })
+        try {
+            await userEvent.setup({ advanceTimers: jest.advanceTimersByTime }).type(field, text)
+            await act(async () => {
+                jest.advanceTimersByTime(600)
+            })
+        } finally {
+            jest.useRealTimers()
+        }
+    }
+
     async function searchFor(query: string): Promise<void> {
-        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), query)
+        await typeWithDebounce(screen.getByTestId('taxonomic-filter-searchfield'), query)
     }
 
     async function selectItem(itemTestId: string, onChange: jest.Mock): Promise<void> {
@@ -148,7 +166,7 @@ describe('PropertyFilters recent selections', () => {
         })
 
         const valueInput = await screen.findByPlaceholderText('Enter value...')
-        await userEvent.type(valueInput, value)
+        await typeWithDebounce(valueInput, value)
         await waitFor(() => {
             expect(screen.getByTestId('prop-val-0')).toBeInTheDocument()
         })

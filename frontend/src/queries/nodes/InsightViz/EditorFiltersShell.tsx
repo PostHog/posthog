@@ -6,10 +6,12 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
+import { AnyAssistantGeneratedQuery } from '~/queries/schema/schema-assistant-messages'
 import {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -20,10 +22,13 @@ import {
     DataVisualizationNode,
     InsightQueryNode,
     InsightVizNode,
+    Node,
     NodeKind,
     QuerySchema,
 } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
+import { isHogQLQuery, isInsightQueryNode, setLatestVersionsOnQuery } from '~/queries/utils'
+
+import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { SessionAnalysisWarning } from './SessionAnalysisWarning'
 import { SuggestionBanner } from './SuggestionBanner'
@@ -33,6 +38,66 @@ export interface EditorFiltersShellProps {
     showing: boolean
     embedded: boolean
     children: React.ReactNode
+}
+
+/** Resolved `query-*` MCP tool names this editor applies back, mapped to the insight kind the MCP
+ * wrapper omits from its input (see `query-wrapper-factory.ts`, which adds `kind` server-side). */
+const QUERY_TOOL_KIND: Partial<Record<string, NodeKind>> = {
+    'query-trends': NodeKind.TrendsQuery,
+    'query-funnel': NodeKind.FunnelsQuery,
+    'query-retention': NodeKind.RetentionQuery,
+    'query-paths': NodeKind.PathsQuery,
+    'query-stickiness': NodeKind.StickinessQuery,
+    'query-lifecycle': NodeKind.LifecycleQuery,
+}
+
+const QUERY_TOOL_NAMES = Object.keys(QUERY_TOOL_KIND)
+
+/**
+ * Pure mapping from a resolved `query-*` MCP tool call to the `InsightVizNode` the legacy
+ * `create_insight` MaxTool callback would have produced. The MCP wrapper defaults `kind` server-side,
+ * so it's re-added here from the tool name before casting through the same `castAssistantQuery`
+ * pipeline as the legacy path. Returns null for an unrecognized tool name, a null input, or an input
+ * that doesn't cast to an insight query node (e.g. a HogQL-shaped body slipping in). The caller skips
+ * applying in that case.
+ */
+export function buildInsightNodeFromQueryTool(
+    toolName: string,
+    innerInput: Record<string, unknown> | null
+): InsightVizNode | null {
+    const kind = QUERY_TOOL_KIND[toolName]
+    if (!kind || !innerInput) {
+        return null
+    }
+    const source = castAssistantQuery({ ...innerInput, kind } as AnyAssistantGeneratedQuery)
+    if (!source || !isInsightQueryNode(source)) {
+        return null
+    }
+    return { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+}
+
+/**
+ * Restore the query metadata a tool result can't carry: the query log tags of the query being
+ * edited, and the latest schema versions. Without the tags the applied query loses its product
+ * attribution, and without the versions the backend migrates a query that is already current.
+ *
+ * Also carries over the current query's modifiers (e.g. persons-on-events mode) when the
+ * suggestion doesn't set its own. A tool result arrives without modifiers, so applying it bare
+ * would silently reset a setting the user chose.
+ */
+export function withCurrentQueryMetadata<T extends Node>(node: T, currentSource?: InsightQueryNode | null): T {
+    const stamped = setLatestVersionsOnQuery(node) as T & { source?: Record<string, unknown> }
+    if (!currentSource || !stamped.source) {
+        return stamped
+    }
+    const carried: Record<string, unknown> = {}
+    if (currentSource.tags) {
+        carried.tags = currentSource.tags
+    }
+    if (currentSource.modifiers && !stamped.source.modifiers) {
+        carried.modifiers = currentSource.modifiers
+    }
+    return Object.keys(carried).length > 0 ? { ...stamped, source: { ...stamped.source, ...carried } } : stamped
 }
 
 export function EditorFiltersShell({ query, showing, embedded, children }: EditorFiltersShellProps): JSX.Element {
@@ -53,8 +118,30 @@ export function EditorFiltersShell({ query, showing, embedded, children }: Edito
         []
     )
     const { desiredSize: panelWidth, isResizeInProgress: isResizing } = useValues(resizerLogic(resizerProps))
-    // MaxTool should not be active when insights are embedded (e.g., in notebooks)
-    const maxToolActive = !embedded
+    // MaxTool should not be active when its editor is hidden or embedded (e.g., in notebooks)
+    const maxToolActive = showing && !embedded
+
+    useAttachedContext([{ type: 'insight_query', value: JSON.stringify(querySource), label: 'Current query' }], {
+        active: maxToolActive,
+    })
+
+    useMcpToolApplyBack({
+        tools: QUERY_TOOL_NAMES,
+        targetKey: keyForInsightLogicProps('new')(insightProps),
+        active: maxToolActive,
+        onApply: (event, { innerInput }) => {
+            if (!maxToolActive || !innerInput) {
+                return
+            }
+            const builtNode = buildInsightNodeFromQueryTool(event.toolName, innerInput)
+            if (!builtNode) {
+                return
+            }
+            const node = withCurrentQueryMetadata(builtNode, querySource)
+            handleInsightSuggested(node)
+            setQuery(node)
+        },
+    })
 
     const QueryTypeIcon = QUERY_TYPES_METADATA[query.kind].icon
 
@@ -92,17 +179,18 @@ export function EditorFiltersShell({ query, showing, embedded, children }: Edito
                         if (!source) {
                             return
                         }
-                        let node: QuerySchema
+                        let builtNode: QuerySchema
                         if (isHogQLQuery(source)) {
-                            node = {
+                            builtNode = {
                                 kind: NodeKind.DataVisualizationNode,
                                 source,
                             } satisfies DataVisualizationNode
                         } else if (isInsightQueryNode(source)) {
-                            node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                            builtNode = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
                         } else {
-                            node = source
+                            builtNode = source
                         }
+                        const node = withCurrentQueryMetadata(builtNode, querySource)
                         handleInsightSuggested(node)
                         setQuery(node)
                     }}

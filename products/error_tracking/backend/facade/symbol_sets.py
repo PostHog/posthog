@@ -97,8 +97,7 @@ def bulk_start_upload(
     release_id: str | None,
     force: bool,
     skip_on_conflict: bool,
-    distinct_id: str | None,
-) -> dict[str, dict[str, str]]:
+) -> dict[str, dict[str, Any]]:
     return _logic.bulk_start_upload(
         team,
         symbol_sets=symbol_sets,
@@ -106,7 +105,6 @@ def bulk_start_upload(
         release_id=release_id,
         force=force,
         skip_on_conflict=skip_on_conflict,
-        distinct_id=distinct_id,
     )
 
 

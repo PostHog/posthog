@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 
 import { ApiError } from 'lib/api'
 import { getEventNamesForAction } from 'lib/utils/events'
@@ -87,24 +87,46 @@ type ReturnInsightModel<T> = T extends InsightModel
       ? Partial<QueryBasedInsightModel>
       : never
 
-/** Get an insight with `query` only. Eventual `filters` will be converted.  */
-export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
+/** Get an insight with `query` only. Eventual `filters` will be converted.
+ *
+ * `source` names the surface for the conversion telemetry. Pass one: without it the call is
+ * indistinguishable from every other caller, and the event cannot say which surfaces still rely on
+ * converting legacy filters in the browser.
+ */
+export function getQueryBasedInsightModel<T extends InputInsightModel>(
+    insight: T,
+    source?: string
+): ReturnInsightModel<T> {
     const { filters, ...baseInsight } = insight
-    return { ...baseInsight, query: getQueryFromInsightLike(insight) } as unknown as ReturnInsightModel<T>
+    // The API is phasing out the deprecated `dashboards` field (already omitted for token
+    // callers, eventually for all); derive it from `dashboard_tiles` so remaining readers
+    // keep working regardless of whether the response still carries it.
+    const dashboards =
+        insight.dashboards ?? insight.dashboard_tiles?.filter((tile) => !tile.deleted).map((tile) => tile.dashboard_id)
+    return {
+        ...baseInsight,
+        ...(dashboards ? { dashboards } : {}),
+        query: getQueryFromInsightLike(insight, source),
+    } as unknown as ReturnInsightModel<T>
 }
 
 /** Get a `query` from an object that potentially has `filters` instead of a `query`.  */
-export function getQueryFromInsightLike(insight: {
-    query?: Node<Record<string, any>> | null
-    filters?: Partial<FilterType>
-}): Node<Record<string, any>> | null {
+export function getQueryFromInsightLike(
+    insight: {
+        query?: Node<Record<string, any>> | null
+        filters?: Partial<FilterType>
+    },
+    source?: string
+): Node<Record<string, any>> | null {
     let query
     if (insight.query) {
         query = insight.query
     } else if (insight.filters && Object.keys(insight.filters).filter((k) => k != 'filter_test_accounts').length > 0) {
         query = {
             kind: NodeKind.InsightVizNode,
-            source: filtersToQueryNode(insight.filters, { source: 'insight_viz_get_query_from_insight_like' }),
+            source: filtersToQueryNode(insight.filters, {
+                source: source ?? 'insight_viz_get_query_from_insight_like',
+            }),
         } as InsightVizNode
     } else {
         query = null
@@ -153,6 +175,8 @@ export const getDefaultQuery = (
         return queryFromKind(NodeKind.RetentionQuery, filterTestAccountsDefault)
     } else if (insightType === InsightType.PATHS) {
         return queryFromKind(NodeKind.PathsQuery, filterTestAccountsDefault)
+    } else if (insightType === InsightType.JOURNEYS) {
+        return queryFromKind(NodeKind.PathsV2Query, filterTestAccountsDefault)
     } else if (insightType === InsightType.STICKINESS) {
         return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
     } else if (insightType === InsightType.LIFECYCLE) {
@@ -164,7 +188,8 @@ export const getDefaultQuery = (
 
 /** Get a dashboard where eventual `filters` based tiles are converted to `query` based ones. */
 export const getQueryBasedDashboard = (
-    dashboard: DashboardType<InsightModel> | DashboardType<QueryBasedInsightModel> | null
+    dashboard: DashboardType<InsightModel> | DashboardType<QueryBasedInsightModel> | null,
+    source?: string
 ): DashboardType<QueryBasedInsightModel> | null => {
     if (dashboard == null) {
         return null
@@ -176,34 +201,40 @@ export const getQueryBasedDashboard = (
             (tile) =>
                 ({
                     ...tile,
-                    ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
+                    ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight, source) } : {}),
                 }) as DashboardTile<QueryBasedInsightModel>
         ),
     }
 }
 
+// Statuses whose responses carry an actionable validation message: 400 (bad query), 512 (query
+// estimated too expensive to run), 513 (out of memory)
+export const VALIDATION_ERROR_STATUSES = new Set([400, 512, 513])
+
+const hasValidationErrorStatus = (error: Error | Record<string, any> | null | undefined): boolean =>
+    VALIDATION_ERROR_STATUSES.has((error as Record<string, any> | null | undefined)?.status)
+
 export const extractValidationError = (error: Error | Record<string, any> | null | undefined): string | null => {
-    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
-        // We use 512 for query timeouts
+    if (hasValidationErrorStatus(error)) {
         // Async queries put the error message on data.error_message, while synchronous ones use detail
-        return error?.status === 400 || error?.status === 512
-            ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try\u00A0') // Add unbreakable space for better line breaking
-            : null
+        const anyError = error as Record<string, any>
+        // Add unbreakable space for better line breaking
+        return (anyError.detail || anyError.data?.error_message)?.replace('Try ', 'Try\u00A0') ?? null
     }
 
     return null
 }
 
 export const extractValidationErrorCode = (error: Error | Record<string, any> | null | undefined): string | null => {
-    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
-        if (error?.status === 400 || error?.status === 512) {
-            return error.code ?? error.data?.code ?? null
-        }
+    if (hasValidationErrorStatus(error)) {
+        const anyError = error as Record<string, any>
+        return anyError.code ?? anyError.data?.code ?? null
     }
 
     return null
 }
 
+// 512 only (query estimated too expensive) — OOM is 513, so this can't misfire on a memory error.
 export const isTimeoutError = (error: Error | Record<string, any> | null | undefined): boolean => {
     if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
         return error?.status === 512

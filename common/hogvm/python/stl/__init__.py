@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Any, Optional
 import pytz
 
 from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_error, to_hog_interval
-from ..utils import get_nested_value, like
-from .crypto import md5, sha256, sha256HmacChain
+from ..utils import HogVMException, _compile_regex, _require_string, get_nested_value, like, regex_extract
+from .crypto import md5, sha1, sha1HmacChain, sha256, sha256HmacChain
 from .date import (
     formatDateTime,
     fromUnixTimestamp,
@@ -38,6 +38,9 @@ class STLFunction:
     fn: Callable[[list[Any], Optional["Team"], list[str] | None, float], Any]
     minArgs: Optional[int] = None
     maxArgs: Optional[int] = None
+    # Blocks the thread on time or I/O the VM's cooperative timeout can't interrupt, so callers
+    # that run untrusted Hog on a request thread (e.g. HogQL placeholders) must refuse it.
+    is_blocking: bool = False
 
 
 def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
@@ -109,8 +112,15 @@ def empty(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
     return not bool(args[0])
 
 
+def length(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+    if args[0] is None:
+        raise HogVMException("Can not call length on null")
+    return len(args[0])
+
+
 def sleep(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
-    time.sleep(args[0])
+    # Clamp to the VM's remaining budget (`timeout`) so a script can't pin the thread past its cap.
+    time.sleep(max(0.0, min(args[0], timeout)))
     return None
 
 
@@ -263,7 +273,6 @@ def decodeURLComponent(args: list[Any], team: Optional["Team"], stdout: Optional
 def tryDecodeURLComponent(
     args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float
 ) -> Optional[str]:
-    import re
     import urllib.parse
 
     s = args[0]
@@ -937,26 +946,15 @@ def multiSearchAnyCaseInsensitive(args: list[Any], team, stdout, timeout):
 
 
 def extractRegex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
-    """
-    Extract substring matching a regex pattern.
-    Matches ClickHouse extract(haystack, pattern) behavior:
-    - Returns first capture group if pattern has groups
-    - Returns whole match if no capture groups
-    - Returns empty string if no match
-    """
+    return regex_extract(args[0], args[1])
+
+
+def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
     if args[0] is None or args[1] is None:
-        return ""
-    haystack = str(args[0])
-    pattern = str(args[1])
-    try:
-        match = re.search(pattern, haystack)
-        if not match:
-            return ""
-        if match.lastindex and match.lastindex >= 1:
-            return match.group(1) or ""
-        return match.group(0) or ""
-    except re.error:
-        return ""
+        return False
+    input_string = _require_string(args[0], "input", "match")
+    pattern = _require_string(args[1], "pattern", "match")
+    return _compile_regex(pattern).search(input_string) is not None
 
 
 STL: dict[str, STLFunction] = {
@@ -967,13 +965,7 @@ STL: dict[str, STLFunction] = {
         minArgs=1,
         maxArgs=None,
     ),
-    "match": STLFunction(
-        fn=lambda args, team, stdout, timeout: (
-            False if args[1] is None or args[0] is None else bool(re.search(re.compile(args[1]), args[0]))
-        ),
-        minArgs=2,
-        maxArgs=2,
-    ),
+    "match": STLFunction(fn=match, minArgs=2, maxArgs=2),
     "extractRegex": STLFunction(fn=extractRegex, minArgs=2, maxArgs=2),
     "like": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1]), minArgs=2, maxArgs=2),
     "ilike": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1], True), minArgs=2, maxArgs=2),
@@ -981,14 +973,14 @@ STL: dict[str, STLFunction] = {
     "notILike": STLFunction(
         fn=lambda args, team, stdout, timeout: not like(args[0], args[1], True), minArgs=2, maxArgs=2
     ),
-    "toString": STLFunction(fn=toString, minArgs=1, maxArgs=1),
+    "toString": STLFunction(fn=toString, minArgs=1, maxArgs=2),
     "toUUID": STLFunction(fn=toString, minArgs=1, maxArgs=1),
     "toInt": STLFunction(fn=toInt, minArgs=1, maxArgs=1),
     "toFloat": STLFunction(fn=toFloat, minArgs=1, maxArgs=1),
     "ifNull": STLFunction(fn=ifNull, minArgs=2, maxArgs=2),
     "isNull": STLFunction(fn=lambda args, team, stdout, timeout: args[0] is None, minArgs=1, maxArgs=1),
     "isNotNull": STLFunction(fn=lambda args, team, stdout, timeout: args[0] is not None, minArgs=1, maxArgs=1),
-    "length": STLFunction(fn=lambda args, team, stdout, timeout: len(args[0]), minArgs=1, maxArgs=1),
+    "length": STLFunction(fn=length, minArgs=1, maxArgs=1),
     "empty": STLFunction(fn=empty, minArgs=1, maxArgs=1),
     "notEmpty": STLFunction(
         fn=lambda args, team, stdout, timeout: not empty(args, team, stdout, timeout), minArgs=1, maxArgs=1
@@ -1001,10 +993,10 @@ STL: dict[str, STLFunction] = {
     "reverse": STLFunction(fn=lambda args, team, stdout, timeout: args[0][::-1], minArgs=1, maxArgs=1),
     "print": STLFunction(fn=print, minArgs=0, maxArgs=None),
     "jsonParse": STLFunction(fn=jsonParse, minArgs=1, maxArgs=1),
-    "jsonStringify": STLFunction(fn=jsonStringify, minArgs=1, maxArgs=1),
-    "JSONHas": STLFunction(fn=JSONHas, minArgs=2, maxArgs=None),
+    "jsonStringify": STLFunction(fn=jsonStringify, minArgs=1, maxArgs=2),
+    "JSONHas": STLFunction(fn=JSONHas, minArgs=1, maxArgs=None),
     "isValidJSON": STLFunction(fn=isValidJSON, minArgs=1, maxArgs=1),
-    "JSONLength": STLFunction(fn=JSONLength, minArgs=2, maxArgs=None),
+    "JSONLength": STLFunction(fn=JSONLength, minArgs=1, maxArgs=None),
     "JSONExtractBool": STLFunction(fn=JSONExtractBool, minArgs=1, maxArgs=None),
     "base64Encode": STLFunction(fn=base64Encode, minArgs=1, maxArgs=1),
     "base64Decode": STLFunction(fn=base64Decode, minArgs=1, maxArgs=1),
@@ -1022,7 +1014,7 @@ STL: dict[str, STLFunction] = {
             (args[0].index(str(args[1])) + 1) if isinstance(args[0], str) and str(args[1]) in args[0] else 0
         ),
         minArgs=2,
-        maxArgs=2,
+        maxArgs=3,
     ),
     "positionCaseInsensitive": STLFunction(
         fn=lambda args, team, stdout, timeout: (
@@ -1031,7 +1023,7 @@ STL: dict[str, STLFunction] = {
             else 0
         ),
         minArgs=2,
-        maxArgs=2,
+        maxArgs=3,
     ),
     "trim": STLFunction(fn=trim, minArgs=1, maxArgs=2),
     "trimLeft": STLFunction(fn=trimLeft, minArgs=1, maxArgs=2),
@@ -1045,9 +1037,25 @@ STL: dict[str, STLFunction] = {
         minArgs=1,
         maxArgs=2,
     ),
+    "sha1Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha1(args[0]), minArgs=1, maxArgs=1),
+    "sha1": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha1(args[0], args[1] if len(args) > 1 else "hex"),
+        minArgs=1,
+        maxArgs=2,
+    ),
     "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5(args[0]), minArgs=1, maxArgs=1),
     "md5": STLFunction(
         fn=lambda args, team, stdout, timeout: md5(args[0], args[1] if len(args) > 1 else "hex"), minArgs=1, maxArgs=2
+    ),
+    "sha1HmacChainHex": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha1HmacChain(args[0], "hex"),
+        minArgs=1,
+        maxArgs=1,
+    ),
+    "sha1HmacChain": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha1HmacChain(args[0], args[1] if len(args) > 1 else "hex"),
+        minArgs=1,
+        maxArgs=2,
     ),
     "sha256HmacChainHex": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256HmacChain(args[0], "hex"),
@@ -1075,12 +1083,12 @@ STL: dict[str, STLFunction] = {
     "arrayPushFront": STLFunction(fn=arrayPushFront, minArgs=2, maxArgs=2),
     "arrayPopBack": STLFunction(fn=arrayPopBack, minArgs=1, maxArgs=1),
     "arrayPopFront": STLFunction(fn=arrayPopFront, minArgs=1, maxArgs=1),
-    "arraySort": STLFunction(fn=arraySort, minArgs=1, maxArgs=1),
+    "arraySort": STLFunction(fn=arraySort, minArgs=1, maxArgs=None),
     "arrayReverse": STLFunction(fn=arrayReverse, minArgs=1, maxArgs=1),
-    "arrayReverseSort": STLFunction(fn=arrayReverseSort, minArgs=1, maxArgs=1),
+    "arrayReverseSort": STLFunction(fn=arrayReverseSort, minArgs=1, maxArgs=None),
     "arrayStringConcat": STLFunction(fn=arrayStringConcat, minArgs=1, maxArgs=2),
     "has": STLFunction(fn=has, minArgs=2, maxArgs=2),
-    "now": STLFunction(fn=lambda args, team, stdout, timeout: now(), minArgs=0, maxArgs=0),
+    "now": STLFunction(fn=lambda args, team, stdout, timeout: now(), minArgs=0, maxArgs=1),
     "toUnixTimestamp": STLFunction(
         fn=lambda args, team, stdout, timeout: toUnixTimestamp(args[0], args[1] if len(args) > 1 else None),
         minArgs=1,
@@ -1102,7 +1110,9 @@ STL: dict[str, STLFunction] = {
     "toDateTime": STLFunction(fn=lambda args, team, stdout, timeout: toDateTime(args[0]), minArgs=1, maxArgs=2),
     "formatDateTime": STLFunction(fn=_formatDateTime, minArgs=2, maxArgs=3),
     "HogError": STLFunction(
-        fn=lambda args, team, stdout, timeout: new_hog_error(args[0], args[1], args[2] if len(args) > 2 else None),
+        fn=lambda args, team, stdout, timeout: new_hog_error(
+            args[0], args[1] if len(args) > 1 else None, args[2] if len(args) > 2 else None
+        ),
         minArgs=1,
         maxArgs=3,
     ),
@@ -1114,13 +1124,15 @@ STL: dict[str, STLFunction] = {
         maxArgs=2,
     ),
     "RetryError": STLFunction(
-        fn=lambda args, team, stdout, timeout: new_hog_error("RetryError", args[0], args[1] if len(args) > 1 else None),
+        fn=lambda args, team, stdout, timeout: new_hog_error(
+            "RetryError", args[0] if len(args) > 0 else None, args[1] if len(args) > 1 else None
+        ),
         minArgs=0,
         maxArgs=2,
     ),
     "NotImplementedError": STLFunction(
         fn=lambda args, team, stdout, timeout: new_hog_error(
-            "NotImplementedError", args[0], args[1] if len(args) > 1 else None
+            "NotImplementedError", args[0] if len(args) > 0 else None, args[1] if len(args) > 1 else None
         ),
         minArgs=0,
         maxArgs=2,
@@ -1131,16 +1143,16 @@ STL: dict[str, STLFunction] = {
     "JSONExtractFloat": STLFunction(fn=JSONExtractFloat, minArgs=1),
     "JSONExtractInt": STLFunction(fn=JSONExtractInt, minArgs=1),
     "JSONExtractString": STLFunction(fn=JSONExtractString, minArgs=1),
-    "and": STLFunction(fn=and_fn, minArgs=2, maxArgs=2),
+    "and": STLFunction(fn=and_fn, minArgs=1, maxArgs=None),
     "addDays": STLFunction(fn=addDays, minArgs=2, maxArgs=2),
     "assumeNotNull": STLFunction(fn=assumeNotNull, minArgs=1, maxArgs=1),
     "coalesce": STLFunction(fn=coalesce, minArgs=1, maxArgs=None),
     "dateAdd": STLFunction(fn=date_add, minArgs=3, maxArgs=3),
     "dateDiff": STLFunction(fn=date_diff, minArgs=3, maxArgs=3),
-    "dateTrunc": STLFunction(fn=date_trunc, minArgs=2, maxArgs=2),
+    "dateTrunc": STLFunction(fn=date_trunc, minArgs=2, maxArgs=3),
     "equals": STLFunction(fn=equals, minArgs=2, maxArgs=2),
     "extract": STLFunction(fn=extract, minArgs=2, maxArgs=2),
-    "floor": STLFunction(fn=floor_fn, minArgs=1, maxArgs=1),
+    "floor": STLFunction(fn=floor_fn, minArgs=1, maxArgs=2),
     "greater": STLFunction(fn=greater, minArgs=2, maxArgs=2),
     "greaterOrEquals": STLFunction(fn=greaterOrEquals, minArgs=2, maxArgs=2),
     "if": STLFunction(fn=if_fn, minArgs=3, maxArgs=3),
@@ -1153,10 +1165,10 @@ STL: dict[str, STLFunction] = {
     "multiIf": STLFunction(fn=multiIf, minArgs=3),
     "not": STLFunction(fn=not_fn, minArgs=1, maxArgs=1),
     "notEquals": STLFunction(fn=notEquals, minArgs=2, maxArgs=2),
-    "or": STLFunction(fn=or_fn, minArgs=2, maxArgs=2),
+    "or": STLFunction(fn=or_fn, minArgs=1, maxArgs=None),
     "plus": STLFunction(fn=plus, minArgs=2, maxArgs=2),
     "range": STLFunction(fn=range_fn, minArgs=1, maxArgs=2),
-    "round": STLFunction(fn=round_fn, minArgs=1, maxArgs=1),
+    "round": STLFunction(fn=round_fn, minArgs=1, maxArgs=2),
     "startsWith": STLFunction(fn=startsWith, minArgs=2, maxArgs=2),
     "substring": STLFunction(fn=substring, minArgs=2, maxArgs=3),
     "toIntervalDay": STLFunction(fn=toIntervalDay, minArgs=1, maxArgs=1),
@@ -1164,19 +1176,21 @@ STL: dict[str, STLFunction] = {
     "toIntervalMinute": STLFunction(fn=toIntervalMinute, minArgs=1, maxArgs=1),
     "toIntervalMonth": STLFunction(fn=toIntervalMonth, minArgs=1, maxArgs=1),
     "toMonth": STLFunction(fn=toMonth_fn, minArgs=1, maxArgs=1),
-    "toStartOfDay": STLFunction(fn=toStartOfDay, minArgs=1, maxArgs=1),
+    "toStartOfDay": STLFunction(fn=toStartOfDay, minArgs=1, maxArgs=2),
     "toStartOfHour": STLFunction(fn=toStartOfHour, minArgs=1, maxArgs=1),
     "toStartOfMonth": STLFunction(fn=toStartOfMonth, minArgs=1, maxArgs=1),
-    "toStartOfWeek": STLFunction(fn=toStartOfWeek, minArgs=1, maxArgs=1),
+    "toStartOfWeek": STLFunction(fn=toStartOfWeek, minArgs=1, maxArgs=2),
     "toYYYYMM": STLFunction(fn=toYYYYMM, minArgs=1, maxArgs=1),
     "toYear": STLFunction(fn=toYear, minArgs=1, maxArgs=1),
     "today": STLFunction(fn=today, minArgs=0, maxArgs=0),
     # only in python, async function in nodejs
-    "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1),
-    "run": STLFunction(fn=run, minArgs=1, maxArgs=1),
+    "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1, is_blocking=True),
+    "run": STLFunction(fn=run, minArgs=1, maxArgs=1, is_blocking=True),
     "multiSearchAnyCaseInsensitive": STLFunction(
         fn=multiSearchAnyCaseInsensitive,
         minArgs=2,
         maxArgs=2,
     ),
 }
+
+BLOCKING_FUNCTIONS: frozenset[str] = frozenset(name for name, spec in STL.items() if spec.is_blocking)

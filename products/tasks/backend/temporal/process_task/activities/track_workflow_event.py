@@ -6,9 +6,11 @@ from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 
-from products.tasks.backend.metrics import observe_task_run_failed
+from products.tasks.backend.metrics import observe_sandbox_deadline, observe_task_run_failed
 
 logger = get_logger(__name__)
+
+SANDBOX_DEADLINE_EVENT = "sandbox_deadline"
 
 
 @dataclass
@@ -17,6 +19,11 @@ class TrackWorkflowEventInput:
     distinct_id: str
     properties: dict[str, Any]
     groups: dict[str, str] | None = None
+    # When False, only record metrics and logs — the analytics capture is owned
+    # elsewhere (e.g. update_task_run_status captures task_run_failed on the DB
+    # transition). Optional with a default so payloads from in-flight workflows
+    # started before this field existed still deserialize.
+    capture_analytics: bool = True
 
 
 @activity.defn
@@ -25,6 +32,12 @@ def track_workflow_event(input: TrackWorkflowEventInput) -> None:
     try:
         if input.event_name == "task_run_failed":
             observe_task_run_failed(input.properties)
+
+        if input.event_name == SANDBOX_DEADLINE_EVENT:
+            observe_sandbox_deadline(input.properties)
+
+        if not input.capture_analytics:
+            return
 
         posthoganalytics.capture(
             distinct_id=input.distinct_id,

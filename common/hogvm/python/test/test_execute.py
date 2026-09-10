@@ -1,8 +1,10 @@
 import json
+import time
 from collections.abc import Callable
 from typing import Any, Optional, cast
 
 import pytest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -15,7 +17,8 @@ from common.hogvm.python.operation import (
     HOGQL_BYTECODE_VERSION as VERSION,
     Operation as op,
 )
-from common.hogvm.python.utils import UncaughtHogVMException
+from common.hogvm.python.stl import STL, sleep
+from common.hogvm.python.utils import HogVMException, UncaughtHogVMException
 
 
 class TestBytecodeExecute:
@@ -82,12 +85,15 @@ class TestBytecodeExecute:
         assert self._run("match('test', 'e.*')") is True
         assert self._run("match('test', '^e.*')") is False
         assert self._run("match('test', 'x.*')") is False
+        assert self._run("match('test', '')") is True
+        assert self._run("match('', '')") is True
         assert self._run("'test' =~ 'e.*'") is True
         assert self._run("'test' !~ 'e.*'") is False
         assert self._run("'test' =~ '^e.*'") is False
         assert self._run("'test' !~ '^e.*'") is True
         assert self._run("'test' =~ 'x.*'") is False
         assert self._run("'test' !~ 'x.*'") is True
+        assert self._run("'' !~ 'x.*'") is False
         assert self._run("'test' ~* 'EST'") is True
         assert self._run("'test' =~* 'EST'") is True
         assert self._run("'test' !~* 'EST'") is False
@@ -103,6 +109,33 @@ class TestBytecodeExecute:
         assert self._run("toUUID('asd')") == "asd"
         assert self._run("1 == null") is False
         assert self._run("1 != null") is True
+
+    def test_ordering_comparison_type_error_raises_hogvm_exception(self):
+        with pytest.raises(HogVMException, match="'<=' not supported between instances of 'NoneType' and 'float'"):
+            self._run("properties.missing <= 1.0")
+
+    @parameterized.expand(
+        [
+            ("function_list_input", "match(['tool_call'], 'tool')", {}, "Function match requires input"),
+            ("function_invalid_pattern", "match('tool_call', '[')", {}, "Invalid regex pattern"),
+            ("function_lookbehind_unsupported", "match('ab', '(?<=a)b')", {}, "Invalid regex pattern"),
+            ("operator_list_input", "['tool_call'] =~ 'tool'", {}, "Function match requires input"),
+            (
+                "operator_invalid_pattern",
+                "'tool_call' =~ properties.pattern",
+                {"pattern": "\\u"},
+                "Invalid regex pattern: invalid escape sequence: \\u",
+            ),
+        ]
+    )
+    def test_regex_errors_raise_hogvm_exception(self, _name, expr, properties, expected_message):
+        globals_dict = {"properties": properties}
+        bytecode = create_bytecode(parse_expr(expr)).bytecode
+
+        with pytest.raises(HogVMException) as exc_info:
+            execute_bytecode(bytecode, globals_dict)
+
+        assert expected_message in str(exc_info.value)
 
     def test_nested_value(self):
         my_dict = {
@@ -132,6 +165,20 @@ class TestBytecodeExecute:
         try:
             execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "replaceOne", 1], {})
         except Exception as e:
+            assert str(e) == "Function replaceOne requires at least 3 arguments"
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+        try:
+            execute_bytecode([_H, VERSION, op.STRING, "AB", op.STRING, "extra", op.CALL_GLOBAL, "lower", 2], {})
+        except Exception as e:
+            assert str(e) == "Function lower requires at most 1 arguments"
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+        try:
+            execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "lower", 1], {})
+        except Exception as e:
             assert str(e) == "Stack underflow"
         else:
             raise AssertionError("Expected Exception not raised")
@@ -142,6 +189,33 @@ class TestBytecodeExecute:
             assert str(e) == "Invalid bytecode. More than one value left on stack"
         else:
             raise AssertionError("Expected Exception not raised")
+
+    @pytest.mark.parametrize("indirect", [False, True])
+    def test_json_has_without_path(self, indirect: bool) -> None:
+        program = "let hasPath := JSONHas; return hasPath('{}');" if indirect else "return JSONHas('{}');"
+        assert self._run_program(program) is True
+
+    def test_every_builtin_tolerates_its_own_min_args(self):
+        # A builtin whose fn indexes past its declared minArgs raises a bare IndexError instead of a
+        # HogVMException, which callers cannot tell apart from a bug in their own code. Blocking
+        # builtins are excluded because calling them would sleep or shell out.
+        leaked = []
+        for name, stl_fn in STL.items():
+            if stl_fn.is_blocking:
+                continue
+            arg_count = stl_fn.minArgs or 0
+            bytecode: list[Any] = [_H, VERSION]
+            for _ in range(arg_count):
+                bytecode += [op.STRING, "1"]
+            bytecode += [op.CALL_GLOBAL, name, arg_count]
+            try:
+                execute_bytecode(bytecode, {})
+            except IndexError:
+                leaked.append(name)
+            except Exception:
+                pass
+
+        assert leaked == []
 
     def test_memory_limits_1(self):
         # let string := 'banana'
@@ -670,6 +744,34 @@ class TestBytecodeExecute:
         assert self._run_program("if (lower('Tdd4gh') == 'tdd4gh') return upper('test');") == "TEST"
         assert self._run_program("return reverse('spinner');") == "rennips"
 
+    def test_bytecode_length_null_raises_hogvm_exception(self):
+        with pytest.raises(HogVMException, match="Can not call length on null"):
+            self._run_program("return length(null);")
+
+    @parameterized.expand(
+        [
+            ("arg_over_budget_clamped_to_budget", 600.0, 0.5, 0.5),
+            ("arg_under_budget_left_as_is", 0.1, 5.0, 0.1),
+            ("negative_arg_clamped_to_zero", -5.0, 5.0, 0.0),
+        ]
+    )
+    def test_sleep_bounds_duration_to_remaining_timeout(self, _name, arg, budget, expected):
+        with patch("common.hogvm.python.stl.time.sleep") as mock_sleep:
+            sleep([arg], None, None, budget)
+        mock_sleep.assert_called_once_with(expected)
+
+    @parameterized.expand(
+        [
+            ("direct_call", "sleep(0)"),  # CALL_GLOBAL dispatch
+            ("expression_call", "(sleep)(0)"),  # CALL_LOCAL closure dispatch
+        ]
+    )
+    def test_disallowed_functions_rejected_at_dispatch(self, _name, expr):
+        bytecode = create_bytecode(parse_expr(expr)).bytecode
+        execute_bytecode(bytecode, {})  # allowed by default (sleeps 0s)
+        with pytest.raises(HogVMException, match="Function sleep is not allowed here"):
+            execute_bytecode(bytecode, {}, disallowed_functions=frozenset({"sleep"}))
+
     def test_random_float(self):
         for _ in range(50):
             value = self._run_program("return randomFloat();")
@@ -724,6 +826,9 @@ class TestBytecodeExecute:
             assert str(e) == "Array access starts from 1"
         else:
             raise AssertionError("Expected Exception not raised")
+
+        with pytest.raises(HogVMException, match="Index 1 out of range for array of length 0"):
+            self._run_program("let calls := []; calls[1] := 'tool_call'; return true")
 
     def test_bytecode_tuples(self):
         # assert self._run_program("return (,);"), ()
@@ -1100,9 +1205,44 @@ class TestBytecodeExecute:
         assert self._run("extractRegex(null, '\\\\w+')") == ""
         assert self._run("extractRegex('hello', null)") == ""
 
+        # A pattern with a group that captured nothing still returns the group, not the whole match
+        assert self._run("extractRegex('b', '(a)?b')") == ""
+        assert self._run("extractRegex('b', '(?:(a)|b)')") == ""
+
         # Complex pattern like ClickHouse sortableSemver uses
         assert self._run("extractRegex('v1.2.3-alpha', '(\\\\d+(\\\\.\\\\d+)+)')") == "1.2.3"
         assert self._run("extractRegex('version 10.20.30', '(\\\\d+(\\\\.\\\\d+)+)')") == "10.20.30"
+
+    @parameterized.expand(
+        [
+            ("match", False),
+            ("extractRegex", ""),
+        ]
+    )
+    def test_regex_functions_run_in_linear_time(self, fn_name: str, expected: bool | str) -> None:
+        # Python's re engine needs exponential time on this pattern, so this pins the engine choice.
+        # CPU time rather than wall clock, so a paused runner cannot fail the assertion on its own.
+        subject = "a" * 26 + "!"
+        start = time.process_time()
+        result = STL[fn_name].fn([subject, "(a+)+$"], None, None, 5.0)
+        elapsed = time.process_time() - start
+        assert result == expected
+        assert elapsed < 1.0
+
+    @parameterized.expand(
+        [
+            ("extractRegex", "café", r"\w+", "caf"),
+            ("extractRegex", "日本語", r"\w+", ""),
+            ("match", "Müller", r"^\w+$", False),
+            ("match", "١٢٣", r"\d+", False),
+        ]
+    )
+    def test_regex_character_classes_are_ascii_only(
+        self, fn_name: str, subject: str, pattern: str, expected: bool | str
+    ) -> None:
+        # The linear-time test cannot pin this, because another linear-time engine could restore the
+        # Unicode classes and still run fast. Python's re engine gives "café", a match, and true here.
+        assert STL[fn_name].fn([subject, pattern], None, None, 5.0) == expected
 
     def test_sortable_semver(self):
         # Basic semver parsing

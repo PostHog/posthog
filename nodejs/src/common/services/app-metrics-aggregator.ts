@@ -2,10 +2,10 @@ import { Counter } from 'prom-client'
 
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { safeClickhouseString } from '~/common/utils/db/utils'
+import { castTimestampOrNow } from '~/common/utils/utils'
 
 import { TimestampFormat } from '../../types'
-import { safeClickhouseString } from '../../utils/db/utils'
-import { castTimestampOrNow } from '../../utils/utils'
 
 const appMetricsAggregatorQueuedCounter = new Counter({
     name: 'app_metrics_aggregator_queued_total',

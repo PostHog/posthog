@@ -22,6 +22,14 @@ export function WidgetTileFilterReadOnlyValue({ children }: { children: ReactNod
     return <span className="inline-flex items-center gap-1.5 text-xs text-primary">{children}</span>
 }
 
+export function WidgetTileFilterReadOnlyLabel({ name, value }: { name: string; value: string }): JSX.Element {
+    return (
+        <WidgetTileFilterReadOnlyValue>
+            <span className="text-secondary">{name}:</span> {value}
+        </WidgetTileFilterReadOnlyValue>
+    )
+}
+
 export function WidgetDateRangeReadOnlyValue({ dateFrom }: { dateFrom: WidgetDateFromValue }): JSX.Element {
     const label = WIDGET_DATE_RANGE_SELECT_OPTIONS.find((option) => option.value === dateFrom)?.label ?? dateFrom
     return <WidgetTileFilterReadOnlyValue>{label}</WidgetTileFilterReadOnlyValue>
@@ -63,9 +71,7 @@ export function WidgetPropertyFiltersReadOnlyValues({
     return (
         <>
             {labels.map((item) => (
-                <WidgetTileFilterReadOnlyValue key={item.id}>
-                    <span className="text-secondary">{item.name}:</span> {item.value}
-                </WidgetTileFilterReadOnlyValue>
+                <WidgetTileFilterReadOnlyLabel key={item.id} name={item.name} value={item.value} />
             ))}
         </>
     )

@@ -1,14 +1,12 @@
-import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { BarChart, ValueLabels } from '@posthog/quill-charts'
 import type { BarChartConfig, Series, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { NpsBucketMeta, RatingTooltip } from 'scenes/surveys/components/question-visualizations/questionVizTooltips'
 import { formatCountWithPercentage } from 'scenes/surveys/components/question-visualizations/questionVizTransforms'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChoiceQuestionResponseData } from '~/types'
 
 // Room above each bar tip for the value label's height, so it floats rather than overlapping the bar.
@@ -35,8 +33,7 @@ export function RatingBarChart({
     npsBucketByIndex,
     onBarClick,
 }: Props): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     const series = useMemo<Series[]>(
         () => [
@@ -51,7 +48,7 @@ export function RatingBarChart({
         [chartLabels, data, barColors]
     )
 
-    const config = useMemo<BarChartConfig>(
+    const config = useChartConfig<BarChartConfig>(
         () => ({
             hideYAxis: true,
             bars: { bandPadding: 0.2, valuePadding: VALUE_LABEL_PADDING },

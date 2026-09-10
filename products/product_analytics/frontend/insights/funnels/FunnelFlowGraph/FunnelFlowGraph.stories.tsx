@@ -1,0 +1,94 @@
+import { Meta, StoryObj } from '@storybook/react'
+
+import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+
+import {
+    allCompletedSteps,
+    JOURNEY_FEATURE_FLAGS,
+    journeysList,
+    makeInsight,
+    optionalStepResults,
+    someCompletedSteps,
+} from './__mocks__/journeyMocks'
+
+const meta: Meta = {
+    component: App,
+    title: 'Scenes-App/Customer Analytics/Journeys',
+    parameters: {
+        layout: 'fullscreen',
+        viewMode: 'story',
+        mockDate: '2024-01-15',
+        featureFlags: JOURNEY_FEATURE_FLAGS,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/environments/:team_id/customer_journeys/': journeysList,
+                'api/environments/:team_id/customer_profile_configs/': { count: 0, results: [] },
+            },
+        }),
+    ],
+}
+export default meta
+
+type Story = StoryObj<{}>
+
+export const JourneyWithRequiredSteps: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: { 'api/environments/:team_id/insights/1/': makeInsight() },
+            post: {
+                'api/environments/:team_id/query/FunnelsQuery/': {
+                    result: allCompletedSteps(),
+                    total_median_conversion_time: 270,
+                },
+            },
+        })
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsJourneys(),
+        testOptions: { waitForSelector: '.react-flow__node' },
+    },
+}
+
+export const JourneyWithEmptySteps: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: { 'api/environments/:team_id/insights/1/': makeInsight() },
+            post: {
+                'api/environments/:team_id/query/FunnelsQuery/': {
+                    result: someCompletedSteps(),
+                    total_median_conversion_time: 90,
+                },
+            },
+        })
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsJourneys(),
+        testOptions: { waitForSelector: '.react-flow__node' },
+    },
+}
+
+export const JourneyWithOptionalSteps: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: { 'api/environments/:team_id/insights/1/': makeInsight([1, 3]) },
+            post: {
+                'api/environments/:team_id/query/FunnelsQuery/': {
+                    result: optionalStepResults(),
+                    total_median_conversion_time: 180,
+                },
+            },
+        })
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsJourneys(),
+        testOptions: { waitForSelector: '.react-flow__node' },
+    },
+}

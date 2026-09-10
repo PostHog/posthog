@@ -6,7 +6,7 @@ import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
@@ -20,9 +20,7 @@ import { AIDataLoading } from './components/AIDataLoading'
 import { SentimentBar } from './components/SentimentTag'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { EventData, useAIData } from './hooks/useAIData'
-import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
-import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { normalizeMessages } from './messageNormalization'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import { TraceReviewValue } from './traceReviews/TraceReviewValue'
@@ -172,7 +170,10 @@ function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | 
     )
 }
 
-export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
+// Resolves a person from its distinct id through the shared batched loader, so a query that lists
+// distinct ids does not have to carry person properties. Falls back to the distinct id alone while
+// the batch is in flight and when the person cannot be found.
+function useLazyPerson(distinctId: string): PersonData {
     const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
     const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
 
@@ -184,64 +185,31 @@ export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JS
         }
     }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
 
-    const personData: PersonData = cached
-        ? { distinct_id: cached.distinct_id, properties: cached.properties }
-        : { distinct_id: distinctId }
+    return cached ? { distinct_id: cached.distinct_id, properties: cached.properties } : { distinct_id: distinctId }
+}
+
+export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
+    const personData = useLazyPerson(distinctId)
 
     return <PersonColumnCell person={personData} />
 }
 
-function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element {
-    const { sentimentByTraceId, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
-    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
-    const { dateFilter } = useValues(aiObservabilitySharedLogic)
+function LazyPersonColumnCellWithRedirect({ distinctId }: { distinctId: string }): JSX.Element {
+    const personData = useLazyPerson(distinctId)
 
-    const cached = sentimentByTraceId[traceId]
-    const loading = isTraceLoading(traceId)
-
-    // Deferred via effect so trace-messages/persons effects (which also run
-    // after commit) get a chance to dispatch before sentiment's batched
-    // fan-out claims the browser's connection pool.
-    useEffect(() => {
-        if (cached === undefined && !loading) {
-            ensureSentimentLoaded(traceId, dateFilter)
-        }
-    }, [traceId, cached, loading, dateFilter, ensureSentimentLoaded])
-
-    if (loading || cached === undefined) {
-        return <AIDataLoading variant="inline" />
-    }
-
-    if (cached === null) {
-        return <>–</>
-    }
-
-    return <SentimentBar label={cached.label} score={cached.score} size="full" messages={cached.messages} />
+    return <PersonColumnCellWithRedirect person={personData} />
 }
 
-function LazyGenerationSentimentCell({ generationEventId }: { generationEventId: string }): JSX.Element {
-    const { sentimentByGenerationId, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
-    const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
-    const { dateFilter } = useValues(aiObservabilitySharedLogic)
+// Avatar only (no name) for inline use beside a title; a click still opens the
+// full person popover.
+export function LazyPersonAvatar({ distinctId }: { distinctId: string }): JSX.Element {
+    const personData = useLazyPerson(distinctId)
 
-    const cached = sentimentByGenerationId[generationEventId]
-    const loading = isGenerationLoading(generationEventId)
-
-    useEffect(() => {
-        if (cached === undefined && !loading) {
-            ensureGenerationSentimentLoaded(generationEventId, dateFilter)
-        }
-    }, [generationEventId, cached, loading, dateFilter, ensureGenerationSentimentLoaded])
-
-    if (loading || cached === undefined) {
-        return <AIDataLoading variant="inline" />
-    }
-
-    if (cached === null) {
-        return <>–</>
-    }
-
-    return <SentimentBar label={cached.label} score={cached.score} size="full" messages={cached.messages} />
+    return (
+        <PersonDisplay person={personData}>
+            <PersonIcon person={personData} size="md" />
+        </PersonDisplay>
+    )
 }
 
 function LazyTraceReviewColumnCell({ traceId }: { traceId: string }): JSX.Element {
@@ -330,7 +298,7 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
     )
 }
 
-const getEventData = (record: unknown, query?: DataTableNode | DataVisualizationNode): EventData | undefined => {
+export const getEventData = (record: unknown, query?: DataTableNode | DataVisualizationNode): EventData | undefined => {
     // Object format (TracesQuery results)
     if (record && typeof record === 'object' && !Array.isArray(record) && 'uuid' in record) {
         const uuid = record.uuid
@@ -338,10 +306,14 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
             return undefined
         }
         const props = 'properties' in record && typeof record.properties === 'object' ? record.properties : null
+        const traceId = (props as Record<string, unknown> | null)?.$ai_trace_id
+        const timestamp = 'timestamp' in record ? record.timestamp : undefined
         return {
             uuid,
             input: (props as Record<string, unknown> | null)?.$ai_input,
             output: (props as Record<string, unknown> | null)?.$ai_output_choices,
+            traceId: typeof traceId === 'string' ? traceId : undefined,
+            timestamp: typeof timestamp === 'string' ? timestamp : undefined,
         }
     }
 
@@ -351,16 +323,22 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
         const uuidIdx = select.findIndex((c) => c === 'uuid')
         const inputIdx = select.findIndex((c) => c === 'properties.$ai_input' || c === 'properties.$ai_input[-1]')
         const outputIdx = select.findIndex((c) => c === 'properties.$ai_output_choices')
+        const traceIdIdx = select.findIndex((c) => c === 'properties.$ai_trace_id')
+        const timestampIdx = select.findIndex((c) => c === 'timestamp')
 
         const uuid = record[uuidIdx]
         if (typeof uuid !== 'string') {
             return undefined
         }
 
+        const traceId = traceIdIdx >= 0 ? record[traceIdIdx] : undefined
+        const timestamp = timestampIdx >= 0 ? record[timestampIdx] : undefined
         return {
             uuid,
             input: inputIdx >= 0 ? record[inputIdx] : undefined,
             output: outputIdx >= 0 ? record[outputIdx] : undefined,
+            traceId: typeof traceId === 'string' ? traceId : undefined,
+            timestamp: typeof timestamp === 'string' ? timestamp : undefined,
         }
     }
 
@@ -491,33 +469,17 @@ export const aiObservabilityColumnRenderers: Record<string, QueryContextColumn> 
                 return <>–</>
             }
             const traceRecord = record as LLMTrace
-            if (!traceRecord.id) {
+            if (!traceRecord.sentiment) {
                 return <>–</>
             }
-            return <LazySentimentColumnCell traceId={traceRecord.id} />
-        },
-    },
-    "'' -- Sentiment": {
-        title: 'Sentiment',
-        render: ({ record, query }) => {
-            if (!Array.isArray(record) || !isDataTableNode(query) || !isEventsQuery(query.source)) {
-                return <>–</>
-            }
-
-            const select = query.source.select ?? []
-            const uuidIdx = select.findIndex((c) => c === 'uuid')
-
-            if (uuidIdx < 0) {
-                return <>–</>
-            }
-
-            const uuid = record[uuidIdx]
-
-            if (typeof uuid !== 'string') {
-                return <>–</>
-            }
-
-            return <LazyGenerationSentimentCell generationEventId={uuid} />
+            return (
+                <SentimentBar
+                    label={traceRecord.sentiment.label}
+                    score={traceRecord.sentiment.score}
+                    size="full"
+                    messages={traceRecord.sentiment.messages}
+                />
+            )
         },
     },
     'properties.$ai_tools_called': {
@@ -565,18 +527,8 @@ export const aiObservabilityColumnRenderers: Record<string, QueryContextColumn> 
     __llm_person: {
         title: 'Person',
         render: ({ value }) => {
-            // User data from HogQL query comes as a tuple [distinct_id, created_at, properties_json]
-            if (Array.isArray(value) && value.length >= 3) {
-                const [distinctId, , propertiesJson] = value
-                let properties: Record<string, unknown> = {}
-
-                try {
-                    properties = typeof propertiesJson === 'string' ? JSON.parse(propertiesJson) : {}
-                } catch {
-                    // Ignore parsing errors
-                }
-
-                return <PersonColumnCellWithRedirect person={{ distinct_id: distinctId, properties }} />
+            if (typeof value === 'string' && value) {
+                return <LazyPersonColumnCellWithRedirect distinctId={value} />
             }
 
             return <PersonColumnCellWithRedirect person={null} />

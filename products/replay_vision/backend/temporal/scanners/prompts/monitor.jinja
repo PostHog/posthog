@@ -1,7 +1,0 @@
-{% extends "base.jinja" %}
-{% from "_macros.jinja" import cite_in %}
-{% block task %}Decide whether the following condition occurred during the session: {{ user_prompt }}
-
-{% if allow_inconclusive %}Set `verdict` to `yes` only if there is direct visual or event-level evidence the condition occurred, `no` if there is direct evidence it did not, and `inconclusive` only when the session genuinely does not provide enough signal to decide. Use `reasoning` to ground your decision.{% else %}Set `verdict` to `yes` only if there is direct visual or event-level evidence the condition occurred; otherwise `no`. Do not return `inconclusive`. Use `reasoning` to ground your decision.{% endif %}
-
-{{ cite_in('reasoning') }}{% endblock %}

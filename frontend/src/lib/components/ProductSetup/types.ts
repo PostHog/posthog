@@ -14,7 +14,7 @@ export type SetupTaskId = AvailableSetupTaskIdsEnumApi
  * - explore: Advanced/optional features to try after getting started
  *   Examples: Create funnel, set up cohorts, create multivariate flag
  * - ai: PostHog's AI surfaces, shown for every product
- *   Examples: PostHog AI, PostHog Code, PostHog MCP, PostHog in Slack
+ *   Examples: PostHog AI, PostHog Desktop, PostHog MCP, PostHog in Slack
  */
 export type TaskType = 'setup' | 'onboarding' | 'explore' | 'ai'
 

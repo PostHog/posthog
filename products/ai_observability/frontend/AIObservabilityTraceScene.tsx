@@ -14,6 +14,7 @@ import {
     IconComment,
     IconCopy,
     IconDownload,
+    IconFilter,
     IconMessage,
     IconPlay,
     IconPlus,
@@ -41,10 +42,10 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -55,15 +56,18 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
+import type { BranchPRMatchApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
+
+import { PersonData, getFilterIdentifier, getTracesUrlWithPersonFilter } from './aiObservabilityColumnRenderers'
 import { EnrichedTraceTreeNode, findNodeForEvent, aiObservabilityTraceDataLogic } from './aiObservabilityTraceDataLogic'
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { AttachedFeedbackPills } from './components/AttachedFeedbackPills'
 import { ClustersTabContent } from './components/ClustersTabContent'
 import { CostBreakdownTooltip } from './components/CostBreakdownTooltip'
 import { EvalResultBadges } from './components/EvalResultBadges'
@@ -75,6 +79,7 @@ import { JSONValueDisplay } from './components/JSONValueDisplay'
 import { MetricTag } from './components/MetricTag'
 import { SentimentBar } from './components/SentimentTag'
 import { TagsTabContent } from './components/TagsTabContent'
+import { TraceTimeline } from './components/TraceTimeline/TraceTimeline'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
@@ -85,16 +90,15 @@ import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { generationEvaluationRunsLogic } from './generationEvaluationRunsLogic'
 import { useAIData } from './hooks/useAIData'
-import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
+import { TraceStructureNote } from './instrumentationChecklist/TraceStructureNote'
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
-import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { normalizeMessages } from './messageNormalization'
 import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
 import { SearchHighlight } from './SearchHighlight'
-import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
+import { sentimentEvaluationAvailabilityLogic } from './sentimentEvaluationAvailabilityLogic'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard, exportTraceToFile } from './traceExportUtils'
@@ -119,6 +123,7 @@ import {
     isLLMEvent,
     removeMilliseconds,
     sanitizeTraceUrlSearchParams,
+    selectAiValue,
 } from './utils'
 
 interface TraceQueueContext {
@@ -445,6 +450,7 @@ function TraceSceneWrapper(): JSX.Element {
     const traceDataLogic = useMountedLogic(aiObservabilityTraceDataLogic)
     useMountedLogic(traceReviewsLazyLoaderLogic)
     const { traceId, searchQuery, commentCount, viewMode } = useValues(traceLogic)
+    const { setEventId } = useActions(traceLogic)
     const { searchParams } = useValues(router)
     const {
         enrichedTree,
@@ -455,7 +461,7 @@ function TraceSceneWrapper(): JSX.Element {
         feedbackEvents,
         metricEvents,
         eventMetadata,
-        effectiveEventId,
+        highlightedEventId,
     } = useValues(traceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -513,8 +519,8 @@ function TraceSceneWrapper(): JSX.Element {
                         <div className="flex items-start justify-between">
                             <TraceMetadata
                                 trace={trace}
-                                metricEvents={metricEvents as LLMTraceEvent[]}
-                                feedbackEvents={feedbackEvents as LLMTraceEvent[]}
+                                metricEvents={metricEvents}
+                                feedbackEvents={feedbackEvents}
                                 billedTotalUsd={billedTotalUsd}
                                 billedCredits={billedCredits}
                                 markupUsd={markupUsd}
@@ -540,10 +546,15 @@ function TraceSceneWrapper(): JSX.Element {
                             </div>
                         </div>
                     </div>
+                    <TraceTimeline
+                        events={trace.events}
+                        selectedEventId={highlightedEventId}
+                        onSelectEvent={setEventId}
+                    />
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
                         <TraceSidebar
                             trace={trace}
-                            eventId={effectiveEventId}
+                            eventId={highlightedEventId}
                             tree={enrichedTree}
                             showBillingInfo={showBillingInfo}
                         />
@@ -597,6 +608,34 @@ function Chip({
     )
 }
 
+// Not built on top of Chip: the email needs its own popover click target, separate
+// from the filter button, so the whole tag can't share one tooltip trigger.
+function PersonChip({ person }: { person: PersonData }): JSX.Element {
+    const { push } = useActions(router)
+    const filterIdentifier = getFilterIdentifier(person)
+
+    return (
+        <LemonTag size="small" className="bg-surface-primary">
+            <span className="sr-only">Person</span>
+            <PersonDisplay withIcon="sm" person={person} />
+            {filterIdentifier && (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconFilter />}
+                    // A string tooltip also becomes the accessible name of this icon-only button
+                    tooltip={`View traces for ${filterIdentifier.value}`}
+                    noPadding
+                    className="ml-0.5"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        push(getTracesUrlWithPersonFilter(filterIdentifier))
+                    }}
+                />
+            )}
+        </LemonTag>
+    )
+}
+
 function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element | null {
     const usage = formatLLMUsage(event)
     return usage ? (
@@ -608,16 +647,26 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
 
 function CreateSentimentEvaluationButton({ traceId }: { traceId: string }): JSX.Element | null {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
-        generationEvaluationRunsLogic({ lookupBy: 'trace', traceId })
+        generationEvaluationRunsLogic({ traceId })
+    )
+    const { hasLoadedSentimentEvaluations, hasSentimentEvaluations, sentimentEvaluationsLoading } = useValues(
+        sentimentEvaluationAvailabilityLogic
     )
     const hasSentimentEvaluationRun = generationEvaluationRuns.some(isSentimentRun)
 
-    if (generationEvaluationRunsLoading || hasSentimentEvaluationRun) {
+    if (
+        generationEvaluationRunsLoading ||
+        sentimentEvaluationsLoading ||
+        !hasLoadedSentimentEvaluations ||
+        hasSentimentEvaluations ||
+        hasSentimentEvaluationRun
+    ) {
         return null
     }
 
     const createSentimentEvaluationUrl = combineUrl(urls.aiObservabilityEvaluation('new'), {
         type: 'sentiment',
+        returnTo: urls.aiObservabilityTrace(traceId),
     }).url
 
     return (
@@ -658,7 +707,7 @@ function CostChip({
                         <hr className="my-0.5 border-border" />
                         <div>Billed: {formatLLMCost(billedTotalUsd!)}</div>
                         {typeof markupUsd === 'number' && markupUsd > 0 && (
-                            <div>Markup (20%): {formatLLMCost(markupUsd)}</div>
+                            <div>Markup: {formatLLMCost(markupUsd)}</div>
                         )}
                         {typeof billedCredits === 'number' && <div>Credits: {billedCredits}</div>}
                     </>
@@ -983,6 +1032,42 @@ function TraceWorkflowPanel({ traceId }: { traceId: string }): JSX.Element {
     )
 }
 
+function TraceGitChip({
+    branch,
+    repo,
+    branchPRMatches,
+}: {
+    branch: string
+    repo: string | null
+    branchPRMatches: BranchPRMatchApi[]
+}): JSX.Element {
+    // Repo lives in the tooltip only; the chip content is the branch name.
+    const repoPrefix = repo ? `${repo} - ` : ''
+
+    // The loader gates on the engineering-analytics flag, so a populated match already implies it's on.
+    // While the resolution request is in flight (or stale for this branch) matches is empty, so this
+    // renders the plain chip.
+    const match = branchPRMatches[0]
+    if (match) {
+        const [owner, name] = match.repo.split('/')
+        const prTitle = match.title ? `: ${match.title}` : ''
+        const tooltip = `${repoPrefix}Branch - click to view PR #${match.number} in engineering analytics${prTitle}`
+        return (
+            <Chip title="Branch" tooltipTitle={tooltip}>
+                <Link to={urls.engineeringAnalyticsPullRequest(owner, name, match.number)} subtle>
+                    <span className="font-mono">{branch}</span>
+                </Link>
+            </Chip>
+        )
+    }
+
+    return (
+        <Chip title="Branch" tooltipTitle={repoPrefix ? `${repoPrefix}Branch` : 'Branch'}>
+            <span className="font-mono">{branch}</span>
+        </Chip>
+    )
+}
+
 function TraceMetadata({
     trace,
     metricEvents,
@@ -1001,17 +1086,9 @@ function TraceMetadata({
     showBillingInfo?: boolean
 }): JSX.Element {
     const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
-    const { getTraceSentiment, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
-    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
-
-    const sentimentResult = getTraceSentiment(trace.id)
-    const sentimentLoading = isTraceLoading(trace.id)
-    if (sentimentResult === undefined && !sentimentLoading) {
-        ensureSentimentLoaded(trace.id, {
-            dateFrom: trace.createdAt,
-            dateTo: dayjs(trace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),
-        })
-    }
+    const { traceGitMetadata } = useValues(aiObservabilityTraceDataLogic)
+    const { branchPRMatches } = useValues(aiObservabilityTraceLogic)
+    const sentimentResult = trace.sentiment
 
     const traceCostContext = costContextFromTrace(trace)
 
@@ -1027,15 +1104,20 @@ function TraceMetadata({
 
     return (
         <header className="flex gap-1.5 flex-wrap">
-            <Chip title="Person">
-                <PersonDisplay withIcon="sm" person={personData} />
-            </Chip>
+            <PersonChip person={personData} />
             {trace.aiSessionId && (
                 <Chip title="AI Session ID - Click to view session details">
                     <Link to={getSessionUrl(trace.aiSessionId)} subtle>
                         <span className="font-mono">{trace.aiSessionId.slice(0, 8)}...</span>
                     </Link>
                 </Chip>
+            )}
+            {traceGitMetadata?.branch && (
+                <TraceGitChip
+                    branch={traceGitMetadata.branch}
+                    repo={traceGitMetadata.repo}
+                    branchPRMatches={branchPRMatches}
+                />
             )}
             <UsageChip event={trace} />
             {traceCostContext && (
@@ -1053,7 +1135,7 @@ function TraceMetadata({
             {feedbackEvents.map((feedback) => (
                 <FeedbackTag key={feedback.id} properties={feedback.properties} />
             ))}
-            {sentimentResult && !sentimentLoading && (
+            {sentimentResult && (
                 <Chip title="Sentiment">
                     <SentimentBar
                         label={sentimentResult.label ?? 'neutral'}
@@ -1099,10 +1181,7 @@ function TraceSidebar({
     }
 
     return (
-        <aside
-            className="flex flex-col gap-3 w-full md:w-80 md:min-h-0 md:self-start md:max-h-full"
-            id="trace-events-sidebar"
-        >
+        <aside className="flex flex-col gap-3 w-full md:w-80 md:min-h-0" id="trace-events-sidebar">
             <TraceWorkflowPanel traceId={trace.id} />
             <div className="border border-primary bg-surface-primary rounded overflow-hidden flex flex-col flex-1 min-h-0">
                 <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -1137,7 +1216,7 @@ function TraceSidebar({
                         topLevelTrace={trace}
                         node={{
                             event: trace,
-                            displayTotalCost: trace.totalCost || 0,
+                            displayTotalCost: trace.totalCost ?? null,
                             displayLatency: trace.totalLatency || 0,
                             displayUsage: formatLLMUsage(trace),
                         }}
@@ -1153,6 +1232,7 @@ function TraceSidebar({
                         showBillingInfo={showBillingInfo}
                     />
                 </ul>
+                <TraceStructureNote events={trace.events} />
             </div>
         </aside>
     )
@@ -1195,7 +1275,7 @@ const TreeNode = React.memo(function TraceNode({
     topLevelTrace: LLMTrace
     node:
         | EnrichedTraceTreeNode
-        | { event: LLMTrace; displayTotalCost: number; displayLatency: number; displayUsage: string | null }
+        | { event: LLMTrace; displayTotalCost: number | null; displayLatency: number; displayUsage: string | null }
     isSelected: boolean
     searchQuery?: string
     showBillingInfo?: boolean
@@ -1204,12 +1284,11 @@ const TreeNode = React.memo(function TraceNode({
     const latency = node.displayLatency
     const usage = node.displayUsage
     const item = node.event
+    const attachedFeedback = 'attachedFeedback' in node ? node.attachedFeedback : []
 
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
     const { eventTypeExpanded } = useValues(traceLogic)
     const { searchParams } = useValues(router)
-    const { getGenerationSentiment, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
-    const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
     const isBillable =
@@ -1219,13 +1298,7 @@ const TreeNode = React.memo(function TraceNode({
         !!(item as LLMTraceEvent).properties?.$ai_billable
 
     const isGeneration = isLLMEvent(item) && (item as LLMTraceEvent).event === '$ai_generation'
-    const genSentiment = isGeneration ? getGenerationSentiment(item.id) : undefined
-    if (isGeneration && genSentiment === undefined && !isGenerationLoading(item.id)) {
-        ensureGenerationSentimentLoaded(item.id, {
-            dateFrom: topLevelTrace.createdAt,
-            dateTo: dayjs(topLevelTrace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),
-        })
-    }
+    const genSentiment = isGeneration ? (item as LLMTraceEvent).sentiment : undefined
 
     const children = [
         isLLMEvent(item) && item.properties.$ai_is_error && (
@@ -1243,6 +1316,11 @@ const TreeNode = React.memo(function TraceNode({
                 {usage}
                 {usage != null && totalCost != null && <span>{' / '}</span>}
                 {totalCost != null && formatLLMCost(totalCost)}
+            </span>
+        ),
+        attachedFeedback.length > 0 && (
+            <span key="attached-feedback" onClick={(e) => e.stopPropagation()}>
+                <AttachedFeedbackPills events={attachedFeedback} />
             </span>
         ),
     ]
@@ -1366,11 +1444,15 @@ function TreeNodeChildren({
 }
 
 function EventContentDisplay({
+    eventId,
+    traceId,
     input,
     output,
     searchQuery,
     displayOption,
 }: {
+    eventId: string
+    traceId: string
     input: unknown
     output: unknown
     searchQuery?: string
@@ -1391,6 +1473,8 @@ function EventContentDisplay({
                 errorData={undefined}
                 searchQuery={searchQuery}
                 displayOption={displayOption}
+                eventId={eventId}
+                traceId={traceId}
             />
         )
     }
@@ -1441,10 +1525,9 @@ const EventContent = React.memo(
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
-        // Check if the originally selected event (effectiveEventId) is a generation event
-        // This ensures the Evaluations tab stays visible even when viewing Summary at trace level.
-        // When effectiveEventId is null (e.g. tab=summary suppresses auto-selection), fall back to
-        // the first generation in the tree so the Evals tab remains visible.
+        // The Evaluations tab is trace-scoped, but manually running an evaluation targets a single
+        // generation. When the selected event isn't a generation (or nothing is selected), fall back
+        // to the first generation in the tree so the run action stays available.
         const firstGenerationNode = tree.find((node) => node.event.event === '$ai_generation') ?? null
         const effectiveEventNode = effectiveEventId ? findNodeForEvent(tree, effectiveEventId) : firstGenerationNode
         const isEffectiveEventGeneration = effectiveEventNode?.event.event === '$ai_generation'
@@ -1459,12 +1542,14 @@ const EventContent = React.memo(
         const showPromptButton = !!promptName
 
         const showPlaygroundButton = isGenerationEvent
-        const showCreateSentimentEvalButton =
-            isGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]
+        const showCreateSentimentEvalButton = isGenerationEvent
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
-        const showEvalsTab = !!effectiveGenerationEvent
+        // Badges are context-sensitive: a generation shows its own results, the trace root shows
+        // trace-target results. Other events (spans, embeddings) have no evaluation context.
+        const isTraceRoot = !!event && !isLLMEvent(event)
+        const showEvalBadges = isGenerationEvent || isTraceRoot
         const showTagsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]
 
         // If the user is viewing the Tags tab but it's no longer available (flag off or
@@ -1483,16 +1568,23 @@ const EventContent = React.memo(
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
 
-        // Only pre-load for generation events ($ai_input/$ai_output_choices).
         // TODO: Figure out why spans can't load properties async
         const eventData = isGenerationEvent
             ? {
                   uuid: event.id,
                   input: event.properties.$ai_input,
                   output: event.properties.$ai_output_choices,
+                  tools: event.properties.$ai_tools,
+                  traceId: trace.id,
+                  timestamp: event.createdAt,
               }
             : undefined
-        const { input: loadedInput, output: loadedOutput } = useAIData(eventData)
+        const {
+            input: loadedInput,
+            output: loadedOutput,
+            tools: loadedTools,
+            isLoading: aiDataLoading,
+        } = useAIData(eventData)
 
         const handleOpenInPlayground = (): void => {
             if (!event || !isLLMEvent(event)) {
@@ -1501,13 +1593,12 @@ const EventContent = React.memo(
 
             const model = event.properties.$ai_model
             const provider = event.properties.$ai_provider
-            const tools = event.properties.$ai_tools
-
-            openInPlayground({ model, provider, input: loadedInput, output: loadedOutput, tools })
+            const output = selectAiValue(loadedOutput, event.properties.$ai_output)
+            openInPlayground({ model, provider, input: loadedInput, output, tools: loadedTools })
         }
 
         return (
-            <div className="flex-1 min-h-0 md:min-w-0 md:self-start md:max-h-full bg-surface-primary border rounded flex flex-col border-primary p-4 overflow-y-auto">
+            <div className="flex-1 min-h-0 md:min-w-0 bg-surface-primary border rounded flex flex-col border-primary p-4 overflow-y-auto">
                 {!event ? (
                     <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
                 ) : (
@@ -1551,11 +1642,11 @@ const EventContent = React.memo(
                                 />
                             )}
                             {isLLMEvent(event) && <ParametersHeader eventProperties={event.properties} />}
-                            {(aggregation || showEvalsTab) && (
+                            {(aggregation || showEvalBadges) && (
                                 <div className="flex flex-col gap-1">
                                     {aggregation && (
                                         <div className="flex flex-row flex-wrap items-center gap-2">
-                                            {aggregation.totalCost > 0 && (
+                                            {aggregation.totalCost !== null && aggregation.totalCost > 0 && (
                                                 <LemonTag type="muted" size="small">
                                                     Total Cost: {formatLLMCost(aggregation.totalCost)}
                                                 </LemonTag>
@@ -1573,8 +1664,11 @@ const EventContent = React.memo(
                                             )}
                                         </div>
                                     )}
-                                    {showEvalsTab && (
-                                        <EvalResultBadges generationEventId={effectiveGenerationEvent.id} />
+                                    {showEvalBadges && (
+                                        <EvalResultBadges
+                                            traceId={trace.id}
+                                            generationEventId={isGenerationEvent ? event.id : undefined}
+                                        />
                                     )}
                                 </div>
                             )}
@@ -1609,6 +1703,7 @@ const EventContent = React.memo(
                                             size="xsmall"
                                             icon={<IconPlay />}
                                             onClick={handleOpenInPlayground}
+                                            loading={aiDataLoading}
                                             tooltip="Open in Playground"
                                             data-attr="llma-playground-open-from-trace"
                                         >
@@ -1654,14 +1749,21 @@ const EventContent = React.memo(
                                         <>
                                             {isTopLevelTraceWithoutContent ? (
                                                 <InsightEmptyState
-                                                    heading="No top-level trace event"
+                                                    heading="No trace-level input and output captured"
                                                     detail={
                                                         <>
-                                                            This trace doesn't have an associated <code>$ai_trace</code>{' '}
-                                                            event.
+                                                            This trace's content is on the events in the tree. Select an
+                                                            event to view its input and output.
                                                             <br />
-                                                            Click on individual generations in the tree to view their
-                                                            content.
+                                                            To show a conversation here, capture a{' '}
+                                                            <Link
+                                                                to="https://posthog.com/docs/ai-observability/traces"
+                                                                target="_blank"
+                                                            >
+                                                                <code>$ai_trace</code> event
+                                                            </Link>{' '}
+                                                            with <code>$ai_input_state</code> and{' '}
+                                                            <code>$ai_output_state</code> properties.
                                                         </>
                                                     }
                                                 />
@@ -1694,23 +1796,32 @@ const EventContent = React.memo(
                                                                 eventId={event.id}
                                                                 generationEventId={event.id}
                                                                 traceId={trace.id}
+                                                                timestamp={event.createdAt}
                                                                 rawInput={event.properties.$ai_input}
-                                                                rawOutput={
-                                                                    event.properties.$ai_output_choices ??
+                                                                rawOutput={selectAiValue(
+                                                                    event.properties.$ai_output_choices,
                                                                     event.properties.$ai_output
-                                                                }
+                                                                )}
                                                                 tools={event.properties.$ai_tools}
                                                                 errorData={event.properties.$ai_error}
                                                                 httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
+                                                                outputTokens={event.properties.$ai_output_tokens}
+                                                                reasoningTokens={event.properties.$ai_reasoning_tokens}
+                                                                textOutputTokens={
+                                                                    event.properties.$ai_text_output_tokens
+                                                                }
+                                                                stopReason={event.properties.$ai_stop_reason}
                                                                 searchQuery={searchQuery}
                                                                 displayOption={displayOption}
                                                                 highlightMessageIndex={highlightMessageIndex}
+                                                                generationSentiment={event.sentiment}
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
                                                             <EventContentConversation
                                                                 eventId={event.id}
                                                                 traceId={trace.id}
+                                                                timestamp={event.createdAt}
                                                                 rawInput={event.properties.$ai_input}
                                                                 rawOutput="Embedding vector generated"
                                                                 searchQuery={searchQuery}
@@ -1720,6 +1831,7 @@ const EventContent = React.memo(
                                                             <EventContentConversation
                                                                 eventId={event.id}
                                                                 traceId={trace.id}
+                                                                timestamp={event.createdAt}
                                                                 rawInput={event.properties.$ai_input_state}
                                                                 rawOutput={event.properties.$ai_output_state}
                                                                 errorData={event.properties.$ai_error}
@@ -1733,6 +1845,8 @@ const EventContent = React.memo(
                                                         <>
                                                             <TraceMetricsTable />
                                                             <EventContentDisplay
+                                                                eventId={event.id}
+                                                                traceId={trace.id}
                                                                 input={event.inputState}
                                                                 output={event.outputState}
                                                                 searchQuery={searchQuery}
@@ -1772,23 +1886,18 @@ const EventContent = React.memo(
                                           },
                                       ]
                                     : []),
-                                ...(showEvalsTab
-                                    ? [
-                                          {
-                                              key: TraceViewMode.Evals,
-                                              label: 'Evaluations',
-                                              'data-attr': 'llma-trace-evals-tab',
-                                              content: (
-                                                  <EvalsTabContent
-                                                      generationEventId={effectiveGenerationEvent.id}
-                                                      timestamp={effectiveGenerationEvent.createdAt}
-                                                      event={effectiveGenerationEvent.event}
-                                                      distinctId={trace.distinctId}
-                                                  />
-                                              ),
-                                          },
-                                      ]
-                                    : []),
+                                {
+                                    key: TraceViewMode.Evals,
+                                    label: 'Evaluations',
+                                    'data-attr': 'llma-trace-evals-tab',
+                                    content: (
+                                        <EvalsTabContent
+                                            traceId={trace.id}
+                                            generationEvent={effectiveGenerationEvent}
+                                            distinctId={trace.distinctId}
+                                        />
+                                    ),
+                                },
                                 ...(showTagsTab
                                     ? [
                                           {

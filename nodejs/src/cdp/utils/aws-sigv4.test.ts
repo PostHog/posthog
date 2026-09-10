@@ -1,4 +1,4 @@
-import { CyclotronInvocationQueueParametersFetchAwsSigV4Type } from '~/schema/cyclotron'
+import { CyclotronInvocationQueueParametersFetchAwsSigV4Type } from '~/cdp/schema/cyclotron'
 
 import { HogFunctionType } from '../types'
 import { resolveAwsSigV4Credentials, signAwsRequest } from './aws-sigv4'

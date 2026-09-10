@@ -15,6 +15,12 @@ export function DataWarehouseOnboardingLoadingPlaceholder(): JSX.Element {
     )
 }
 
+// An OAuth round-trip returns to this step with ?kind=<source>; start on the setup phase so
+// InlineSourceSetup is mounted to resume the wizard rather than showing the value-prop screen.
+export function initialOnboardingPhase(): 'value-prop' | 'setup' {
+    return new URLSearchParams(window.location.search).get('kind') ? 'setup' : 'value-prop'
+}
+
 export function useDataWarehouseLoadingState(): { isLoading: boolean } {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     return { isLoading: availableSourcesLoading || availableSources === null }

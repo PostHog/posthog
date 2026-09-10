@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING, Any, Optional
+from urllib.parse import quote
 
 from django.conf import settings
 
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+DESKTOP_COMMENT_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
+
 SCOPE_TO_SOURCE_TYPE: dict[str, str] = {
     "Replay": "replay",
     "Notebook": "notebook",
@@ -22,6 +25,11 @@ SCOPE_TO_SOURCE_TYPE: dict[str, str] = {
     "Survey": "survey",
     "Experiment": "experiment",
     "ErrorTracking": "error_tracking",
+    # Unlike the PascalCase model-name scopes above, customer-facing ticket messages are written
+    # with the literal "conversations_ticket" scope (see products/conversations), while internal
+    # ticket discussions use the "Ticket" scope. Both are ticket-sourced.
+    "conversations_ticket": "ticket",
+    "Ticket": "ticket",
 }
 
 SCOPE_TO_PATH_MAPPING: dict[str, str] = {
@@ -32,14 +40,39 @@ SCOPE_TO_PATH_MAPPING: dict[str, str] = {
     "Dashboard": "/dashboard/{item_id}",
     "Survey": "/surveys/{item_id}",
     "Experiment": "/experiments/{item_id}",
+    # See note above: customer-facing ticket messages use the "conversations_ticket" scope literal,
+    # while internal ticket discussions use the "Ticket" scope. Both land on the ticket page.
+    "conversations_ticket": "/support/tickets/{item_id}",
+    "Ticket": "/support/tickets/{item_id}",
 }
+
+# Human-readable scope names for user-facing surfaces (e.g. the mirrored Slack card) —
+# raw scope values are internal CamelCase enums and read as jargon.
+SCOPE_DISPLAY_NAMES: dict[str, str] = {
+    "Replay": "a session recording",
+    "Notebook": "a notebook",
+    "Insight": "an insight",
+    "FeatureFlag": "a feature flag",
+    "Dashboard": "a dashboard",
+    "Survey": "a survey",
+    "Experiment": "an experiment",
+    "ErrorTracking": "an error tracking issue",
+    "Ticket": "a support ticket",
+}
+
+
+def comment_scope_display_name(scope: str) -> str:
+    return SCOPE_DISPLAY_NAMES.get(scope, "the discussion")
 
 
 def build_comment_item_url(scope: str, item_id: Optional[str], slug: Optional[str] = None) -> str:
     if slug:
         url = f"{settings.SITE_URL}{slug}"
     elif scope in SCOPE_TO_PATH_MAPPING and item_id:
-        path = SCOPE_TO_PATH_MAPPING[scope].format(item_id=item_id)
+        # item_id is a free-form client-supplied CharField — percent-encode it so characters
+        # with meaning downstream (Slack mrkdwn `|`/`>` in links, URL delimiters) can't break
+        # or redirect the rendered link.
+        path = SCOPE_TO_PATH_MAPPING[scope].format(item_id=quote(str(item_id), safe=""))
         url = f"{settings.SITE_URL}{path}"
     else:
         url = settings.SITE_URL

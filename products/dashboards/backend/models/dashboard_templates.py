@@ -22,7 +22,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
         GLOBAL = "global", "Global"
         FEATURE_FLAG = "feature_flag", "Feature Flag"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, related_name="+")
     template_name = models.CharField(max_length=400, null=True, blank=True)
     dashboard_description = models.CharField(max_length=400, null=True, blank=True)
     dashboard_filters = models.JSONField(null=True, blank=True)
@@ -30,7 +30,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
     variables = models.JSONField(null=True, blank=True)
     tags: ArrayField = ArrayField(models.CharField(max_length=255), blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(blank=True, null=True)
     image_url = models.CharField(max_length=8201, null=True, blank=True)
     scope = models.CharField(max_length=24, choices=Scope, null=True, blank=True)
@@ -66,8 +66,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
         """
         The authoritative hardcoded "Product analytics" template the rest of the codebase relies on
         (the DEFAULT_APP seed, the DB-absent fallback in create_dashboard_from_template, and the global
-        template seed used in tests). It is intentionally the legacy shape; the starter-dashboard-v2
-        test arm opts into the refreshed layout via default_signup_template().
+        template seed used in tests). It is intentionally the legacy shape; new projects get the
+        refreshed layout via default_signup_template().
 
         This OG template is not stored in https://github.com/PostHog/templates-repository
         The system assumes this template is always present and doesn't wait to import it from the template repository
@@ -77,7 +77,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
     @staticmethod
     def default_signup_template() -> "DashboardTemplate":
         """
-        Refreshed signup dashboard (test arm of the starter-dashboard-v2 experiment).
+        Refreshed signup dashboard given to every new non-demo project's primary dashboard.
         This OG template is not stored in https://github.com/PostHog/templates-repository
         The system assumes this template is always present and doesn't wait to import it from the template repository
         """
@@ -511,7 +511,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
     @staticmethod
     def legacy_signup_template() -> "DashboardTemplate":
         """
-        Pre-2026 default signup dashboard (control arm of starter-dashboard-v2 experiment).
+        The legacy "Product analytics" dashboard, still used by the DEFAULT_APP template seed.
         This OG template is not stored in https://github.com/PostHog/templates-repository
         The system assumes this template is always present and doesn't wait to import it from the template repository
         """

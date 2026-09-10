@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { type ComponentType } from 'react'
+import React, { Suspense } from 'react'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
@@ -13,6 +13,8 @@ import { dateFilterToText } from 'lib/utils/dateFilters'
 import { DashboardPlacement } from '~/types'
 
 import type { DashboardWidgetHeaderLayout, DashboardWidgetHeaderMeta } from '../../widget_types/catalog'
+import { LiveWidgetIndicator } from '../../widgets/live/components'
+import type { DashboardWidgetSlot } from '../../widgets/registry'
 
 /** Props a widget type's optional TopHeading override receives so it can compose its own
  * CardTopHeadingRow — e.g. resolving a saved filter's name the generic header can't derive from config. */
@@ -33,11 +35,14 @@ export type WidgetCardHeaderProps = {
     widgetTypeLabel?: string
     config?: Record<string, unknown>
     headerMeta?: DashboardWidgetHeaderMeta
-    /** Optional per-widget-type top heading row; falls back to the type + date range when absent. */
-    TopHeading?: ComponentType<DashboardWidgetTopHeadingProps>
+    /** Optional per-widget-type top heading row; falls back to the type + date range when absent.
+     * A `DashboardWidgetSlot` so the registry can code-split it (rendered inside a Suspense below). */
+    TopHeading?: DashboardWidgetSlot<DashboardWidgetTopHeadingProps>
     description?: string
     showDescription?: boolean
     loading?: boolean
+    /** Live (self-updating) widget type — shows a pulsing "Live" marker where the date range would go. */
+    isLive?: boolean
     showEditingControls?: boolean
     /** When true, title is plain text so drag on the header does not compete with navigation. */
     isDashboardEditMode?: boolean
@@ -172,6 +177,7 @@ export function WidgetCardHeader({
     description,
     showDescription = true,
     loading,
+    isLive,
     showEditingControls,
     isDashboardEditMode,
     shouldHideMoreButton,
@@ -186,19 +192,28 @@ export function WidgetCardHeader({
             ? widgetDateRangeToText(config?.dateRange as Record<string, unknown> | null | undefined)
             : null
     const derivedTopHeading =
-        widgetTypeLabel && (showWidgetType || dateText) ? (
+        widgetTypeLabel && (showWidgetType || dateText || isLive) ? (
             // A widget type can supply its own top heading row (e.g. session replay surfaces the active
             // saved filter name in place of the now-overridden date range); otherwise fall back to the
-            // type + date range.
+            // type + date range (or the live marker — live widgets have no date range).
             TopHeading ? (
-                <TopHeading
-                    config={config ?? {}}
-                    widgetTypeLabel={widgetTypeLabel}
-                    showWidgetType={showWidgetType}
-                    dateText={dateText}
-                />
+                <Suspense fallback={null}>
+                    <TopHeading
+                        config={config ?? {}}
+                        widgetTypeLabel={widgetTypeLabel}
+                        showWidgetType={showWidgetType}
+                        dateText={dateText}
+                    />
+                </Suspense>
             ) : (
-                <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText} />
+                <CardTopHeadingRow
+                    typeLabel={widgetTypeLabel}
+                    showTypeLabel={showWidgetType}
+                    dateText={dateText}
+                    separateChildren
+                >
+                    {isLive ? <LiveWidgetIndicator /> : null}
+                </CardTopHeadingRow>
             )
         ) : null
     const resolvedTopHeading = topHeading !== undefined ? topHeading : derivedTopHeading

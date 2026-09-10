@@ -50,7 +50,7 @@ There is **no single boolean "written by AI" column.** Identify it from `lc_prod
 Filter: `lc_product IN ('max_ai','mcp') OR lc_feature IN ('mcp','posthog_ai')`.
 
 **Do not use `ai_query_source`.** Despite the name it records which AI-events table the LLM-analytics
-resolver chose (`dedicated_table` / `shared_table` / `shared_table_fallback`), not "AI authored this".
+resolver chose (`dedicated_table` / `shared_table_fallback`), not "AI authored this".
 It is also not materialized as an `lc_*` column in the archive.
 
 Caveats:

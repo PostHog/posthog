@@ -1,4 +1,4 @@
-from typing import Optional, Self, cast
+from typing import TYPE_CHECKING, Optional, Self, cast
 
 import posthoganalytics
 
@@ -18,9 +18,9 @@ from posthog.hogql.database.models import (
     LazyJoinToAdd,
     LazyTable,
     LazyTableToAdd,
-    StringDatabaseField,
     StringJSONDatabaseField,
     Table,
+    UUIDDatabaseField,
 )
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
@@ -29,16 +29,32 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
-from posthog.models.organization import Organization
 from posthog.schema_enums import PersonsArgMaxVersion
 
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
+
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(name="id", nullable=False),
-    "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+    "id": UUIDDatabaseField(
+        name="id", nullable=False, description="Stable person identifier; join target for `events.person_id`."
+    ),
+    "created_at": DateTimeDatabaseField(
+        name="created_at", nullable=False, description="When the person was first seen by PostHog."
+    ),
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-    "properties": StringJSONDatabaseField(name="properties", nullable=False),
-    "is_identified": BooleanDatabaseField(name="is_identified", nullable=False),
-    "last_seen_at": DateTimeDatabaseField(name="last_seen_at", nullable=True),
+    "properties": StringJSONDatabaseField(
+        name="properties",
+        nullable=False,
+        description="JSON map of person properties (latest known values). Access keys with `properties.email` etc.",
+    ),
+    "is_identified": BooleanDatabaseField(
+        name="is_identified",
+        nullable=False,
+        description="True once the person has been identified (vs. an anonymous distinct_id).",
+    ),
+    "last_seen_at": DateTimeDatabaseField(
+        name="last_seen_at", nullable=True, description="Timestamp of the most recent event for this person."
+    ),
     "pdi": LazyJoin(
         from_field=["id"],
         join_table=PersonsPDITable(),
@@ -155,9 +171,17 @@ def select_from_persons_table(
         if filter is not None:
             cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = filter
 
+        # Deferred: posthog.hogql.property imports database schema modules, so a top-level import here is circular.
+        from posthog.hogql.property import has_aggregation, has_window_function  # noqa: PLC0415
+
         # Push ORDER BY + LIMIT into the inner deduplication subquery so ClickHouse can stop early.
         # Skip when there's an outer WHERE -- a premature inner LIMIT would exclude valid rows
         # before the filter runs (e.g. cohort members dropped because LIMIT grabbed other rows first).
+        # Skip aggregate, DISTINCT, and window-function selects too: they must see every person, and
+        # the executor stamps a default LIMIT on every query, so pushing it down would cap
+        # e.g. `SELECT count() FROM persons` at the page size instead of counting the whole team.
+        # HAVING, QUALIFY, ARRAY JOIN, LIMIT BY, and WITH TIES / PERCENT also filter or reshape
+        # rows after deduplication, so they need the full person set as well.
         can_push_to_inner = (
             node.select_from
             and node.select_from.type
@@ -168,6 +192,16 @@ def select_from_persons_table(
             and node.limit
             and not node.where
             and not node.prewhere
+            and not node.having
+            and not node.qualify
+            and not node.array_join_op
+            and not node.limit_by
+            and not node.limit_with_ties
+            and not node.limit_percent
+            and not node.distinct
+            and not any(has_aggregation(expr) for expr in node.select)
+            and not node.window_exprs
+            and not any(has_window_function(expr) for expr in node.select)
         )
         if can_push_to_inner:
             compare = cast(ast.CompareOperation, select.where)
@@ -280,6 +314,10 @@ def join_with_persons_table(
 
 
 class RawPersonsTable(Table):
+    description: str = (
+        "Raw, un-deduplicated persons rows (one per version). Query `persons` instead unless you need to "
+        "resolve the latest version yourself via `is_deleted`/`version`."
+    )
     fields: dict[str, FieldOrTable] = {
         **PERSONS_FIELDS,
         "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
@@ -297,6 +335,7 @@ class RawPersonsTable(Table):
 # It pulls any "persons.id in ()" statement inside of the argmax subselect
 # This is useful when executing a query for a large team.
 class PersonsTable(LazyTable):
+    description: str = "Deduplicated people in the project, with their latest properties. One row per person."
     fields: dict[str, FieldOrTable] = PERSONS_FIELDS
     filter: Optional[Expr] = None
 

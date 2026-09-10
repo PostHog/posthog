@@ -14,7 +14,8 @@ export const getLLMCostsHandler: ToolBase<typeof schema, Result>['handler'] = as
     context: Context,
     params: Params
 ) => {
-    const { projectId, days } = params
+    const { days } = params
+    const projectId = params.projectId ? String(params.projectId) : await context.stateManager.getProjectId()
 
     const trendsQuery = {
         kind: 'TrendsQuery',
@@ -38,7 +39,7 @@ export const getLLMCostsHandler: ToolBase<typeof schema, Result>['handler'] = as
         },
     }
 
-    const costsResult = await context.api.query({ projectId: String(projectId) }).execute({ queryBody: trendsQuery })
+    const costsResult = await context.api.query({ projectId }).execute({ queryBody: trendsQuery })
     if (!costsResult.success) {
         throw new Error(`Failed to get LLM costs: ${costsResult.error.message}`)
     }

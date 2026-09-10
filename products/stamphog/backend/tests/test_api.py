@@ -1,0 +1,895 @@
+from typing import Any
+
+import pytest
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.core import signing
+from django.db import transaction
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, uuid7
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.stamphog.backend.facade import contracts
+from products.stamphog.backend.facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewMode, ReviewRunStatus
+from products.stamphog.backend.models import DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.presentation.serializers import StamphogRepoConfigWriteSerializer
+from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
+from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
+
+_VIEWS = "products.stamphog.backend.presentation.views"
+# The repo enumeration moved behind the facade with the sync logic; the rest is still looked up in views.
+_GITHUB_FACADE = "products.stamphog.backend.facade.github"
+_CLIENT = "products.stamphog.backend.logic.github_client.StamphogGitHubClient"
+
+
+def _install_state(team_id: int, user_id: int) -> str:
+    """A signed install-flow state token, as install_info mints it, for use in sync_installation posts."""
+    return signing.dumps({"team_id": team_id, "user_id": user_id}, salt=_INSTALL_STATE_SALT)
+
+
+class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/"
+        # Flipping the review-gating fields takes the manager level, which org admins hold
+        # everywhere. The plain-member cases below cover the other side.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _create_config(self) -> str:
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        return created["id"]
+
+    def _login_as_member(self, *, stamphog_level: str | None = None, grant_team: Team | None = None) -> User:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@posthog.com", "testtest")
+        if stamphog_level is not None:
+            AccessControl.objects.create(
+                team=grant_team or self.team,
+                resource="stamphog",
+                resource_id=None,
+                access_level=stamphog_level,
+                organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+            )
+        self.client.force_login(member)
+        return member
+
+    @parameterized.expand(
+        [
+            ("enabled", {"enabled": False}),
+            ("review_mode", {"review_mode": ReviewMode.LABEL}),
+            ("trigger_label", {"trigger_label": "review-me"}),
+        ]
+    )
+    def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
+        # These three decide whether a pull request is reviewed at all, so a project member who is
+        # only an editor must not be able to switch reviews off or point them at a label nobody uses.
+        config_id = self._create_config()
+        self._login_as_member()
+
+        response = self.client.patch(f"{self.url}{config_id}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert "manager" in response.json()["detail"]
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
+
+    def test_member_can_still_change_the_digest_toggle(self) -> None:
+        # The digest only decides who reads about merges, so gating it on manager too would take a
+        # setting away from editors that was never a review decision.
+        config_id = self._create_config()
+        self._login_as_member()
+
+        response = self.client.patch(f"{self.url}{config_id}/", {"digest_enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["digest_enabled"] is True
+
+    @parameterized.expand(
+        [
+            ("names_a_gate_field", {"enabled": True}, status.HTTP_403_FORBIDDEN),
+            ("leaves_the_defaults", {}, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_member_create_is_gated_only_when_it_names_a_review_field(
+        self, _name: str, extra: dict, expected_status: int
+    ) -> None:
+        # Spelling out a review policy is the same decision whichever verb carries it, so create
+        # gates on the field being present, like update does. Connecting a repository without one
+        # stays an editor's job: the row binds disabled at sync and routes no digest until then.
+        self._login_as_member()
+
+        response = self.client.post(self.url, {"repository": "PostHog/new", **extra}, format="json")
+
+        assert response.status_code == expected_status, response.content
+        assert StamphogRepoConfig.objects.unscoped().filter(repository="PostHog/new").exists() is (
+            expected_status == status.HTTP_201_CREATED
+        )
+
+    def test_member_cannot_soft_delete_a_config(self) -> None:
+        # The soft delete flips `enabled` behind a different verb, so gating only PATCH would leave
+        # the same switch reachable through DELETE.
+        config_id = self._create_config()
+        self._login_as_member()
+
+        response = self.client.delete(f"{self.url}{config_id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
+
+    def test_member_granted_manager_can_change_a_review_gating_field(self) -> None:
+        # An admin must be able to hand the review switch to somebody through the normal access
+        # control settings, or the manager gate would be an admin-only hardcode.
+        config_id = self._create_config()
+        self._login_as_member(stamphog_level="manager")
+
+        response = self.client.patch(f"{self.url}{config_id}/", {"enabled": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["enabled"] is False
+
+    @parameterized.expand(
+        [
+            ("granted_on_the_child", False, status.HTTP_403_FORBIDDEN),
+            ("granted_on_the_parent", True, status.HTTP_200_OK),
+        ]
+    )
+    def test_editor_grant_is_read_on_the_team_that_owns_the_rows(
+        self, _name: str, grant_on_parent: bool, expected_status: int
+    ) -> None:
+        # Same canonicalization as the manager case, one level down: the digest toggle needs editor,
+        # and the level that counts is the one on the team the rows live under, not the URL team.
+        config_id = self._create_config()
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        grant_team = self.team if grant_on_parent else env
+        member = self._login_as_member(stamphog_level="editor", grant_team=grant_team)
+        # "none" on the other team, so the request can only pass on the grant under test.
+        AccessControl.objects.create(
+            team=env if grant_on_parent else self.team,
+            resource="stamphog",
+            resource_id=None,
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"digest_enabled": True}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.content
+
+    def test_child_project_denial_still_blocks_the_request(self) -> None:
+        # The viewset anchors user_access_control to the parent, so AccessControlPermission can no
+        # longer see the child's own project rules. Somebody the child environment denies must still
+        # be refused, or canonicalizing the resource check would have opened the environment up.
+        config_id = self._create_config()
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        member = self._login_as_member(stamphog_level="manager")
+        AccessControl.objects.create(
+            team=env,
+            resource="project",
+            resource_id=str(env.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"enabled": False}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
+
+    @parameterized.expand(
+        [
+            ("granted_on_the_child", False, status.HTTP_403_FORBIDDEN),
+            ("granted_on_the_parent", True, status.HTTP_200_OK),
+        ]
+    )
+    def test_manager_grant_is_read_on_the_team_that_owns_the_rows(
+        self, _name: str, grant_on_parent: bool, expected_status: int
+    ) -> None:
+        # stamphog rows canonicalize to the parent team, so the manager check must read the parent
+        # too. Reading the URL team would let a grant on a child environment alone rewrite the
+        # parent's review settings through the child's URL.
+        config_id = self._create_config()
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        self._login_as_member(stamphog_level="manager", grant_team=self.team if grant_on_parent else env)
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"enabled": False}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.content
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled == (not grant_on_parent)
+
+    @parameterized.expand([("admin", True, "manager"), ("member", False, "editor")])
+    def test_user_access_level_rides_on_the_repo_config(self, _name: str, as_admin: bool, expected: str) -> None:
+        # The scene disables the review controls off this field. Reading it from the app context
+        # instead would answer for the URL environment while the backend checks the parent, so the
+        # controls and the API would disagree through a child environment's URL.
+        config_id = self._create_config()
+        if not as_admin:
+            self._login_as_member()
+
+        response = self.client.get(f"{self.url}{config_id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["user_access_level"] == expected
+
+    def test_create_ignores_client_supplied_installation_id(self) -> None:
+        # installation_id is read-only: a manual create must not let a caller claim an installation
+        # they haven't proven ownership of. Only the verified sync_installation flow may set it.
+        response = self.client.post(
+            self.url,
+            {"repository": "PostHog/posthog", "installation_id": "42"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        body = response.json()
+        assert body["repository"] == "PostHog/posthog"
+        assert body["enabled"] is True
+        assert body["provider"] == "github"
+        assert body["installation_id"] == ""
+        config = StamphogRepoConfig.objects.unscoped().get(id=body["id"])
+        assert config.team_id == self.team.id
+        assert config.installation_id == ""
+
+    def test_update_cannot_change_identity_fields(self) -> None:
+        # provider + repository anchor webhook resolution and every PR/ReviewRun FK. A PATCH that
+        # changed them would reroute the config's history and orphan the original repo's webhooks, so
+        # they're create-only: the values are ignored on update while enabled still toggles.
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        response = self.client.patch(
+            f"{self.url}{created['id']}/",
+            {"repository": "PostHog/evil", "provider": "gitlab", "enabled": False},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["repository"] == "PostHog/posthog"
+        assert body["provider"] == "github"
+        assert body["enabled"] is False
+
+    def test_toggling_enabled_writes_an_activity_log_row(self) -> None:
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        # Review history hangs off the config as a reverse relation; the diff must leave it out.
+        PullRequest.objects.create(team_id=self.team.id, repo_config_id=created["id"], pr_number=1)
+        self.client.patch(f"{self.url}{created['id']}/", {"enabled": False}, format="json")
+
+        log = ActivityLog.objects.get(scope="StamphogRepoConfig", item_id=created["id"], activity="updated")
+        assert log.team_id == self.team.id
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "PostHog/posthog"
+        assert log.detail["changes"] == [
+            {"type": "StamphogRepoConfig", "action": "changed", "field": "enabled", "before": True, "after": False}
+        ]
+
+    def test_rolled_back_config_write_leaves_no_activity_row(self) -> None:
+        # Repo configs live on the stamphog database while the audit row lives on the main one, so
+        # the audit write has to ride that connection's commit rather than landing immediately.
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        config = StamphogRepoConfig.objects.for_team(self.team.id).get(id=created["id"])
+        updates = ActivityLog.objects.filter(scope="StamphogRepoConfig", item_id=created["id"], activity="updated")
+
+        with override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+            with self.captureOnCommitCallbacks(using="stamphog_db_writer", execute=True):
+                with pytest.raises(RuntimeError):
+                    with transaction.atomic(using="stamphog_db_writer"):
+                        config.enabled = False
+                        config.save()
+                        raise RuntimeError("the write this audits failed")
+            assert not updates.exists()
+
+            with self.captureOnCommitCallbacks(using="stamphog_db_writer", execute=True):
+                with transaction.atomic(using="stamphog_db_writer"):
+                    config.enabled = False
+                    config.save()
+            assert updates.exists()
+
+    def test_blank_installation_does_not_reserve_repo_across_teams(self) -> None:
+        # A manual placeholder carries a blank installation and proves no ownership, so it must not
+        # globally reserve a repo. Two teams can each hold their own unsynced placeholder for the same
+        # repository; only a real synced installation is exclusive (partial unique constraint).
+        self.client.post(self.url, {"repository": "PostHog/posthog"}, format="json")
+        other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+        StamphogRepoConfig.objects.unscoped().create(
+            team_id=other_team.id, repository="PostHog/posthog", installation_id=""
+        )
+        both = StamphogRepoConfig.objects.unscoped().filter(repository="PostHog/posthog", installation_id="")
+        assert both.count() == 2
+
+    def test_list_excludes_other_teams_configs(self) -> None:
+        other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+        self.client.post(self.url, {"repository": "PostHog/posthog", "installation_id": "1"}, format="json")
+        StamphogRepoConfig.objects.unscoped().create(
+            team_id=other_team.id, repository="PostHog/other", installation_id="2"
+        )
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        repos = [row["repository"] for row in response.json()["results"]]
+        assert repos == ["PostHog/posthog"]
+
+    def test_environment_url_reads_canonical_parent_rows(self) -> None:
+        # With a child environment id in the URL, reads must resolve to the canonical (parent) team.
+        # ProductTeamModel.save() writes rows at the parent id, so scoping the list by the raw child id
+        # would miss them. The viewset canonicalizes self.team_id, so the parent's config still lists.
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        StamphogRepoConfig.objects.unscoped().create(
+            team_id=self.team.id, repository="PostHog/posthog", installation_id="7"
+        )
+
+        response = self.client.get(f"/api/projects/{env.id}/stamphog/repo_configs/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        repos = [row["repository"] for row in response.json()["results"]]
+        assert repos == ["PostHog/posthog"]
+
+    def test_child_scoped_api_key_cannot_reach_parent_rows(self) -> None:
+        # stamphog rows canonicalize to the parent team, so a request through the child environment
+        # reads the PARENT's data. A token scoped only to the child passes the default scope check
+        # (URL team == child) but must not reach the parent's rows through it.
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        StamphogRepoConfig.objects.unscoped().create(
+            team_id=self.team.id, repository="PostHog/posthog", installation_id="8"
+        )
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["stamphog:read"],
+            scoped_teams=[env.id],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{env.id}/stamphog/repo_configs/", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    def test_cannot_retrieve_other_teams_config(self) -> None:
+        other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+        theirs = StamphogRepoConfig.objects.unscoped().create(
+            team_id=other_team.id, repository="PostHog/other", installation_id="2"
+        )
+        response = self.client.get(f"{self.url}{theirs.id}/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_cannot_delete_other_teams_config(self) -> None:
+        other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+        theirs = StamphogRepoConfig.objects.unscoped().create(
+            team_id=other_team.id, repository="PostHog/other", installation_id="2"
+        )
+        response = self.client.delete(f"{self.url}{theirs.id}/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert StamphogRepoConfig.objects.unscoped().filter(id=theirs.id).exists()
+
+    @parameterized.expand(
+        [
+            ("delete", "delete", None, status.HTTP_204_NO_CONTENT),
+            ("patch", "patch", {"enabled": False}, status.HTTP_200_OK),
+        ]
+    )
+    def test_disabling_a_repo_tombstones_supersedes_and_records_it(
+        self, _name: str, method: str, body: dict[str, Any] | None, expected_status: int
+    ) -> None:
+        # A hard delete would cascade away the PRs and review runs (including posted_review_id), so a
+        # push to a previously approved PR could no longer resolve the config or dismiss the stale
+        # approval — deleting a repo must not launder a standing approval. In-flight runs are
+        # superseded too: their workflows never re-check enabled and could still post an approval.
+        # Both routes disable through the same facade transaction, so both must land the supersede
+        # and the audit row.
+        mine = StamphogRepoConfig.objects.unscoped().create(
+            team_id=self.team.id, repository="PostHog/mine", installation_id="3", enabled=True, digest_enabled=True
+        )
+        pull_request = PullRequest.objects.unscoped().create(
+            team_id=self.team.id, repo_config=mine, pr_number=9, author_login="dev"
+        )
+        in_flight = ReviewRun.objects.unscoped().create(
+            team_id=self.team.id, pull_request=pull_request, head_sha="sha-live", status=ReviewRunStatus.REVIEWING
+        )
+        response = getattr(self.client, method)(f"{self.url}{mine.id}/", body, format="json")
+        assert response.status_code == expected_status, response.content
+        mine.refresh_from_db()
+        in_flight.refresh_from_db()
+        assert mine.enabled is False
+        assert mine.digest_enabled is False
+        assert in_flight.status == ReviewRunStatus.SUPERSEDED
+
+        log = ActivityLog.objects.get(scope="StamphogRepoConfig", item_id=str(mine.id), activity="updated")
+        assert log.user == self.user
+        assert log.detail is not None
+        enabled_change = next(change for change in log.detail["changes"] if change["field"] == "enabled")
+        assert (enabled_change["before"], enabled_change["after"]) == (True, False)
+
+    def test_cannot_enable_digest_without_reviews(self) -> None:
+        # Wiring guard for the serializer matrix below: the viewset must actually reject the
+        # combination. A digest-on/review-off repo captures no merges at all, so it would look
+        # configured and silently never post.
+        response = self.client.post(self.url, {"repository": "PostHog/quiet", "enabled": False, "digest_enabled": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not StamphogRepoConfig.objects.unscoped().filter(repository="PostHog/quiet").exists()
+
+
+def _repo_config_dto(*, enabled: bool, digest_enabled: bool) -> contracts.RepoConfigDTO:
+    return contracts.RepoConfigDTO(
+        id=uuid7(),
+        team_id=1,
+        provider="github",
+        repository="PostHog/posthog",
+        enabled=enabled,
+        installation_id="1",
+        digest_enabled=digest_enabled,
+    )
+
+
+class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("create", None, {"repository": "PostHog/posthog", "enabled": False, "digest_enabled": True}),
+            (
+                "enable_digest_on_review_off_repo",
+                _repo_config_dto(enabled=False, digest_enabled=False),
+                {"digest_enabled": True},
+            ),
+        ]
+    )
+    def test_asking_for_digest_without_reviews_is_rejected(
+        self, _name: str, current: contracts.RepoConfigDTO | None, data: dict
+    ) -> None:
+        serializer = StamphogRepoConfigWriteSerializer(
+            data=data, partial=current is not None, partial_update=current is not None, current=current
+        )
+        assert not serializer.is_valid()
+        assert "digest_enabled" in serializer.errors
+
+    def test_disabling_reviews_clears_the_digest(self) -> None:
+        # The Enabled toggle PATCHes only `enabled`, so rejecting the write would leave an admin
+        # unable to turn reviews off on any digest-enabled repo, with a generic failure toast.
+        serializer = StamphogRepoConfigWriteSerializer(
+            data={"enabled": False},
+            partial=True,
+            partial_update=True,
+            current=_repo_config_dto(enabled=True, digest_enabled=True),
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["digest_enabled"] is False
+
+
+class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/stamphog/review_runs/"
+        self.repo_config = StamphogRepoConfig.objects.unscoped().create(
+            team_id=self.team.id, repository="PostHog/posthog", installation_id="1"
+        )
+
+    def _make_run(
+        self,
+        *,
+        team=None,
+        repo_config=None,
+        pr_number: int = 1,
+        status_value: str = "queued",
+        output: dict | None = None,
+    ) -> ReviewRun:
+        team = team or self.team
+        repo_config = repo_config or self.repo_config
+        pull_request, _ = PullRequest.objects.unscoped().update_or_create(
+            team_id=team.id,
+            repo_config=repo_config,
+            pr_number=pr_number,
+            defaults={"pr_url": f"https://github.com/{repo_config.repository}/pull/{pr_number}"},
+        )
+        return ReviewRun.objects.unscoped().create(
+            team_id=team.id,
+            pull_request=pull_request,
+            head_sha="abc123",
+            status=status_value,
+            output=output or {},
+        )
+
+    def test_list_only_returns_own_team_runs(self) -> None:
+        other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+        other_repo_config = StamphogRepoConfig.objects.unscoped().create(
+            team_id=other_team.id, repository="PostHog/other", installation_id="2"
+        )
+        mine = self._make_run()
+        self._make_run(team=other_team, repo_config=other_repo_config)
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        ids = [row["id"] for row in response.json()["results"]]
+        assert ids == [str(mine.id)]
+
+    def test_filter_by_pr_number(self) -> None:
+        self._make_run(pr_number=1)
+        run_two = self._make_run(pr_number=2)
+
+        response = self.client.get(self.url, {"pr_number": 2})
+        assert response.status_code == status.HTTP_200_OK
+        ids = [row["id"] for row in response.json()["results"]]
+        assert ids == [str(run_two.id)]
+
+    def test_non_integer_pr_number_returns_empty_not_500(self) -> None:
+        # pr_number flows into an integer ORM filter; a non-integer value used to raise and 500.
+        # It's exposed via the API/MCP, so a bad value must degrade to an empty 200, not crash.
+        self._make_run(pr_number=1)
+        response = self.client.get(self.url, {"pr_number": "abc"})
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["results"] == []
+
+    def test_filter_by_status(self) -> None:
+        self._make_run(pr_number=1, status_value="completed")
+        queued_run = self._make_run(pr_number=2, status_value="queued")
+
+        response = self.client.get(self.url, {"status": "queued"})
+        assert response.status_code == status.HTTP_200_OK
+        ids = [row["id"] for row in response.json()["results"]]
+        assert ids == [str(queued_run.id)]
+
+    @parameterized.expand(
+        [
+            # Inbox provenance outranks the repo mode: a self-driving run is dispatched from the inbox
+            # whether or not the repo also reviews every PR event.
+            ("self_driving_beats_all_mode", ReviewMode.ALL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
+            ("self_driving_beats_label_mode", ReviewMode.LABEL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
+            ("label_mode", ReviewMode.LABEL, {}, "label"),
+            ("all_mode", ReviewMode.ALL, {}, "all"),
+        ]
+    )
+    def test_trigger_is_derived_and_filterable(
+        self, _name: str, review_mode: ReviewMode, output: dict, expected: str
+    ) -> None:
+        # The facade derives `trigger` in Python and filters on it in SQL through two separate code
+        # paths. They must agree: a run that reads as self-driving in the list has to be reachable by
+        # the self-driving filter, or the filter quietly hides rows the table just showed.
+        self.repo_config.review_mode = review_mode
+        self.repo_config.save(update_fields=["review_mode"])
+        run = self._make_run(output=output)
+
+        listed = self.client.get(self.url)
+        assert listed.status_code == status.HTTP_200_OK, listed.content
+        assert [row["trigger"] for row in listed.json()["results"]] == [expected]
+
+        filtered = self.client.get(self.url, {"trigger": expected})
+        assert filtered.status_code == status.HTTP_200_OK, filtered.content
+        assert [row["id"] for row in filtered.json()["results"]] == [str(run.id)]
+
+    def test_unknown_trigger_returns_empty_not_everything(self) -> None:
+        # The filter is exposed via API/MCP. An unrecognized value must narrow to nothing rather than
+        # fall through and hand back the unfiltered list as if the filter had applied.
+        self._make_run()
+        response = self.client.get(self.url, {"trigger": "not-a-trigger"})
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["results"] == []
+
+    def test_readonly_viewset_rejects_writes(self) -> None:
+        # ReviewRun is created by the webhook/task pipeline, never directly
+        # by API clients; the viewset must stay read-only.
+        response = self.client.post(
+            self.url,
+            {"repository": "PostHog/posthog", "pr_number": 1, "pr_url": "x", "head_sha": "abc"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    def test_output_excludes_raw_repo_content(self) -> None:
+        # run.output holds the full PR payload, changed-file patches, default-branch policy files, and
+        # raw reviewer stdout. A project member without repo access can read this endpoint, so the API
+        # must expose only the allowlisted, content-free summary — never the raw repo content.
+        run = self._make_run()
+        run.output = {
+            "reviewer_raw": "SECRET reviewer stdout with patches",
+            "pr": {"title": "secret PR", "body": "internal"},
+            "files": [{"filename": "app.py", "patch": "@@ secret diff @@"}],
+            "policy_files": {".stamphog/policy.yml": "secret policy"},
+            "stamphog_version": "test-1.0.0",
+            "reviewer_exit_code": 0,
+        }
+        run.save(update_fields=["output"])
+
+        response = self.client.get(f"{self.url}{run.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        output = response.json()["output"]
+        assert output == {"stamphog_version": "test-1.0.0", "reviewer_exit_code": 0}
+        for leaked in ("reviewer_raw", "pr", "files", "policy_files"):
+            assert leaked not in output
+
+
+class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/sync_installation/"
+        self.state = _install_state(self.team.id, self.user.id)
+
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog", "PostHog/other"])
+    @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_verified_installation_binds_repos(self, mock_exchange, mock_verify, mock_list) -> None:
+        response = self.client.post(
+            self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_exchange.assert_called_once_with("oauth-code")
+        mock_verify.assert_called_once_with("42", "user-token")
+        # The explicit-id path never discovers, so app_not_installed is always false there.
+        assert response.json()["app_not_installed"] is False
+        synced = sorted(row["repository"] for row in response.json()["synced"])
+        assert synced == ["PostHog/other", "PostHog/posthog"]
+        # The scene disables the review controls off this field, and it renders these rows straight
+        # from the sync response. A null here would leave every control disabled right after connecting.
+        assert {row["user_access_level"] for row in response.json()["synced"]} == {"editor"}
+        bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
+        assert bound.count() == 2
+        # Bind disabled: an install can surface hundreds of repos, so none starts reviewing until toggled.
+        assert all(not config.enabled for config in bound)
+        # The caller becomes the connecting user — the identity review-sandbox credentials are minted under.
+        assert all(config.connected_by_user_id == self.user.id for config in bound)
+        # One audit row per connected repo, written as a batch: the per-row receiver is silenced for
+        # the sync loop because an installation can expose thousands of repositories.
+        created = ActivityLog.objects.filter(scope="StamphogRepoConfig", activity="created")
+        assert created.count() == 2
+        connected_names = set()
+        for log in created:
+            assert log.user == self.user
+            assert log.detail is not None
+            assert log.detail["type"] == "connected"
+            connected_names.add(log.detail["name"])
+        assert connected_names == {"PostHog/other", "PostHog/posthog"}
+
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_sync_adopts_preexisting_manual_config(self, mock_exchange, mock_verify, mock_list) -> None:
+        # A repo onboarded through the plain create path carries a blank installation_id. When the same
+        # team later syncs the verified installation, that row must be adopted (its installation stamped)
+        # rather than reported skipped and left unbound forever — but adopted DISABLED: the placeholder's
+        # flags were set by someone who never proved GitHub access, so a member could otherwise pre-arm
+        # enabled=True for a private repo and have reviews start the moment a teammate installs. The
+        # review policy resets for the same reason: label mode pointed at a label nobody uses would
+        # go live, reviewing nothing, the moment a manager turns the row on.
+        manual = StamphogRepoConfig.objects.unscoped().create(
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            installation_id="",
+            enabled=True,
+            digest_enabled=True,
+            review_mode=ReviewMode.LABEL,
+            trigger_label="nobody-uses-this",
+        )
+        response = self.client.post(
+            self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [row["repository"] for row in response.json()["synced"]] == ["PostHog/posthog"]
+        assert response.json()["skipped"] == []
+        manual.refresh_from_db()
+        assert manual.installation_id == "42"
+        assert manual.connected_by_user_id == self.user.id
+        assert manual.enabled is False
+        assert manual.digest_enabled is False
+        assert manual.review_mode == ReviewMode.ALL
+        assert manual.trigger_label == StamphogRepoConfig._meta.get_field("trigger_label").get_default()
+
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_sync_rebinds_repo_after_reinstall(self, mock_exchange, mock_verify, mock_list) -> None:
+        # An uninstall/reinstall cycle mints a new installation id; the old binding is dead (the app
+        # can only be installed once per repo). Re-syncing the verified new installation must rebind
+        # the team's existing row instead of skipping it and leaving the repo dead forever.
+        previous_connector_id = 4242
+        stale = StamphogRepoConfig.objects.unscoped().create(
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            installation_id="41",
+            enabled=True,
+            review_mode=ReviewMode.LABEL,
+            connected_by_user_id=previous_connector_id,
+        )
+        response = self.client.post(
+            self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [row["repository"] for row in response.json()["synced"]] == ["PostHog/posthog"]
+        stale.refresh_from_db()
+        assert stale.installation_id == "42"
+        assert stale.enabled is True  # settings survive the rebind
+        assert stale.review_mode == ReviewMode.LABEL  # including the review policy
+        assert stale.connected_by_user_id == self.user.id
+        # The restamp reads its before-value from the locked row, so the log names who held the
+        # connection before this sync took it over.
+        updates = ActivityLog.objects.filter(scope="StamphogRepoConfig", item_id=str(stale.id), activity="updated")
+        connector_changes = []
+        for log in updates:
+            assert log.detail is not None
+            connector_changes += [c for c in log.detail["changes"] if c["field"] == "connected_by_user_id"]
+        assert len(connector_changes) == 1
+        assert (connector_changes[0]["before"], connector_changes[0]["after"]) == (
+            previous_connector_id,
+            self.user.id,
+        )
+
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
+    @patch(f"{_VIEWS}.user_can_access_installation", return_value=False)
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_installation_not_owned_by_caller_is_rejected(self, mock_exchange, mock_verify, mock_list) -> None:
+        # Regression: without ownership verification, a caller who learns another org's installation_id
+        # could bind its repos under their own team and hijack its webhooks. A verified-but-unowned
+        # installation must be refused and bind nothing.
+        response = self.client.post(
+            self.url, {"installation_id": "999", "code": "oauth-code", "state": self.state}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_list.assert_not_called()
+        assert not StamphogRepoConfig.objects.unscoped().filter(installation_id="999").exists()
+
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
+    @patch(f"{_VIEWS}.user_can_access_installation")
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value=None)
+    def test_unexchangeable_code_fails_closed(self, mock_exchange, mock_verify, mock_list) -> None:
+        # A bad/expired code or unset OAuth creds yields no user token — fail closed with a 400 and bind
+        # nothing, never fall through to the ownership check or the repo listing.
+        response = self.client.post(
+            self.url, {"installation_id": "42", "code": "bad-code", "state": self.state}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        mock_verify.assert_not_called()
+        mock_list.assert_not_called()
+        assert not StamphogRepoConfig.objects.unscoped().filter(installation_id="42").exists()
+
+    @parameterized.expand(["team", "user"])
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token")
+    def test_state_for_another_team_or_user_is_rejected(self, mismatch, mock_exchange, mock_list) -> None:
+        # CSRF guard: the callback binds an installation to the team AND the member named in the signed
+        # state, not whoever's session posts it. A state minted for another team lets an attacker replay
+        # their own installation into a victim's project; a state minted for another member lets one
+        # project member complete another member's install under the second member's session. Both must
+        # be refused before any OAuth exchange.
+        if mismatch == "team":
+            other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+            foreign_state = _install_state(other_team.id, self.user.id)
+        else:
+            foreign_state = _install_state(self.team.id, self.user.pk + 1)
+        response = self.client.post(
+            self.url, {"installation_id": "42", "code": "oauth-code", "state": foreign_state}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_exchange.assert_not_called()
+        mock_list.assert_not_called()
+
+    def test_invalid_state_is_rejected(self) -> None:
+        # A tampered/garbage state token fails signature verification with a 400.
+        response = self.client.post(
+            self.url, {"installation_id": "42", "code": "oauth-code", "state": "not-a-real-token"}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_missing_code_is_rejected(self) -> None:
+        # code is the ownership proof — the endpoint must require it.
+        response = self.client.post(self.url, {"installation_id": "42", "state": self.state}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_VIEWS}.list_user_installations", return_value=[{"id": "42", "account_login": "PostHog"}])
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_discovery_without_installation_id_syncs_discovered_installation(
+        self, mock_exchange, mock_discover, mock_list
+    ) -> None:
+        # Authorize-first: the callback carries no installation_id. The backend discovers the caller's
+        # installations from the OAuth code (GitHub returns only installations of this App the user can
+        # reach) and syncs them, so the client never has to supply a forgeable id.
+        response = self.client.post(self.url, {"code": "oauth-code", "state": self.state}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_discover.assert_called_once_with("user-token")
+        body = response.json()
+        assert [row["repository"] for row in body["synced"]] == ["PostHog/posthog"]
+        assert body["app_not_installed"] is False
+        assert body["installations"] == []
+        bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
+        assert bound.count() == 1
+
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
+    @patch(
+        f"{_VIEWS}.list_user_installations",
+        return_value=[{"id": "100", "account_login": "AlphaOrg"}, {"id": "200", "account_login": "SharedOrg"}],
+    )
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_discovery_with_several_installations_binds_nothing_and_returns_choices(
+        self, mock_exchange, mock_discover, mock_list
+    ) -> None:
+        # Reachability is not intent: a user in several orgs that all carry the App must pick which
+        # installation this team binds. Binding them all would attach foreign orgs' repos here and, via
+        # the oldest-wins webhook resolution, could blackhole another team's future connect.
+        response = self.client.post(self.url, {"code": "oauth-code", "state": self.state}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["synced"] == []
+        assert body["skipped"] == []
+        assert body["app_not_installed"] is False
+        assert body["installations"] == [
+            {"id": "100", "account_login": "AlphaOrg"},
+            {"id": "200", "account_login": "SharedOrg"},
+        ]
+        mock_list.assert_not_called()
+        assert not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).exists()
+
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
+    @patch(f"{_VIEWS}.list_user_installations", return_value=[])
+    @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
+    def test_discovery_with_no_installations_reports_app_not_installed(
+        self, mock_exchange, mock_discover, mock_list
+    ) -> None:
+        # Discovery reached no installation the user can see: the App isn't installed anywhere for them.
+        # Not an error — return app_not_installed so the frontend routes them to the install page, binding
+        # nothing and never touching the repo-enumeration path.
+        response = self.client.post(self.url, {"code": "oauth-code", "state": self.state}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["app_not_installed"] is True
+        assert body["synced"] == []
+        assert body["skipped"] == []
+        mock_list.assert_not_called()
+        assert not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).exists()
+
+
+class TestDigestRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def test_a_run_reports_where_its_digest_went(self) -> None:
+        # The run is the only record of a digest's destination now that routing is derived per run
+        # rather than stored on a channel row. Losing these fields leaves "why did my digest go
+        # there" unanswerable from anywhere but a worker log.
+        for channel_id, audience in (("C1", "team-x"), ("C2", "team-y")):
+            DigestRun.objects.unscoped().create(
+                team_id=self.team.id,
+                audience_key=audience,
+                slack_channel_id=channel_id,
+                # Stored bare, the way _match records it. The "#" belongs to display only.
+                slack_channel_name=audience,
+                resolution_source=ChannelResolutionSource.OWNERS_CONTACT,
+                status=DigestRunStatus.COMPLETED,
+            )
+
+        url = f"/api/projects/{self.team.id}/stamphog/digest_runs/"
+        body = self.client.get(url).json()
+        assert {r["slack_channel_id"] for r in body["results"]} == {"C1", "C2"}
+        assert {r["audience_key"] for r in body["results"]} == {"team-x", "team-y"}
+        assert {r["resolution_source"] for r in body["results"]} == {"owners_contact"}
+
+        filtered = self.client.get(f"{url}?slack_channel_id=C1").json()
+        assert [r["audience_key"] for r in filtered["results"]] == ["team-x"]

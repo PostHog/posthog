@@ -1,0 +1,87 @@
+# Depot mirror of .github/actions/pnpm-install (same pattern as .depot/actions/setup-sqlx-cli).
+# Kept equivalent to canonical except for the `inputs.install` guards and the master-gated
+# "Save pnpm store" step below. actions/cache routes to Depot Cache, so shared keys do not
+# collide.
+name: Install pnpm dependencies
+description: |
+    Sets up pnpm + Node via `setup-pnpm`, restores the shared pnpm store cache,
+    installs, and saves the cache only on the default branch.
+
+    Single source of truth for the pnpm cache key. Every node workflow shares
+    one namespace (`pnpm-<os>-<lockfile-hash>`), so the store is cached once
+    instead of fragmenting across runner-arch casings or per-workflow keys.
+
+    Deliberately does NOT use setup-node's `cache: pnpm`: that auto-saves on
+    every run (PRs included, and the post-save can't be gated) and keys on
+    `os.arch()` (lowercase `x64`), which never matches a hand-written
+    `runner.arch` key (uppercase `X64`). We restore/save explicitly instead.
+
+inputs:
+    install-command:
+        description: 'Command used to install dependencies. Override for filtered installs.'
+        required: false
+        default: 'pnpm install --frozen-lockfile'
+    node-version-file:
+        description: 'File specifying the Node version.'
+        required: false
+        default: .nvmrc
+    working-directory:
+        description: 'Directory to run the install command in.'
+        required: false
+        default: '.'
+    token:
+        description: |
+            GitHub token for setup-node's version-manifest lookup and Node download.
+            Pass an app token at high-fanout call sites to keep those API calls off
+            the shared per-repo GITHUB_TOKEN core bucket.
+        required: false
+        default: ${{ github.token }}
+
+runs:
+    using: composite
+    steps:
+        - name: Set up pnpm and Node
+          uses: ./.depot/actions/setup-pnpm
+          with:
+              node-version-file: ${{ inputs.node-version-file }}
+              token: ${{ inputs.token }}
+
+        - name: Get pnpm store path
+          id: pnpm-store
+          if: inputs.install != 'false'
+          shell: bash
+          run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+        - name: Restore pnpm store
+          id: restore
+          if: inputs.install != 'false'
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ steps.pnpm-store.outputs.path }}
+              key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+              restore-keys: pnpm-${{ runner.os }}-
+
+        - name: Install dependencies
+          if: inputs.install != 'false'
+          shell: bash
+          working-directory: ${{ inputs.working-directory }}
+          # Pass the command through env and eval it rather than interpolating
+          # ${{ }} straight into run: — that trips semgrep's run-shell-injection
+          # rule. eval keeps shell parsing so quoted --filter globs survive.
+          # pnpm reads npm_config_* — keep cache-miss fetches resilient to blips.
+          env:
+              INSTALL_COMMAND: ${{ inputs.install-command }}
+              npm_config_fetch_retries: 3
+              npm_config_fetch_retry_mintimeout: 10000
+              npm_config_fetch_retry_maxtimeout: 60000
+          run: eval "$INSTALL_COMMAND"
+
+        # Save only on the default branch. Caches written on a PR/branch ref are
+        # scoped to that ref alone — no other branch can read them, they evict
+        # the shared master cache, and they only ever help that one PR's re-runs.
+        - name: Save pnpm store
+          if: inputs.install != 'false' && github.ref == 'refs/heads/master' && steps.restore.outputs.cache-hit != 'true'
+          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ steps.pnpm-store.outputs.path }}
+              key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}

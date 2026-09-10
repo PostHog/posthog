@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from products.slack_app.backend.api import RulesCommand, _parse_rules_command
+from products.slack_app.backend.api import RulesCommand, parse_rules_command
 
 
 class TestParseProjectCommand:
@@ -46,6 +46,21 @@ class TestParseProjectCommand:
                 "project   12   build feature",
                 RulesCommand(action="project_set", project_team_id=12),
             ),
+            (
+                "set_backticked_id",
+                "project `452770`",
+                RulesCommand(action="project_set", project_team_id=452770),
+            ),
+            (
+                "set_bold_id",
+                "project *452770*",
+                RulesCommand(action="project_set", project_team_id=452770),
+            ),
+            (
+                "set_italic_id_with_request",
+                "project _19_ fix auth",
+                RulesCommand(action="project_set", project_team_id=19),
+            ),
             ("show_plain", "project", RulesCommand(action="project_show")),
             ("show_uppercase", "PROJECT", RulesCommand(action="project_show")),
             ("show_trailing_whitespace", "project   ", RulesCommand(action="project_show")),
@@ -75,10 +90,20 @@ class TestParseProjectCommand:
                 "project   workspace   6",
                 RulesCommand(action="project_set_workspace", project_team_id=6),
             ),
+            (
+                "workspace_set_backticked_id",
+                "project workspace `452770`",
+                RulesCommand(action="project_set_workspace", project_team_id=452770),
+            ),
+            (
+                "workspace_set_bold_id",
+                "project workspace *8*",
+                RulesCommand(action="project_set_workspace", project_team_id=8),
+            ),
         ]
     )
     def test_recognized(self, _name: str, text: str, expected: RulesCommand) -> None:
-        assert _parse_rules_command(text) == expected
+        assert parse_rules_command(text) == expected
 
     @parameterized.expand(
         [
@@ -95,6 +120,6 @@ class TestParseProjectCommand:
     def test_not_a_project_command(self, _name: str, text: str) -> None:
         # The unified parser may still recognize other commands (e.g. "rules list");
         # we only assert no `project_*` match comes back.
-        result = _parse_rules_command(text)
+        result = parse_rules_command(text)
         if result is not None:
             assert result.action not in {"project_show", "project_set", "project_set_workspace"}

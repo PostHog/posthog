@@ -1,8 +1,9 @@
 import { Layout, LayoutItem } from 'react-grid-layout'
 
-import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { calculateDuplicateLayout, calculateInsertionLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 
-import { DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
 
 function textTileWithLayout(
     layouts: Record<DashboardLayoutSize, TileLayout>,
@@ -27,6 +28,59 @@ describe('calculating tile layouts', () => {
             // xs uses the same row height as sm when sm is present
             xs: [{ i: '1', x: 0, y: 0, w: 1, h: 1, minW: 1, minH: 1 }],
         })
+    })
+
+    it('sets a 1 by 2 minimum for image tiles', () => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            {
+                id: 1,
+                text: { body: '![image](https://example.com/image.png)' },
+                layouts: {},
+            } as unknown as DashboardTile<QueryBasedInsightModel>,
+        ]
+
+        const layouts = calculateLayouts(tiles)
+
+        expect(layouts.sm?.[0]).toMatchObject({ w: 2, h: 2, minW: 1, minH: 2 })
+        expect(layouts.xs?.[0]).toMatchObject({ w: 1, h: 2, minW: 1, minH: 2 })
+    })
+
+    it('raises a stored image tile height to its minimum', () => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            {
+                id: 1,
+                text: { body: '![image](https://example.com/image.png)' },
+                layouts: { sm: { i: '1', x: 0, y: 0, w: 1, h: 1 } },
+            } as unknown as DashboardTile<QueryBasedInsightModel>,
+        ]
+
+        expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({ w: 1, h: 2, minW: 1, minH: 2 })
+    })
+
+    it('defaults button tiles to two columns', () => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            { id: 1, button_tile: { id: '1' }, layouts: {} } as unknown as DashboardTile<QueryBasedInsightModel>,
+        ]
+
+        expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({ w: 2, h: 1 })
+    })
+
+    it('defaults SQL metric tiles without a stored layout to 3 by 3', () => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            {
+                id: 1,
+                insight: {
+                    query: {
+                        kind: NodeKind.DataVisualizationNode,
+                        source: { kind: NodeKind.HogQLQuery, query: 'SELECT count() FROM events' },
+                        display: ChartDisplayType.Metric,
+                    },
+                },
+                layouts: {},
+            } as unknown as DashboardTile<QueryBasedInsightModel>,
+        ]
+
+        expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({ w: 3, h: 3 })
     })
 
     it('when the tiles have only 2-col layouts, 1 col layout is calculated', () => {
@@ -237,5 +291,108 @@ describe('calculateDuplicateLayout', () => {
 
         expect(result.duplicateLayouts.sm).toEqual({ x: 6, y: 0, w: 6, h: 5 })
         expect((result.duplicateLayouts as any).xs).toBeUndefined()
+    })
+})
+
+describe('calculateInsertionLayout', () => {
+    const smLayout = (i: string, x: number, y: number, w: number, h: number): LayoutItem => ({ i, x, y, w, h })
+
+    it.each([
+        {
+            name: 'inserting into the left column leaves the right column untouched',
+            layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 6, 0, 6, 5)],
+            newTileId: 9,
+            targetX: 0,
+            targetY: 0,
+            w: 6,
+            h: 2,
+            expected: {
+                newTileLayout: { sm: { x: 0, y: 0, w: 6, h: 2 } },
+                tilesToUpdate: [{ id: 1, layouts: { sm: { x: 0, y: 2, w: 6, h: 5 } } }],
+            },
+        },
+        {
+            name: 'inserting into the right column pushes only the right column',
+            layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 6, 0, 6, 5)],
+            newTileId: 9,
+            targetX: 6,
+            targetY: 0,
+            w: 6,
+            h: 2,
+            expected: {
+                newTileLayout: { sm: { x: 6, y: 0, w: 6, h: 2 } },
+                tilesToUpdate: [{ id: 2, layouts: { sm: { x: 6, y: 2, w: 6, h: 5 } } }],
+            },
+        },
+        {
+            name: 'a full-width insert pushes both columns down',
+            layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 6, 0, 6, 5)],
+            newTileId: 9,
+            targetX: 0,
+            targetY: 0,
+            w: 12,
+            h: 2,
+            expected: {
+                newTileLayout: { sm: { x: 0, y: 0, w: 12, h: 2 } },
+                tilesToUpdate: [
+                    { id: 1, layouts: { sm: { x: 0, y: 2, w: 6, h: 5 } } },
+                    { id: 2, layouts: { sm: { x: 6, y: 2, w: 6, h: 5 } } },
+                ],
+            },
+        },
+        {
+            name: 'insert in the middle only pushes same-column tiles at or below the row',
+            layout: [smLayout('1', 0, 0, 6, 5), smLayout('2', 0, 5, 6, 5), smLayout('3', 0, 10, 6, 5)],
+            newTileId: 9,
+            targetX: 0,
+            targetY: 5,
+            w: 6,
+            h: 3,
+            expected: {
+                newTileLayout: { sm: { x: 0, y: 5, w: 6, h: 3 } },
+                tilesToUpdate: [
+                    { id: 2, layouts: { sm: { x: 0, y: 8, w: 6, h: 5 } } },
+                    { id: 3, layouts: { sm: { x: 0, y: 13, w: 6, h: 5 } } },
+                ],
+            },
+        },
+        {
+            name: 'insert at the bottom shifts nothing',
+            layout: [smLayout('1', 0, 0, 6, 5)],
+            newTileId: 9,
+            targetX: 0,
+            targetY: 5,
+            w: 2,
+            h: 2,
+            expected: {
+                newTileLayout: { sm: { x: 0, y: 5, w: 2, h: 2 } },
+                tilesToUpdate: [],
+            },
+        },
+        {
+            name: 'ignores the newly-added tile already present in the layout',
+            layout: [smLayout('1', 0, 0, 6, 5), smLayout('9', 0, 5, 6, 5)],
+            newTileId: 9,
+            targetX: 0,
+            targetY: 0,
+            w: 6,
+            h: 5,
+            expected: {
+                newTileLayout: { sm: { x: 0, y: 0, w: 6, h: 5 } },
+                tilesToUpdate: [{ id: 1, layouts: { sm: { x: 0, y: 5, w: 6, h: 5 } } }],
+            },
+        },
+    ])('$name', ({ layout, newTileId, targetX, targetY, w, h, expected }) => {
+        const result = calculateInsertionLayout(layout, newTileId, targetY, targetX, w, h)
+
+        expect(result.newTileLayout).toEqual(expected.newTileLayout)
+        expect(result.tilesToUpdate).toEqual(expected.tilesToUpdate)
+    })
+
+    it('handles an undefined layout (first tile on an empty dashboard)', () => {
+        const result = calculateInsertionLayout(undefined, 1, 0, 0, 6, 5)
+
+        expect(result.newTileLayout).toEqual({ sm: { x: 0, y: 0, w: 6, h: 5 } })
+        expect(result.tilesToUpdate).toEqual([])
     })
 })

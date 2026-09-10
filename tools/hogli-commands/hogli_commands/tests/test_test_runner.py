@@ -14,8 +14,10 @@ from hogli_commands.test_runner import (
     _batch_find_rs_cfg_test,
     _detect_all,
     _find_test_files_for_source,
+    _get_changed_files,
+    _hint_scoped_run,
     _is_test_file,
-    _parse_porcelain_path,
+    _quiet_pytest_in_cloud_sandbox,
     _resolve_to_repo_relative,
     _run_changed,
     _run_grouped,
@@ -85,6 +87,59 @@ class TestDetectTestType:
         config = detect_test_type(file_path)
         assert config.test_type == "jest"
         assert config.command == ["pnpm", "--filter=@posthog/frontend", "exec", "jest", file_path]
+
+    @parameterized.expand(
+        [
+            (
+                "products/desktop/packages/core/src/archive/archiveListView.test.ts",
+                "products/desktop/packages/core",
+                "src/archive/archiveListView.test.ts",
+            ),
+            (
+                "products/desktop/packages/ui/src/shell/logCapture.test.ts",
+                "products/desktop/packages/ui",
+                "src/shell/logCapture.test.ts",
+            ),
+        ]
+    )
+    def test_desktop_test_file_routes_to_package_vitest(self, file_path: str, pkg_dir: str, rel: str) -> None:
+        config = detect_test_type(file_path)
+        assert config.test_type == "vitest"
+        assert config.command == ["pnpm", "--dir", pkg_dir, "exec", "vitest", "run", rel]
+
+    def test_desktop_node_id_adds_test_name_filter(self) -> None:
+        config = detect_test_type("products/desktop/packages/core/src/archive/archiveListView.test.ts::renders rows")
+        assert config.test_type == "vitest"
+        assert config.command == [
+            "pnpm",
+            "--dir",
+            "products/desktop/packages/core",
+            "exec",
+            "vitest",
+            "run",
+            "src/archive/archiveListView.test.ts",
+            "-t",
+            "renders rows",
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "products/desktop/packages/core",
+                ["pnpm", "--dir", "products/desktop/packages/core", "exec", "vitest", "run"],
+            ),
+            (
+                "products/desktop/packages/core/src/archive",
+                ["pnpm", "--dir", "products/desktop/packages/core", "exec", "vitest", "run", "src/archive"],
+            ),
+            ("products/desktop", ["pnpm", "--dir", "products/desktop", "test"]),
+            ("products/desktop/packages", ["pnpm", "--dir", "products/desktop", "test"]),
+        ]
+    )
+    def test_desktop_directories_route_to_vitest_or_turbo(self, dir_path: str, expected_command: list[str]) -> None:
+        config = detect_test_type(dir_path)
+        assert config.test_type == "vitest"
+        assert config.command == expected_command
 
     def test_jest_node_id_adds_test_name_pattern(self) -> None:
         config = detect_test_type("frontend/src/lib/utils.test.ts::some test name")
@@ -335,20 +390,16 @@ class TestIsTestFile:
         assert not _is_test_file("rust/capture/src/api.rs", rs_cfg_test=set())
 
 
-class TestParsePorcelainPath:
-    @parameterized.expand(
-        [
-            (" M posthog/api/views.py", "posthog/api/views.py"),
-            ("?? posthog/new_file.py", "posthog/new_file.py"),
-            ("A  posthog/added.py", "posthog/added.py"),
-            ("R  old/test_foo.py -> new/test_foo.py", "new/test_foo.py"),
-            ("C  src/a.py -> src/b.py", "src/b.py"),
-            (' M "path with spaces/test_foo.py"', "path with spaces/test_foo.py"),
-            ('R  "old name.py" -> "new name.py"', "new name.py"),
+class TestGetChangedFiles:
+    @patch("hogli_commands.test_runner.changed_files")
+    @patch("hogli_commands.test_runner.subprocess.run")
+    def test_drops_paths_missing_from_disk(self, mock_run: MagicMock, mock_changed: MagicMock) -> None:
+        mock_run.return_value = MagicMock(stdout="feature-branch\n")
+        mock_changed.return_value = [
+            "tools/hogli-commands/hogli_commands/test_runner.py",
+            "renamed_away/test_gone.py",
         ]
-    )
-    def test_parse_porcelain_path(self, line: str, expected: str) -> None:
-        assert _parse_porcelain_path(line) == expected
+        assert _get_changed_files() == ["tools/hogli-commands/hogli_commands/test_runner.py"]
 
 
 class TestFindTestFilesForSource:
@@ -522,3 +573,54 @@ def _get_repo_root():
     from hogli.manifest import REPO_ROOT
 
     return REPO_ROOT
+
+
+class TestScopedRunHints:
+    @pytest.mark.parametrize(
+        "command, extra_args, env, expected",
+        [
+            (["pytest", "-s", "a.py"], [], {"POSTHOG_TASK_RUN_ID": "run-1"}, ["pytest", "-q", "a.py"]),
+            (["pytest", "-s", "a.py"], [], {}, ["pytest", "-s", "a.py"]),
+            (
+                ["pytest", "-s", "a.py"],
+                [],
+                {"POSTHOG_TASK_RUN_ID": "run-1", "HOGLI_TEST_VERBOSE": "1"},
+                ["pytest", "-s", "a.py"],
+            ),
+            (["pytest", "-s", "a.py"], ["-vv"], {"POSTHOG_TASK_RUN_ID": "run-1"}, ["pytest", "-s", "a.py"]),
+            (["pytest", "-s", "a.py"], ["--capture=no"], {"POSTHOG_TASK_RUN_ID": "run-1"}, ["pytest", "-s", "a.py"]),
+            (
+                ["pnpm", "exec", "jest", "a.test.ts"],
+                [],
+                {"POSTHOG_TASK_RUN_ID": "run-1"},
+                ["pnpm", "exec", "jest", "a.test.ts"],
+            ),
+        ],
+    )
+    def test_pytest_is_quiet_only_in_a_cloud_sandbox(self, monkeypatch, command, extra_args, env, expected):
+        monkeypatch.delenv("POSTHOG_TASK_RUN_ID", raising=False)
+        monkeypatch.delenv("HOGLI_TEST_VERBOSE", raising=False)
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+
+        assert _quiet_pytest_in_cloud_sandbox(command, extra_args) == expected
+
+    @pytest.mark.parametrize(
+        "file_count, in_sandbox, hinted",
+        [(3, True, False), (10, True, True), (10, False, False)],
+    )
+    def test_directory_runs_in_a_sandbox_suggest_a_scoped_run(
+        self, monkeypatch, capsys, file_count, in_sandbox, hinted
+    ):
+        monkeypatch.delenv("HOGLI_TEST_VERBOSE", raising=False)
+        if in_sandbox:
+            monkeypatch.setenv("POSTHOG_TASK_RUN_ID", "run-1")
+        else:
+            monkeypatch.delenv("POSTHOG_TASK_RUN_ID", raising=False)
+        monkeypatch.setattr(
+            "hogli_commands.test_runner._find_test_files", lambda _path: [f"t{i}.py" for i in range(file_count)]
+        )
+
+        _hint_scoped_run("posthog/api/test")
+
+        assert ("hogli test --changed" in capsys.readouterr().out) is hinted

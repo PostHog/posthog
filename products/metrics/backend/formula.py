@@ -37,6 +37,11 @@ def _tokenize(formula: str) -> list[_Token]:
     return tokens
 
 
+# Parsing (and later evaluation) recurse once per nesting level; cap it so
+# a pathological formula raises ValueError -> 400 instead of RecursionError.
+_MAX_NESTING_DEPTH = 32
+
+
 class _Parser:
     """expr := term (('+'|'-') term)* ; term := factor (('*'|'/') factor)* ;
     factor := NUMBER | IDENT | '(' expr ')' | '-' factor"""
@@ -45,6 +50,7 @@ class _Parser:
         self.tokens = tokens
         self.position = 0
         self.known_names = known_names
+        self.depth = 0
 
     def parse(self) -> _Node:
         node = self._expr()
@@ -77,24 +83,30 @@ class _Parser:
         return node
 
     def _factor(self) -> _Node:
-        token = self._take()
-        if token == ("op", "-"):
-            return ("neg", self._factor())
-        if token == ("op", "("):
-            node = self._expr()
-            closing = self._take()
-            if closing != ("op", ")"):
-                raise ValueError("Unbalanced parentheses in formula")
-            return node
-        if token[0] == "number":
-            return ("number", float(token[1]))
-        if token[0] == "ident":
-            if token[1] not in self.known_names:
-                raise ValueError(
-                    f"Unknown clause {token[1]!r} in formula; available clauses: {sorted(self.known_names)}"
-                )
-            return ("ident", token[1])
-        raise ValueError(f"Unexpected token in formula: {token[1]!r}")
+        if self.depth >= _MAX_NESTING_DEPTH:
+            raise ValueError(f"Formula nesting is too deep (maximum {_MAX_NESTING_DEPTH} levels)")
+        self.depth += 1
+        try:
+            token = self._take()
+            if token == ("op", "-"):
+                return ("neg", self._factor())
+            if token == ("op", "("):
+                node = self._expr()
+                closing = self._take()
+                if closing != ("op", ")"):
+                    raise ValueError("Unbalanced parentheses in formula")
+                return node
+            if token[0] == "number":
+                return ("number", float(token[1]))
+            if token[0] == "ident":
+                if token[1] not in self.known_names:
+                    raise ValueError(
+                        f"Unknown clause {token[1]!r} in formula; available clauses: {sorted(self.known_names)}"
+                    )
+                return ("ident", token[1])
+            raise ValueError(f"Unexpected token in formula: {token[1]!r}")
+        finally:
+            self.depth -= 1
 
 
 # AST nodes are plain tuples: ("number", float) | ("ident", str) |

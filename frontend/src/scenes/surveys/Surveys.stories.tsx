@@ -445,7 +445,14 @@ export const NewSurveyTargetingSection: Story = {
     parameters: {
         pageUrl: urls.survey('new?edit=true'),
         testOptions: {
-            waitForSelector: ['.LemonBanner .LemonIcon', '.TaxonomicPropertyFilter__row'],
+            // The right-hand survey preview is rendered asynchronously by posthog-js after a
+            // delayed mount, and re-renders as the story sets survey values. Wait for the
+            // question content inside the form (not just the form shell) so it isn't captured blank.
+            waitForSelector: [
+                '.LemonBanner .LemonIcon',
+                '.TaxonomicPropertyFilter__row',
+                '.survey-form .survey-question',
+            ],
         },
     },
 }
@@ -564,7 +571,7 @@ export const SurveyResults: Story = {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
                     const body = (await request.json()) as any
                     const sql: string = body?.query?.query ?? ''
-                    if (sql.includes('question_id, label, cnt')) {
+                    if (body?.query?.tags?.name === 'survey_results_aggregate') {
                         return MOCK_SURVEY_AGGREGATE_RESULTS
                     }
                     if (sql.includes('BASE STATS')) {

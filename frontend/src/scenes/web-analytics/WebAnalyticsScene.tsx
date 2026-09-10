@@ -14,6 +14,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
+
 export function WebAnalyticsScene(): JSX.Element {
     useMaxTool({
         identifier: 'web_analytics_doctor',
@@ -33,6 +35,16 @@ export function WebAnalyticsScene(): JSX.Element {
             'Assess the heatmap for my pricing page',
             'Why are people not clicking my main CTA?',
             'Where do users rage-click on my homepage?',
+        ],
+    })
+    useMaxTool({
+        identifier: 'summarize_website_interactions',
+        active: true,
+        context: {},
+        suggestions: [
+            'Summarize how users interact with my pricing page',
+            'What are visitors doing on my homepage, and why?',
+            'How do users experience my signup page?',
         ],
     })
     const { showFocusMode } = useValues(webAnalyticsLogic)
@@ -65,4 +77,5 @@ export const scene: SceneExport = {
     component: WebAnalyticsScene,
     logic: webAnalyticsLogic,
     productKey: ProductKey.WEB_ANALYTICS,
+    emptyState: webVitalsEmptyState,
 }

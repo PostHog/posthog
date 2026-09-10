@@ -41,6 +41,7 @@
                 [101045, 1],
                 [115480, 3]
             ],
+            "median_conversion_time": 691.5,
             "average_conversion_time": 1340.2
         }
     ],

@@ -1,8 +1,20 @@
+import re
+
+from django import forms
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from .models import SignalReport, SignalReportArtefact, SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from .models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalScoutConfig,
+    SignalScoutNote,
+    SignalScoutRun,
+    SignalScratchpad,
+    SignalTeamConfig,
+)
+from .scout_harness.note_targets import InvalidNoteError, validate_note_target
 
 
 class SignalReportArtefactInline(admin.TabularInline):
@@ -77,16 +89,33 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         "team_link",
         "skill_name",
         "enabled",
+        "status",
         "emit",
         "run_interval_minutes",
+        "run_cron_schedule",
         "last_run_at",
         "updated_at",
     )
     list_display_links = ("id",)
-    list_filter = ("enabled", "emit")
+    list_filter = ("enabled", "status", "emit")
     search_fields = ("id", "skill_name", "team__name", "team__organization__name")
     raw_id_fields = ("team", "created_by", "enabled_by")
-    readonly_fields = ("id", "created_at", "updated_at", "last_run_at")
+    # The status cluster is read-only here: admin's lifecycle control stays the `enabled`
+    # checkbox (the model's save() derives the status pair from it), and a hand-edited status
+    # or attribution stamp would bypass the transition rules the API and system writers
+    # enforce. Read-only also keeps `status_changed_by` off the default user `<select>`,
+    # which would load the whole user table.
+    readonly_fields = (
+        "id",
+        "created_at",
+        "updated_at",
+        "last_run_at",
+        "status",
+        "pause_reason",
+        "status_changed_at",
+        "status_changed_by",
+        "consecutive_failure_count",
+    )
     list_select_related = ("team", "team__organization")
     show_full_result_count = False
 
@@ -151,4 +180,101 @@ class SignalScratchpadAdmin(admin.ModelAdmin):
             '<a href="{}">{}</a>',
             reverse("admin:posthog_team_change", args=[scratchpad.team.pk]),
             scratchpad.team.name,
+        )
+
+
+class SignalScoutNoteAdminForm(forms.ModelForm):
+    class Meta:
+        model = SignalScoutNote
+        fields = "__all__"
+
+    def clean(self) -> dict:
+        # Share the API write path's target rule (`scout_harness/tools/notes.py`): the run-time
+        # list matches `skill_name` exactly, so a typo'd target saved here would steer no one.
+        cleaned = super().clean() or {}
+        skill_name = (cleaned.get("skill_name") or "").strip()
+        cleaned["skill_name"] = skill_name
+        team = cleaned.get("team")
+        if team is None:
+            # The scout-skill lookup needs a team. Django already reports the missing field.
+            return cleaned
+        try:
+            validate_note_target(team_id=team.pk, skill_name=skill_name)
+        except InvalidNoteError as exc:
+            raise forms.ValidationError({"skill_name": str(exc)})
+        return cleaned
+
+
+@admin.register(SignalScoutNote)
+class SignalScoutNoteAdmin(admin.ModelAdmin):
+    form = SignalScoutNoteAdminForm
+    list_display = ("id", "team_link", "skill_name", "created_by", "expires_at", "created_at")
+    list_display_links = ("id",)
+    search_fields = ("id", "team__name", "team__organization__name", "skill_name", "content")
+    raw_id_fields = ("team", "created_by")
+    ordering = ("-created_at",)
+    readonly_fields = ("id", "created_at")
+    list_select_related = ("team", "team__organization", "created_by")
+    show_full_result_count = False
+
+    @admin.display(description="Team")
+    def team_link(self, note: SignalScoutNote):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[note.team.pk]),
+            note.team.name,
+        )
+
+
+# Slack channel ids are uppercase alphanumerics starting with C/G/D (public/private/DM). The notifier
+# keys off the id (the part before "|"), so a display name or "#name" saved here silently drops every
+# team-default notification — reject those shapes before they reach the DB.
+_SLACK_CHANNEL_ID_RE = re.compile(r"^[CGD][A-Z0-9]{6,}$")
+
+
+class SignalTeamConfigAdminForm(forms.ModelForm):
+    class Meta:
+        model = SignalTeamConfig
+        fields = "__all__"
+
+    def clean_default_slack_notification_channel(self) -> str | None:
+        value = (self.cleaned_data.get("default_slack_notification_channel") or "").strip()
+        if not value:
+            return None
+        # Only the channel id is required; an optional "|#name" suffix is allowed for readability.
+        channel_id = value.split("|", 1)[0].strip()
+        if not _SLACK_CHANNEL_ID_RE.match(channel_id):
+            raise forms.ValidationError(
+                "Use 'CHANNELID|#name' form, or just the channel id. The id looks like 'C0123ABCD' "
+                "(copy it from the channel's details in Slack) — a '#name' won't work."
+            )
+        return value
+
+
+@admin.register(SignalTeamConfig)
+class SignalTeamConfigAdmin(admin.ModelAdmin):
+    form = SignalTeamConfigAdminForm
+    list_display = (
+        "id",
+        "team_link",
+        "autostart_enabled",
+        "default_autostart_priority",
+        "default_slack_notification_channel",
+        "updated_at",
+    )
+    list_display_links = ("id",)
+    search_fields = ("id", "team__name", "team__organization__name", "default_slack_notification_channel")
+    raw_id_fields = ("team",)
+    # autostart_base_branches is free-form JSON with no form-level shape check; a non-dict value would
+    # crash the autostart worker (it calls .get() on it). It's owned by the API, so keep it read-only here.
+    readonly_fields = ("id", "autostart_base_branches", "created_at", "updated_at")
+    list_select_related = ("team", "team__organization")
+    show_full_result_count = False
+
+    @admin.display(description="Team")
+    def team_link(self, config: SignalTeamConfig):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[config.team.pk]),
+            config.team.name,
         )

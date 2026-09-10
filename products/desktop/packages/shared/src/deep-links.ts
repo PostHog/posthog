@@ -1,0 +1,137 @@
+const DEEPLINK_PROTOCOL_PRODUCTION = "posthog-code";
+const DEEPLINK_PROTOCOL_DEVELOPMENT = "posthog-code-dev";
+const DEEPLINK_PROTOCOL_TEST = "posthog-code-test";
+
+// The renderer cannot see app.isPackaged, so the test channel rides in the
+// baked vite env. In plain node (harness, tests) import.meta.env is unset.
+function isTestChannelBuild(): boolean {
+  return (
+    (import.meta as unknown as { env?: Record<string, string | undefined> }).env
+      ?.VITE_POSTHOG_BUILD_CHANNEL === "test"
+  );
+}
+
+export function getDeeplinkProtocol(isDevBuild: boolean): string {
+  if (isDevBuild) return DEEPLINK_PROTOCOL_DEVELOPMENT;
+  // A test build registers its own scheme, so a release build installed on
+  // the same machine cannot receive its OAuth callbacks.
+  if (isTestChannelBuild()) return DEEPLINK_PROTOCOL_TEST;
+  return DEEPLINK_PROTOCOL_PRODUCTION;
+}
+
+export function isPostHogCodeDeeplink(
+  href: string | undefined,
+): href is string {
+  if (!href) return false;
+  try {
+    const protocol = new URL(href).protocol;
+    return (
+      protocol === `${DEEPLINK_PROTOCOL_PRODUCTION}:` ||
+      protocol === `${DEEPLINK_PROTOCOL_DEVELOPMENT}:` ||
+      protocol === `${DEEPLINK_PROTOCOL_TEST}:`
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function buildInboxDeeplink(
+  reportId: string,
+  title: string | null | undefined,
+  { isDevBuild }: { isDevBuild: boolean },
+): string {
+  const base = `${getDeeplinkProtocol(isDevBuild)}://inbox/${reportId}`;
+  const slug = title
+    ? title
+        .normalize("NFD")
+        .replace(/\p{M}/gu, "")
+        .replace(/[^a-zA-Z0-9_.~]+/g, (run) =>
+          run.includes(":") && /[^:]/.test(run) ? "--" : "-",
+        )
+        .replace(/^-+|-+$/g, "")
+    : "";
+  return slug ? `${base}/${slug}` : base;
+}
+
+/**
+ * Build a canonical deep link to a loop's detail page
+ * (`<scheme>://loop/<loopId>`). The inbound side lives in the `loop` handler
+ * (`LoopLinkService`), which routes to `/loops/<loopId>`.
+ */
+export function buildLoopDeeplink(
+  loopId: string,
+  { isDevBuild }: { isDevBuild: boolean },
+): string {
+  return `${getDeeplinkProtocol(isDevBuild)}://loop/${encodeURIComponent(loopId)}`;
+}
+
+/**
+ * Build a canonical deep link to a scout's detail page, optionally focused on a
+ * specific finding (`<scheme>://scout/<skillName>?finding=<id>`).
+ *
+ * The path carries the full scout skill name, so a scout named without the
+ * `signals-scout-` prefix routes to itself.
+ */
+export function buildScoutDeeplink(
+  skillName: string,
+  findingId: string | null | undefined,
+  { isDevBuild }: { isDevBuild: boolean },
+): string {
+  const base = `${getDeeplinkProtocol(isDevBuild)}://scout/${encodeURIComponent(skillName)}`;
+  return findingId ? `${base}?finding=${encodeURIComponent(findingId)}` : base;
+}
+
+export interface GitHubIssueRef {
+  owner: string;
+  repo: string;
+  number: number;
+}
+
+export function decodePlanBase64(encoded: string): string | null {
+  try {
+    const normalized = encoded
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .replace(/ /g, "+");
+    const padding = (4 - (normalized.length % 4)) % 4;
+    const padded = normalized + "=".repeat(padding);
+    if (!/^[A-Za-z0-9+/]*=*$/.test(padded)) return null;
+    return Buffer.from(padded, "base64").toString("utf-8");
+  } catch {
+    return null;
+  }
+}
+
+export function parseGitHubIssueUrl(url: string): GitHubIssueRef | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "github.com") return null;
+
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts.length !== 4 || parts[2] !== "issues") return null;
+
+    const issueNumber = Number.parseInt(parts[3], 10);
+    if (Number.isNaN(issueNumber) || issueNumber <= 0) return null;
+
+    return { owner: parts[0], repo: parts[1], number: issueNumber };
+  } catch {
+    return null;
+  }
+}
+
+export interface NewTaskSharedParams {
+  repo?: string;
+  mode?: string;
+  model?: string;
+}
+
+export type NewTaskLinkPayload =
+  | ({ action: "new"; prompt?: string } & NewTaskSharedParams)
+  | ({ action: "plan"; plan: string } & NewTaskSharedParams)
+  | ({
+      action: "issue";
+      url: string;
+      owner: string;
+      issueRepo: string;
+      issueNumber: number;
+    } & NewTaskSharedParams);

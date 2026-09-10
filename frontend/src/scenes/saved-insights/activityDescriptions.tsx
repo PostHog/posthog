@@ -4,12 +4,12 @@ import { Fragment } from 'react'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
@@ -23,10 +23,14 @@ import { areObjectValuesEmpty } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightQueryNode, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
-import { isInsightQueryNode, hasBreakdownFilter } from '~/queries/utils'
+import { HogQLQuery, InsightQueryNode, QuerySchema } from '~/queries/schema/schema-general'
+import {
+    isDataTableNodeWithHogQLQuery,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+} from '~/queries/utils'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
@@ -78,7 +82,10 @@ const insightActionsMapping: Record<
     filters: function onChangedFilter(change) {
         const filtersAfter = change?.after as Partial<FilterType>
 
-        return areObjectValuesEmpty(filtersAfter) ? null : summarizeChanges(filtersAfter)
+        // Only an insight written before queries logs this field, so these entries are years old and
+        // no new one can be written. Summarizing the definition would mean converting legacy filters,
+        // which no other read path still does, and the headline reads the same either way.
+        return areObjectValuesEmpty(filtersAfter) ? null : { description: ['changed query definition'] }
     },
     query: function onChangedQuery(change) {
         if (change?.action === 'deleted') {
@@ -87,9 +94,17 @@ const insightActionsMapping: Record<
         }
 
         const queryAfter = change?.after as QuerySchema
-        return isInsightQueryNode(queryAfter)
-            ? summarizeChanges(queryNodeToFilter(change?.after as InsightQueryNode))
-            : { description: ["cannot yet summarize changes to this insight's query: " + queryAfter?.kind] }
+        // saved insights store the actual query wrapped in an InsightVizNode (or in a
+        // DataVisualizationNode / DataTableNode for SQL insights), so summarize the source
+        const source =
+            isInsightVizNode(queryAfter) ||
+            isDataVisualizationNode(queryAfter) ||
+            isDataTableNodeWithHogQLQuery(queryAfter)
+                ? queryAfter.source
+                : queryAfter
+        return isInsightQueryNode(source) || isHogQLQuery(source)
+            ? summarizeQueryChanges(source)
+            : { description: ['changed the query'] }
     },
     deleted: function onSoftDelete(change, logItem, asNotification) {
         const isDeleted = detectBoolean(change?.after)
@@ -241,21 +256,20 @@ const insightActionsMapping: Record<
     viewers: () => null,
     view_count: () => null,
     is_cached: () => null,
+    filter_override_context: () => null,
+    columns: () => null,
+    types: () => null,
+    resolved_date_range: () => null,
 }
 
-function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
-    const query = filtersToQueryNode(filtersAfter, {
-        source: 'saved_insights_activity_descriptions',
-    })
-    const trendsQuery = query as TrendsQuery
-
+function summarizeQueryChanges(query: InsightQueryNode | HogQLQuery): ChangeMapping {
     return {
         description: ['changed query definition'],
         extendedDescription: (
             <div className="ActivityDescription">
                 <SeriesSummary query={query} />
-                <PropertiesSummary properties={query.properties} />
-                {hasBreakdownFilter(trendsQuery?.breakdownFilter) && <InsightBreakdownSummary query={query} />}
+                <PropertiesSummary properties={isHogQLQuery(query) ? query.filters?.properties : query.properties} />
+                <InsightBreakdownSummary query={query} />
             </div>
         ),
     }
@@ -271,7 +285,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the insight:{' '}
+                    <ActivityLogUserName logItem={logItem} /> created the insight:{' '}
                     {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
                 </>
             ),
@@ -282,8 +296,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted{' '}
-                    {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}
+                    <ActivityLogUserName logItem={logItem} /> deleted {asNotification ? 'your' : 'the'} insight:{' '}
+                    {logItem.detail.name}
                 </>
             ),
         }
@@ -304,8 +318,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> shared{' '}
-                    {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}.
+                    <ActivityLogUserName logItem={logItem} /> shared {asNotification ? 'your' : 'the'} insight:{' '}
+                    {logItem.detail.name}.
                 </>
             ),
         }
@@ -315,8 +329,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted shared link for{' '}
-                    {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}.
+                    <ActivityLogUserName logItem={logItem} /> deleted shared link for {asNotification ? 'your' : 'the'}{' '}
+                    insight: {logItem.detail.name}.
                 </>
             ),
         }
@@ -366,7 +380,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        prefix={<ActivityLogUserName logItem={logItem} />}
                         suffix={changeSuffix}
                     />
                 ),
@@ -384,7 +398,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> exported{' '}
+                    <ActivityLogUserName logItem={logItem} /> exported{' '}
                     {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} as a {exportType}
                 </>
             ),

@@ -18,6 +18,10 @@ import type {
     CreateTextTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
+    DashboardSavedViewApi,
+    DashboardSavedViewWriteApi,
+    DashboardSavedViewsListParams,
+    DashboardSubscribeNudgeResponseApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
@@ -38,8 +42,10 @@ import type {
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunWidgetsRetrieveParams,
     DashboardsStreamTilesRetrieveParams,
+    DashboardsSubscribeNudgeCreateParams,
     DashboardsUpdateParams,
     DashboardsUpdateTextTileCreateParams,
+    DashboardsUpdateWidgetsBatchParams,
     DashboardsWidgetCatalogRetrieveParams,
     DashboardsWidgetsBatchCreateParams,
     DataColorThemeApi,
@@ -47,15 +53,19 @@ import type {
     DeleteTileRequestApi,
     MoveTileRequestApi,
     PaginatedDashboardBasicListApi,
+    PaginatedDashboardSavedViewListApi,
     PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
+    PatchedDashboardSavedViewApi,
     PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
     PatchedPatchedDashboardOpenApiApi,
+    PatchedUpdateDashboardWidgetsBatchRequestOpenApiApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     RunWidgetsResponseApi,
+    UpdateDashboardWidgetsBatchResponseApi,
     UpdateTextTileRequestApi,
     WidgetCatalogResponseApi,
 } from './api.schemas'
@@ -76,6 +86,101 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getDashboardSavedViewsListUrl = (projectId: string, params?: DashboardSavedViewsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboard_saved_views/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboard_saved_views/`
+}
+
+export const dashboardSavedViewsList = async (
+    projectId: string,
+    params?: DashboardSavedViewsListParams,
+    options?: RequestInit
+): Promise<PaginatedDashboardSavedViewListApi> => {
+    return apiMutator<PaginatedDashboardSavedViewListApi>(getDashboardSavedViewsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDashboardSavedViewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_saved_views/`
+}
+
+export const dashboardSavedViewsCreate = async (
+    projectId: string,
+    dashboardSavedViewWriteApi: DashboardSavedViewWriteApi,
+    options?: RequestInit
+): Promise<DashboardSavedViewApi> => {
+    return apiMutator<DashboardSavedViewApi>(getDashboardSavedViewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardSavedViewWriteApi),
+    })
+}
+
+export const getDashboardSavedViewsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_saved_views/${id}/`
+}
+
+export const dashboardSavedViewsUpdate = async (
+    projectId: string,
+    id: string,
+    dashboardSavedViewApi: NonReadonly<DashboardSavedViewApi>,
+    options?: RequestInit
+): Promise<DashboardSavedViewApi> => {
+    return apiMutator<DashboardSavedViewApi>(getDashboardSavedViewsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardSavedViewApi),
+    })
+}
+
+export const getDashboardSavedViewsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_saved_views/${id}/`
+}
+
+export const dashboardSavedViewsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDashboardSavedViewApi?: NonReadonly<PatchedDashboardSavedViewApi>,
+    options?: RequestInit
+): Promise<DashboardSavedViewApi> => {
+    return apiMutator<DashboardSavedViewApi>(getDashboardSavedViewsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDashboardSavedViewApi),
+    })
+}
+
+export const getDashboardSavedViewsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_saved_views/${id}/`
+}
+
+export const dashboardSavedViewsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDashboardSavedViewsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
 
 export const getDashboardTemplatesListUrl = (projectId: string, params?: DashboardTemplatesListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -777,6 +882,41 @@ export const dashboardsStreamTilesRetrieve = async (
     })
 }
 
+export const getDashboardsSubscribeNudgeCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsSubscribeNudgeCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/subscribe_nudge/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/subscribe_nudge/`
+}
+
+/**
+ * Send the requesting user an in-app notification suggesting they subscribe to this dashboard. Deduplicated server-side: at most one notification per user and dashboard, ever, so repeat calls return 200 with created=false.
+ */
+export const dashboardsSubscribeNudgeCreate = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsSubscribeNudgeCreateParams,
+    options?: RequestInit
+): Promise<DashboardSubscribeNudgeResponseApi> => {
+    return apiMutator<DashboardSubscribeNudgeResponseApi>(getDashboardsSubscribeNudgeCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getDashboardsUpdateTextTileCreateUrl = (
     projectId: string,
     id: number,
@@ -851,6 +991,53 @@ export const dashboardsWidgetsBatchCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(addDashboardWidgetsBatchRequestOpenApiApi),
     })
+}
+
+export const getDashboardsUpdateWidgetsBatchUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsUpdateWidgetsBatchParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/widgets/batch_update/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/widgets/batch_update/`
+}
+
+/**
+ * Update the settings of existing widgets in place, atomically — config, name, and description.
+ *
+ * Each entry targets a widget by its tile_id and reuses the same write path as the dashboard PATCH endpoint.
+ * The widget_type is immutable. This edits widget settings only (config, name, description); tile placement
+ * (layouts, show_description) is a dashboard concern — use the dashboard PATCH endpoint or reorder_tiles for
+ * that. All updates succeed or fail together. To add new widgets, use the widgets/batch POST endpoint; to
+ * remove one, use delete_tile.
+ */
+export const dashboardsUpdateWidgetsBatch = async (
+    projectId: string,
+    id: number,
+    patchedUpdateDashboardWidgetsBatchRequestOpenApiApi?: PatchedUpdateDashboardWidgetsBatchRequestOpenApiApi,
+    params?: DashboardsUpdateWidgetsBatchParams,
+    options?: RequestInit
+): Promise<UpdateDashboardWidgetsBatchResponseApi> => {
+    return apiMutator<UpdateDashboardWidgetsBatchResponseApi>(
+        getDashboardsUpdateWidgetsBatchUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedUpdateDashboardWidgetsBatchRequestOpenApiApi),
+        }
+    )
 }
 
 export const getDashboardsBulkUpdateTagsCreateUrl = (

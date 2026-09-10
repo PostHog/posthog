@@ -93,28 +93,33 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
         assert column is not None, f"expected materialized column for {table}.{prop} ({table_column})"
         return column.name
 
-    def _assert_unqualified_and_mutation_safe(self, sql: str, mat_column_name: str) -> None:
+    def _assert_unqualified_and_mutation_safe(self, sql: str, expected_column_sql: str) -> None:
         sql_lower = sql.lower()
+        expected_column_sql_lower = expected_column_sql.lower()
 
         # Unqualified — the lightweight-delete mutation analyzer rejects table-qualified column references.
-        assert f"events.{mat_column_name.lower()}" not in sql_lower, f"mat column must be unqualified, got: {sql}"
+        assert f"events.{expected_column_sql_lower}" not in sql_lower, (
+            f"predicate column must be unqualified, got: {sql}"
+        )
         assert "events." not in sql_lower, f"fragment must carry no table prefix at all, got: {sql}"
         assert "sharded_events." not in sql_lower, f"fragment must carry no table prefix at all, got: {sql}"
-        # The bare (unqualified) materialized column must be present — confirms it was actually used.
-        assert mat_column_name.lower() in sql_lower, f"expected the materialized column {mat_column_name} in: {sql}"
+        # The unqualified physical property read must be present — confirms the mutation uses the active schema shape.
+        assert expected_column_sql_lower in sql_lower, f"expected the property column {expected_column_sql} in: {sql}"
 
         # Mutation-safe: every function name used is on the scalar allow-list (no aggregates / unsafe forms).
         called = {name.lower() for name in re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", sql)}
         unexpected = called - _MUTATION_SAFE_FUNCTIONS
         assert not unexpected, f"fragment uses non-mutation-safe functions {unexpected} in: {sql}"
 
+    def _expected_browser_property_sql(self) -> str:
+        return self._materialized_column_name("events", "$browser")
+
     def test_compiled_predicate_is_unqualified_and_mutation_safe_with_materialized_column(self) -> None:
         self.addCleanup(cleanup_materialized_columns)
         with materialized("events", "$browser", is_nullable=False):
-            mat_name = self._materialized_column_name("events", "$browser")
             sql, params = compile_hogql_predicate(_PredicateObj(self.team.pk, "properties.$browser = 'Chrome'"))
 
-            self._assert_unqualified_and_mutation_safe(sql, mat_name)
+            self._assert_unqualified_and_mutation_safe(sql, self._expected_browser_property_sql())
             # The compared value is parameterized (not inlined), and resolves to the literal we passed.
             assert params == {"hogql_val_0": "Chrome"}, params
 
@@ -124,14 +129,18 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
         # lightweight-delete mutation analyzer accepts the bare column.
         self.addCleanup(cleanup_materialized_columns)
         with materialized("events", "$browser", is_nullable=False):
-            mat_name = self._materialized_column_name("events", "$browser")
             context = HogQLContext(
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
                 enable_select_queries=True,
             )
-            sql = translate_hogql("properties.$browser = 'Chrome'", context, dialect="clickhouse")
-            self._assert_unqualified_and_mutation_safe(sql, mat_name)
+            sql = translate_hogql(
+                "properties.$browser = 'Chrome'",
+                context,
+                dialect="clickhouse",
+                events_table_use_new_schema=False,
+            )
+            self._assert_unqualified_and_mutation_safe(sql, self._expected_browser_property_sql())
 
     def test_compiled_predicate_is_unqualified_and_mutation_safe_without_materialized_column(self) -> None:
         # Without materialization the fragment is the JSON-blob form; it must STILL be unqualified and mutation-safe
@@ -147,9 +156,10 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
         assert not unexpected, f"blob fragment uses non-mutation-safe functions {unexpected} in: {sql}"
 
     def _count_browser_rows(self, team_id: int, browser: str) -> int:
-        # Read through the Distributed ``events`` proxy; in the single-shard test cluster it reflects ``sharded_events``.
+        table = "events"
+        browser_predicate = "JSONExtractString(properties, '$browser') = %(b)s"
         result = sync_execute(
-            "SELECT count() FROM events WHERE team_id = %(team_id)s AND JSONExtractString(properties, '$browser') = %(b)s",
+            f"SELECT count() FROM {table} WHERE team_id = %(team_id)s AND {browser_predicate}",
             {"team_id": team_id, "b": browser},
         )
         return result[0][0]
@@ -158,7 +168,7 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
         # Mirror production ``LightweightDeleteMutationRunner.get_statement``: a lightweight ``DELETE FROM`` against the
         # local sharded table, scoped by team_id (the compiled fragment carries no team guard of its own) AND the
         # compiled predicate. Synchronous settings so the mutation completes before we assert.
-        table = EVENTS_DATA_TABLE()  # "sharded_events"
+        table = EVENTS_DATA_TABLE()
         delete_sql = (
             f"DELETE FROM {CLICKHOUSE_DATABASE}.{table} "  # nosemgrep: clickhouse-fstring-param-audit
             f"WHERE team_id = %(_del_team_id)s AND ({predicate_fragment})"
@@ -196,8 +206,8 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
             with materialized("events", "$browser", is_nullable=False):
                 seed()
                 sql, params = compile_hogql_predicate(_PredicateObj(self.team.pk, "properties.$browser = 'Chrome'"))
-                # The materialized fragment must be unqualified or the mutation analyzer rejects it.
-                self._assert_unqualified_and_mutation_safe(sql, self._materialized_column_name("events", "$browser"))
+                # The physical property read must be unqualified or the mutation analyzer rejects it.
+                self._assert_unqualified_and_mutation_safe(sql, self._expected_browser_property_sql())
                 self._run_and_assert_delete(sql, params, other_team)
         else:
             seed()

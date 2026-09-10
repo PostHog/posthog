@@ -5,8 +5,14 @@ import { ConversationDisplay as ConversationDisplayComponent, ConversationDispla
 const meta: Meta<ConversationDisplayProps> = {
     title: 'Scenes-App/AI observability/Conversation Display',
     component: ConversationDisplayComponent,
-    render: ({ eventProperties, eventId }) => {
-        return <ConversationDisplayComponent eventProperties={eventProperties} eventId={eventId || 'story-event-1'} />
+    render: ({ eventProperties, eventId, eventName }) => {
+        return (
+            <ConversationDisplayComponent
+                eventProperties={eventProperties}
+                eventId={eventId || 'story-event-1'}
+                eventName={eventName || '$ai_generation'}
+            />
+        )
     },
 }
 export default meta
@@ -160,6 +166,75 @@ export const Error: Story = {
             ],
             $ai_model: 'gpt-9',
             $ai_http_status: 400,
+        },
+    },
+}
+
+export const EmptyOutputWithBilledTokens: Story = {
+    args: {
+        eventProperties: {
+            $ai_input: [
+                { role: 'system', content: 'You are a good bot.' },
+                { role: 'user', content: 'Write me a long essay about bots.' },
+            ],
+            $ai_output_choices: [],
+            $ai_input_tokens: 120,
+            $ai_output_tokens: 512,
+            $ai_latency: 8.4,
+            $ai_model: 'gpt-9',
+            $ai_http_status: 200,
+        },
+    },
+}
+
+export const EmptyOutputWithReasoningTokens: Story = {
+    args: {
+        eventProperties: {
+            $ai_input: [
+                { role: 'system', content: 'You are a good bot.' },
+                { role: 'user', content: 'Write me a long essay about bots.' },
+            ],
+            $ai_output_choices: [],
+            $ai_input_tokens: 120,
+            $ai_reasoning_tokens: 442,
+            $ai_latency: 8.4,
+            $ai_model: 'gpt-9',
+            $ai_http_status: 200,
+        },
+    },
+}
+
+export const EmptyOutputHitTokenLimit: Story = {
+    args: {
+        eventProperties: {
+            $ai_input: [
+                { role: 'system', content: 'You are a good bot.' },
+                { role: 'user', content: 'Write me a long essay about bots.' },
+            ],
+            $ai_output_choices: [],
+            $ai_input_tokens: 120,
+            $ai_output_tokens: 2048,
+            $ai_stop_reason: 'MAX_TOKENS',
+            $ai_latency: 8.4,
+            $ai_model: 'gpt-9',
+            $ai_http_status: 200,
+        },
+    },
+}
+
+export const EmptyOutputBlockedByProvider: Story = {
+    args: {
+        eventProperties: {
+            $ai_input: [
+                { role: 'system', content: 'You are a good bot.' },
+                { role: 'user', content: 'Write me a long essay about bots.' },
+            ],
+            $ai_output_choices: [],
+            $ai_input_tokens: 120,
+            $ai_stop_reason: 'PROHIBITED_CONTENT',
+            $ai_latency: 0.4,
+            $ai_model: 'gpt-9',
+            $ai_http_status: 200,
         },
     },
 }

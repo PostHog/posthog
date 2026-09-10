@@ -33,8 +33,14 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
+    dashboard_item: zod
+        .number()
+        .nullish()
+        .describe('Optional insight ID to attach this annotation to. Must belong to the current project.'),
+    dashboard_id: zod
+        .number()
+        .nullish()
+        .describe('Optional dashboard ID to attach this annotation to. Must belong to the current project.'),
     deleted: zod
         .boolean()
         .optional()
@@ -53,6 +59,12 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
         .max(annotationsCreateBodyEmojiMax)
         .nullish()
         .describe('Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.'),
+    hidden_in_user_interface: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.'
+        ),
 })
 
 /**
@@ -79,8 +91,14 @@ export const AnnotationsUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
+    dashboard_item: zod
+        .number()
+        .nullish()
+        .describe('Optional insight ID to attach this annotation to. Must belong to the current project.'),
+    dashboard_id: zod
+        .number()
+        .nullish()
+        .describe('Optional dashboard ID to attach this annotation to. Must belong to the current project.'),
     deleted: zod
         .boolean()
         .optional()
@@ -99,6 +117,12 @@ export const AnnotationsUpdateBody = /* @__PURE__ */ zod.object({
         .max(annotationsUpdateBodyEmojiMax)
         .nullish()
         .describe('Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.'),
+    hidden_in_user_interface: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.'
+        ),
 })
 
 /**
@@ -125,8 +149,14 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
+    dashboard_item: zod
+        .number()
+        .nullish()
+        .describe('Optional insight ID to attach this annotation to. Must belong to the current project.'),
+    dashboard_id: zod
+        .number()
+        .nullish()
+        .describe('Optional dashboard ID to attach this annotation to. Must belong to the current project.'),
     deleted: zod
         .boolean()
         .optional()
@@ -145,4 +175,10 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(annotationsPartialUpdateBodyEmojiMax)
         .nullish()
         .describe('Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.'),
+    hidden_in_user_interface: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.'
+        ),
 })

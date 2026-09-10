@@ -56,6 +56,13 @@ describe('feature flag release conditions cohort operator', () => {
                 '/api/projects/:team/event_definitions': mockGetEventDefinitions,
                 '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
                 '/api/projects/:team/cohorts/': { results: [cohortPowerUsers], next: null, count: 1 },
+                // featureFlagLogic mounts alongside and loads the flag; the unhandled-request
+                // floor has no `filters`, which crashes payload conversion
+                '/api/projects/:team/feature_flags/1234/': {
+                    id: 1234,
+                    key: 'test-flag',
+                    filters: { groups: [], multivariate: null, payloads: {} },
+                },
                 '/api/projects/:team/actions': { results: [] },
             },
             post: {

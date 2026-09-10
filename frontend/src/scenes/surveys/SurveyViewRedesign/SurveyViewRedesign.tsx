@@ -38,6 +38,7 @@ import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { getSurveyStatus, isSurveyDraft, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveySQLHelper } from 'scenes/surveys/SurveySQLHelper'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
+import { transformSurveyResponseRows } from 'scenes/surveys/utils'
 import { canUseSurveyWizard } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
@@ -92,7 +93,8 @@ export function SurveyViewRedesign(): JSX.Element {
     const { location, searchParams, hashParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
-    const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
+    const isUnsavedSurvey = survey.id === NEW_SURVEY.id
+    const isInitialSurveyLoad = surveyLoading && isUnsavedSurvey
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
     const surveyIdForTransfer = survey?.id && survey.id !== 'new' ? survey.id : null
@@ -169,6 +171,10 @@ export function SurveyViewRedesign(): JSX.Element {
     }, [isRemovingSidePanel, openSidePanel, setPanelTab, setScenePanelOpen])
 
     useEffect(() => {
+        if (isUnsavedSurvey) {
+            return
+        }
+
         if (!isDraft) {
             const autoOpenedSurveyId = autoOpenedDraftPanelForSurveyIdRef.current
             if (autoOpenedSurveyId) {
@@ -205,6 +211,7 @@ export function SurveyViewRedesign(): JSX.Element {
         }
     }, [
         isDraft,
+        isUnsavedSurvey,
         isRemovingSidePanel,
         closeSidePanel,
         openSidePanel,
@@ -690,14 +697,17 @@ function SurveyResponsesContent(): JSX.Element {
                     aria-busy={isRefreshingResults}
                     className={
                         isRefreshingResults
-                            ? 'survey-table-results opacity-75 transition-opacity duration-200 ease-out'
-                            : 'survey-table-results opacity-100 transition-opacity duration-200 ease-out'
+                            ? 'survey-table-results space-y-4 opacity-75 transition-opacity duration-200 ease-out'
+                            : 'survey-table-results space-y-4 opacity-100 transition-opacity duration-200 ease-out'
                     }
                 >
+                    <SurveyStatsSummary />
                     <Query
                         query={dataTableQuery}
                         context={{
                             columns: surveyColumnRenderers,
+                            dataTableExportExcludedColumns: ['response', 'actions'],
+                            dataTableRowsTransformer: (rows) => transformSurveyResponseRows(rows, survey),
                             rowProps: (record: unknown) => {
                                 if (typeof record !== 'object' || !record || !('result' in record)) {
                                     return {}

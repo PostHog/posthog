@@ -9,6 +9,12 @@
  */
 import * as zod from 'zod'
 
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
+
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
+
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -20,6 +26,8 @@ export const subscriptionsCreateBodyCountMax = 2147483647
 export const subscriptionsCreateBodyTitleMax = 100
 
 export const subscriptionsCreateBodySummaryPromptGuideMax = 500
+
+export const subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -35,7 +43,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.'
             ),
         prompt: zod
             .string()
@@ -43,13 +51,56 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
+        ai_prompt_config: zod
+            .object({
+                window: zod
+                    .object({
+                        mode: zod
+                            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+                            .describe(
+                                '\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                            )
+                            .default(subscriptionsCreateBodyAiPromptConfigOneWindowOneModeDefault)
+                            .describe(
+                                "What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test\/manual sends don't move the anchor)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
+                            ),
+                        start_days_ago: zod
+                            .number()
+                            .min(1)
+                            .max(subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                            ),
+                        end_days_ago: zod
+                            .number()
+                            .min(subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin)
+                            .max(subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery)."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
         target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -73,7 +124,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             )
             .nullish()
             .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+                'Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
             ),
         bysetpos: zod
             .number()
@@ -87,7 +138,11 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .max(subscriptionsCreateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -112,6 +167,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Optional message included in the invitation email when adding new recipients.'),
+        send_test_now: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.'
+            ),
         summary_enabled: zod
             .boolean()
             .optional()
@@ -125,8 +186,26 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
+        delivery_config: zod
+            .object({
+                post_all_insights_in_main_message: zod
+                    .boolean()
+                    .default(subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
+                    .describe(
+                        'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                    ),
+            })
+            .describe('Typed view over the Subscription.delivery_config JSON blob.')
+            .optional()
+            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
     })
     .describe('Standard Subscription serializer.')
+
+export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
+export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
+
+export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
+export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
 export const subscriptionsUpdateBodyIntervalMax = 2147483647
 
@@ -139,6 +218,8 @@ export const subscriptionsUpdateBodyCountMax = 2147483647
 export const subscriptionsUpdateBodyTitleMax = 100
 
 export const subscriptionsUpdateBodySummaryPromptGuideMax = 500
+
+export const subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
 export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -154,7 +235,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.'
             ),
         prompt: zod
             .string()
@@ -162,13 +243,56 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
+        ai_prompt_config: zod
+            .object({
+                window: zod
+                    .object({
+                        mode: zod
+                            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+                            .describe(
+                                '\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                            )
+                            .default(subscriptionsUpdateBodyAiPromptConfigOneWindowOneModeDefault)
+                            .describe(
+                                "What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test\/manual sends don't move the anchor)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
+                            ),
+                        start_days_ago: zod
+                            .number()
+                            .min(1)
+                            .max(subscriptionsUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                            ),
+                        end_days_ago: zod
+                            .number()
+                            .min(subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin)
+                            .max(subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery)."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
         target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -192,7 +316,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             )
             .nullish()
             .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+                'Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
             ),
         bysetpos: zod
             .number()
@@ -206,7 +330,11 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .max(subscriptionsUpdateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -231,6 +359,12 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Optional message included in the invitation email when adding new recipients.'),
+        send_test_now: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.'
+            ),
         summary_enabled: zod
             .boolean()
             .optional()
@@ -244,8 +378,26 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
+        delivery_config: zod
+            .object({
+                post_all_insights_in_main_message: zod
+                    .boolean()
+                    .default(subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
+                    .describe(
+                        'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                    ),
+            })
+            .describe('Typed view over the Subscription.delivery_config JSON blob.')
+            .optional()
+            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
     })
     .describe('Standard Subscription serializer.')
+
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
+
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
@@ -258,6 +410,8 @@ export const subscriptionsPartialUpdateBodyCountMax = 2147483647
 export const subscriptionsPartialUpdateBodyTitleMax = 100
 
 export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
+
+export const subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
 export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -273,7 +427,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.'
             ),
         prompt: zod
             .string()
@@ -281,15 +435,58 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
-        target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
+        ai_prompt_config: zod
+            .object({
+                window: zod
+                    .object({
+                        mode: zod
+                            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+                            .describe(
+                                '\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                            )
+                            .default(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneModeDefault)
+                            .describe(
+                                "What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test\/manual sends don't move the anchor)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
+                            ),
+                        start_days_ago: zod
+                            .number()
+                            .min(1)
+                            .max(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                            ),
+                        end_days_ago: zod
+                            .number()
+                            .min(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin)
+                            .max(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery)."
+                    ),
+            })
             .optional()
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .describe(
+                "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
+        target_type: zod
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
+            .optional()
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
             .optional()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -315,7 +512,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .nullish()
             .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+                'Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
             ),
         bysetpos: zod
             .number()
@@ -332,7 +529,9 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
         start_date: zod.iso
             .datetime({ offset: true })
             .optional()
-            .describe('When to start delivering (ISO 8601 datetime).'),
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -357,6 +556,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Optional message included in the invitation email when adding new recipients.'),
+        send_test_now: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.'
+            ),
         summary_enabled: zod
             .boolean()
             .optional()
@@ -370,5 +575,17 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
+        delivery_config: zod
+            .object({
+                post_all_insights_in_main_message: zod
+                    .boolean()
+                    .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
+                    .describe(
+                        'Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.'
+                    ),
+            })
+            .describe('Typed view over the Subscription.delivery_config JSON blob.')
+            .optional()
+            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
     })
     .describe('Standard Subscription serializer.')

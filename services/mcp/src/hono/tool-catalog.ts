@@ -12,7 +12,13 @@ import {
 import type { Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
 interface PreBuiltTool {
-    base: ToolBase<ZodObjectAny>
+    /**
+     * Builds a fresh tool object. Generated tools construct their zod schema
+     * inside the factory, so nothing holds a schema between calls.
+     */
+    build: () => ToolBase<ZodObjectAny>
+    meta: ToolBase<ZodObjectAny>['_meta']
+    rawInputSchema: ToolBase<ZodObjectAny>['rawInputSchema']
     definition: ToolDefinition | undefined
 }
 
@@ -25,21 +31,62 @@ export type { PreBuiltTool }
 
 const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} }
 
+type JsonSchema = Record<string, unknown>
+
+/**
+ * Merge a top-level anyOf/oneOf of object variants into a single object schema,
+ * or return null if any variant is not a plain object schema.
+ *
+ * A root union keyword breaks clients that translate tool schemas into a
+ * restricted JSON Schema subset: GitHub Copilot Chat rejects the whole tool at
+ * registration with "object has unsupported top-level schema keyword 'anyOf'".
+ * The merge is advertisement-only and lossy (a variant's extra requirements are
+ * not enforced by the merged schema); call-time validation in the executor still
+ * runs against the original zod union, so invalid variant mixes are rejected.
+ */
+function flattenTopLevelUnion(variants: JsonSchema[]): JsonSchema | null {
+    if (variants.length === 0 || !variants.every((v) => v['type'] === 'object' && v['properties'])) {
+        return null
+    }
+    const properties: Record<string, JsonSchema> = {}
+    for (const variant of variants) {
+        for (const [name, prop] of Object.entries(variant['properties'] as Record<string, JsonSchema>)) {
+            const existing = properties[name]
+            if (!existing) {
+                properties[name] = prop
+            } else if (Array.isArray(existing['enum']) && Array.isArray(prop['enum'])) {
+                // Discriminator fields carry one enum value per variant; merge them
+                // so every variant stays expressible.
+                properties[name] = { ...existing, enum: [...new Set([...existing['enum'], ...prop['enum']])] }
+            }
+        }
+    }
+    // Only fields required by every variant stay required.
+    const required = variants
+        .map((v) => (Array.isArray(v['required']) ? (v['required'] as string[]) : []))
+        .reduce((acc, r) => acc.filter((field) => r.includes(field)))
+    return { type: 'object', properties, ...(required.length > 0 ? { required } : {}) }
+}
+
 /**
  * Convert a tool's zod schema to the MCP `inputSchema` wire shape. Single source
  * for every advertised schema (catalog entries and the `render-ui` umbrella entry)
  * so what `tools/list` advertises cannot drift from what the executor validates.
  */
 export function toMcpInputSchema(schema: ZodObjectAny): McpTool['inputSchema'] {
-    let jsonSchema = toJsonSchemaCompat(schema, { strictUnions: true }) as Record<string, unknown>
+    // Spread drops the non-enumerable `~standard` handle zod attaches to its
+    // output. Its `validate` closure points at the zod instance, so keeping it
+    // would pin every built schema for the life of the catalog.
+    let jsonSchema = { ...(toJsonSchemaCompat(schema, { strictUnions: true }) as Record<string, unknown>) }
     delete jsonSchema['$schema']
     delete jsonSchema['additionalProperties']
     // MCP requires inputSchema.type === 'object'. Top-level discriminated unions
     // (e.g. `oneOf` on a polymorphic request body) come back without a root `type`.
-    // Add it so the schema satisfies the MCP tool contract; the union constraint
-    // still applies via the nested anyOf/oneOf.
+    // Flatten object-variant unions (see flattenTopLevelUnion); for anything else,
+    // add the root `type` so the schema satisfies the MCP tool contract.
     if (!jsonSchema['type'] && (Array.isArray(jsonSchema['anyOf']) || Array.isArray(jsonSchema['oneOf']))) {
-        jsonSchema = { type: 'object', ...jsonSchema }
+        const variants = (jsonSchema['anyOf'] ?? jsonSchema['oneOf']) as JsonSchema[]
+        jsonSchema = flattenTopLevelUnion(variants) ?? { type: 'object', ...jsonSchema }
     }
     return jsonSchema as McpTool['inputSchema']
 }
@@ -66,17 +113,16 @@ export class ToolCatalog {
             import('@/tools/generated'),
         ])
 
-        const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = {
-            ...TOOL_MAP,
-            ...GENERATED_TOOL_MAP,
-        }
+        const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
 
         const defs = getToolDefinitions()
 
         for (const [name, factory] of Object.entries(allFactories)) {
             const base = factory()
             this._preBuilt.set(name, {
-                base,
+                build: factory,
+                meta: base._meta,
+                rawInputSchema: base.rawInputSchema,
                 definition: defs[name],
             })
         }
@@ -101,12 +147,12 @@ export class ToolCatalog {
 
             let jsonSchema: McpTool['inputSchema']
             try {
-                jsonSchema = toMcpInputSchema(preBuilt.base.schema)
+                jsonSchema = toMcpInputSchema(preBuilt.build().schema)
             } catch {
                 jsonSchema = EMPTY_OBJECT_JSON_SCHEMA
             }
 
-            let meta = preBuilt.base._meta as Record<string, unknown> | undefined
+            let meta = preBuilt.meta as Record<string, unknown> | undefined
             if (meta?.ui && typeof meta.ui === 'object' && 'resourceUri' in meta.ui && !meta[RESOURCE_URI_META_KEY]) {
                 meta = {
                     ...meta,
@@ -154,8 +200,6 @@ export class ToolCatalog {
             if (!preBuilt) {
                 continue
             }
-            const { base } = preBuilt
-
             const definition = preBuilt.definition
             if (!definition) {
                 continue
@@ -166,7 +210,14 @@ export class ToolCatalog {
             }
 
             tools.push({
-                ...base,
+                name,
+                // Built on access: listing tools must not build a schema per tool.
+                get schema() {
+                    return preBuilt.build().schema
+                },
+                handler: (context, params) => preBuilt.build().handler(context, params),
+                ...(preBuilt.rawInputSchema ? { rawInputSchema: preBuilt.rawInputSchema } : {}),
+                ...(preBuilt.meta ? { _meta: preBuilt.meta } : {}),
                 title: definition.title,
                 description: definition.description,
                 scopes: definition.required_scopes ?? [],

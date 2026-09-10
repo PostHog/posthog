@@ -21,6 +21,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-18',
         pageUrl: urls.insights(),
+        testOptions: { viewport: { width: 1300, height: 2000 } },
     },
     decorators: [
         mswDecorator({
@@ -47,6 +48,16 @@ export const EmptyState: Story = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/insights': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
+export const ErrorState: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/insights': () => [500, { detail: 'Internal server error' }],
             },
         }),
     ],

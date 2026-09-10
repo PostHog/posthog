@@ -21,7 +21,7 @@ def test_stop_command_registered() -> None:
     result = runner.invoke(cli, ["stop", "--help"])
 
     assert result.exit_code == 0
-    assert "Stop the detached dev stack gracefully" in result.output
+    assert "Stop the detached dev stack processes" in result.output
 
 
 def test_up_command_registered_as_start_alias() -> None:

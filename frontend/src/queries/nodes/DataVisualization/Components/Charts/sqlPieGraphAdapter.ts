@@ -2,11 +2,9 @@ import { type Series } from '@posthog/quill-charts'
 
 import { getSeriesColor } from 'lib/colors'
 
-import { ChartDisplayType } from '~/types'
-
-import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
+import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { LineGraphProps } from './LineGraph'
+import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
 
 export interface PieSlice {
     label: string
@@ -94,16 +92,21 @@ export const buildPieSeries = (slices: PieSlice[]): Series[] => {
     }))
 }
 
-export const formatPieSliceCount = (value: number, total: number, settings?: AxisSeriesSettings): string => {
-    const formatted = String(formatDataWithSettings(value, settings) ?? value)
+export const formatPieSliceCount = (
+    value: number,
+    total: number,
+    settings?: AxisSeriesSettings,
+    asPercent = false
+): string => {
+    const formatted = formatSqlSeriesValue(value, settings)
+    const shareOfTotal = total ? parseFloat(((value / total) * 100).toFixed(1)) : 0
+    if (asPercent) {
+        // Lead with the share, keep the absolute value as a secondary detail
+        return total ? `${shareOfTotal}% (${formatted})` : formatted
+    }
     // Percent-styled values are already a share, so a share-of-total suffix would be confusing
     if (!total || settings?.formatting?.style === 'percent') {
         return formatted
     }
-    const shareOfTotal = parseFloat(((value / total) * 100).toFixed(1))
     return `${formatted} (${shareOfTotal}%)`
-}
-
-export function canRenderSqlPieGraph(props: LineGraphProps): boolean {
-    return props.visualizationType === ChartDisplayType.ActionsPie
 }

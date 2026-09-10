@@ -2,9 +2,9 @@ import avro from 'avsc'
 
 import type { RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
 import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/logs/log-record-avro'
-import type { LogsSettings } from '~/types'
 
 import { compileRuleSet } from './compile-rules'
+import type { CompiledRuleSet } from './evaluate'
 import { LogsSamplingService } from './logs-sampling.service'
 
 const LOG_RECORD_AVRO = avro.Type.forSchema({
@@ -29,8 +29,6 @@ const LOG_RECORD_AVRO = avro.Type.forSchema({
     ],
 })
 
-const logsSettings: LogsSettings = { json_parse_logs: false, pii_scrub_logs: false }
-
 function baseLog(uuid: string, serviceName: string, bytesUncompressed: number | null = null): LogRecord {
     return {
         uuid,
@@ -52,6 +50,22 @@ function baseLog(uuid: string, serviceName: string, bytesUncompressed: number | 
 }
 
 describe('LogsSamplingService', () => {
+    // Decodes the buffer and runs the sampling stage over the records, mirroring what the pipeline
+    // does around it. Returns the drop accounting plus the survivors so assertions read as before.
+    async function sampleBuffer(
+        service: LogsSamplingService,
+        buffer: Buffer,
+        ruleSet: CompiledRuleSet,
+        teamId?: number,
+        headerBytesUncompressed = 0
+    ): Promise<
+        { kept: LogRecord[]; allDropped: boolean } & Awaited<ReturnType<LogsSamplingService['sampleRecords']>>['stats']
+    > {
+        const [, , records] = await decodeLogRecords(buffer)
+        const { kept, stats } = await service.sampleRecords(records, ruleSet, teamId, headerBytesUncompressed)
+        return { ...stats, kept, allDropped: kept.length === 0 }
+    }
+
     it('batches rate_limit lines and drops when tokensBefore is below pending count', async () => {
         const ruleSet = compileRuleSet([
             {
@@ -72,7 +86,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [2, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -80,7 +94,7 @@ describe('LogsSamplingService', () => {
         }
 
         const service = new LogsSamplingService(mockRedis, 60)
-        const result = await service.processBuffer(buffer, logsSettings, ruleSet, 99)
+        const result = await sampleBuffer(service, buffer, ruleSet, 99)
 
         expect(result.recordsDropped).toBe(1)
         expect(result.recordsDroppedByRuleId.get('rl-1')).toBe(1)
@@ -89,8 +103,7 @@ describe('LogsSamplingService', () => {
         expect(result.bytesDroppedByRuleId.get('rl-1')).toBe(100)
         expect(result.allDropped).toBe(false)
 
-        const [, , kept] = await decodeLogRecords(result.value)
-        expect(kept).toHaveLength(2)
+        expect(result.kept).toHaveLength(2)
     })
 
     it('attributes per-row bytes to the dropping rule and contributes 0 for null bytes_uncompressed', async () => {
@@ -115,7 +128,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [1, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -123,7 +136,7 @@ describe('LogsSamplingService', () => {
         }
 
         const service = new LogsSamplingService(mockRedis, 60)
-        const result = await service.processBuffer(buffer, logsSettings, ruleSet, 99)
+        const result = await sampleBuffer(service, buffer, ruleSet, 99)
 
         expect(result.recordsDropped).toBe(2)
         // Only the row with a populated bytes_uncompressed contributes to the byte sum;
@@ -154,7 +167,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -162,7 +175,7 @@ describe('LogsSamplingService', () => {
         }
 
         const service = new LogsSamplingService(mockRedis, 60)
-        const result = await service.processBuffer(buffer, logsSettings, ruleSet, 99)
+        const result = await sampleBuffer(service, buffer, ruleSet, 99)
 
         expect(result.recordsDropped).toBe(1)
         expect(result.recordsDroppedByRuleId.get('rl-kb')).toBe(1)
@@ -174,8 +187,7 @@ describe('LogsSamplingService', () => {
         expect(result.contentBytesTotal).toBe(9)
         expect(result.contentBytesDropped).toBe(7)
 
-        const [, , kept] = await decodeLogRecords(result.value)
-        expect(kept).toHaveLength(2)
+        expect(result.kept).toHaveLength(2)
     })
 
     it('KB-mode treats null bytes_uncompressed as zero-cost (in-flight producer rollout)', async () => {
@@ -200,7 +212,7 @@ describe('LogsSamplingService', () => {
         const mockRedis: RedisV2 = {
             useClient: jest.fn(() => Promise.resolve(null)),
             usePipeline: jest.fn((_opts, cb) => {
-                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                const pipeline = { checkRateLimitV3: jest.fn() } as unknown as RedisClientPipeline
                 cb(pipeline)
                 const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
                 return Promise.resolve(pipelineResult)
@@ -208,7 +220,7 @@ describe('LogsSamplingService', () => {
         }
 
         const service = new LogsSamplingService(mockRedis, 60)
-        const result = await service.processBuffer(buffer, logsSettings, ruleSet, 99)
+        const result = await sampleBuffer(service, buffer, ruleSet, 99)
 
         expect(result.recordsDropped).toBe(1)
         expect(result.bytesDropped).toBe(1000)
@@ -218,8 +230,53 @@ describe('LogsSamplingService', () => {
         expect(result.contentBytesTotal).toBe(3)
         expect(result.contentBytesDropped).toBe(1)
 
-        const [, , kept] = await decodeLogRecords(result.value)
-        expect(kept).toHaveLength(2)
+        expect(result.kept).toHaveLength(2)
+    })
+
+    it('KB-mode meters each row against its pro-rata share of the batch header, not per-row bytes_uncompressed', async () => {
+        const ruleSet = compileRuleSet([
+            {
+                id: 'rl-kb',
+                rule_type: 'rate_limit',
+                scope_service: 'api',
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { kb_per_second: 1, burst_kb: 2 },
+            },
+        ])
+        // Per-row bytes_uncompressed is inflated (900 each) because shared batch data is
+        // re-counted on every row; content bytes (body only here) are 2/4/6 → total 12.
+        // Header = 24 → pro-rata scale 2 → per-row cost 4/8/12. Budget = 12:
+        // 4 (admit), 4+8=12 (admit), 12+12=24 > 12 (drop row c). Metering on the raw
+        // bytes_uncompressed sum (900 each) would have dropped every row.
+        const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', [
+            { ...baseLog('a', 'api', 900), body: 'aa' },
+            { ...baseLog('b', 'api', 900), body: 'bbbb' },
+            { ...baseLog('c', 'api', 900), body: 'cccccc' },
+        ])
+
+        const checkRateLimitV3 = jest.fn()
+        const mockRedis: RedisV2 = {
+            useClient: jest.fn(() => Promise.resolve(null)),
+            usePipeline: jest.fn((_opts, cb) => {
+                cb({ checkRateLimitV3 } as unknown as RedisClientPipeline)
+                const pipelineResult: [Error | null, any][] = [[null, [12, 0] as const]]
+                return Promise.resolve(pipelineResult)
+            }),
+        }
+
+        const service = new LogsSamplingService(mockRedis, 60)
+        const result = await sampleBuffer(service, buffer, ruleSet, 99, 24)
+
+        // The batch is metered at the header pro-rata total (= header bytes), not Σ bytes_uncompressed.
+        // Args are [key, now, cost, bucketSize, refillRate, ttl]; cost is index 2.
+        expect(checkRateLimitV3.mock.calls[0]![2]).toBe(24)
+        expect(result.recordsDropped).toBe(1)
+        expect(result.recordsDroppedByRuleId.get('rl-kb')).toBe(1)
+        // The dropped-bytes metric still reports the row's real bytes_uncompressed.
+        expect(result.bytesDropped).toBe(900)
+
+        expect(result.kept).toHaveLength(2)
     })
 
     it('fail-open keeps all rate_limit lines when Redis pipeline returns null', async () => {
@@ -241,14 +298,13 @@ describe('LogsSamplingService', () => {
         }
 
         const service = new LogsSamplingService(mockRedis, 60)
-        const result = await service.processBuffer(buffer, logsSettings, ruleSet, 1)
+        const result = await sampleBuffer(service, buffer, ruleSet, 1)
 
         expect(result.recordsDropped).toBe(0)
         expect(result.recordsDroppedByRuleId.size).toBe(0)
         expect(result.bytesDropped).toBe(0)
         expect(result.bytesDroppedByRuleId.size).toBe(0)
 
-        const [, , kept] = await decodeLogRecords(result.value)
-        expect(kept).toHaveLength(2)
+        expect(result.kept).toHaveLength(2)
     })
 })

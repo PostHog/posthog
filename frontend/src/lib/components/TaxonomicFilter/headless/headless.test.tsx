@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -9,23 +9,22 @@ import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
+import { emptyPaginated } from '~/test/mocks/taxonomicFilterApiMock'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
+import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import { TaxonomicFilterGroupType } from '../types'
-import { TaxonomicFilterHeadless } from './index'
+import { TaxonomicFilterHeadless, useTaxonomicAutocompleteShortcutItems } from './index'
 
 jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
 }))
 
-jest.mock('lib/api', () => ({
-    __esModule: true,
-    default: {
-        get: jest.fn(),
-    },
-}))
+jest.mock('lib/api', () =>
+    require('~/test/mocks/taxonomicFilterApiMock').buildTaxonomicFilterApiMock({ get: jest.fn() })
+)
 
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
 
@@ -36,6 +35,7 @@ describe('TaxonomicFilterHeadless integration', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
         apiGet.mockReset()
+        apiGet.mockImplementation(emptyPaginated)
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({
             get: { '/api/projects/:team/event_definitions': { results: [], count: 0 } },
@@ -247,5 +247,33 @@ describe('TaxonomicFilterHeadless integration', () => {
         expect(screen.getByTestId('taxonomic-row-recent_filters-1').textContent).toMatch(/Chrome/)
 
         recents.unmount()
+    })
+
+    // A pin outlives the picker it was made in, so without this the shortcut row is another door
+    // to selecting a value the exclusion forbids.
+    it.each([
+        ['$exception', false],
+        ['checkout_started', true],
+    ])('offers the pinned shortcut %p: %p', (pinnedName, expected) => {
+        const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+        pinnedLogic.mount()
+        pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', pinnedName, { name: pinnedName })
+
+        const { result } = renderHook(() => useTaxonomicAutocompleteShortcutItems(), {
+            wrapper: ({ children }) => (
+                <Provider>
+                    <TaxonomicFilterHeadless.Root
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                        onChange={onChangeMock}
+                        excludedProperties={{ [TaxonomicFilterGroupType.Events]: ['$exception'] }}
+                    >
+                        {children}
+                    </TaxonomicFilterHeadless.Root>
+                </Provider>
+            ),
+        })
+
+        expect(result.current.pinned.some((e) => e.name === pinnedName)).toBe(expected)
+        pinnedLogic.unmount()
     })
 })

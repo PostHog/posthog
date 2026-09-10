@@ -14,7 +14,12 @@ import {
 } from '@posthog/lemon-ui'
 
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { ActivityLogItem, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    ActivityLogItem,
+    ActivityLogUserName,
+    actorEmailForLogItem,
+    userNameForLogItem,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { ActivityScope } from '~/types'
@@ -71,13 +76,13 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                 <ProfilePicture
                                     user={{
                                         first_name: name,
-                                        email: logItem.user?.email ?? undefined,
+                                        email: actorEmailForLogItem(logItem) ?? undefined,
                                     }}
                                     type={logItem.is_system ? 'system' : 'person'}
                                     size="md"
                                 />
                                 <span className="flex-1">
-                                    <b className="ph-no-capture">{name}</b> {actionLabel}
+                                    <ActivityLogUserName logItem={logItem} /> {actionLabel}
                                 </span>
                                 <span className="text-secondary">
                                     <TZLabel time={logItem.created_at} />
@@ -147,7 +152,7 @@ export function NotebookHistory(): JSX.Element {
 }
 
 export function NotebookHistoryWarning(): JSX.Element | null {
-    const { previewContent } = useValues(notebookLogic)
+    const { previewContent, content } = useValues(notebookLogic)
     const { setLocalContent, clearPreviewContent, duplicateNotebook, setShowHistory } = useActions(notebookLogic)
 
     if (!previewContent) {
@@ -158,12 +163,10 @@ export function NotebookHistoryWarning(): JSX.Element | null {
         duplicateNotebook()
     }
     const onRevert = (): void => {
-        // updateEditor=true puts the historical doc into the editor so prosemirror-collab
-        // produces real steps for the delta. Without it, sendableSteps stays empty and the
-        // collab save is a no-op — revert would silently do nothing.
-        const content = previewContent
+        // The historical doc becomes the local content and is saved through the normal
+        // markdown flow, same as any other edit.
         clearPreviewContent()
-        setLocalContent(content, true)
+        setLocalContent(content)
         setShowHistory(false)
     }
 

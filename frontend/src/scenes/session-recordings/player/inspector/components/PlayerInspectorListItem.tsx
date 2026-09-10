@@ -1,8 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FunctionComponent, isValidElement, memo, useEffect, useRef } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
-import useResizeObserver from 'use-resize-observer'
+import { FunctionComponent, isValidElement, memo, useRef } from 'react'
 
 import {
     BaseIcon,
@@ -14,10 +12,12 @@ import {
     IconDashboard,
     IconExpand,
     IconEye,
+    IconFlask,
     IconLeave,
     IconLive,
     IconLogomark,
     IconRedux,
+    IconTarget,
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -32,7 +32,15 @@ import {
     ItemAnyComment,
     ItemAnyCommentDetail,
 } from 'scenes/session-recordings/player/inspector/components/ItemAnyComment'
+import {
+    ItemExperimentVariant,
+    ItemExperimentVariantDetail,
+} from 'scenes/session-recordings/player/inspector/components/ItemExperimentVariant'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
+import {
+    ItemMetricEvent,
+    ItemMetricEventDetail,
+} from 'scenes/session-recordings/player/inspector/components/ItemMetricEvent'
 import { ItemSessionChange } from 'scenes/session-recordings/player/inspector/components/ItemSessionChange'
 import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
 
@@ -50,8 +58,6 @@ import {
 import { ItemAppState, ItemAppStateDetail, ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail, ItemEventMenu } from './ItemEvent'
-
-const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 interface IconAndDescription {
     Icon: FunctionComponent | undefined
@@ -106,6 +112,14 @@ const typeToIconAndDescription: Record<InspectorListItem['type'], IconAndDescrip
     logs: {
         Icon: IconLive,
         tooltip: 'Log entry',
+    },
+    'experiment-variant': {
+        Icon: IconFlask,
+        tooltip: 'The moment the feature flag behind an experiment was evaluated for this session',
+    },
+    'metric-event': {
+        Icon: IconTarget,
+        tooltip: "The first time this session fired one of an experiment metric's events",
     },
 }
 
@@ -205,6 +219,10 @@ function RowItemTitle({
                 <ItemInactivity item={item} />
             ) : item.type === 'session-change' ? (
                 <ItemSessionChange item={item} />
+            ) : item.type === 'experiment-variant' ? (
+                <ItemExperimentVariant item={item} />
+            ) : item.type === 'metric-event' ? (
+                <ItemMetricEvent item={item} />
             ) : null}
         </div>
     )
@@ -245,6 +263,10 @@ function RowItemDetail({
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemAnyCommentDetail item={item} />
+            ) : item.type === 'experiment-variant' ? (
+                <ItemExperimentVariantDetail item={item} />
+            ) : item.type === 'metric-event' ? (
+                <ItemMetricEventDetail item={item} />
             ) : null}
         </div>
     )
@@ -398,53 +420,22 @@ const ListItemDetail = memo(function ListItemDetail({
 export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
     item,
     index,
-    onLayout,
     groupCount,
     groupedItems,
 }: {
     item: InspectorListItem
     index: number
-    onLayout?: (layout: { width: number; height: number }) => void
     groupCount?: number
     groupedItems?: InspectorListItem[]
 }): JSX.Element {
     const hoverRef = useRef<HTMLDivElement>(null)
+    const ref = useRef<HTMLDivElement>(null)
 
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const { expandedItems } = useValues(playerInspectorLogic(logicProps))
 
     const isExpanded = expandedItems.includes(index)
-
-    const onLayoutDebounced = useDebouncedCallback(onLayout ?? (() => {}), 500)
-    const { ref, width, height } = useResizeObserver({})
-
-    const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
-
-    // Height changes should lay out immediately but width ones (browser resize can be much slower)
-    useEffect(
-        () => {
-            if (!onLayout || !width || !totalHeight) {
-                return
-            }
-            onLayoutDebounced({ width, height: totalHeight })
-        },
-        // purposefully only triggering on width
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [width]
-    )
-
-    useEffect(
-        () => {
-            if (!onLayout || !width || !totalHeight) {
-                return
-            }
-            onLayout({ width, height: totalHeight })
-        },
-        // purposefully only triggering on total height
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [totalHeight]
-    )
 
     const isHovering = useIsHovering(hoverRef)
 

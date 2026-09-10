@@ -4,7 +4,14 @@ import { gzip } from 'zlib'
 
 import { PipelineResultType } from '~/ingestion/framework/results'
 
-import { ParseMessageStepInput, createParseMessageStep } from './parse-message-step'
+import { SessionRecordingIngesterMetrics } from './metrics'
+import {
+    ParseMessageStepInput,
+    createParseMessageStep,
+    decompressMessageValue,
+    observeClockSkew,
+} from './parse-message-step'
+import { SessionReplayHeaders } from './pipeline-types'
 
 const compressWithGzip = promisify(gzip)
 
@@ -24,6 +31,8 @@ describe('createParseMessageStep', () => {
         snapshotSource?: string
         lib?: string
         distinctId?: string
+        sentAt?: string
+        now?: string
     }): string {
         const event = {
             event: '$snapshot_items',
@@ -40,6 +49,12 @@ describe('createParseMessageStep', () => {
         }
         if (options.distinctId !== undefined) {
             rawMessage.distinct_id = options.distinctId
+        }
+        if (options.sentAt !== undefined) {
+            rawMessage.sent_at = options.sentAt
+        }
+        if (options.now !== undefined) {
+            rawMessage.now = options.now
         }
         return JSON.stringify(rawMessage)
     }
@@ -82,15 +97,23 @@ describe('createParseMessageStep', () => {
         return { ...message, ...overrides }
     }
 
+    // The validate step guarantees these before parse; they must mirror the message body's
+    // session_id/distinct_id or parse DLQs the message as inconsistent.
+    function createReplayHeaders(overrides: Partial<SessionReplayHeaders> = {}): SessionReplayHeaders {
+        return { token: 'test-token', session_id: 'session-1', distinct_id: 'user-123', ...overrides }
+    }
+
     function createInput(
         partition: number,
         offset: number,
         payload?: string,
         headers?: Record<string, string>,
-        overrides?: Partial<Message>
+        overrides?: Partial<Message>,
+        replayHeaders: SessionReplayHeaders = createReplayHeaders()
     ): ParseMessageStepInput {
         return {
             message: createMessage(partition, offset, payload, headers, overrides),
+            headers: replayHeaders,
         }
     }
 
@@ -205,7 +228,7 @@ describe('createParseMessageStep', () => {
             size: gzippedPayload.length,
         }
 
-        const result = await step({ message })
+        const result = await step({ message, headers: createReplayHeaders({ session_id: 'session-gzip' }) })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
@@ -213,10 +236,10 @@ describe('createParseMessageStep', () => {
         }
     })
 
-    it('should extract token from headers', async () => {
+    it('should set token from the validated session replay headers', async () => {
         const step = createParseMessageStep()
         const payload = createValidSnapshotPayload('session-1')
-        const input = createInput(0, 1, payload, { token: 'my-team-token' })
+        const input = createInput(0, 1, payload, undefined, undefined, createReplayHeaders({ token: 'my-team-token' }))
 
         const result = await step(input)
 
@@ -226,16 +249,36 @@ describe('createParseMessageStep', () => {
         }
     })
 
-    it('should set token to null when not in headers', async () => {
+    it('DLQs when the header session_id does not match the message body', async () => {
         const step = createParseMessageStep()
         const payload = createValidSnapshotPayload('session-1')
-        const input = createInput(0, 1, payload)
+        const input = createInput(0, 1, payload, undefined, undefined, createReplayHeaders({ session_id: 'session-2' }))
 
         const result = await step(input)
 
-        expect(result.type).toBe(PipelineResultType.OK)
-        if (result.type === PipelineResultType.OK) {
-            expect(result.value.parsedMessage.token).toBeNull()
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
+            expect(result.reason).toBe('session_id_header_body_mismatch')
+        }
+    })
+
+    it('DLQs when the header distinct_id does not match the message body', async () => {
+        const step = createParseMessageStep()
+        const payload = createValidSnapshotPayload('session-1') // body distinct_id is user-123
+        const input = createInput(
+            0,
+            1,
+            payload,
+            undefined,
+            undefined,
+            createReplayHeaders({ distinct_id: 'someone-else' })
+        )
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
+            expect(result.reason).toBe('distinct_id_header_body_mismatch')
         }
     })
 
@@ -298,7 +341,7 @@ describe('createParseMessageStep', () => {
             size: 5,
         }
 
-        const result = await step({ message })
+        const result = await step({ message, headers: createReplayHeaders() })
 
         expect(result.type).toBe(PipelineResultType.DLQ)
         if (result.type === PipelineResultType.DLQ) {
@@ -547,7 +590,15 @@ describe('createParseMessageStep', () => {
             ],
             distinctId: 'user-123',
         })
-        const input = createInput(0, 1, payload)
+        // The header id is already normalized by the validate step; the body carries the raw id.
+        const input = createInput(
+            0,
+            1,
+            payload,
+            undefined,
+            undefined,
+            createReplayHeaders({ session_id: expectedSessionId })
+        )
 
         const result = await step(input)
 
@@ -555,5 +606,196 @@ describe('createParseMessageStep', () => {
         if (result.type === PipelineResultType.OK) {
             expect(result.value.parsedMessage.session_id).toBe(expectedSessionId)
         }
+    })
+
+    describe('clock skew', () => {
+        const HOUR_MS = 60 * 60 * 1000
+        const serverNow = '2023-01-01T00:00:00.000Z'
+        let observeSpy: jest.SpyInstance
+        let unmeasuredSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            observeSpy = jest.spyOn(SessionRecordingIngesterMetrics, 'observeMessageClockSkew').mockImplementation()
+            unmeasuredSpy = jest
+                .spyOn(SessionRecordingIngesterMetrics, 'incrementMessageClockSkewUnmeasured')
+                .mockImplementation()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            ['reads 1h ahead of the server', '2023-01-01T01:00:00.000Z', 'device_ahead', 3600],
+            ['reads 1h behind the server', '2022-12-31T23:00:00.000Z', 'device_behind', 3600],
+            ['agrees with the server', serverNow, 'device_ahead', 0],
+        ])('records the offset when the device clock %s', (_desc, sentAt, direction, seconds) => {
+            observeClockSkew(sentAt, serverNow)
+
+            expect(observeSpy).toHaveBeenCalledWith(direction, seconds)
+            expect(unmeasuredSpy).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['capture recorded no sent_at', undefined, serverNow],
+            ['sent_at is unparseable', 'not-a-date', serverNow],
+            ['capture recorded no now', '2023-01-01T01:00:00.000Z', undefined],
+        ])('counts the message as unmeasured when %s', (_desc, sentAt, now) => {
+            observeClockSkew(sentAt, now)
+
+            expect(observeSpy).not.toHaveBeenCalled()
+            expect(unmeasuredSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('reports no offset for a buffered upload from a correctly clocked device', async () => {
+            const step = createParseMessageStep()
+            const now = Date.now()
+            const uploadedAt = new Date(now).toISOString()
+            const payload = createSnapshotPayload({
+                sessionId: 'session-1',
+                // Buffering, not a wrong clock: the Kafka message time would read this as an hour of skew.
+                snapshotItems: [{ type: 2, timestamp: now - HOUR_MS }],
+                distinctId: 'user-123',
+                sentAt: uploadedAt,
+                now: uploadedAt,
+            })
+            const input = createInput(0, 1, payload, undefined, { timestamp: now })
+
+            const result = await step(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings).toHaveLength(0)
+            expect(observeSpy).toHaveBeenCalledWith('device_ahead', 0)
+        })
+    })
+
+    describe('clock skew correction', () => {
+        const SEVEN_HOURS_MS = 7 * 60 * 60 * 1000
+
+        function skewedInput(options: {
+            baseMs: number
+            deviceOffsetMs?: number
+            latencyMs?: number
+            sentAt?: string | null
+            now?: string | null
+        }): ParseMessageStepInput {
+            const { baseMs, deviceOffsetMs = 0, latencyMs = 0 } = options
+            const now = options.now === undefined ? new Date(baseMs + latencyMs).toISOString() : options.now
+            const sentAt =
+                options.sentAt === undefined ? new Date(baseMs + deviceOffsetMs).toISOString() : options.sentAt
+            const payload = createSnapshotPayload({
+                sessionId: 'session-1',
+                snapshotItems: [
+                    { type: 2, timestamp: baseMs + deviceOffsetMs },
+                    { type: 3, timestamp: baseMs + deviceOffsetMs + 1000 },
+                ],
+                distinctId: 'user-123',
+                ...(now !== null && { now }),
+                ...(sentAt !== null && { sentAt }),
+            })
+            return createInput(0, 1, payload)
+        }
+
+        async function startMsOf(input: ParseMessageStepInput): Promise<number> {
+            const result = await createParseMessageStep()(input)
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type !== PipelineResultType.OK) {
+                throw new Error('expected an ok result')
+            }
+            return result.value.parsedMessage.eventsRange.start.toMillis()
+        }
+
+        it.each([
+            ['ahead', SEVEN_HOURS_MS],
+            ['behind', -SEVEN_HOURS_MS],
+        ])('shifts rrweb timestamps to server time when the device clock is %s', async (_name, deviceOffsetMs) => {
+            const baseMs = Date.now()
+            const step = createParseMessageStep()
+
+            const result = await step(skewedInput({ baseMs, deviceOffsetMs }))
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                const { parsedMessage } = result.value
+                expect(parsedMessage.eventsRange.start.toMillis()).toBe(baseMs)
+                expect(parsedMessage.eventsRange.end.toMillis()).toBe(baseMs + 1000)
+                expect(parsedMessage.eventsByWindowId['window-1'].map((e) => e.timestamp)).toEqual([
+                    baseMs,
+                    baseMs + 1000,
+                ])
+            }
+        })
+
+        it('corrects two messages of one session identically despite different latencies', async () => {
+            const baseMs = Date.now()
+
+            const fast = await startMsOf(skewedInput({ baseMs, deviceOffsetMs: SEVEN_HOURS_MS, latencyMs: 50 }))
+            const slow = await startMsOf(skewedInput({ baseMs, deviceOffsetMs: SEVEN_HOURS_MS, latencyMs: 2500 }))
+
+            expect(fast).toBe(slow)
+        })
+
+        it('leaves a well-behaved clock untouched, so latency cannot reorder its events', async () => {
+            const baseMs = Date.now()
+
+            const startMs = await startMsOf(skewedInput({ baseMs, deviceOffsetMs: 400, latencyMs: 900 }))
+
+            expect(startMs).toBe(baseMs + 400)
+        })
+
+        const validIso = '2023-01-01T00:00:00.000Z'
+        it.each([
+            ['sent_at is missing', { sentAt: null }],
+            ['now is missing', { now: null }],
+            ['sent_at is unparseable', { sentAt: 'not-a-date' }],
+            ['now is unparseable', { now: 'not-a-date' }],
+        ])(
+            'leaves timestamps unchanged when %s',
+            async (_name, overrides: { now?: string | null; sentAt?: string | null }) => {
+                const baseMs = Date.now()
+
+                const startMs = await startMsOf(
+                    skewedInput({ baseMs, deviceOffsetMs: SEVEN_HOURS_MS, now: validIso, ...overrides })
+                )
+
+                expect(startMs).toBe(baseMs + SEVEN_HOURS_MS)
+            }
+        )
+    })
+
+    describe('decompressMessageValue lz4 hardening', () => {
+        const lz4 = require('lz4')
+
+        function lz4Message(value: Buffer): Message {
+            return {
+                value,
+                headers: [{ 'content-encoding': Buffer.from('lz4') }],
+            } as unknown as Message
+        }
+
+        function lz4Frame(payload: Buffer, claimedSize?: number): Buffer {
+            const compressed = Buffer.alloc(lz4.encodeBound(payload.length))
+            const n = lz4.encodeBlock(payload, compressed)
+            const prefix = Buffer.alloc(4)
+            prefix.writeUInt32LE(claimedSize ?? payload.length, 0)
+            return Buffer.concat([prefix, compressed.subarray(0, n)])
+        }
+
+        it('round-trips a valid block', () => {
+            const payload = Buffer.from('{"distinct_id":"d","data":"x"}'.repeat(10))
+            expect(decompressMessageValue(lz4Message(lz4Frame(payload)))).toEqual(payload)
+        })
+
+        it('rejects a size prefix beyond the decompression cap instead of allocating it', () => {
+            const payload = Buffer.from('small')
+            const bomb = lz4Frame(payload, 0xffffffff)
+            expect(() => decompressMessageValue(lz4Message(bomb))).toThrow(/exceeds/)
+        })
+
+        it('rejects a size prefix that does not match the decoded length', () => {
+            const payload = Buffer.from('0123456789'.repeat(20))
+            const lying = lz4Frame(payload, payload.length + 512)
+            expect(() => decompressMessageValue(lz4Message(lying))).toThrow(/decoded/)
+        })
     })
 })

@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { stringifyWithBigInts } from 'lib/utils/json'
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
     if (!obj) {
@@ -9,7 +10,7 @@ export function toParams(obj: Record<string, any>, explodeArrays: boolean = fals
         if (dayjs.isDayjs(val)) {
             return encodeURIComponent(val.format('YYYY-MM-DD'))
         }
-        val = typeof val === 'object' ? JSON.stringify(val) : val
+        val = typeof val === 'object' ? stringifyWithBigInts(val) : val
         return encodeURIComponent(val)
     }
 
@@ -164,6 +165,31 @@ export function isExternalLink(input: any): boolean {
     return !!input.trim().match(regexp)
 }
 
+/** True for a target the browser runs as script, so it must never become an href or a navigation. */
+export function hasDangerousScheme(url: string): boolean {
+    // Browsers ignore leading control chars/whitespace and any tabs/newlines embedded in the scheme,
+    // so strip them all before matching.
+    const normalized = url.replace(/[\u0000-\u0020]/g, '').toLowerCase()
+    return /^(javascript|vbscript):/.test(normalized)
+}
+
+/**
+ * True for a value that parses as an `https://` URL. Whitespace around the value is ignored,
+ * because `new URL()` ignores it too. A caller that needs a host allowlist, or that wants to
+ * reject embedded credentials, adds that check itself.
+ */
+export function isHttpsUrl(value: string): boolean {
+    const trimmed = value.trim()
+    if (!trimmed) {
+        return false
+    }
+    try {
+        return new URL(trimmed).protocol === 'https:'
+    } catch {
+        return false
+    }
+}
+
 export function isEmail(string: string, options?: { requireTLD?: boolean }): boolean {
     if (!string) {
         return false
@@ -188,28 +214,18 @@ export function parseGithubRepoURL(url: string): Record<string, string> {
     return { user, repo, type, path }
 }
 
-export function getRelativeNextPath(nextPath: string | null | undefined, location: Location): string | null {
-    if (!nextPath || typeof nextPath !== 'string') {
-        return null
-    }
-    let decoded: string
-    try {
-        decoded = decodeURIComponent(nextPath)
-    } catch {
-        decoded = nextPath
-    }
-
+function resolveSameOriginPath(candidate: string, location: Location): string | null {
     // Protocol-relative URLs (e.g., //evil.com/test) are not allowed
-    if (decoded.startsWith('//')) {
+    if (candidate.startsWith('//')) {
         return null
     }
 
     // Root-relative path — resolve against the current origin and verify it doesn't escape.
     // Browsers normalize backslashes in special-scheme URLs per WHATWG, so a raw startsWith('/')
     // check would accept '/\\evil.com/path', which the browser then loads as '//evil.com/path'.
-    if (decoded.startsWith('/')) {
+    if (candidate.startsWith('/')) {
         try {
-            const url = new URL(decoded, location.origin)
+            const url = new URL(candidate, location.origin)
             if (url.origin !== location.origin) {
                 return null
             }
@@ -221,11 +237,34 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
 
     // Try to parse as a full URL
     try {
-        const url = new URL(decoded)
+        const url = new URL(candidate)
         if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin === location.origin) {
             return url.pathname + url.search + url.hash
         }
         return null
+    } catch {
+        return null
+    }
+}
+
+export function getRelativeNextPath(nextPath: string | null | undefined, location: Location): string | null {
+    if (!nextPath || typeof nextPath !== 'string') {
+        return null
+    }
+
+    // Callers pass a value that URL parsing already decoded once (kea-router searchParams or
+    // URLSearchParams.get), so use it verbatim: decoding again would corrupt percent-encoded
+    // characters belonging to nested query params — e.g. `next=/sql?open_query=SELECT%0A...`,
+    // where a second decode turns %0A into a raw newline that new URL() then silently strips,
+    // gluing the SQL into one line.
+    const verbatim = resolveSameOriginPath(nextPath, location)
+    if (verbatim !== null) {
+        return verbatim
+    }
+
+    // Fall back to decoding once for values that arrive still fully encoded (e.g. %2Ftest%2Ffoo).
+    try {
+        return resolveSameOriginPath(decodeURIComponent(nextPath), location)
     } catch {
         return null
     }

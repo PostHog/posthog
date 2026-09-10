@@ -5,6 +5,8 @@ description: Use when editing, reviewing, or auditing DRF viewsets and serialize
 
 # Improving DRF Endpoints
 
+Before you propose a contract test against the generated OpenAPI schema, check [things already tried](../../../docs/internal/ci-things-already-tried.md). Six PRs took that idea, and none merged.
+
 ## Overview
 
 Serializer fields are the source of truth for PostHog's entire type pipeline:
@@ -51,7 +53,7 @@ Work through this list for every serializer and viewset you touch.
 3. **No bare `JSONField()`** — create a custom field class with `@extend_schema_field(TypedSchema)`
 4. **`SerializerMethodField` has `@extend_schema_field`** on its `get_*` method
 5. **`ChoiceField` has explicit `choices=`** with all valid values listed
-6. **Avoid collision-prone enum field names** — `format`, `type`, `status`, `kind`, `level`, `mode`, `state`, `platform`, `provider` clash with existing choices and fail CI under `--fail-on-warn`; pick a specific name or add an `ENUM_NAME_OVERRIDES` entry up front (see [serializer-fields.md](references/serializer-fields.md#choicefield--explicit-choices))
+6. **Define choices as a `models.TextChoices` class** — the OpenAPI component is named after the class (`EarlyAccessFeature.Stage` -> `EarlyAccessFeatureStageEnum`, via `ChoicesEnumNameOverrides` in `posthog/openapi/enum_names.py`), so a class-backed enum never collides on field names like `format`, `type`, `status`, `kind`. Inline `choices=[...]` lists have no class to read, collide with existing choices, and fail CI under `--fail-on-warn`; an explicit `ENUM_NAME_OVERRIDES` entry in `posthog/settings/web.py` is the fallback for choice sets no class can carry, and a product enum's entry must point at a re-export in the product's `backend/facade/enums.py`, never at an internal module (see [serializer-fields.md](references/serializer-fields.md#choicefield--explicit-choices))
 7. **Read vs write serializers are separate** when input shape differs from output
 8. **Every success response is backed by a serializer** — returning raw dicts or untyped lists means no generated types downstream
 
@@ -111,15 +113,14 @@ that keeps the API out of Celery workers and management commands. See the
 `RouterRegistry` docstring and the discovery loop in `posthog/api/__init__.py` for
 the full reasoning.
 
-Do **not** register new endpoints under `environments_router`. Do **not** use the
-dual-route helper (`routers.register_legacy_dual_route`, or
-`register_legacy_dual_route_team_nested_viewset` in `__init__.py`) — it exists only
-for endpoints already exposed on both `/api/projects/` and `/api/environments/`
-before the rollback.
+Register team-nested endpoints under `routers.projects` with a `project_<name>`
+basename. There is no `environments_router` and no dual-route helper: the legacy
+`/api/environments/*` surface has been retired as a set of registered routes.
 
-If existing clients need `/api/environments/...` too, the OpenAPI postprocess
-hook at `posthog.api.documentation.preprocess_exclude_path_format` auto-marks
-the env-side path as `deprecated: true` whenever both routes exist.
+Existing clients that still call `/api/environments/...` are served transparently by
+`EnvironmentsRewriteMiddleware`, which rewrites the path onto the equivalent
+`/api/projects/*` viewset in-process (no 307). You never register an env route for
+this — just register under `routers.projects` and the middleware handles the alias.
 
 ### Facade products (DataclassSerializer)
 
@@ -168,9 +169,9 @@ See [common-anti-patterns.md](references/common-anti-patterns.md) for before/aft
 
 ## Canonical examples in the codebase
 
-- **JSONField + @extend_schema_field:** `posthog/api/alert.py`
-- **@validated_request:** `products/tasks/backend/api.py`
-- **help_text + typed responses:** `products/llm_analytics/backend/api/evaluation_summary.py`
+- **JSONField + @extend_schema_field:** `products/alerts/backend/api/alert.py`
+- **@validated_request:** `products/tasks/backend/presentation/views/api.py`
+- **help_text + typed responses:** `products/ai_observability/backend/api/summarization.py`
 - **Facade product:** `products/visual_review/backend/presentation/views.py`
 
 ## Related

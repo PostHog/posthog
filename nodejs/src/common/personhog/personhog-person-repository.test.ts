@@ -2,15 +2,15 @@ import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
+import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
+import { PersonSchema } from '~/common/generated/personhog/personhog/types/v1/person_pb'
 import { InternalPersonWithDistinctId, PersonRepository } from '~/common/persons/repositories/person-repository'
-import { PersonHogService } from '~/generated/personhog/personhog/service/v1/service_pb'
-import { PersonSchema } from '~/generated/personhog/personhog/types/v1/person_pb'
 import { InternalPerson, TeamId } from '~/types'
 
 import { PersonHogClient } from './client'
 import { PersonHogPersonRepository } from './personhog-person-repository'
 
-jest.mock('../../utils/logger')
+jest.mock('~/common/utils/logger')
 
 const textEncoder = new TextEncoder()
 
@@ -74,16 +74,20 @@ function createMockPostgres(): jest.Mocked<PersonRepository> {
         fetchPerson: jest.fn(),
         fetchPersonsByDistinctIds: jest.fn(),
         fetchPersonsByPersonIds: jest.fn(),
+        fetchPersonsForUpdateByDistinctIds: jest.fn(),
         fetchDistinctIdsForPersons: jest.fn(),
+        fetchPersonDistinctIdMappings: jest.fn(),
+        deletePersons: jest.fn(),
+        claimLifecycleMarks: jest.fn(),
+        releaseLifecycleMarks: jest.fn(),
+        isPersonLive: jest.fn(),
+        updateCohortsAndFeatureFlagsForMergeBatch: jest.fn(),
         createPerson: jest.fn(),
         updatePerson: jest.fn(),
         updatePersonAssertVersion: jest.fn(),
         updatePersonsBatch: jest.fn(),
         deletePerson: jest.fn(),
         addDistinctId: jest.fn(),
-        addPersonlessDistinctId: jest.fn(),
-        addPersonlessDistinctIdForMerge: jest.fn(),
-        addPersonlessDistinctIdsBatch: jest.fn(),
         personPropertiesSize: jest.fn(),
         updateCohortsAndFeatureFlagsForMerge: jest.fn(),
         inTransaction: jest.fn(),

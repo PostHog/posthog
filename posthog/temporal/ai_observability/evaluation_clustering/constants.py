@@ -61,6 +61,14 @@ AI_OBSERVABILITY_EVALUATION_RENDERING = "detailed"
 # a read to one job's accumulated embeddings.
 AI_OBSERVABILITY_EVALUATION_JOB_ID_METADATA_KEY = "job_id"
 
+# Stage A appends the job id to the event uuid in `document_id` (joined by this delimiter) so two
+# jobs that sample the same $ai_evaluation event on the same day produce distinct rows. document_id
+# is the only non-LowCardinality component of the embeddings ReplacingMergeTree key, so without
+# this the rows would share a key and collapse on merge — only one job's metadata.job_id survives
+# and the other job silently loses those embeddings. Stage B strips it back to the bare event uuid
+# (UUIDs contain no ":", so a single split recovers it) before joining to $ai_evaluation.
+AI_OBSERVABILITY_EVALUATION_DOCUMENT_ID_JOB_DELIMITER = "::"
+
 # Embedding model. Eval text representations are short (typically <1000 chars:
 # evaluator name + one-line description + verdict + reasoning), so the 1536-dim
 # small model is the default choice over the 3072-dim large model used by

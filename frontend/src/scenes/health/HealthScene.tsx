@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBell, IconCheck, IconEllipsis, IconRefresh, IconSparkles, IconSupport } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -28,7 +28,7 @@ export const HealthScene = (): JSX.Element => {
     const { openSupportForm } = useActions(supportLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const healthAlertsEnabled = !!featureFlags[FEATURE_FLAGS.HEALTH_ALERTS]
+
     const askAiEnabled = !!featureFlags[FEATURE_FLAGS.HEALTH_ASK_AI]
 
     const now = Date.now()
@@ -49,17 +49,16 @@ export const HealthScene = (): JSX.Element => {
             <div className="flex items-center justify-between -mt-2 mb-2">
                 <p className="text-sm mb-0">See an at-a-glance view of the health of your project.</p>
                 <div className="flex items-center gap-1">
-                    {healthAlertsEnabled && (
-                        <LemonButton
-                            icon={<IconBell />}
-                            type="secondary"
-                            size="small"
-                            to={urls.healthAlerts()}
-                            tooltip="Subscribe to alerts when any health check fires"
-                        >
-                            Alerts
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        icon={<IconBell />}
+                        type="secondary"
+                        size="small"
+                        to={urls.healthAlerts()}
+                        tooltip="Subscribe to alerts when any health check fires"
+                    >
+                        Alerts
+                    </LemonButton>
+
                     {askAiEnabled && (
                         <LemonMenu
                             items={HEALTH_OVERVIEW_QUESTIONS.map((question) => ({
@@ -83,7 +82,7 @@ export const HealthScene = (): JSX.Element => {
                         icon={<IconSupport />}
                         type="secondary"
                         size="small"
-                        onClick={() => openSupportForm({ kind: 'support', target_area: 'health_overview' })}
+                        onClick={() => openSupportForm({ kind: 'support' })}
                     >
                         Get help from our team
                     </LemonButton>
@@ -112,14 +111,6 @@ export const HealthScene = (): JSX.Element => {
             </div>
 
             <div className="flex flex-col gap-6">
-                <LemonBanner
-                    type="info"
-                    className="mb-2"
-                    dismissKey="unified-health-page-feedback-banner"
-                    action={{ children: 'Send feedback', id: 'unified-health-page-feedback-button' }}
-                >
-                    We'd love your feedback on the new Health page. Let us know what's working and what could be better!
-                </LemonBanner>
                 <PlatformStatusBanner />
                 <HealthIssueSummaryCards />
                 <HealthIssueList />

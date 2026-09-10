@@ -1,11 +1,11 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
@@ -754,6 +754,9 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     web_analytics_pre_aggregated_tables_version: () => null,
     managed_viewsets: () => null,
     workflows_config: () => null,
+    feature_flag_policy_config: () => null,
+    event_retention_months: () => null,
+    events_retention_enforced: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
@@ -770,6 +773,20 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
     if (logItem.scope !== ActivityScope.TEAM) {
         console.error('team describer received a non-Team activity')
         return { description: null }
+    }
+
+    if (logItem.activity === 'email_sending_suspended' || logItem.activity === 'email_sending_unsuspended') {
+        const wasSuspended = logItem.activity === 'email_sending_suspended'
+        const reason = logItem.detail?.context?.reason as string | undefined
+        return {
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> {wasSuspended ? 'suspended' : 're-enabled'} workflow email
+                    sending on {nameAndLink(logItem)}
+                    {wasSuspended && reason ? <> (reason: {reason})</> : null}
+                </>
+            ),
+        }
     }
 
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {
@@ -802,7 +819,7 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        prefix={<ActivityLogUserName logItem={logItem} />}
                         suffix={changeSuffix}
                     />
                 ),

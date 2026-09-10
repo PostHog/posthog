@@ -1,13 +1,91 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+from typing import TYPE_CHECKING, Literal
+
+from django.db.models import Max, Min
 
 from posthog.models.team.team import Team
 
-from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+from products.skills.backend.models.skills import CATEGORY_BY_NAME_PREFIX, LLMSkill, LLMSkillFile, LLMSkillOwner
 
-# Naming contract for skills that steer a Signals-agent run.
+if TYPE_CHECKING:
+    from products.signals.backend.models import SignalScoutConfig
+
+# Prefix the canonical fleet ships under. A scout is a skill that has a `SignalScoutConfig`
+# row, so this is no longer a naming requirement: it still drives auto-registration of
+# `signals-scout-*` skills, the canonical on-disk paths, and the cosmetic name strippers.
 SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
+
+# Names the inbox reads as sub-pages of `/inbox/scouts/`, so a scout that took one could never
+# be opened. They stay valid as ordinary skill names — only the scout paths refuse them.
+RESERVED_SCOUT_NAMES: frozenset[str] = frozenset({"scratchpad", "findings", "runs"})
+
+
+def reserved_scout_name_error(name: str) -> str | None:
+    """Why `name` cannot be a scout name, or None when it can.
+
+    Applied by the scout create serializer and by explicit config registration — the two paths
+    that mint a scout — so both refuse the same set.
+    """
+    if name.lower() in RESERVED_SCOUT_NAMES:
+        return (
+            f"'{name}' is reserved by the inbox and cannot be a scout name. "
+            f"The reserved names are {', '.join(sorted(RESERVED_SCOUT_NAMES))}."
+        )
+    # `LLMSkill.category` is server-owned and derived from these prefixes, and each owning product
+    # re-stamps the column on its own sync. A scout taking another product's prefix would land on
+    # that product's Skills tab and then flip between tabs on every sync, so refuse the name
+    # instead. Ours is fine: it resolves to the scout category already.
+    foreign_prefix = next(
+        (
+            prefix
+            for prefix, _ in CATEGORY_BY_NAME_PREFIX
+            if prefix != SIGNALS_SCOUT_SKILL_PREFIX and name.startswith(prefix)
+        ),
+        None,
+    )
+    if foreign_prefix is not None:
+        return (
+            f"'{name}' starts with '{foreign_prefix}', a name prefix another product owns, so it "
+            "cannot be a scout name. Pick a name without that prefix."
+        )
+    return None
+
+
+# Tools whose presence in a skill's `allowed_tools` opts the scout into the report-authoring channel
+# (it writes full `SignalReport`s via `emit_report` / `edit_report` instead of firing weak signals).
+# This single set is read in three places that must agree: the runner picks the MCP scope posture from
+# it (`runner.py`), the prompt builder steers a report scout differently because of it (`prompt.py`),
+# and the viewset fail-closes the write on it (`views.py`). Keep them resolving the same set.
+REPORT_CHANNEL_TOOLS: frozenset[str] = frozenset({"emit_report", "edit_report"})
+
+
+def skill_uses_report_channel(allowed_tools: list[str] | None) -> bool:
+    """Whether a skill opted into the report-authoring channel via its `allowed_tools`."""
+    return bool(REPORT_CHANNEL_TOOLS & set(allowed_tools or []))
+
+
+def resolve_report_channel_variant(allowed_tools: list[str] | None) -> str:
+    """Which report tools a run held: `none`, `emit`, `edit`, or `both`.
+
+    Finer-grained than `skill_uses_report_channel` because the prompt builder branches on the two
+    capabilities separately (the follow-up re-surface clause, the self-improvement escalation path,
+    and the channel sections all differ between emit-only and edit-only), so a single boolean would
+    pool runs that were given materially different instructions. Stamped on the run row, where
+    `allowed_tools` being editable means the variant cannot be recovered afterwards.
+    """
+    tools = set(allowed_tools or [])
+    can_emit = "emit_report" in tools
+    can_edit = "edit_report" in tools
+    if can_emit and can_edit:
+        return "both"
+    if can_emit:
+        return "emit"
+    if can_edit:
+        return "edit"
+    return "none"
 
 
 class SkillNotFoundError(LookupError):
@@ -20,6 +98,29 @@ class LoadedSkillFile:
     content_type: str
 
 
+# Editors surfaced in the prompt beyond the creator. Distinct authors per skill are few in
+# practice; the cap only guards the prompt against a pathologically churned skill.
+MAX_SKILL_EDITORS_IN_PROMPT = 5
+
+
+@dataclass(frozen=True)
+class SkillAuthor:
+    """One human tied to the skill for reviewer routing.
+
+    `role="owner"` is the explicit, durable owner set (from `LLMSkillOwner`) and takes precedence.
+    `creator`/`editor` are the legacy reconstruction from version-row authorship, used only when a
+    skill has no explicit owners. For an owner, `last_authored_at` is the owner-since date.
+    """
+
+    name: str
+    email: str
+    role: Literal["owner", "creator", "editor"]
+    last_authored_at: datetime
+    # The routing identity itself: a scout passes this straight to `suggested_reviewers`, so an
+    # author with no GitHub account still gets the reports their scout files.
+    user_uuid: str
+
+
 @dataclass(frozen=True)
 class LoadedSkill:
     name: str
@@ -27,28 +128,213 @@ class LoadedSkill:
     version: int
     body: str
     description: str
-    # Portable skill metadata — opaque to the harness. Logged on spawn for observability,
-    # not consulted at runtime. Downstream consumers (e.g. Claude Code) may read this list
-    # to narrow their own tool exposure; the scout harness itself gates via
-    # `posthog_mcp_scopes` at the OAuth/MCP boundary (scope-level), not tool-level.
+    # Portable skill metadata, and the opt-in gate for the report channel. The harness reads it at
+    # spawn time: listing `emit_report` / `edit_report` here makes the runner grant the
+    # `signals_scout_reports` scope posture (vs plain `signals_scout`), which carries
+    # `signal_scout_report:write` — the scope the report tools require. A scout that doesn't list them
+    # gets no report scope, so the MCP server strips those tools from its toolset (exposure is
+    # scope-level at the OAuth/MCP boundary). The `emit-report` / `edit-report` viewset actions also
+    # re-check this list server-side (`views.SignalScoutRunViewSet._assert_report_tool_opted_in`) as a
+    # fail-closed gate on the write. Downstream consumers (e.g. Claude Code) may also read it.
     allowed_tools: list[str]
     files: list[LoadedSkillFile]
     skill_id: str
+    # "canonical" | "custom" — who owns the skill row (see `lazy_seed.scout_skill_row_origin`;
+    # a seeded row the team has edited in place classifies as custom). The prompt builder gates
+    # the self-improvement section on it: a custom scout is invited to record `improve:`
+    # suggestions for its own body (the team owns that body and can apply them); a pristine
+    # canonical scout is not, so the prompt never nudges a team into diverging a seeded row.
+    origin: Literal["canonical", "custom"]
+    # The humans who own the skill body, resolved from its version rows: creator first (the
+    # earliest version with a known author — a seeded row's v1 is system-authored with no
+    # `created_by`, so a diverged canonical's creator is whoever first edited it), then editors
+    # ordered most-recent-edit first. Custom scouts only (empty for canonical) — the prompt
+    # renders it into the run identity so the scout can route self-improvement reports to the
+    # skill's owners instead of guessing. Version rows can't reveal authorship any other way:
+    # each row's `created_by` is whoever published *that* version, so the pinned (latest)
+    # version alone would misattribute the skill to its last editor.
+    authors: list[SkillAuthor]
 
 
 def is_signals_scout_skill(skill: LLMSkill) -> bool:
     return skill.name.startswith(SIGNALS_SCOUT_SKILL_PREFIX)
 
 
-def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = None) -> LoadedSkill:
+def resolve_skill_owner_user_uuids(team: Team, skill_name: str) -> list[str]:
+    """Owner user UUIDs for a logical skill, seed-creator first — for the reviewer guardrail.
+
+    Restricted to `team.all_users_with_access()` (same privacy boundary as the author scan): an
+    owner who lost access can't be routed a review and their identity shouldn't leak downstream.
+    """
+    return [
+        str(uuid)
+        # canonical=True → exact environment team, matching how LLMSkill is scoped (see LLMSkillOwner).
+        for uuid in LLMSkillOwner.objects.for_team(team.id, canonical=True)
+        .filter(skill_name=skill_name, user__in=team.all_users_with_access())
+        .order_by("created_at", "id")
+        .values_list("user__uuid", flat=True)
+    ]
+
+
+def resolve_scout_acting_user_id(team: Team, skill_name: str, config: SignalScoutConfig | None) -> int | None:
+    """User id a scout run acts as, which is also where its AI spend is attributed.
+
+    The version-history creator (earliest version row with a known author) wins: they wrote the
+    prompt the run executes, so acting as them mirrors how user-triggered runs act as the
+    triggering user. For skills with no attributable version author, such as a pristine canonical
+    scout whose seeded versions are all system-authored, the fallback is the config's `enabled_by`
+    (who last switched the scout on) and then its `created_by`, both stamped server-side from the
+    authenticated requester, so each candidate identity took the enabling action themselves.
+
+    Every identity source here must be self-consenting or editor-proof. `LLMSkillOwner` is
+    deliberately NOT one: any skill editor can rewrite the owner list without publishing a
+    version, so consulting it would let an editor choose which teammate's identity the run mints
+    (the same escalation `auto_start._resolve_autostart_assignee` excludes owner-provenance
+    reviewers for).
+
+    Every path restricts to `team.all_users_with_access()` (active members only), because the run
+    mints a sandbox token as this user. Returns None when no path resolves a member; the runner
+    then falls back to the team-level default (`resolve_acting_user_id_for_team`).
+    """
+    creator_id = (
+        LLMSkill.objects.filter(
+            team=team,
+            name=skill_name,
+            deleted=False,
+            created_by__isnull=False,
+            created_by__in=team.all_users_with_access(),
+        )
+        .order_by("created_at", "id")
+        .values_list("created_by_id", flat=True)
+        .first()
+    )
+    if creator_id is not None:
+        return creator_id
+    if config is None:
+        return None
+    candidate_ids = [user_id for user_id in (config.enabled_by_id, config.created_by_id) if user_id is not None]
+    if not candidate_ids:
+        return None
+    members = set(team.all_users_with_access().filter(id__in=candidate_ids).values_list("id", flat=True))
+    return next((user_id for user_id in candidate_ids if user_id in members), None)
+
+
+def _skill_has_owner_rows(team: Team, skill_name: str) -> bool:
+    """Whether the logical skill has any owner rows at all — including owners who lost access.
+
+    Distinguishes "no explicit owners, use version history" from "owned, but currently unroutable",
+    so the latter never silently drifts back to the version-history heuristic.
+    """
+    return LLMSkillOwner.objects.for_team(team.id, canonical=True).filter(skill_name=skill_name).exists()
+
+
+def _resolve_owner_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
+    """The explicit owner set as `SkillAuthor`s (role="owner"), seed-creator first.
+
+    Same membership filter as the legacy scan. Empty when the skill has no explicit owners, which
+    is the signal to fall back to version-history reconstruction.
+    """
+    rows = (
+        # canonical=True → exact environment team, matching how LLMSkill is scoped (see LLMSkillOwner).
+        LLMSkillOwner.objects.for_team(team.id, canonical=True)
+        .filter(skill_name=skill_name, user__in=team.all_users_with_access())
+        .values("user__uuid", "user__first_name", "user__last_name", "user__email", "created_at")
+        .order_by("created_at", "id")
+    )
+    authors: list[SkillAuthor] = []
+    for row in rows:
+        # Collapse whitespace so a multi-line display name can't break the prompt's one-line list item.
+        name = " ".join(f"{row['user__first_name']} {row['user__last_name']}".split())
+        authors.append(
+            SkillAuthor(
+                name=name or row["user__email"],
+                email=row["user__email"],
+                role="owner",
+                last_authored_at=row["created_at"],
+                user_uuid=str(row["user__uuid"]),
+            )
+        )
+    return authors
+
+
+def resolve_skill_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
+    """Humans to route reviews to. Prefers the explicit owner set; falls back to version history.
+
+    When the skill carries explicit owners (`LLMSkillOwner`), they win — ownership is keyed on the
+    logical skill and never drifts when the body is edited, so it's the authoritative answer to
+    "who owns this scout?". Only when there are no owners does this reconstruct authorship from
+    version rows (creator first, then editors by recency), the best-effort legacy heuristic that a
+    bulk edit could misattribute.
+
+    Version-history path: one indexed aggregate over all version rows for `(team, name)` — capped at
+    `MAX_SKILL_VERSION`, so cheap regardless of churn. Rows with a null `created_by` (system-seeded
+    versions, deleted users) carry no routable identity and are skipped.
+
+    Both paths restrict to `team.all_users_with_access()` — the same boundary the
+    `scout-members-list` reviewer roster uses. A former member's profile (notably the
+    self-editable display name) must not keep flowing into a privileged prompt after their
+    access is revoked, and an unroutable author would only waste a slot anyway.
+    """
+    owners = _resolve_owner_authors(team, skill_name)
+    if owners:
+        return owners
+    # A skill with owner rows is authoritatively owned — even if every owner has since lost access.
+    # Falling back to version-history reconstruction here would re-introduce exactly the editor drift
+    # this primitive exists to prevent, so an owned-but-currently-unroutable skill gets no reviewer
+    # rather than a guessed one. Only a skill with *no* owner rows uses the legacy heuristic.
+    if _skill_has_owner_rows(team, skill_name):
+        return []
+
+    rows = (
+        LLMSkill.objects.filter(
+            team=team,
+            name=skill_name,
+            deleted=False,
+            created_by__isnull=False,
+            created_by__in=team.all_users_with_access(),
+        )
+        .values("created_by__uuid", "created_by__first_name", "created_by__last_name", "created_by__email")
+        .annotate(first_authored_at=Min("created_at"), last_authored_at=Max("created_at"))
+        .order_by("first_authored_at")
+    )
+    people = list(rows)
+    if not people:
+        return []
+
+    def to_author(person: dict, role: Literal["creator", "editor"]) -> SkillAuthor:
+        # Collapse whitespace so a multi-line display name can't break out of the prompt's
+        # one-line list-item structure.
+        name = " ".join(f"{person['created_by__first_name']} {person['created_by__last_name']}".split())
+        return SkillAuthor(
+            name=name or person["created_by__email"],
+            email=person["created_by__email"],
+            role=role,
+            last_authored_at=person["last_authored_at"],
+            user_uuid=str(person["created_by__uuid"]),
+        )
+
+    creator, *editors = people
+    editors.sort(key=lambda p: p["last_authored_at"], reverse=True)
+    return [to_author(creator, "creator")] + [to_author(p, "editor") for p in editors[:MAX_SKILL_EDITORS_IN_PROMPT]]
+
+
+def load_skill_for_run(
+    team: Team, skill_name: str, *, version: int | None = None, include_authors: bool = False
+) -> LoadedSkill:
     """Resolve a skill on the team's namespace and load its body + file manifest.
 
     Pass `version=None` to follow-latest. The `signals-scout-*` prefix is not enforced
     here — the management command can hand-trigger any skill on the team.
+
+    `include_authors` is for the prompt-building path only (the runner). Other callers —
+    notably the report-authorization gate in `views._assert_report_tool_opted_in`, which loads
+    the skill on every report write just to check `allowed_tools` — must not pay for the
+    membership + version-history author scan, so it defaults off.
     """
-    # Lazy import: `products.skills.backend.api` triggers a temporal module load
-    # that this package is itself imported from at temporal-worker boot, so a top-level
-    # import here cycles. Models only is fine.
+    # Lazy imports, both to break cycles: `lazy_seed` imports this module at top level
+    # (SIGNALS_SCOUT_SKILL_PREFIX), and `products.skills.backend.api` triggers a temporal module
+    # load that this package is itself imported from at temporal-worker boot. Models only is fine.
+    from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_origin
     from products.skills.backend.api.skill_services import get_skill_by_name_from_db
 
     skill = get_skill_by_name_from_db(team, skill_name, version=version)
@@ -58,6 +344,7 @@ def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = Non
             + (f" (version {version})" if version is not None else "")
         )
     file_rows = LLMSkillFile.objects.filter(skill=skill).only("path", "content_type").order_by("path")
+    origin = scout_skill_row_origin(skill)
     return LoadedSkill(
         name=skill.name,
         version=skill.version,
@@ -66,4 +353,8 @@ def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = Non
         allowed_tools=list(skill.allowed_tools or []),
         files=[LoadedSkillFile(path=f.path, content_type=f.content_type) for f in file_rows],
         skill_id=str(skill.id),
+        origin=origin,
+        # Only a custom scout's prompt renders authorship (canonical bodies are PostHog-owned),
+        # so skip the extra queries unless the caller builds a prompt and the row is custom.
+        authors=resolve_skill_authors(team, skill_name) if include_authors and origin == "custom" else [],
     )

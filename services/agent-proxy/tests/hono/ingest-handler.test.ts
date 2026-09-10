@@ -18,6 +18,7 @@
 import type { Redis } from 'ioredis'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { observeStreamWriteSkipped } from '@/hono/metrics.js'
 import type { Config } from '@/lib/config.js'
 import {
     MAX_EVENT_LINE_BYTES,
@@ -25,7 +26,8 @@ import {
     MAX_EVENTS_PER_REQUEST,
     HEARTBEAT_THROTTLE_SECONDS,
 } from '@/lib/constants.js'
-import { TaskRunRedisStream, getStreamKey } from '@/lib/redis-stream.js'
+import { logger } from '@/lib/logging.js'
+import { TaskRunRedisStream, getCompletedKey, getStreamKey, getWatchedKey } from '@/lib/redis-stream.js'
 import { heartbeatWorkflowIfNeeded } from '@/lib/side-effects.js'
 import type { SandboxEventIngestTokenPayload } from '@/lib/types.js'
 
@@ -302,6 +304,9 @@ function makeClaims(overrides?: Partial<SandboxEventIngestTokenPayload>): Sandbo
         runId: 'run-123',
         taskId: 'task-abc',
         teamId: 42,
+        presenceGated: false,
+        thinTail: false,
+        originProduct: 'unknown',
         ...overrides,
     }
 }
@@ -459,6 +464,82 @@ describe('ingest-handler', () => {
         expect(res.status).toBe(200)
         const body = await decodeJson(res)
         expect(body).toMatchObject({ accepted: 1, duplicate: 0, last_accepted_seq: 1 })
+    })
+
+    // -----------------------------------------------------------------------
+    // Presence gating
+    // -----------------------------------------------------------------------
+
+    it.each([
+        { name: 'skips the mirror when no reader is attached', watched: false, expectedEntries: 0 },
+        { name: 'mirrors when a reader is attached', watched: true, expectedEntries: 1 },
+    ])('presence-gated ingest $name', async ({ watched, expectedEntries }) => {
+        mockValidate.mockResolvedValue(makeClaims({ presenceGated: true, originProduct: 'signals_scout' }))
+        if (watched) {
+            await fakeRedis.set(getWatchedKey(getStreamKey(RUN_ID)), '1', 'EX', 300)
+        }
+        const config = makeConfig()
+        const ndjson = JSON.stringify({ seq: 1, event: { type: 'message' } }) + '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+
+        const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(200)
+        expect(await decodeJson(res)).toMatchObject({ accepted: 1, duplicate: 0, last_accepted_seq: 1 })
+        expect(await redisStream.getLastSequence()).toBe(1)
+        expect(await fakeRedis.xrange(getStreamKey(RUN_ID))).toHaveLength(expectedEntries)
+        if (watched) {
+            expect(observeStreamWriteSkipped).not.toHaveBeenCalled()
+        } else {
+            expect(observeStreamWriteSkipped).toHaveBeenCalledWith('ingest', 'signals_scout')
+        }
+    })
+
+    it('still writes the completion sentinel for a presence-gated run with no reader', async () => {
+        mockValidate.mockResolvedValue(makeClaims({ presenceGated: true }))
+        const config = makeConfig()
+        const ndjson =
+            JSON.stringify({ seq: 1, event: { type: 'message' } }) +
+            '\n' +
+            JSON.stringify({ type: '_posthog/stream_complete', final_seq: 1 }) +
+            '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+
+        const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(200)
+        const entries = await fakeRedis.xrange(getStreamKey(RUN_ID))
+        expect(entries).toHaveLength(1)
+        expect(JSON.parse(entries[0]![1]['data']!)).toEqual({ type: 'STREAM_STATUS', status: 'complete' })
+    })
+
+    it('writes complete NDJSON lines before the request body closes', async () => {
+        const config = makeConfig()
+        const encoder = new TextEncoder()
+        let controller!: ReadableStreamDefaultController<Uint8Array>
+        const body = new ReadableStream<Uint8Array>({
+            start(c) {
+                controller = c
+            },
+        })
+
+        const resPromise = handleIngest(makeContext({ body }), fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        controller.enqueue(encoder.encode(`${JSON.stringify({ seq: 1, event: { type: 'first-live' } })}\n`))
+
+        await vi.waitFor(async () => {
+            const entries = await fakeRedis.xrange(getStreamKey(RUN_ID))
+            expect(entries).toHaveLength(1)
+            expect(entries[0]?.[1].data).toContain('"first-live"')
+        })
+
+        controller.enqueue(encoder.encode(`${JSON.stringify({ seq: 2, event: { type: 'second-live' } })}\n`))
+        controller.close()
+
+        const res = await resPromise
+        expect(res.status).toBe(200)
+        const responseBody = await decodeJson(res)
+        expect(responseBody).toMatchObject({ accepted: 2, duplicate: 0, last_accepted_seq: 2 })
     })
 
     it('accepts multiple sequential events', async () => {
@@ -853,6 +934,118 @@ describe('ingest-handler', () => {
         expect(res.status).toBe(400)
     })
 
+    it.each([
+        {
+            variant: 'ECONNRESET code',
+            makeError: (): Error => Object.assign(new Error('read failed'), { code: 'ECONNRESET' }),
+        },
+        { variant: 'aborted message', makeError: (): Error => new Error('aborted') },
+        {
+            variant: 'AbortError name',
+            makeError: (): Error => Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }),
+        },
+        {
+            variant: 'premature close code',
+            makeError: (): Error => Object.assign(new Error('Premature close'), { code: 'ERR_STREAM_PREMATURE_CLOSE' }),
+        },
+    ])('treats a mid-body $variant as a client disconnect, not a server error', async ({ makeError }) => {
+        const infoSpy = vi.spyOn(logger, 'info')
+        const errorSpy = vi.spyOn(logger, 'error')
+        const config = makeConfig()
+        const enc = new TextEncoder()
+        const line = enc.encode(JSON.stringify({ seq: 1, event: { type: 'before-drop' } }) + '\n')
+        let sentFirstChunk = false
+        const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                if (!sentFirstChunk) {
+                    sentFirstChunk = true
+                    controller.enqueue(line)
+                    return
+                }
+                controller.error(makeError())
+            },
+        })
+
+        const res = await handleIngest(makeContext({ body }), fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(200)
+        const responseBody = (await decodeJson(res)) as { accepted: number; last_accepted_seq: number }
+        expect(responseBody.accepted).toBe(1)
+        expect(responseBody.last_accepted_seq).toBe(1)
+
+        const entries = await fakeRedis.xrange(getStreamKey(RUN_ID))
+        expect(entries).toHaveLength(1)
+
+        const log = infoSpy.mock.calls.find((c) => c[0] === 'ingest:client_disconnect')?.[1] as Record<string, unknown>
+        expect(log).toMatchObject({ run: RUN_ID, accepted: 1, lastSeq: 1, classification: 'idle' })
+        expect(errorSpy).not.toHaveBeenCalledWith('http.unhandled_error', expect.anything())
+    })
+
+    it.each([
+        {
+            state: 'agent actively streaming',
+            classification: 'mid_turn',
+            setup: async (): Promise<void> => {
+                await redisStream.setAgentActive(true)
+            },
+            sendEventBeforeDrop: true,
+            expectedStatus: 408,
+        },
+        {
+            state: 'agent idle after turn-complete',
+            classification: 'idle',
+            setup: async (): Promise<void> => {
+                await redisStream.setAgentActive(false)
+            },
+            sendEventBeforeDrop: true,
+            expectedStatus: 200,
+        },
+        {
+            state: 'stream already completed',
+            classification: 'run_over',
+            setup: async (): Promise<void> => {
+                await fakeRedis.set(getCompletedKey(getStreamKey(RUN_ID)), '1')
+            },
+            sendEventBeforeDrop: false,
+            expectedStatus: 200,
+        },
+    ])(
+        'classifies a disconnect with $state as $classification -> $expectedStatus',
+        async ({ classification, setup, sendEventBeforeDrop, expectedStatus }) => {
+            const infoSpy = vi.spyOn(logger, 'info')
+            const config = makeConfig()
+            const enc = new TextEncoder()
+            const line = enc.encode(JSON.stringify({ seq: 1, event: { type: 'before-drop' } }) + '\n')
+            await setup()
+
+            let sentFirstChunk = false
+            const body = new ReadableStream<Uint8Array>({
+                pull(controller) {
+                    if (sendEventBeforeDrop && !sentFirstChunk) {
+                        sentFirstChunk = true
+                        controller.enqueue(line)
+                        return
+                    }
+                    controller.error(Object.assign(new Error('read failed'), { code: 'ECONNRESET' }))
+                },
+            })
+
+            const res = await handleIngest(
+                makeContext({ body }),
+                fakeRedis as unknown as Redis,
+                config,
+                [] as CryptoKey[]
+            )
+
+            expect(res.status).toBe(expectedStatus)
+            const log = infoSpy.mock.calls.find((c) => c[0] === 'ingest:client_disconnect')?.[1] as Record<
+                string,
+                unknown
+            >
+            expect(log).toMatchObject({ classification })
+        }
+    )
+
     // -----------------------------------------------------------------------
     // Empty body
     // -----------------------------------------------------------------------
@@ -906,11 +1099,84 @@ describe('ingest-handler', () => {
         global.fetch = originalFetch
     })
 
+    it('dispatches the first command callback once', async () => {
+        const fetchCalls: { body: unknown }[] = []
+        const originalFetch = global.fetch
+        global.fetch = vi.fn(async (_url, init) => {
+            fetchCalls.push({ body: JSON.parse(String((init as RequestInit).body)) })
+            return Response.json({ dispatched: true }, { status: 200 })
+        }) as typeof fetch
+
+        const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+        const commandEvent = {
+            type: 'notification',
+            notification: { method: '_posthog/agent_command_dispatched', params: {} },
+        }
+        const ndjson =
+            [JSON.stringify({ seq: 1, event: commandEvent }), JSON.stringify({ seq: 2, event: commandEvent })].join(
+                '\n'
+            ) + '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+
+        const response = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(response.status).toBe(200)
+        expect(fetchCalls.map(({ body }) => (body as { kind: string }).kind)).toEqual(['command_dispatched'])
+        global.fetch = originalFetch
+    })
+
     // -----------------------------------------------------------------------
     // Side effects: session/update → agent active
     // -----------------------------------------------------------------------
 
-    it('sets agent active on session/update event and fires heartbeat after claim', async () => {
+    it.each([
+        {
+            name: 'prompt echo',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'user_message_chunk' } },
+                },
+            },
+            expectedKinds: ['heartbeat'],
+            expectedActive: true,
+        },
+        {
+            name: 'agent output',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'agent_message_chunk' } },
+                },
+            },
+            expectedKinds: ['agent_activity', 'heartbeat'],
+            expectedActive: true,
+        },
+        {
+            name: 'restored plan',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'plan' } },
+                },
+            },
+            expectedKinds: ['heartbeat'],
+            expectedActive: true,
+        },
+        {
+            name: 'command dispatch',
+            event: {
+                type: 'notification',
+                notification: { method: '_posthog/agent_command_dispatched', params: {} },
+            },
+            expectedKinds: ['command_dispatched'],
+            expectedActive: false,
+        },
+    ])('dispatches side effects for $name', async ({ event, expectedKinds, expectedActive }) => {
         const fetchCalls: { url: string; body: unknown }[] = []
         const originalFetch = global.fetch
         global.fetch = vi.fn(async (url, init) => {
@@ -921,23 +1187,20 @@ describe('ingest-handler', () => {
         const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
         mockValidate.mockResolvedValue(makeClaims())
 
-        const sessionUpdateEvent = {
-            type: 'notification',
-            notification: { method: 'session/update' },
-        }
-        const ndjson = JSON.stringify({ seq: 1, event: sessionUpdateEvent }) + '\n'
+        const ndjson = JSON.stringify({ seq: 1, event }) + '\n'
         const ctx = makeContext({ body: makeStringBody(ndjson) })
         const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
         expect(res.status).toBe(200)
 
         const agentActive = await redisStream.getAgentActive()
-        expect(agentActive).toBe(true)
+        expect(agentActive).toBe(expectedActive)
 
         await new Promise((r) => setTimeout(r, 0))
 
-        const callbackCall = fetchCalls.find((c) => c.url.includes('agent-proxy-callback'))
-        expect(callbackCall).toBeTruthy()
-        expect(callbackCall?.body).toMatchObject({ kind: 'heartbeat', agent_active: true })
+        const callbackKinds = fetchCalls
+            .filter((c) => c.url.includes('agent-proxy-callback'))
+            .map((c) => (c.body as { kind: string }).kind)
+        expect(callbackKinds).toEqual(expectedKinds)
 
         global.fetch = originalFetch
     })
@@ -989,19 +1252,25 @@ describe('ingest-handler', () => {
     // Side effects: best-effort (callback failure does not fail ingest)
     // -----------------------------------------------------------------------
 
-    it('still returns 200 when the Django callback throws', async () => {
+    it.each([
+        [
+            'throws',
+            async () => {
+                throw new Error('network failure')
+            },
+        ],
+        ['answers 200 with a body that is not JSON', async () => new Response('', { status: 200 })],
+    ])('releases a command claim when the Django callback %s', async (_label, respond) => {
         const originalFetch = global.fetch
-        global.fetch = vi.fn(async () => {
-            throw new Error('network failure')
-        }) as typeof fetch
+        global.fetch = vi.fn(respond) as typeof fetch
 
         const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
 
-        const turnCompleteEvent = {
+        const commandEvent = {
             type: 'notification',
-            notification: { method: '_posthog/turn_complete' },
+            notification: { method: '_posthog/agent_command_dispatched', params: {} },
         }
-        const ndjson = JSON.stringify({ seq: 1, event: turnCompleteEvent }) + '\n'
+        const ndjson = JSON.stringify({ seq: 1, event: commandEvent }) + '\n'
         const ctx = makeContext({ body: makeStringBody(ndjson) })
         const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
         // Callback failure must NOT affect ingest response
@@ -1010,6 +1279,28 @@ describe('ingest-handler', () => {
         // Let the detached promise settle without crashing the test
         await new Promise((r) => setTimeout(r, 10))
 
+        expect(await redisStream.claimFirstAgentCommand()).toBe(true)
+        global.fetch = originalFetch
+    })
+
+    it('keeps the command claim when the Django callback answers 400', async () => {
+        const originalFetch = global.fetch
+        global.fetch = vi.fn(async () => new Response('', { status: 400 })) as typeof fetch
+
+        const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+
+        const commandEvent = {
+            type: 'notification',
+            notification: { method: '_posthog/agent_command_dispatched', params: {} },
+        }
+        const ndjson = JSON.stringify({ seq: 1, event: commandEvent }) + '\n'
+        const ctx = makeContext({ body: makeStringBody(ndjson) })
+        const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+        expect(res.status).toBe(200)
+
+        await new Promise((r) => setTimeout(r, 10))
+
+        expect(await redisStream.claimFirstAgentCommand()).toBe(false)
         global.fetch = originalFetch
     })
 
@@ -1056,6 +1347,41 @@ describe('ingest-handler', () => {
 
             global.fetch = originalFetch
         })
+
+        const turnComplete = { type: 'notification', notification: { method: '_posthog/turn_complete' } }
+        const sessionUpdate = { type: 'notification', notification: { method: 'session/update', params: {} } }
+        const networkFailure = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
+
+        it.each([
+            ['awaiting_input', turnComplete, 'network failure', networkFailure, 2],
+            ['awaiting_input', turnComplete, '503', new Response('', { status: 503 }), 2],
+            ['awaiting_input', turnComplete, '400', new Response('', { status: 400 }), 1],
+            ['heartbeat', sessionUpdate, 'network failure', networkFailure, 1],
+            ['heartbeat', sessionUpdate, '503', new Response('', { status: 503 }), 1],
+        ])(
+            'a %s callback whose first attempt ends in a %s is sent %i time(s) in total',
+            async (_kind, event, _label, firstOutcome, expectedCalls) => {
+                vi.useFakeTimers()
+                const originalFetch = global.fetch
+                const fetchMock = vi
+                    .fn()
+                    .mockImplementationOnce(() =>
+                        firstOutcome instanceof Error ? Promise.reject(firstOutcome) : Promise.resolve(firstOutcome)
+                    )
+                    .mockResolvedValue(new Response('{"dispatched": true}', { status: 200 }))
+                global.fetch = fetchMock as typeof fetch
+
+                const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+                await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
+                await vi.advanceTimersByTimeAsync(2000)
+
+                expect(fetchMock).toHaveBeenCalledTimes(expectedCalls)
+                expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
+
+                global.fetch = originalFetch
+                vi.useRealTimers()
+            }
+        )
 
         it('sets agent active and fires heartbeat for a session/update event', async () => {
             const fired: { kind: string }[] = []
@@ -1143,6 +1469,55 @@ describe('ingest-handler', () => {
             await new Promise((r) => setTimeout(r, 0))
             expect(fetchSpy).not.toHaveBeenCalled()
             fetchSpy.mockRestore()
+        })
+    })
+
+    // -----------------------------------------------------------------------
+    // Body-arrival timing diagnostic
+    //
+    // The ingest log carries chunks/bodyBytes/firstChunkMs/lastChunkMs/chunkSpanMs
+    // so operators can tell a live upload (chunks spread over the request) from a
+    // body buffered upstream and delivered in one burst at request close. If those
+    // numbers are wrong the diagnostic misleads that investigation, so lock in that
+    // they reflect the actual body read.
+    // -----------------------------------------------------------------------
+
+    describe('body-arrival timing', () => {
+        it('reports chunk count, byte total, and a consistent span on the ingest log', async () => {
+            const infoSpy = vi.spyOn(logger, 'info')
+            const enc = new TextEncoder()
+            const chunk1 = enc.encode(JSON.stringify({ seq: 1, event: { type: 'a' } }) + '\n')
+            const chunk2 = enc.encode(JSON.stringify({ seq: 2, event: { type: 'b' } }) + '\n')
+
+            const ctx = makeContext({ body: makeChunkedBody([chunk1, chunk2]) })
+            const res = await handleIngest(ctx, fakeRedis as unknown as Redis, makeConfig(), [] as CryptoKey[])
+            expect(res.status).toBe(200)
+
+            const log = infoSpy.mock.calls.find((c) => c[0] === 'ingest')?.[1] as Record<string, number>
+            expect(log).toBeTruthy()
+            expect(log.chunks).toBe(2)
+            expect(log.bodyBytes).toBe(chunk1.length + chunk2.length)
+            const firstChunkMs = log.firstChunkMs as number
+            const lastChunkMs = log.lastChunkMs as number
+            expect(typeof firstChunkMs).toBe('number')
+            expect(lastChunkMs).toBeGreaterThanOrEqual(firstChunkMs)
+            expect(log.chunkSpanMs as number).toBe(lastChunkMs - firstChunkMs)
+        })
+
+        it('reports zero chunks and null timing for an empty body', async () => {
+            const infoSpy = vi.spyOn(logger, 'info')
+
+            const ctx = makeContext({ body: makeStringBody('') })
+            const res = await handleIngest(ctx, fakeRedis as unknown as Redis, makeConfig(), [] as CryptoKey[])
+            expect(res.status).toBe(200)
+
+            const log = infoSpy.mock.calls.find((c) => c[0] === 'ingest')?.[1] as Record<string, unknown>
+            expect(log).toBeTruthy()
+            expect(log.chunks).toBe(0)
+            expect(log.bodyBytes).toBe(0)
+            expect(log.firstChunkMs).toBeNull()
+            expect(log.lastChunkMs).toBeNull()
+            expect(log.chunkSpanMs).toBeNull()
         })
     })
 })

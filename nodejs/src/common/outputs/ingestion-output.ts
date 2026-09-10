@@ -1,4 +1,4 @@
-import { MessageKey } from '~/kafka/producer'
+import { MessageKey } from '~/common/kafka/producer'
 
 import { IngestionOutputMessage } from './types'
 

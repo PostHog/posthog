@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from posthog.test.base import NonAtomicBaseTest
@@ -14,9 +15,11 @@ from posthog.api.tagged_item import set_tags_on_object
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 if TYPE_CHECKING:
-    from products.customer_analytics.backend.models import Account
+    from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
 else:
     Account = apps.get_model("customer_analytics", "Account")
+    AccountRelationship = apps.get_model("customer_analytics", "AccountRelationship")
+    AccountRelationshipDefinition = apps.get_model("customer_analytics", "AccountRelationshipDefinition")
 
 from ee.hogai.context.account.context import AccountContext
 
@@ -81,16 +84,52 @@ class TestAccountContext(NonAtomicBaseTest):
 
         assert "**External ID:** Not set" in result
 
-    async def test_format_includes_roles(self):
-        account = await self._create_account(
-            name="Acme Corp",
-            _properties={"csm": {"id": 42, "email": "jane@acme.com"}},
+    async def test_format_includes_churn_status(self):
+        active = await self._create_account(name="Active")
+        churned = await self._create_account(name="Churned", churned_at=datetime(2026, 8, 1, 12, 30, tzinfo=UTC))
+
+        active_result = await AccountContext(
+            team=self.team, user=self.user, account_id=str(active.id)
+        ).execute_and_format()
+        churned_result = await AccountContext(
+            team=self.team, user=self.user, account_id=str(churned.id)
+        ).execute_and_format()
+
+        assert "**Churned:** Not churned" in active_result
+        assert "**Churned:** 2026-08-01T12:30:00+00:00" in churned_result
+
+    async def test_format_includes_ignored_status(self):
+        tracked = await self._create_account(name="Tracked")
+        ignored = await self._create_account(name="Ignored", ignored_at=datetime(2026, 8, 2, 12, 30, tzinfo=UTC))
+
+        tracked_result = await AccountContext(
+            team=self.team, user=self.user, account_id=str(tracked.id)
+        ).execute_and_format()
+        ignored_result = await AccountContext(
+            team=self.team, user=self.user, account_id=str(ignored.id)
+        ).execute_and_format()
+
+        assert "**Tracking:** Tracked" in tracked_result
+        assert "**Tracking:** Ignored since 2026-08-02T12:30:00+00:00" in ignored_result
+
+    async def test_format_includes_relationships(self):
+        account = await self._create_account(name="Acme Corp")
+        definition = await AccountRelationshipDefinition.objects.unscoped().acreate(team=self.team, name="CSM")
+        await AccountRelationship.objects.unscoped().acreate(
+            team=self.team, account=account, definition=definition, user=self.user
         )
 
         result = await AccountContext(team=self.team, user=self.user, account_id=str(account.id)).execute_and_format()
 
-        assert "### Roles" in result
-        assert "CSM: jane@acme.com (user 42)" in result
+        assert "### Relationships" in result
+        assert f"CSM: {self.user.email} (user {self.user.id})" in result
+
+    async def test_format_omits_relationships_section_without_assignments(self):
+        account = await self._create_account(name="Acme Corp")
+
+        result = await AccountContext(team=self.team, user=self.user, account_id=str(account.id)).execute_and_format()
+
+        assert "### Relationships" not in result
 
     async def test_format_includes_external_system_ids(self):
         account = await self._create_account(name="Acme Corp", _properties={"stripe_customer_id": "cus_123"})

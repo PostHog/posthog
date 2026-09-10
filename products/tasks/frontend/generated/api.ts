@@ -9,33 +9,94 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    CodeInviteRedeemRequestApi,
+    ChannelContextGenerationApi,
+    ChannelDTOApi,
+    ChannelFeedMessageDTOApi,
+    ChannelFeedMessageWriteApi,
+    ChannelInstructionsDTOApi,
+    ChannelInstructionsWriteApi,
+    ChannelMembersWriteApi,
+    ChannelStarWriteApi,
+    ChannelWriteApi,
     ConnectionTokenResponseApi,
+    DesktopAccessResponseApi,
+    DesktopBetaTermsAcceptanceDTOApi,
+    LegacyDesktopAccessResponseApi,
+    LoopDTOApi,
+    LoopFireResultApi,
+    LoopPreviewDTOApi,
+    LoopPreviewRequestApi,
+    LoopRunPageApi,
+    LoopSkillBundlesWriteApi,
+    LoopWriteApi,
+    LoopsListParams,
+    LoopsRunsRetrieveParams,
+    LoopsTriggerCreateBodyOne,
+    LoopsTriggerCreateBodyThree,
+    LoopsTriggerCreateBodyTwo,
+    ModelCatalogueResponseApi,
+    OnboardingSessionApi,
+    OnboardingSessionTestApi,
+    OnboardingSessionTestResponseApi,
+    PaginatedChannelDTOListApi,
+    PaginatedChannelFeedMessageDTOListApi,
+    PaginatedChannelInstructionsDTOListApi,
+    PaginatedLoopDTOListApi,
+    PaginatedSandboxCustomImageDTOListApi,
     PaginatedSandboxEnvironmentDTOListApi,
-    PaginatedTaskAutomationDTOListApi,
-    PaginatedTaskDetailDTOListApi,
+    PaginatedTaskListItemListApi,
+    PaginatedTaskMentionDTOListApi,
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
+    PaginatedTaskThreadMessageDTOListApi,
+    PatchedChannelInstructionsWriteApi,
+    PatchedChannelUpdateApi,
+    PatchedLoopWriteApi,
+    PatchedRepoRoutingRuleApi,
+    PatchedSandboxCustomImageUpdateApi,
     PatchedSandboxEnvironmentWriteApi,
-    PatchedTaskAutomationWriteApi,
     PatchedTaskRunSetOutputRequestApi,
     PatchedTaskRunUpdateApi,
     PatchedTaskWriteApi,
+    PinnedTaskIdsResponseApi,
+    ProvisionedChannelsApi,
+    RepoRoutingRuleApi,
     RepositoryReadinessResponseApi,
+    SandboxComputePricingApi,
+    SandboxCustomImageBuildApi,
+    SandboxCustomImageDTOApi,
+    SandboxCustomImageWriteApi,
+    SandboxCustomImagesListParams,
     SandboxEnvironmentDTOApi,
     SandboxEnvironmentWriteApi,
     SandboxListParams,
     SlackThreadContextResponseApi,
     StreamReadTokenResponseApi,
-    TaskAutomationDTOApi,
-    TaskAutomationWriteApi,
-    TaskAutomationsListParams,
+    TaskActivityListParams,
+    TaskActivityMarkReadApi,
+    TaskActivityMarkReadResponseApi,
+    TaskActivityPageDTOApi,
+    TaskArtifactsResponseApi,
+    TaskChannelsFeedListParams,
+    TaskChannelsListParams,
+    TaskCommentDetailApi,
+    TaskCommentsResponseApi,
+    TaskCreateApi,
     TaskDetailDTOApi,
+    TaskHandoffRequestApi,
+    TaskMentionsListParams,
+    TaskPinRequestApi,
+    TaskPinResponseApi,
     TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
+    TaskRunAnalysisActivityRequestApi,
+    TaskRunAnalysisActivityResponseApi,
+    TaskRunAnalyzeResponseApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
+    TaskRunArtifactsDismissRequestApi,
+    TaskRunArtifactsDismissResponseApi,
     TaskRunArtifactsFinalizeUploadRequestApi,
     TaskRunArtifactsFinalizeUploadResponseApi,
     TaskRunArtifactsPrepareUploadRequestApi,
@@ -43,60 +104,532 @@ import type {
     TaskRunArtifactsUploadRequestApi,
     TaskRunArtifactsUploadResponseApi,
     TaskRunBootstrapCreateRequestApi,
+    TaskRunCancelRequestApi,
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
     TaskRunDetailDTOApi,
+    TaskRunLivingArtifactChartRequestApi,
+    TaskRunLivingArtifactChartResponseApi,
+    TaskRunLivingArtifactCreateRequestApi,
+    TaskRunLivingArtifactEditRequestApi,
+    TaskRunLivingArtifactOpenResponseApi,
+    TaskRunLivingArtifactResponseApi,
+    TaskRunLivingArtifactsResponseApi,
+    TaskRunPeerMessageRequestApi,
+    TaskRunPeerMessageResponseApi,
+    TaskRunPeersResponseApi,
+    TaskRunPostHogReferencesRequestApi,
+    TaskRunPostHogReferencesResponseApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
+    TaskSearchResultApi,
+    TaskSessionResponseApi,
+    TaskSessionSyncResponseApi,
     TaskStagedArtifactsFinalizeUploadRequestApi,
     TaskStagedArtifactsFinalizeUploadResponseApi,
     TaskStagedArtifactsPrepareUploadRequestApi,
     TaskStagedArtifactsPrepareUploadResponseApi,
     TaskSummariesRequestApi,
+    TaskThreadMessageDTOApi,
+    TaskThreadMessageWriteApi,
+    TaskUsageResponseApi,
+    TaskUserBasicInfoApi,
     TaskWriteApi,
+    TasksAIRunPreferencesApi,
+    TasksCommentsListParams,
+    TasksCommentsRetrieveParams,
+    TasksConfigListParams,
     TasksListParams,
+    TasksMeConfigListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsStreamRetrieveParams,
+    TasksSearchRetrieveParams,
     TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
+    TasksTeamConfigResponseApi,
+    TasksThreadMessagesListParams,
+    TasksUserConfigResponseApi,
+    TeachingCanvasApi,
+    WarmTaskRequestApi,
+    WarmTaskResponseApi,
+    WarmTaskResumeRequestApi,
+    WarmTaskResumeResponseApi,
+    WizardCloudRunDTOApi,
 } from './api.schemas'
+
+// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
+
+type WritableKeys<T> = {
+    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
+}[keyof T]
+
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
+type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
+
+type Writable<T> = Pick<T, WritableKeys<T>>
+type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
+    ? {
+          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
+      }
+    : DistributeReadOnlyOverUnions<T>
 
 export const getCodeInvitesCheckAccessRetrieveUrl = () => {
     return `/api/code/invites/check-access/`
 }
 
 /**
- * Check whether the authenticated user has access to PostHog Code.
- * @summary Check access
+ * Compatibility endpoint for released PostHog Desktop clients.
+ * @summary Check PostHog Desktop access
  */
-export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCodeInvitesCheckAccessRetrieveUrl(), {
+export const codeInvitesCheckAccessRetrieve = async (
+    options?: RequestInit
+): Promise<LegacyDesktopAccessResponseApi> => {
+    return apiMutator<LegacyDesktopAccessResponseApi>(getCodeInvitesCheckAccessRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getCodeInvitesRedeemCreateUrl = () => {
-    return `/api/code/invites/redeem/`
+export const getCodeSandboxPricingListUrl = () => {
+    return `/api/code/sandbox-pricing/`
 }
 
 /**
- * Redeem a PostHog Code invite code to enable access.
- * @summary Redeem invite code
+ * Get the current sandbox compute rate card and expired rate-card history.
+ * @summary Get sandbox compute pricing
  */
-export const codeInvitesRedeemCreate = async (
-    codeInviteRedeemRequestApi: CodeInviteRedeemRequestApi,
+export const codeSandboxPricingList = async (options?: RequestInit): Promise<SandboxComputePricingApi> => {
+    return apiMutator<SandboxComputePricingApi>(getCodeSandboxPricingListUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopAccessRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop/access/`
+}
+
+/**
+ * Evaluate Desktop access for the selected project and organization.
+ * @summary Check PostHog Desktop access
+ */
+export const desktopAccessRetrieve = async (
+    projectId: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getCodeInvitesRedeemCreateUrl(), {
+): Promise<DesktopAccessResponseApi> => {
+    return apiMutator<DesktopAccessResponseApi>(getDesktopAccessRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopBetaTermsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop_beta_terms/`
+}
+
+export const desktopBetaTermsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
+    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopBetaTermsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop_beta_terms/`
+}
+
+export const desktopBetaTermsCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
+    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getLoopsListUrl = (projectId: string, params?: LoopsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/loops/?${stringifiedParams}`
+        : `/api/projects/${projectId}/loops/`
+}
+
+/**
+ * List loops visible to the caller: personal loops they own, plus every team loop. The response also carries `max_loops_per_team` and `total_loop_count` so a client can show remaining capacity and disable creation at the cap without hardcoding the limit.
+ * @summary List loops
+ */
+export const loopsList = async (
+    projectId: string,
+    params?: LoopsListParams,
+    options?: RequestInit
+): Promise<PaginatedLoopDTOListApi> => {
+    return apiMutator<PaginatedLoopDTOListApi>(getLoopsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLoopsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/loops/`
+}
+
+/**
+ * API for managing loops — named, cloud-executed agent automations triggered by
+ * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
+ * @summary Create a loop
+ */
+export const loopsCreate = async (
+    projectId: string,
+    loopWriteApi: LoopWriteApi,
+    options?: RequestInit
+): Promise<LoopDTOApi> => {
+    return apiMutator<LoopDTOApi>(getLoopsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(codeInviteRedeemRequestApi),
+        body: JSON.stringify(loopWriteApi),
+    })
+}
+
+export const getLoopsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/`
+}
+
+/**
+ * API for managing loops — named, cloud-executed agent automations triggered by
+ * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
+ * @summary Get a loop
+ */
+export const loopsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<LoopDTOApi> => {
+    return apiMutator<LoopDTOApi>(getLoopsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLoopsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/`
+}
+
+/**
+ * Partial update. Identity-bearing fields (instructions, repositories, connectors, behaviors, model config, triggers) are owner-only on team loops; name, description, notifications and enable/pause are editable by any team member.
+ * @summary Update a loop
+ */
+export const loopsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedLoopWriteApi?: PatchedLoopWriteApi,
+    options?: RequestInit
+): Promise<LoopDTOApi> => {
+    return apiMutator<LoopDTOApi>(getLoopsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLoopWriteApi),
+    })
+}
+
+export const getLoopsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/`
+}
+
+/**
+ * Soft delete. Pauses every trigger's schedule. Owner or a project admin only.
+ * @summary Delete a loop
+ */
+export const loopsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLoopsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getLoopsPreviewCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/preview/`
+}
+
+/**
+ * Dry run: renders the assembled instructions and trigger context for a supplied sample payload (or a synthetic schedule fire when omitted), without creating a task, run, or any other side effect.
+ * @summary Preview a loop fire
+ */
+export const loopsPreviewCreate = async (
+    projectId: string,
+    id: string,
+    loopPreviewRequestApi?: LoopPreviewRequestApi,
+    options?: RequestInit
+): Promise<LoopPreviewDTOApi> => {
+    return apiMutator<LoopPreviewDTOApi>(getLoopsPreviewCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(loopPreviewRequestApi),
+    })
+}
+
+export const getLoopsRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/run/`
+}
+
+/**
+ * Manual fire from the UI. Owner-only for personal loops; any team member for team loops.
+ * @summary Run a loop manually
+ */
+export const loopsRunCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LoopFireResultApi> => {
+    return apiMutator<LoopFireResultApi>(getLoopsRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getLoopsRunsRetrieveUrl = (projectId: string, id: string, params?: LoopsRunsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/loops/${id}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/loops/${id}/runs/`
+}
+
+/**
+ * Run history for a loop, newest first, cursor-paginated.
+ * @summary List loop runs
+ */
+export const loopsRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: LoopsRunsRetrieveParams,
+    options?: RequestInit
+): Promise<LoopRunPageApi> => {
+    return apiMutator<LoopRunPageApi>(getLoopsRunsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLoopsSkillBundlesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/skill_bundles/`
+}
+
+/**
+ * Replaces the loop's attached skill bundles wholesale: zipped local skills whose contents are seeded into every fired run's sandbox. Send an empty list to detach every skill. Owner-only on team loops, like other identity-bearing configuration.
+ * @summary Replace a loop's skill bundles
+ */
+export const loopsSkillBundlesUpdate = async (
+    projectId: string,
+    id: string,
+    loopSkillBundlesWriteApi: LoopSkillBundlesWriteApi,
+    options?: RequestInit
+): Promise<LoopDTOApi> => {
+    return apiMutator<LoopDTOApi>(getLoopsSkillBundlesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(loopSkillBundlesWriteApi),
+    })
+}
+
+export const getLoopsTriggerCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/loops/${id}/trigger/`
+}
+
+/**
+ * Authenticated POST trigger for `type=api` triggers. Project secret API key auth (`loop:write` scope), project-wide. Request body (JSON, capped at 64 KB) becomes run context. Send an `Idempotency-Key` header to dedupe retries.
+ * @summary Fire a loop externally
+ */
+export const loopsTriggerCreate = async (
+    projectId: string,
+    id: string,
+    loopsTriggerCreateBody?: LoopsTriggerCreateBodyOne | LoopsTriggerCreateBodyTwo | LoopsTriggerCreateBodyThree,
+    options?: RequestInit
+): Promise<LoopFireResultApi> => {
+    return apiMutator<LoopFireResultApi>(getLoopsTriggerCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        body: JSON.stringify(loopsTriggerCreateBody),
+    })
+}
+
+export const getSandboxCustomImagesListUrl = (projectId: string, params?: SandboxCustomImagesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/sandbox_custom_images/?${stringifiedParams}`
+        : `/api/projects/${projectId}/sandbox_custom_images/`
+}
+
+/**
+ * API for custom sandbox base images, built on top of the VM sandbox base via an image-builder agent.
+ *
+ * Custom images only run on the Modal VM runtime, so every action is gated on the
+ * `tasks-modal-vm-sandbox` flag (org-enabled with `user_created` in its origin_products payload).
+ */
+export const sandboxCustomImagesList = async (
+    projectId: string,
+    params?: SandboxCustomImagesListParams,
+    options?: RequestInit
+): Promise<PaginatedSandboxCustomImageDTOListApi> => {
+    return apiMutator<PaginatedSandboxCustomImageDTOListApi>(getSandboxCustomImagesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSandboxCustomImagesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/`
+}
+
+/**
+ * Create a draft custom image and start its interactive image-builder agent task. The returned builder_task_id points at the conversation.
+ */
+export const sandboxCustomImagesCreate = async (
+    projectId: string,
+    sandboxCustomImageWriteApi: SandboxCustomImageWriteApi,
+    options?: RequestInit
+): Promise<SandboxCustomImageDTOApi> => {
+    return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxCustomImageWriteApi),
+    })
+}
+
+export const getSandboxCustomImagesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/${id}/`
+}
+
+/**
+ * API for custom sandbox base images, built on top of the VM sandbox base via an image-builder agent.
+ *
+ * Custom images only run on the Modal VM runtime, so every action is gated on the
+ * `tasks-modal-vm-sandbox` flag (org-enabled with `user_created` in its origin_products payload).
+ */
+export const sandboxCustomImagesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SandboxCustomImageDTOApi> => {
+    return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSandboxCustomImagesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/${id}/`
+}
+
+/**
+ * Rename or update the description of a custom image. Only mutable metadata (name, description) is editable; the build spec and status are managed by the build flow.
+ */
+export const sandboxCustomImagesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSandboxCustomImageUpdateApi?: PatchedSandboxCustomImageUpdateApi,
+    options?: RequestInit
+): Promise<SandboxCustomImageDTOApi> => {
+    return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSandboxCustomImageUpdateApi),
+    })
+}
+
+export const getSandboxCustomImagesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/${id}/`
+}
+
+/**
+ * API for custom sandbox base images, built on top of the VM sandbox base via an image-builder agent.
+ *
+ * Custom images only run on the Modal VM runtime, so every action is gated on the
+ * `tasks-modal-vm-sandbox` flag (org-enabled with `user_created` in its origin_products payload).
+ */
+export const sandboxCustomImagesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSandboxCustomImagesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSandboxCustomImagesBuildCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/${id}/build/`
+}
+
+/**
+ * Persist the image spec (from the request body or the builder agent's sandbox), run the security scan, and on pass build and publish the image.
+ */
+export const sandboxCustomImagesBuildCreate = async (
+    projectId: string,
+    id: string,
+    sandboxCustomImageBuildApi?: SandboxCustomImageBuildApi,
+    options?: RequestInit
+): Promise<SandboxCustomImageDTOApi> => {
+    return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesBuildCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxCustomImageBuildApi),
+    })
+}
+
+export const getSandboxCustomImagesBuilderTaskCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/${id}/builder_task/`
+}
+
+/**
+ * Revive (or reuse) the image's builder agent session. When the previous session has ended, a fresh one is started seeded with the stored spec — use this to update an existing image.
+ */
+export const sandboxCustomImagesBuilderTaskCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SandboxCustomImageDTOApi> => {
+    return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesBuilderTaskCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -203,7 +736,7 @@ export const sandboxDestroy = async (projectId: string, id: string, options?: Re
     })
 }
 
-export const getTaskAutomationsListUrl = (projectId: string, params?: TaskAutomationsListParams) => {
+export const getTaskActivityListUrl = (projectId: string, params?: TaskActivityListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -215,112 +748,517 @@ export const getTaskAutomationsListUrl = (projectId: string, params?: TaskAutoma
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/task_automations/?${stringifiedParams}`
-        : `/api/projects/${projectId}/task_automations/`
+        ? `/api/projects/${projectId}/task_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_activity/`
 }
 
 /**
- * API for managing scheduled task automations.
+ * Task lifecycle rows collapse per task. Comment notifications remain separate. Results are most-recent first and restricted to tasks the requester can see.
+ * @summary List the requester's task activity
  */
-export const taskAutomationsList = async (
+export const taskActivityList = async (
     projectId: string,
-    params?: TaskAutomationsListParams,
+    params?: TaskActivityListParams,
     options?: RequestInit
-): Promise<PaginatedTaskAutomationDTOListApi> => {
-    return apiMutator<PaginatedTaskAutomationDTOListApi>(getTaskAutomationsListUrl(projectId, params), {
+): Promise<TaskActivityPageDTOApi> => {
+    return apiMutator<TaskActivityPageDTOApi>(getTaskActivityListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getTaskAutomationsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/task_automations/`
+export const getTaskActivityMarkReadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_activity/mark_read/`
 }
 
 /**
- * API for managing scheduled task automations.
+ * Clear collapsed task activity through task timestamps and individual comment activity through activity IDs.
+ * @summary Mark task activity read
  */
-export const taskAutomationsCreate = async (
+export const taskActivityMarkReadCreate = async (
     projectId: string,
-    taskAutomationWriteApi: TaskAutomationWriteApi,
+    taskActivityMarkReadApi: TaskActivityMarkReadApi,
     options?: RequestInit
-): Promise<TaskAutomationDTOApi> => {
-    return apiMutator<TaskAutomationDTOApi>(getTaskAutomationsCreateUrl(projectId), {
+): Promise<TaskActivityMarkReadResponseApi> => {
+    return apiMutator<TaskActivityMarkReadResponseApi>(getTaskActivityMarkReadCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskAutomationWriteApi),
+        body: JSON.stringify(taskActivityMarkReadApi),
     })
 }
 
-export const getTaskAutomationsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/task_automations/${id}/`
+export const getTaskChannelsListUrl = (projectId: string, params?: TaskChannelsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_channels/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_channels/`
 }
 
 /**
- * API for managing scheduled task automations.
+ * List channels the requester can access, sorted by name and ID. Includes public channels, their personal #me channel, and private channels they belong to. Call provision_defaults to create missing default channels. Send limit and offset to get a page with count, next, previous, and results. Without limit, the response is an array of all accessible channels.
+ * @summary List channels
  */
-export const taskAutomationsRetrieve = async (
+export const taskChannelsList = async (
     projectId: string,
-    id: string,
+    params?: TaskChannelsListParams,
     options?: RequestInit
-): Promise<TaskAutomationDTOApi> => {
-    return apiMutator<TaskAutomationDTOApi>(getTaskAutomationsRetrieveUrl(projectId, id), {
+): Promise<PaginatedChannelDTOListApi> => {
+    return apiMutator<PaginatedChannelDTOListApi>(getTaskChannelsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getTaskAutomationsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/task_automations/${id}/`
+export const getTaskChannelsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/`
 }
 
 /**
- * API for managing scheduled task automations.
+ * Create a channel. Public channels use lowercase names with hyphens. If a public channel has that name, return it. The name general returns the project's general space. Private channels always get a new ID, even if another channel has the same name. The requester and users in member_ids with project access become members. New channels are starred for the requester unless star is false. The names "me" and "personal" are reserved.
+ * @summary Create a channel
  */
-export const taskAutomationsPartialUpdate = async (
+export const taskChannelsCreate = async (
     projectId: string,
-    id: string,
-    patchedTaskAutomationWriteApi?: PatchedTaskAutomationWriteApi,
+    channelWriteApi: ChannelWriteApi,
     options?: RequestInit
-): Promise<TaskAutomationDTOApi> => {
-    return apiMutator<TaskAutomationDTOApi>(getTaskAutomationsPartialUpdateUrl(projectId, id), {
+): Promise<ChannelDTOApi> => {
+    return apiMutator<ChannelDTOApi>(getTaskChannelsCreateUrl(projectId), {
         ...options,
-        method: 'PATCH',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTaskAutomationWriteApi),
+        body: JSON.stringify(channelWriteApi),
     })
 }
 
-export const getTaskAutomationsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/task_automations/${id}/`
+export const getTaskChannelsFeedListUrl = (
+    projectId: string,
+    channelId: string,
+    params?: TaskChannelsFeedListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_channels/${channelId}/feed/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_channels/${channelId}/feed/`
 }
 
 /**
- * API for managing scheduled task automations.
+ * A channel's system announcements in chronological order.
+ * @summary List channel feed messages
  */
-export const taskAutomationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getTaskAutomationsDestroyUrl(projectId, id), {
+export const taskChannelsFeedList = async (
+    projectId: string,
+    channelId: string,
+    params?: TaskChannelsFeedListParams,
+    options?: RequestInit
+): Promise<PaginatedChannelFeedMessageDTOListApi> => {
+    return apiMutator<PaginatedChannelFeedMessageDTOListApi>(getTaskChannelsFeedListUrl(projectId, channelId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskChannelsFeedCreateUrl = (projectId: string, channelId: string) => {
+    return `/api/projects/${projectId}/task_channels/${channelId}/feed/`
+}
+
+/**
+ * API for a channel's system-announcement feed — durable "PostHog agent" rows
+ * (context created, CONTEXT.md being built) rendered alongside the channel's task
+ * cards. Read by any team member for a public channel; personal channels are owner-only.
+ * @summary Post a channel feed message
+ */
+export const taskChannelsFeedCreate = async (
+    projectId: string,
+    channelId: string,
+    channelFeedMessageWriteApi: ChannelFeedMessageWriteApi,
+    options?: RequestInit
+): Promise<ChannelFeedMessageDTOApi> => {
+    return apiMutator<ChannelFeedMessageDTOApi>(getTaskChannelsFeedCreateUrl(projectId, channelId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelFeedMessageWriteApi),
+    })
+}
+
+export const getTaskChannelsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/`
+}
+
+/**
+ * @summary Get a channel
+ */
+export const taskChannelsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ChannelDTOApi> => {
+    return apiMutator<ChannelDTOApi>(getTaskChannelsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskChannelsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/`
+}
+
+/**
+ * @summary Update a channel
+ */
+export const taskChannelsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedChannelUpdateApi?: PatchedChannelUpdateApi,
+    options?: RequestInit
+): Promise<ChannelDTOApi> => {
+    return apiMutator<ChannelDTOApi>(getTaskChannelsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedChannelUpdateApi),
+    })
+}
+
+export const getTaskChannelsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/`
+}
+
+/**
+ * @summary Delete a channel
+ */
+export const taskChannelsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTaskChannelsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export const getTaskAutomationsRunCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/task_automations/${id}/run/`
+export const getTaskChannelsContextGenerationRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/context_generation/`
 }
 
 /**
- * API for managing scheduled task automations.
+ * @summary Get the channel's CONTEXT.md generation task
  */
-export const taskAutomationsRunCreate = async (
+export const taskChannelsContextGenerationRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<TaskAutomationDTOApi> => {
-    return apiMutator<TaskAutomationDTOApi>(getTaskAutomationsRunCreateUrl(projectId, id), {
+): Promise<ChannelContextGenerationApi> => {
+    return apiMutator<ChannelContextGenerationApi>(getTaskChannelsContextGenerationRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskChannelsContextGenerationUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/context_generation/`
+}
+
+/**
+ * @summary Set or clear the channel's CONTEXT.md generation task
+ */
+export const taskChannelsContextGenerationUpdate = async (
+    projectId: string,
+    id: string,
+    channelContextGenerationApi: ChannelContextGenerationApi,
+    options?: RequestInit
+): Promise<ChannelContextGenerationApi> => {
+    return apiMutator<ChannelContextGenerationApi>(getTaskChannelsContextGenerationUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelContextGenerationApi),
+    })
+}
+
+export const getTaskChannelsInstructionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/instructions/`
+}
+
+/**
+ * The channel's latest CONTEXT.md instructions. A channel with no published instructions reads as a blank version 0 — publish against base_version 0 to create version 1.
+ * @summary Get channel instructions
+ */
+export const taskChannelsInstructionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ChannelInstructionsDTOApi> => {
+    return apiMutator<ChannelInstructionsDTOApi>(getTaskChannelsInstructionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskChannelsInstructionsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/instructions/`
+}
+
+/**
+ * Publish a new version of the channel's CONTEXT.md instructions. Pass base_version (the version you read) so a concurrent edit is rejected with 409 instead of overwritten.
+ * @summary Publish channel instructions
+ */
+export const taskChannelsInstructionsUpdate = async (
+    projectId: string,
+    id: string,
+    channelInstructionsWriteApi: ChannelInstructionsWriteApi,
+    options?: RequestInit
+): Promise<ChannelInstructionsDTOApi> => {
+    return apiMutator<ChannelInstructionsDTOApi>(getTaskChannelsInstructionsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelInstructionsWriteApi),
+    })
+}
+
+export const getTaskChannelsInstructionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/instructions/`
+}
+
+/**
+ * Publish a new version of the channel's CONTEXT.md instructions. Pass base_version (the version you read) so a concurrent edit is rejected with 409 instead of overwritten.
+ * @summary Publish channel instructions
+ */
+export const taskChannelsInstructionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedChannelInstructionsWriteApi?: PatchedChannelInstructionsWriteApi,
+    options?: RequestInit
+): Promise<ChannelInstructionsDTOApi> => {
+    return apiMutator<ChannelInstructionsDTOApi>(getTaskChannelsInstructionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedChannelInstructionsWriteApi),
+    })
+}
+
+export const getTaskChannelsInstructionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/instructions/`
+}
+
+/**
+ * @summary Delete channel instructions
+ */
+export const taskChannelsInstructionsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTaskChannelsInstructionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTaskChannelsInstructionsVersionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/instructions/versions/`
+}
+
+/**
+ * @summary List channel instruction versions
+ */
+export const taskChannelsInstructionsVersionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PaginatedChannelInstructionsDTOListApi> => {
+    return apiMutator<PaginatedChannelInstructionsDTOListApi>(
+        getTaskChannelsInstructionsVersionsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getTaskChannelsMembersRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/members/`
+}
+
+/**
+ * List the members of a private channel. Return an empty list for public and personal channels. Return 404 if the requester cannot access the channel.
+ * @summary List a channel's members
+ */
+export const taskChannelsMembersRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskUserBasicInfoApi[]> => {
+    return apiMutator<TaskUserBasicInfoApi[]>(getTaskChannelsMembersRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskChannelsMembersUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/members/`
+}
+
+/**
+ * Replace the members of a private channel. Any member can update this list. The creator remains a member. Return 400 for public and personal channels.
+ * @summary Replace a private channel's members
+ */
+export const taskChannelsMembersUpdate = async (
+    projectId: string,
+    id: string,
+    channelMembersWriteApi: ChannelMembersWriteApi,
+    options?: RequestInit
+): Promise<TaskUserBasicInfoApi[]> => {
+    return apiMutator<TaskUserBasicInfoApi[]>(getTaskChannelsMembersUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelMembersWriteApi),
+    })
+}
+
+export const getTaskChannelsStarCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/star/`
+}
+
+/**
+ * @summary Star or unstar a channel for the requesting user
+ */
+export const taskChannelsStarCreate = async (
+    projectId: string,
+    id: string,
+    channelStarWriteApi: ChannelStarWriteApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTaskChannelsStarCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelStarWriteApi),
+    })
+}
+
+export const getTaskChannelsOnboardingSessionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/onboarding_session/`
+}
+
+/**
+ * Open the agent session a new user lands in, in the team's #general space. Reads the company's homepage, so it takes a few seconds and is deliberately not part of provisioning, which blocks the app opening. Callers fire it without awaiting it when provision_defaults reports personal_created.
+ * @summary Start a first-run onboarding session
+ */
+export const taskChannelsOnboardingSessionCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<OnboardingSessionApi> => {
+    return apiMutator<OnboardingSessionApi>(getTaskChannelsOnboardingSessionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTaskChannelsOnboardingSessionTestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/onboarding_session_test/`
+}
+
+/**
+ * Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs, in the requester's personal space.
+ * @summary Start a test first-run onboarding session
+ */
+export const taskChannelsOnboardingSessionTestCreate = async (
+    projectId: string,
+    onboardingSessionTestApi?: OnboardingSessionTestApi,
+    options?: RequestInit
+): Promise<OnboardingSessionTestResponseApi> => {
+    return apiMutator<OnboardingSessionTestResponseApi>(getTaskChannelsOnboardingSessionTestCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(onboardingSessionTestApi),
+    })
+}
+
+export const getTaskChannelsProvisionDefaultsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/provision_defaults/`
+}
+
+/**
+ * Get-or-create the requester's personal #me channel and the team's shared #general channel, and report which of the two this call created. Idempotent.
+ * @summary Provision default channels
+ */
+export const taskChannelsProvisionDefaultsCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ProvisionedChannelsApi> => {
+    return apiMutator<ProvisionedChannelsApi>(getTaskChannelsProvisionDefaultsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTaskChannelsTeachingCanvasTestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/teaching_canvas_test/`
+}
+
+/**
+ * Feature-flagged test path that resolves or creates the teaching canvas in the requester's personal space.
+ * @summary Create the teaching canvas for testing
+ */
+export const taskChannelsTeachingCanvasTestCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TeachingCanvasApi> => {
+    return apiMutator<TeachingCanvasApi>(getTaskChannelsTeachingCanvasTestCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTaskMentionsListUrl = (projectId: string, params?: TaskMentionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_mentions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_mentions/`
+}
+
+/**
+ * Thread messages that @-mention the requester, newest first, restricted to tasks they can see.
+ * @summary List mentions of the requester
+ */
+export const taskMentionsList = async (
+    projectId: string,
+    params?: TaskMentionsListParams,
+    options?: RequestInit
+): Promise<PaginatedTaskMentionDTOListApi> => {
+    return apiMutator<PaginatedTaskMentionDTOListApi>(getTaskMentionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -341,15 +1279,15 @@ export const getTasksListUrl = (projectId: string, params?: TasksListParams) => 
 }
 
 /**
- * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. By default, each row includes description. Pass basic=true for a summary row that omits description and includes description_preview, its first 1000 characters. Use the search parameter to match description text server-side.
  * @summary List tasks
  */
 export const tasksList = async (
     projectId: string,
     params?: TasksListParams,
     options?: RequestInit
-): Promise<PaginatedTaskDetailDTOListApi> => {
-    return apiMutator<PaginatedTaskDetailDTOListApi>(getTasksListUrl(projectId, params), {
+): Promise<PaginatedTaskListItemListApi> => {
+    return apiMutator<PaginatedTaskListItemListApi>(getTasksListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -364,14 +1302,14 @@ export const getTasksCreateUrl = (projectId: string) => {
  */
 export const tasksCreate = async (
     projectId: string,
-    taskWriteApi?: TaskWriteApi,
+    taskCreateApi?: TaskCreateApi,
     options?: RequestInit
 ): Promise<TaskDetailDTOApi> => {
     return apiMutator<TaskDetailDTOApi>(getTasksCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskWriteApi),
+        body: JSON.stringify(taskCreateApi),
     })
 }
 
@@ -447,6 +1385,135 @@ export const tasksDestroy = async (projectId: string, id: string, options?: Requ
     return apiMutator<void>(getTasksDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getTasksArtifactsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/artifacts/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksArtifactsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskArtifactsResponseApi> => {
+    return apiMutator<TaskArtifactsResponseApi>(getTasksArtifactsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksCommentsListUrl = (projectId: string, id: string, params?: TasksCommentsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${id}/comments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${id}/comments/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksCommentsList = async (
+    projectId: string,
+    id: string,
+    params?: TasksCommentsListParams,
+    options?: RequestInit
+): Promise<TaskCommentsResponseApi> => {
+    return apiMutator<TaskCommentsResponseApi>(getTasksCommentsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksCommentsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    rootCommentId: string,
+    params?: TasksCommentsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${id}/comments/${rootCommentId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${id}/comments/${rootCommentId}/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksCommentsRetrieve = async (
+    projectId: string,
+    id: string,
+    rootCommentId: string,
+    params?: TasksCommentsRetrieveParams,
+    options?: RequestInit
+): Promise<TaskCommentDetailApi> => {
+    return apiMutator<TaskCommentDetailApi>(getTasksCommentsRetrieveUrl(projectId, id, rootCommentId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksHandoffCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/handoff/`
+}
+
+/**
+ * Transfer ownership of a task to another member of the project: they take over driving it (steering, archiving, running), and future runs resolve GitHub authorship and notification recipients from them. Only the task's current owner can hand it off. Every run must be finished or canceled, and every sandbox must be shut down first. A task in a private space moves into the recipient's private space; a task in a shared space stays there.
+ * @summary Hand a task off to a colleague
+ */
+export const tasksHandoffCreate = async (
+    projectId: string,
+    id: string,
+    taskHandoffRequestApi: TaskHandoffRequestApi,
+    options?: RequestInit
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksHandoffCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskHandoffRequestApi),
+    })
+}
+
+export const getTasksPinCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/pin/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksPinCreate = async (
+    projectId: string,
+    id: string,
+    taskPinRequestApi: TaskPinRequestApi,
+    options?: RequestInit
+): Promise<TaskPinResponseApi> => {
+    return apiMutator<TaskPinResponseApi>(getTasksPinCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskPinRequestApi),
     })
 }
 
@@ -559,6 +1626,47 @@ export const tasksStagedArtifactsPrepareUploadCreate = async (
     )
 }
 
+export const getTasksUsageRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/usage/`
+}
+
+/**
+ * Return estimated model and cloud compute costs attributed to a task.
+ * @summary Get task usage
+ */
+export const tasksUsageRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskUsageResponseApi> => {
+    return apiMutator<TaskUsageResponseApi>(getTasksUsageRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksWarmResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/warm/`
+}
+
+/**
+ * Warm an idling successor for the task's latest terminal Run while the user composes the next message. The successor restores the prior snapshot when compatible and waits for the normal run endpoint to activate it. Best-effort: returns an empty body when warming is disabled, capped, or the task advanced to another Run.
+ * @summary Warm a resumed task sandbox
+ */
+export const tasksWarmResumeCreate = async (
+    projectId: string,
+    id: string,
+    warmTaskResumeRequestApi: WarmTaskResumeRequestApi,
+    options?: RequestInit
+): Promise<WarmTaskResumeResponseApi> => {
+    return apiMutator<WarmTaskResumeResponseApi>(getTasksWarmResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warmTaskResumeRequestApi),
+    })
+}
+
 export const getTasksRunsListUrl = (projectId: string, taskId: string, params?: TasksRunsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -656,6 +1764,52 @@ export const tasksRunsPartialUpdate = async (
     })
 }
 
+export const getTasksRunsAnalysisActivityCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/analysis-activity/`
+}
+
+/**
+ * Store one activity record on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. Activities arrive in log order and do not overlap. An exact repeat of a stored activity returns its index without storing it again. The activities list is server-owned: it is not writable through the run update endpoint.
+ * @summary Report an analysis activity
+ */
+export const tasksRunsAnalysisActivityCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunAnalysisActivityRequestApi: TaskRunAnalysisActivityRequestApi,
+    options?: RequestInit
+): Promise<TaskRunAnalysisActivityResponseApi> => {
+    return apiMutator<TaskRunAnalysisActivityResponseApi>(
+        getTasksRunsAnalysisActivityCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunAnalysisActivityRequestApi),
+        }
+    )
+}
+
+export const getTasksRunsAnalyzeCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/analyze/`
+}
+
+/**
+ * Create a PostHog-funded analysis task that reviews this run's transcript for inefficiencies and reports findings. Idempotent per run: if an analysis task already exists for this run, it is returned instead of creating another. The analysis is not billed to the customer.
+ * @summary Analyze this run
+ */
+export const tasksRunsAnalyzeCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunAnalyzeResponseApi> => {
+    return apiMutator<TaskRunAnalyzeResponseApi>(getTasksRunsAnalyzeCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getTasksRunsAppendLogCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/append_log/`
 }
@@ -700,6 +1854,58 @@ export const tasksRunsArtifactsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunArtifactsUploadRequestApi),
     })
+}
+
+export const getTasksRunsArtifactsDownloadRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/${artifactId}/download/`
+}
+
+/**
+ * Redirects to a short-lived presigned URL for the artifact, so callers can share a stable link instead of a raw presigned URL.
+ * @summary Download a task run artifact by id
+ */
+export const tasksRunsArtifactsDownloadRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getTasksRunsArtifactsDownloadRetrieveUrl(projectId, taskId, id, artifactId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsArtifactsDismissCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/dismiss/`
+}
+
+/**
+ * Hides artifacts from clients without deleting them from storage, so a file dismissed by mistake can be restored.
+ * @summary Dismiss or restore task run artifacts
+ */
+export const tasksRunsArtifactsDismissCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactsDismissRequestApi: TaskRunArtifactsDismissRequestApi,
+    options?: RequestInit
+): Promise<TaskRunArtifactsDismissResponseApi> => {
+    return apiMutator<TaskRunArtifactsDismissResponseApi>(
+        getTasksRunsArtifactsDismissCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunArtifactsDismissRequestApi),
+        }
+    )
 }
 
 export const getTasksRunsArtifactsDownloadCreateUrl = (projectId: string, taskId: string, id: string) => {
@@ -800,12 +2006,81 @@ export const tasksRunsArtifactsPresignCreate = async (
     })
 }
 
+export const getTasksRunsArtifactsReferencesCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/references/`
+}
+
+/**
+ * Attach live PostHog object references to the run artifact manifest without uploading files.
+ * @summary Register PostHog object references for a task run
+ */
+export const tasksRunsArtifactsReferencesCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunPostHogReferencesRequestApi: TaskRunPostHogReferencesRequestApi,
+    options?: RequestInit
+): Promise<TaskRunPostHogReferencesResponseApi> => {
+    return apiMutator<TaskRunPostHogReferencesResponseApi>(
+        getTasksRunsArtifactsReferencesCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunPostHogReferencesRequestApi),
+        }
+    )
+}
+
+export const getTasksRunsCancelCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/cancel/`
+}
+
+/**
+ * Stop an active cloud run. Interrupts the agent, snapshots interactive sessions for later resume, tears down the sandbox, and marks the run cancelled. Idempotent: cancelling a finished run returns it unchanged.
+ * @summary Cancel task run
+ */
+export const tasksRunsCancelCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunCancelRequestApi?: TaskRunCancelRequestApi,
+    options?: RequestInit
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsCancelCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunCancelRequestApi),
+    })
+}
+
+export const getTasksRunsClearConversationCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/clear_conversation/`
+}
+
+/**
+ * Record a `/clear` boundary in a finished run's log so the next run in the chain starts with an empty conversation. Its artifacts and visible history are unaffected. Only for a finished run: an active one has an agent that owns the clear, so send `/clear` to it as an ordinary message instead.
+ * @summary Clear conversation history
+ */
+export const tasksRunsClearConversationCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsClearConversationCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/command/`
 }
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. Permission responses return 503 agent_session_not_ready only when rejected before execution; clients may retry that code within a bounded startup wait. HTTP 200 preserves JSON-RPC errors; permission acceptance requires result.resolved=true.
  * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (
@@ -838,6 +2113,78 @@ export const tasksRunsConnectionTokenRetrieve = async (
     options?: RequestInit
 ): Promise<ConnectionTokenResponseApi> => {
     return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsPeersRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/peers/`
+}
+
+/**
+ * Agent runs this run may send messages to: cloud Pi runs of tasks created by the same user, currently in progress or queued. Discovery and send validation share one visibility policy, so a run can only message what it can list; the per-entry `sendable` flag is the liveness contract.
+ * @summary List peer agent runs
+ */
+export const tasksRunsPeersRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunPeersResponseApi> => {
+    return apiMutator<TaskRunPeersResponseApi>(getTasksRunsPeersRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsPeersMessageCreateUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    targetRunId: string
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/peers/${targetRunId}/message/`
+}
+
+/**
+ * Relay a message from this run to a peer agent run. The body is delivered below a server-composed provenance envelope as a queued (non-steer) turn; attachments are copied into the target run's own artifact storage. `accepted` means queued for delivery, never delivered — the sandbox handoff happens later inside the target's workflow.
+ * @summary Send a message to a peer agent run
+ */
+export const tasksRunsPeersMessageCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    targetRunId: string,
+    taskRunPeerMessageRequestApi: TaskRunPeerMessageRequestApi,
+    options?: RequestInit
+): Promise<TaskRunPeerMessageResponseApi> => {
+    return apiMutator<TaskRunPeerMessageResponseApi>(
+        getTasksRunsPeersMessageCreateUrl(projectId, taskId, id, targetRunId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunPeerMessageRequestApi),
+        }
+    )
+}
+
+export const getTasksRunsPreviewRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview/`
+}
+
+/**
+ * Redirects to the PostHog dev stack running inside this run's sandbox. A fresh sandbox access token is minted on every request and carried only in the redirect target, so it is never persisted or returned in a response body. When the run has no preview, or its sandbox has stopped, this renders a short HTML page instead.
+ * @summary Open the dev stack preview for a task run
+ */
+export const tasksRunsPreviewRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsPreviewRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
     })
@@ -992,9 +2339,13 @@ export const getTasksRunsStreamRetrieveUrl = (
 }
 
 /**
- * Server-Sent Events stream of task run events. Events carry an `id:` line (a Redis stream id) usable as a resume cursor.
+ * Server-Sent Events stream of task run events. Events carry an `id:` line (a Redis stream id, or a synthetic `log-<n>` id during backlog replay) usable as a resume cursor.
  *
- * The server caps each connection at 900 seconds: it emits `event: end` with `data: {"type": "rotated"}` and closes. This does NOT mean the run finished — reconnect with the `Last-Event-ID` header set to the last received event id to resume without gaps or duplicates. Only treat the stream as complete when the run itself reaches a terminal status.
+ * The server caps each connection at 900 seconds: it emits `event: end` with `data: {"type": "rotated"}` and closes. This does NOT mean the run finished — reconnect with the `Last-Event-ID` header set to the last received event id to resume. Only treat the stream as complete when the run itself reaches a terminal status.
+ *
+ * Resume guarantees cover mirrored events only: on runs where live mirroring is presence-gated, events produced while no viewer was connected are not in the live stream. Reload the run's session logs to recover the agent's output; run-state and progress frames are not in those logs, so refetch the run itself for its current state.
+ *
+ * On runs with durable backlog serving, a connection without `Last-Event-ID` first replays history from the run log under synthetic `log-<n>` event ids, then attaches the live stream, skipping live entries the backlog already covered. Reconnecting with a `log-<n>` id resumes the backlog replay from that point; reconnecting with a Redis id resumes the live stream, may re-deliver a few events already served as backlog frames, and falls back to a full backlog replay when the resume point was trimmed or the stream expired. Runs whose log exceeds the backlog byte cap skip the replay and serve only the recent live window. When the backlog is temporarily unavailable (a storage read failure, or a worker at its concurrent replay budget), the stream emits an `event: error` frame and closes; reconnect with the same cursor to retry. Treat delivery as at-least-once across reconnects.
  *
  * `?start=latest` consumers must also carry `Last-Event-ID` across reconnects: reconnecting without it re-resolves to the then-current latest event, silently skipping anything published while disconnected.
  *
@@ -1030,6 +2381,583 @@ export const tasksRunsStreamTokenRetrieve = async (
     return apiMutator<StreamReadTokenResponseApi>(getTasksRunsStreamTokenRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksRunsTaskSessionRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/task_session/`
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Get active task session storage access
+ */
+export const tasksRunsTaskSessionRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskSessionResponseApi> => {
+    return apiMutator<TaskSessionResponseApi>(getTasksRunsTaskSessionRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsTaskSessionSyncCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/task_session_sync/`
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Replace the active native task session
+ */
+export const tasksRunsTaskSessionSyncCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    tasksRunsTaskSessionSyncCreateBody?: Blob,
+    options?: RequestInit
+): Promise<TaskSessionSyncResponseApi> => {
+    return apiMutator<TaskSessionSyncResponseApi>(getTasksRunsTaskSessionSyncCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', ...options?.headers },
+        body: tasksRunsTaskSessionSyncCreateBody,
+    })
+}
+
+export const getTasksRunsLivingArtifactsListUrl = (projectId: string, taskId: string, runId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/`
+}
+
+/**
+ * Returns stable, versioned artifact handles created by the run's task.
+ * @summary List living artifacts for a task run
+ */
+export const tasksRunsLivingArtifactsList = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactsResponseApi[]> => {
+    return apiMutator<TaskRunLivingArtifactsResponseApi[]>(
+        getTasksRunsLivingArtifactsListUrl(projectId, taskId, runId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getTasksRunsLivingArtifactsCreateUrl = (projectId: string, taskId: string, runId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/`
+}
+
+/**
+ * Create a stable, editable artifact handle from direct markdown/text content or an existing run artifact. Slack adapters deliver into the mapped Slack thread; document artifacts use external connector storage when available.
+ * @summary Create a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsCreate = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    taskRunLivingArtifactCreateRequestApi: TaskRunLivingArtifactCreateRequestApi,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactResponseApi>(
+        getTasksRunsLivingArtifactsCreateUrl(projectId, taskId, runId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunLivingArtifactCreateRequestApi),
+        }
+    )
+}
+
+export const getTasksRunsLivingArtifactsOpenUrl = (projectId: string, taskId: string, runId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/${id}/`
+}
+
+/**
+ * Return a stable living artifact handle and the current content when the adapter supports reads.
+ * @summary Open a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsOpen = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactOpenResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactOpenResponseApi>(
+        getTasksRunsLivingArtifactsOpenUrl(projectId, taskId, runId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getTasksRunsLivingArtifactsEditUrl = (projectId: string, taskId: string, runId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/${id}/edit/`
+}
+
+/**
+ * Commit a new version to an existing living artifact handle.
+ * @summary Edit a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsEdit = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    id: string,
+    taskRunLivingArtifactEditRequestApi?: TaskRunLivingArtifactEditRequestApi,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactResponseApi>(
+        getTasksRunsLivingArtifactsEditUrl(projectId, taskId, runId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunLivingArtifactEditRequestApi),
+        }
+    )
+}
+
+export const getTasksRunsLivingArtifactsChartUrl = (projectId: string, taskId: string, runId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/chart/`
+}
+
+/**
+ * Renders a PostHog insight (ad-hoc query JSON or a saved insight) to a PNG server-side and registers it as a slack_file living artifact in one call. Blocks until the render finishes.
+ * @summary Render an insight chart and attach it as a living artifact
+ */
+export const tasksRunsLivingArtifactsChart = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    taskRunLivingArtifactChartRequestApi: TaskRunLivingArtifactChartRequestApi,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactChartResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactChartResponseApi>(
+        getTasksRunsLivingArtifactsChartUrl(projectId, taskId, runId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunLivingArtifactChartRequestApi),
+        }
+    )
+}
+
+export const getTasksThreadMessagesListUrl = (
+    projectId: string,
+    taskId: string,
+    params?: TasksThreadMessagesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/thread_messages/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/thread_messages/`
+}
+
+/**
+ * The task's thread in chronological order.
+ * @summary List thread messages
+ */
+export const tasksThreadMessagesList = async (
+    projectId: string,
+    taskId: string,
+    params?: TasksThreadMessagesListParams,
+    options?: RequestInit
+): Promise<PaginatedTaskThreadMessageDTOListApi> => {
+    return apiMutator<PaginatedTaskThreadMessageDTOListApi>(getTasksThreadMessagesListUrl(projectId, taskId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksThreadMessagesCreateUrl = (projectId: string, taskId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/thread_messages/`
+}
+
+/**
+ * API for a task's thread — the human-only side conversation around a task. Messages
+ * reach the agent only via the explicit send_to_agent action, gated to the task author.
+ * @summary Post a thread message
+ */
+export const tasksThreadMessagesCreate = async (
+    projectId: string,
+    taskId: string,
+    taskThreadMessageWriteApi: TaskThreadMessageWriteApi,
+    options?: RequestInit
+): Promise<TaskThreadMessageDTOApi> => {
+    return apiMutator<TaskThreadMessageDTOApi>(getTasksThreadMessagesCreateUrl(projectId, taskId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskThreadMessageWriteApi),
+    })
+}
+
+export const getTasksThreadMessagesDestroyUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/thread_messages/${id}/`
+}
+
+/**
+ * API for a task's thread — the human-only side conversation around a task. Messages
+ * reach the agent only via the explicit send_to_agent action, gated to the task author.
+ * @summary Delete own thread message
+ */
+export const tasksThreadMessagesDestroy = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksThreadMessagesDestroyUrl(projectId, taskId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTasksThreadMessagesSendToAgentCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/thread_messages/${id}/send_to_agent/`
+}
+
+/**
+ * Task author only: forwards the message into the task's latest live run.
+ * @summary Send a thread message to the agent
+ */
+export const tasksThreadMessagesSendToAgentCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskThreadMessageDTOApi: TaskThreadMessageDTOApi,
+    options?: RequestInit
+): Promise<TaskThreadMessageDTOApi> => {
+    return apiMutator<TaskThreadMessageDTOApi>(getTasksThreadMessagesSendToAgentCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskThreadMessageDTOApi),
+    })
+}
+
+export const getTasksMeConfigListUrl = (projectId: string, params?: TasksMeConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/@me/config/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/@me/config/`
+}
+
+/**
+ * Retrieve your per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (your preference over the project default).
+ */
+export const tasksMeConfigList = async (
+    projectId: string,
+    params?: TasksMeConfigListParams,
+    options?: RequestInit
+): Promise<TasksUserConfigResponseApi> => {
+    return apiMutator<TasksUserConfigResponseApi>(getTasksMeConfigListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksMeConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/@me/config/`
+}
+
+/**
+ * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
+ */
+export const tasksMeConfigCreate = async (
+    projectId: string,
+    tasksAIRunPreferencesApi?: TasksAIRunPreferencesApi,
+    options?: RequestInit
+): Promise<TasksUserConfigResponseApi> => {
+    return apiMutator<TasksUserConfigResponseApi>(getTasksMeConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksAIRunPreferencesApi),
+    })
+}
+
+export const getTasksActiveWizardRunRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/active_wizard_run/`
+}
+
+/**
+ * Returns the most recent onboarding wizard cloud run for the current project when it is still running (or completed within the last day), so the setup-progress FAB can rehydrate after a drop-flow signup that started the run server-side. Returns 204 when there is none.
+ * @summary Get the team's active onboarding wizard cloud run
+ */
+export const tasksActiveWizardRunRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WizardCloudRunDTOApi | void> => {
+    return apiMutator<WizardCloudRunDTOApi | void>(getTasksActiveWizardRunRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksConfigListUrl = (projectId: string, params?: TasksConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/config/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/config/`
+}
+
+/**
+ * Retrieve the project-wide default AI run preferences for task runs.
+ */
+export const tasksConfigList = async (
+    projectId: string,
+    params?: TasksConfigListParams,
+    options?: RequestInit
+): Promise<TasksTeamConfigResponseApi> => {
+    return apiMutator<TasksTeamConfigResponseApi>(getTasksConfigListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/config/`
+}
+
+/**
+ * Set the project-wide default AI run preferences applied to task runs created without an explicit runtime selection. Send all fields as null to clear.
+ */
+export const tasksConfigCreate = async (
+    projectId: string,
+    tasksAIRunPreferencesApi?: TasksAIRunPreferencesApi,
+    options?: RequestInit
+): Promise<TasksTeamConfigResponseApi> => {
+    return apiMutator<TasksTeamConfigResponseApi>(getTasksConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksAIRunPreferencesApi),
+    })
+}
+
+export const getTasksModelsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/models/`
+}
+
+/**
+ * Return the models a task run may use, with the reasoning efforts each one supports. Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. An empty list means the gateway is unreachable — clients should fall back to their own default rather than treating it as 'no models exist'.
+ * @summary List available models
+ */
+export const tasksModelsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ModelCatalogueResponseApi> => {
+    return apiMutator<ModelCatalogueResponseApi>(getTasksModelsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksPinnedRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/pinned/`
+}
+
+/**
+ * Return the visible tasks pinned by the requester in the current project.
+ * @summary List pinned tasks
+ */
+export const tasksPinnedRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PinnedTaskIdsResponseApi> => {
+    return apiMutator<PinnedTaskIdsResponseApi>(getTasksPinnedRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRepoRoutingRulesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/repo_routing_rules/`
+}
+
+/**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const tasksRepoRoutingRulesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RepoRoutingRuleApi[]> => {
+    return apiMutator<RepoRoutingRuleApi[]>(getTasksRepoRoutingRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRepoRoutingRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/repo_routing_rules/`
+}
+
+/**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const tasksRepoRoutingRulesCreate = async (
+    projectId: string,
+    repoRoutingRuleApi: NonReadonly<RepoRoutingRuleApi>,
+    options?: RequestInit
+): Promise<RepoRoutingRuleApi> => {
+    return apiMutator<RepoRoutingRuleApi>(getTasksRepoRoutingRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(repoRoutingRuleApi),
+    })
+}
+
+export const getTasksRepoRoutingRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/repo_routing_rules/${id}/`
+}
+
+/**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const tasksRepoRoutingRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RepoRoutingRuleApi> => {
+    return apiMutator<RepoRoutingRuleApi>(getTasksRepoRoutingRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRepoRoutingRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/repo_routing_rules/${id}/`
+}
+
+/**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const tasksRepoRoutingRulesUpdate = async (
+    projectId: string,
+    id: string,
+    repoRoutingRuleApi: NonReadonly<RepoRoutingRuleApi>,
+    options?: RequestInit
+): Promise<RepoRoutingRuleApi> => {
+    return apiMutator<RepoRoutingRuleApi>(getTasksRepoRoutingRulesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(repoRoutingRuleApi),
+    })
+}
+
+export const getTasksRepoRoutingRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/repo_routing_rules/${id}/`
+}
+
+/**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const tasksRepoRoutingRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedRepoRoutingRuleApi?: NonReadonly<PatchedRepoRoutingRuleApi>,
+    options?: RequestInit
+): Promise<RepoRoutingRuleApi> => {
+    return apiMutator<RepoRoutingRuleApi>(getTasksRepoRoutingRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedRepoRoutingRuleApi),
+    })
+}
+
+export const getTasksRepoRoutingRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/repo_routing_rules/${id}/`
+}
+
+/**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const tasksRepoRoutingRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRepoRoutingRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -1080,6 +3008,37 @@ export const tasksRepositoryReadinessRetrieve = async (
     options?: RequestInit
 ): Promise<RepositoryReadinessResponseApi> => {
     return apiMutator<RepositoryReadinessResponseApi>(getTasksRepositoryReadinessRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksSearchRetrieveUrl = (projectId: string, params: TasksSearchRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/search/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ * @summary Search tasks, pull requests, artifacts, and spaces
+ */
+export const tasksSearchRetrieve = async (
+    projectId: string,
+    params: TasksSearchRetrieveParams,
+    options?: RequestInit
+): Promise<TaskSearchResultApi[]> => {
+    return apiMutator<TaskSearchResultApi[]>(getTasksSearchRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1136,7 +3095,7 @@ export const getTasksSummariesCreateUrl = (projectId: string, params?: TasksSumm
 }
 
 /**
- * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
+ * Returns summary for the requested tasks, including the creator ID and the latest run's ID, status, and environment.
  * @summary Fetch task summaries by ID
  */
 export const tasksSummariesCreate = async (
@@ -1150,5 +3109,26 @@ export const tasksSummariesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskSummariesRequestApi),
+    })
+}
+
+export const getTasksWarmCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/warm/`
+}
+
+/**
+ * Warm a full idling Run for a cloud task while the user composes: boot a sandbox, clone the repo, check out the branch, and start the agent, then idle awaiting the first message. On submit the normal create+run path transparently reuses and activates this Run; abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't belong to the team.
+ * @summary Warm a task sandbox
+ */
+export const tasksWarmCreate = async (
+    projectId: string,
+    warmTaskRequestApi?: WarmTaskRequestApi,
+    options?: RequestInit
+): Promise<WarmTaskResponseApi> => {
+    return apiMutator<WarmTaskResponseApi>(getTasksWarmCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warmTaskRequestApi),
     })
 }

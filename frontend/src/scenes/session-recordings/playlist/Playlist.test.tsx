@@ -7,7 +7,7 @@ import { BindLogic, Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { Playlist } from './Playlist'
+import { Playlist, PlaylistProps } from './Playlist'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 jest.mock('scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed', () => ({
@@ -53,40 +53,50 @@ describe('Playlist', () => {
         localStorage.clear()
     })
 
-    function renderPlaylist(): ReturnType<typeof render> {
+    function renderPlaylist(props: PlaylistProps = {}): ReturnType<typeof render> {
         return render(
             <Provider>
                 <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-                    <Playlist />
+                    <Playlist {...props} />
                 </BindLogic>
             </Provider>
         )
     }
 
-    it('does not show the selected sessions banner when no session_ids filter is set', () => {
+    it('does not show the selected sessions notice when no session_ids filter is set', () => {
         renderPlaylist()
 
-        expect(screen.queryByText(/Only showing/)).not.toBeInTheDocument()
-        expect(screen.queryByText('Show all recordings')).not.toBeInTheDocument()
+        expect(screen.queryByText(/selected recording/)).not.toBeInTheDocument()
+        expect(screen.queryByText('Show all')).not.toBeInTheDocument()
     })
 
-    it('shows the selected sessions banner and clears session_ids via "Show all recordings"', async () => {
-        logic.actions.setFilters({ session_ids: ['s1', 's2'] })
-
-        renderPlaylist()
-
-        expect(screen.getByText('Only showing 2 selected recordings')).toBeInTheDocument()
+    it('lets the caller replace the troubleshooting panel for an empty list', async () => {
+        renderPlaylist({ listEmptyState: <div data-attr="caller-empty-state" /> })
 
         await waitFor(() => {
             expect(logic.values.sessionRecordingsResponseLoading).toBe(false)
         })
 
-        // LemonBanner renders the action twice (wide and narrow responsive variants)
-        userEvent.click(screen.getAllByRole('button', { name: 'Show all recordings' })[0])
+        expect(screen.getByTestId('caller-empty-state')).toBeInTheDocument()
+        expect(screen.queryByTestId('mock-troubleshooting')).not.toBeInTheDocument()
+    })
+
+    it('shows the selected sessions notice and clears session_ids via "Show all"', async () => {
+        logic.actions.setFilters({ session_ids: ['s1', 's2'] })
+
+        renderPlaylist()
+
+        expect(screen.getByText('Showing 2 selected recordings')).toBeInTheDocument()
+
+        await waitFor(() => {
+            expect(logic.values.sessionRecordingsResponseLoading).toBe(false)
+        })
+
+        userEvent.click(screen.getByText('Show all'))
 
         await waitFor(() => {
             expect(logic.values.filters.session_ids).toBeUndefined()
         })
-        expect(screen.queryByText(/Only showing/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/selected recording/)).not.toBeInTheDocument()
     })
 })

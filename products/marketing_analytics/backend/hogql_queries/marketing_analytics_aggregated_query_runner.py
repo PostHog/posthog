@@ -13,12 +13,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from .constants import (
     BASE_COLUMN_MAPPING,
     HIERARCHY_BASE_COLUMNS,
     HIERARCHY_DRILL_DOWN_LEVELS,
+    MARKETING_SPILL_AFTER_BYTES,
+    ROAS_COLUMN,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
     to_marketing_analytics_data,
 )
@@ -117,9 +120,12 @@ class MarketingAnalyticsAggregatedQueryRunner(
         # Add conversion goal columns using the aggregator
         if conversion_aggregator:
             conversion_columns = conversion_aggregator.get_conversion_goal_columns()
-            # We exclude the `Cost per` conversion goal columns from the mapping because we'll recalculate them later
+            # A sum of per-row ratios isn't the ratio of the totals, so rate-shaped columns can't
+            # ride the generic SUM() wrapper.
             conversion_columns = {
-                k: v for k, v in conversion_columns.items() if not k.startswith(MarketingAnalyticsConstants.COST_PER)
+                k: v
+                for k, v in conversion_columns.items()
+                if not k.startswith(MarketingAnalyticsConstants.COST_PER) and k != ROAS_COLUMN
             }
             all_columns.update(conversion_columns)
 
@@ -160,6 +166,9 @@ class MarketingAnalyticsAggregatedQueryRunner(
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            # These group by high-cardinality campaign dimensions, so let the GROUP BY spill
+            # to disk rather than hit the memory limit.
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MARKETING_SPILL_AFTER_BYTES),
         )
 
         results = response.results or []
@@ -179,7 +188,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
             hogql=response.hogql,
             timings=response.timings,
             modifiers=self.modifiers,
-            error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
+            error=self._conversion_goal_error,
         )
 
     def calculate_without_compare(self) -> ast.SelectQuery:
@@ -204,14 +213,16 @@ class MarketingAnalyticsAggregatedQueryRunner(
             date_to=previous_date_range.date_to().isoformat(),
         )
 
-        # Create a new runner for the previous period
+        # user= is required: a user-less previous runner loses warehouse access (empties the cost) and runs RBAC user-less.
         previous_runner = MarketingAnalyticsAggregatedQueryRunner(
             query=previous_query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            user=self.user,
         )
+        previous_runner.__dict__["_shared_hogql_database"] = self._shared_hogql_database
 
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()
@@ -252,27 +263,6 @@ class MarketingAnalyticsAggregatedQueryRunner(
             select=tuple_columns,
             select_from=join_expr,
         )
-
-    def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
-        """Extract and filter select columns - same as table query runner"""
-        if self.query.select:
-            # Create a mapping of column names to their AST expressions
-            column_mapping: dict[str, ast.Expr] = {}
-            for col in query.select:
-                if isinstance(col, ast.Alias):
-                    column_mapping[col.alias] = col
-                else:
-                    column_mapping[str(col)] = col
-
-            # Filter to only include requested columns
-            filtered_select: list[ast.Expr] = []
-            for requested_col in self.query.select:
-                if requested_col in column_mapping:
-                    filtered_select.append(column_mapping[requested_col])
-            return filtered_select
-        else:
-            # If no specific columns requested, use all columns
-            return query.select if query.select else []
 
     def _transform_results_to_dict(
         self, results: list, columns: list, has_comparison: bool

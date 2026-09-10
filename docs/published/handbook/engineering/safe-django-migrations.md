@@ -44,6 +44,52 @@ The migration analyzer (`HotTableAlterPolicy`) blocks any DDL on these tables in
 2. Add `<app_label>.<migration_name>` to `posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt` — this is the explicit "I accept the risk" act, and it's visible in review.
 3. Coordinate the deploy with #team-infrastructure for a low-traffic window.
 
+### Foreign Keys to Hot Tables
+
+**Problem:** The hazard above also fires from the _referencing_ side, and from **any** app — a plain `CreateModel` or `AddField` in a product app with a `ForeignKey(to="posthog.team", ...)` (or `to=settings.AUTH_USER_MODEL`, which resolves to `posthog_user`). Creating the FK constraint takes a `SHARE ROW EXCLUSIVE` lock on the _referenced parent_ table, even though the child table is brand new. That lock conflicts with the `ROW EXCLUSIVE` lock every `INSERT`/`UPDATE`/`DELETE` on the parent holds, so under write traffic the lock request queues behind in-flight writes, `lock_timeout` cancels it, and each `bin/migrate` retry repeats the stall. A `CreateModel` with an FK to `posthog_team` has blocked a deploy this way.
+
+`HotTableAlterPolicy` flags `CreateModel` / `AddField` whose FK target resolves to a hot table (it skips FKs declared `db_constraint=False`). Two options:
+
+**Option A — `db_constraint=False` (the only truly lock-free path):**
+
+```python
+# CreateModel / AddField then emit no FK constraint and take NO lock on the parent.
+# Referential integrity is enforced in application code only.
+team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+```
+
+This is the option that avoids the parent lock entirely — reach for it when you can live without database-level enforcement.
+
+**Option B — a real DB constraint, two-phase via the helper:**
+
+Declare the FK `db_constraint=False` (so `CreateModel` / `AddField` take no lock), then add the constraint back in a later migration with `AddForeignKeyNotValid`, and `ValidateForeignKey` after that:
+
+```python
+# 00xx_add_fk_not_valid.py  (brief SHARE ROW EXCLUSIVE on the parent — see caveat below)
+from posthog.migration_helpers import AddForeignKeyNotValid
+
+operations = [
+    AddForeignKeyNotValid(
+        model_name="mymodel",
+        name="mymodel_team_id_fk",
+        column="team_id",
+        to_table="posthog_team",
+        to_column="id",
+    ),
+]
+
+# 00yy_validate_fk.py  (SHARE UPDATE EXCLUSIVE on the child, no parent lock)
+from posthog.migration_helpers import ValidateForeignKey
+
+operations = [
+    ValidateForeignKey(model_name="mymodel", name="mymodel_team_id_fk"),
+]
+```
+
+Be honest about the lock: `ADD CONSTRAINT ... NOT VALID` still takes a **brief** `SHARE ROW EXCLUSIVE` lock on the parent for the catalog metadata add. It skips the row-validation scan, so it shrinks the lock window to metadata-only — but it does **not** eliminate the parent lock. Only `db_constraint=False` (Option A) is truly lock-free. The follow-up `VALIDATE CONSTRAINT` scans child rows under `SHARE UPDATE EXCLUSIVE` and takes no lock on the parent.
+
+If the FK genuinely must lock the hot table on add, acknowledge it the same way as any other hot-table DDL (add the migration to `hot_table_acknowledged_migrations.txt` and coordinate the deploy).
+
 ## Dropping Tables
 
 **Problem:** `DeleteModel` operations drop tables immediately. This breaks backwards compatibility during deployment and **cannot be rolled back** - once data is deleted, any rollback deployment will fail because the table no longer exists.
@@ -84,11 +130,34 @@ class Migration(migrations.Migration):
                 migrations.DeleteModel(name='OldFeature'),
             ],
             database_operations=[
-                # If table has FKs to frequently-truncated tables (User, Team, Organization),
-                # drop those FK constraints to avoid blocking TransactionTestCase teardown.
-                # migrations.RunSQL(
-                #     sql="ALTER TABLE posthog_oldfeature DROP CONSTRAINT IF EXISTS posthog_oldfeature_team_id_fkey",
-                # ),
+                # Required when the table has an FK to a hot parent (Team, User, Organization,
+                # Project). Django stops cascading into a table it cannot see, so the child rows
+                # outlive a parent delete. The constraint is DEFERRABLE INITIALLY DEFERRED, so the
+                # parent delete completes its cascade and then fails at COMMIT.
+                # Django names foreign keys with a hash suffix, so never hardcode the name with
+                # IF EXISTS: a wrong guess drops nothing and the migration still succeeds. Read the
+                # name from the catalog. The loop drops nothing on a re-run, so bin/migrate can
+                # retry the migration safely.
+                migrations.RunSQL(
+                    sql="""
+                    DO $$
+                    DECLARE fk record;
+                    BEGIN
+                        FOR fk IN
+                            SELECT con.conname
+                            FROM pg_constraint con
+                            JOIN pg_class src ON src.oid = con.conrelid
+                            JOIN pg_class tgt ON tgt.oid = con.confrelid
+                            WHERE con.contype = 'f'
+                              AND src.relname = 'posthog_oldfeature'
+                              AND tgt.relname = 'posthog_team'
+                        LOOP
+                            EXECUTE format('ALTER TABLE posthog_oldfeature DROP CONSTRAINT %I', fk.conname);
+                        END LOOP;
+                    END $$;
+                    """,
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
             ],
         ),
     ]
@@ -96,12 +165,14 @@ class Migration(migrations.Migration):
 
 5. Deploy this PR and verify no errors in production
 
+**Deleting a parent becomes impossible if you skip that constraint drop.** Once the model leaves Django's state, a `Team.objects.delete()` cascade no longer reaches the table, so its rows keep referencing the team. Because the constraint is deferred, Postgres raises the violation at `COMMIT`, after the whole cascade has run, and the delete can never succeed. Team and organization deletion stay broken for every tenant with rows in that table until someone drops it. Run `python manage.py audit_orphan_hot_table_fks` against a long-lived database to list tables already in this state; a squashed history leaves no trace of them in the migration files.
+
 **Test infrastructure note:** If your table has foreign keys pointing TO frequently-truncated tables like `User`, `Team`, or `Organization`, you may see test failures like `cannot truncate a table referenced in a foreign key constraint`. This happens because:
 
 - Django's `TransactionTestCase` uses `TRUNCATE` to clean up between tests
 - PostgreSQL won't truncate a table that has FKs pointing to it
 - Since the model is removed from Django's state, Django doesn't know to include it in the truncate list
-- Fix: Drop the FK constraints in `database_operations` (see commented example above) - you're dropping the table soon anyway
+- Fix: Drop the FK constraints in `database_operations` (see the example above) - required anyway, because leaving them breaks parent deletion
 
 **Step 2: Wait for safety window**
 
@@ -113,6 +184,7 @@ class Migration(migrations.Migration):
 
 - Safe to leave unused tables temporarily, but long-term they can clutter schema introspection and slow migrations
 - Ensure no other models reference this table via foreign keys before dropping (Django won't cascade automatically)
+- `DROP TABLE` takes `ACCESS EXCLUSIVE` on every table its own foreign keys reference. If one of those is a hot parent, add `SET LOCAL lock_timeout` to bound the wait, because queries arriving while the lock request queues wait behind it
 - If you must drop it, use `RunSQL` with raw SQL (see example below)
 - In the PR description, reference the model removal PR (e.g., "Model removed in #12345, deployed X days ago") so reviewers can verify the safety window
 
@@ -162,23 +234,69 @@ class Migration(migrations.Migration):
     ]
 ```
 
+### Removing a whole product or app
+
+Removing a product (`products/<name>/`) is the phased table drop above — once per model — plus app teardown. It is **not** a folder delete.
+
+**Do not "remove" a table by deleting its migration file.** The deleted-migration check in the `repo-checks` CI job (the `hogli lint:migration-deletions` command) blocks deleting any migration that exists on master; genuinely intentional, reviewed deletions (a product move, a revert, a squash) are acknowledged in `.github/scripts/migration-deletion-allowlist.txt`. Deleting the file drops nothing:
+
+- The table and its FK constraints stay in every database where the migration already ran.
+- The `django_migrations` rows linger as orphans — harmless (Django ignores migrations for apps not in `INSTALLED_APPS`) but never cleaned up.
+- Fresh databases never create the table, so production and CI diverge.
+- The migration risk analyzer rebuilds master's schema, then checks out each open PR's tree, so any in-flight branch that predates the deletion still carries the file and gets it re-analyzed as a brand-new migration — a phantom "blocked" flag that only clears once that branch merges master.
+
+Safe order:
+
+1. Strip all usage and the model classes, and drop the tables via the [phased approach](#dropping-tables) (state-only `DeleteModel`, wait a deploy cycle, then `DROP TABLE`). Keep the app in `INSTALLED_APPS` so its migrations still run.
+2. Only after the drop migration has deployed everywhere, remove the app from `INSTALLED_APPS` and delete the `products/<name>/` folder.
+3. Optionally `DELETE FROM django_migrations WHERE app = '<app_label>'` to clear the orphan rows.
+
+Leaving the table in place — code gone, table dropped in a follow-up — is a legitimate shortcut for a small retired product: it dodges the rolling-deploy window where in-flight requests hit a dropped table. Just make the leftover table a tracked follow-up, not an accident.
+
 ## Dropping Columns
 
 **Problem:** `RemoveField` operations drop columns immediately. This breaks backwards compatibility during deployment and **cannot be rolled back** - once data is deleted, any rollback deployment will fail because the column no longer exists.
 
 ### Safe Approach
 
-Use the same multi-phase pattern as [Dropping Tables](#dropping-tables):
+Use the same multi-phase pattern as [Dropping Tables](#dropping-tables).
+Deleting the field and running `makemigrations` is **not** phase 1 on its own: Django generates a plain `RemoveField`, which drops the column in the same deploy that removes the code.
 
-1. Remove the field from your Django model (keeps column in database)
-2. Deploy and verify no code references it (application servers, workers, background jobs)
-3. Wait at least one full deployment cycle
-4. Optionally drop the column with `RemoveField` in a later migration
+**Phase 1: remove the field from Django state only.**
+Delete every reference to the field and the field itself from the model, run `makemigrations`, then wrap the generated `RemoveField` in `SeparateDatabaseAndState`:
+
+```python
+# 1328_remove_userproductlist_reason_state.py
+operations = [
+    migrations.SeparateDatabaseAndState(
+        state_operations=[
+            migrations.RemoveField(model_name="userproductlist", name="reason"),
+        ],
+        database_operations=[],
+    ),
+]
+```
+
+The column stays in Postgres, so in-flight requests on the old release keep working and a rollback still finds it.
+Deploy this, and verify no code references the field (application servers, workers, background jobs).
+
+**Phase 2: drop the column, at least one full deployment cycle later.**
+
+```python
+# 1340_drop_userproductlist_reason_columns.py
+operations = [
+    migrations.RunSQL(
+        sql='ALTER TABLE "posthog_userproductlist" DROP COLUMN IF EXISTS "reason";',
+        reverse_sql='ALTER TABLE "posthog_userproductlist" ADD COLUMN IF NOT EXISTS "reason" varchar(32) NULL;',
+    ),
+]
+```
 
 **Important notes:**
 
-- `RemoveField` operations are irreversible - column data is permanently deleted
-- `DROP COLUMN` takes an `ACCESS EXCLUSIVE` lock (briefly) - schedule during low-traffic windows
+- Dropping a column is irreversible - the data is permanently deleted. `reverse_sql` can re-add an empty column so the migration unapplies, but it cannot restore the values
+- `DROP COLUMN` takes an `ACCESS EXCLUSIVE` lock (briefly) - on a [hot table](#altering-hot-tables) schedule it for a low-traffic window
+- The "Migration Risk Analysis" CI job scores a bare `RemoveField` at 5, its highest risk. Phase 2 scores low only when the analyzer finds the phase 1 state removal in an ancestor migration, so the two phases must land in that order
 - Consider leaving unused columns indefinitely to avoid data loss risks
 
 ## Renaming Tables
@@ -487,7 +605,7 @@ class Migration(migrations.Migration):
 Keep the two phases in **separate migrations** (so the add's brief `ACCESS EXCLUSIVE` lock isn't held through the validate scan), or in the same migration with `atomic = False`.
 If validation fails, Django marks the migration unapplied — clean the offending rows and re-run.
 
-**Note:** The same NOT VALID / VALIDATE pattern applies to `FOREIGN KEY` constraints on existing columns; there's no helper for that yet, so hand-write the `RunSQL` (`ADD CONSTRAINT ... FOREIGN KEY ... NOT VALID` then `VALIDATE CONSTRAINT`). New nullable FK columns don't need it — the column starts empty, so there's nothing to validate.
+**Note:** The same NOT VALID / VALIDATE pattern applies to `FOREIGN KEY` constraints via `AddForeignKeyNotValid` / `ValidateForeignKey` — don't hand-write the `RunSQL`. This matters most when the FK points at a hot table; see [Foreign Keys to Hot Tables](#foreign-keys-to-hot-tables). New nullable FK columns to non-hot tables don't need it — the column starts empty, so there's nothing to validate.
 
 ### Key Points
 
@@ -496,6 +614,8 @@ If validation fails, Django marks the migration unapplied — clean the offendin
 - `VALIDATE CONSTRAINT` takes a `SHARE UPDATE EXCLUSIVE` lock that allows normal reads/writes but blocks DDL operations
 - If validation fails, Django marks the migration as unapplied - clean the offending rows and re-run the validation migration
 - Can fix data issues and retry validation without blocking production
+
+The same two-phase pattern exists for **foreign keys** via `AddForeignKeyNotValid` / `ValidateForeignKey` — but note that an FK to a hot table needs extra care, since `ADD CONSTRAINT ... NOT VALID` still briefly locks the _referenced parent_. See [Foreign Keys to Hot Tables](#foreign-keys-to-hot-tables).
 
 ## Running Data Migrations
 

@@ -2,7 +2,6 @@
 //! lifecycle). Issue-lifecycle captures live in `crate::modes::processing::analytics`.
 
 use posthog_rs::Event;
-use tracing::error;
 
 const SYMBOL_SET_SAVED: &str = "error_tracking_symbol_set_saved";
 const SYMBOL_SET_DELETED: &str = "error_tracking_symbol_set_deleted";
@@ -13,7 +12,7 @@ pub fn capture_symbol_set_saved(team_id: i32, set_ref: &str, storage_ptr: &str, 
     event.insert_prop("set_ref", set_ref).unwrap();
     event.insert_prop("storage_ptr", storage_ptr).unwrap();
     event.insert_prop("was_retry", was_retry).unwrap();
-    spawning_capture(SYMBOL_SET_SAVED, event);
+    capture_event(event);
 }
 
 pub fn capture_symbol_set_deleted(team_id: i32, set_ref: &str, storage_ptr: Option<&str>) {
@@ -23,17 +22,12 @@ pub fn capture_symbol_set_deleted(team_id: i32, set_ref: &str, storage_ptr: Opti
     if let Some(ptr) = storage_ptr {
         event.insert_prop("storage_ptr", ptr).unwrap();
     }
-    spawning_capture(SYMBOL_SET_DELETED, event);
+    capture_event(event);
 }
 
-pub fn spawning_capture(event_name: &'static str, event: Event) {
+pub(crate) fn capture_event(event: Event) {
     if posthog_rs::global_is_disabled() {
         return;
     }
-
-    tokio::spawn(async move {
-        if let Err(e) = posthog_rs::capture(event).await {
-            error!(event = event_name, error = ?e, "Error capturing PostHog event");
-        }
-    });
+    posthog_rs::capture(event);
 }

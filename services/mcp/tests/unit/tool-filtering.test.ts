@@ -1,16 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
+import { hasScope } from '@/lib/api'
+import { OAUTH_SCOPES_HIDDEN, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
     getAdvertisedOAuthScopes,
+    getFlagGatedTools,
     getToolDefinitions,
     getRequiredFeatureFlags,
     getToolsForFeatures,
     type ToolDefinition,
-    ToolDefinitionSchema,
+    toolPassesEntitlementGate,
     toolPassesFlagGate,
 } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
@@ -140,16 +142,14 @@ describe('Tool Filtering - Tools Allowlist', () => {
             expect(withEmptyTools).toEqual(allTools)
         })
 
-        it('should return only specified tools (plus always_available tools when enabled)', () => {
+        it('should return only specified tools (plus always_available tools)', () => {
             const tools = getToolsForFeatures({
                 tools: ['dashboard-get', 'dashboard-create'],
-                featureFlags: { 'mcp-feedback-tool': true },
             })
             expect(tools).toContain('dashboard-get')
             expect(tools).toContain('dashboard-create')
 
-            // always_available tools are included alongside the allowlist regardless of order
-            // (when their gating feature flag is enabled).
+            // always_available tools are included alongside the allowlist regardless of order.
             const alwaysAvailableTools = collectAlwaysAvailableToolNames()
             expect(tools).toContain('agent-feedback')
 
@@ -163,7 +163,6 @@ describe('Tool Filtering - Tools Allowlist', () => {
         it('should return only always_available tools for nonexistent tool names', () => {
             const tools = getToolsForFeatures({
                 tools: ['nonexistent-tool'],
-                featureFlags: { 'mcp-feedback-tool': true },
             })
             const alwaysAvailableTools = collectAlwaysAvailableToolNames()
 
@@ -175,19 +174,15 @@ describe('Tool Filtering - Tools Allowlist', () => {
         it('should always include agent-feedback even when feature filter matches no tools', () => {
             const tools = getToolsForFeatures({
                 features: ['nonexistent-feature'],
-                featureFlags: { 'mcp-feedback-tool': true },
             })
             expect(tools).toContain('agent-feedback')
         })
 
-        it('should hide agent-feedback when its gating feature flag is off', () => {
-            // Flag explicitly off — tool is hidden even though it's always_available.
-            const toolsWithFlagOff = getToolsForFeatures({ featureFlags: { 'mcp-feedback-tool': false } })
-            expect(toolsWithFlagOff).not.toContain('agent-feedback')
-
-            // No flags evaluated at all — also hidden (default behavior is `enable`).
-            const toolsWithoutFlags = getToolsForFeatures({})
-            expect(toolsWithoutFlags).not.toContain('agent-feedback')
+        it('should include agent-feedback regardless of feature flags', () => {
+            // agent-feedback is always_available and no longer flag-gated — it is
+            // present whether or not any feature flags are evaluated.
+            expect(getToolsForFeatures({})).toContain('agent-feedback')
+            expect(getToolsForFeatures({ featureFlags: {} })).toContain('agent-feedback')
         })
 
         it('should union with features (OR) when both are provided', () => {
@@ -242,7 +237,11 @@ describe('Tool Filtering - Tools Allowlist', () => {
     })
 })
 
-const createMockContext = (scopes: string[]): Context => ({
+const createMockContext = (
+    scopes: string[],
+    getUser?: () => Promise<{ is_staff?: boolean }>,
+    apiKeyExtra?: { scoped_teams?: number[]; scoped_organizations?: string[] }
+): Context => ({
     api: {} as any,
     cache: {} as any,
     env: {
@@ -255,8 +254,13 @@ const createMockContext = (scopes: string[]): Context => ({
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
     stateManager: {
-        getApiKey: async () => ({ scopes }),
+        getApiKey: async () => ({ scopes, ...apiKeyExtra }),
         getAiConsentGiven: async () => undefined,
+        getUser:
+            getUser ??
+            (async () => {
+                throw new Error('users/@me not available')
+            }),
     } as any,
     sessionManager: new SessionManager({} as any),
     getDistinctId: async () => 'test-distinct-id',
@@ -325,9 +329,59 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).not.toContain('insight-create')
     })
 
+    it('should expose managed warehouse monitoring only with its read scope and feature flag', async () => {
+        const managedWarehouseTools = ['managed-warehouse-monitoring-get', 'managed-warehouse-metric-history-get']
+        const enabledOptions = { featureFlags: { 'data-warehouse-scene': true } }
+
+        const authorizedTools = await getToolsFromContext(createMockContext(['warehouse_view:read']), enabledOptions)
+        const wrongScopeTools = await getToolsFromContext(createMockContext(['query:read']), enabledOptions)
+        const flagDisabledTools = await getToolsFromContext(createMockContext(['warehouse_view:read']), {
+            featureFlags: { 'data-warehouse-scene': false },
+        })
+        const authorizedToolNames = authorizedTools.map((tool) => tool.name)
+        const wrongScopeToolNames = wrongScopeTools.map((tool) => tool.name)
+        const flagDisabledToolNames = flagDisabledTools.map((tool) => tool.name)
+
+        for (const toolName of managedWarehouseTools) {
+            expect(authorizedToolNames).toContain(toolName)
+            expect(wrongScopeToolNames).not.toContain(toolName)
+            expect(flagDisabledToolNames).not.toContain(toolName)
+        }
+    })
+
+    it.each([
+        ['notebooks-widget-generate', ['notebook:write', 'query:read']],
+        ['notebooks-widget-status', ['notebook:read']],
+        ['notebooks-widget-cancel', ['notebook:write']],
+    ] satisfies [string, string[]][])(
+        'exposes %s only with notebook widgets enabled and the required scopes',
+        async (toolName, scopes) => {
+            const context = createMockContext(scopes)
+            const enabledOptions = { featureFlags: { 'notebook-generated-widgets': true }, aiConsentGiven: true }
+            const enabled = await getToolsFromContext(context, enabledOptions)
+            expect(enabled.map((tool) => tool.name)).toContain(toolName)
+
+            for (const flagValue of [false, undefined]) {
+                const disabled = await getToolsFromContext(context, {
+                    ...enabledOptions,
+                    featureFlags: { 'notebook-generated-widgets': flagValue },
+                })
+                expect(disabled.map((tool) => tool.name)).not.toContain(toolName)
+            }
+
+            for (const missingScope of scopes) {
+                const denied = await getToolsFromContext(
+                    createMockContext(scopes.filter((scope) => scope !== missingScope)),
+                    enabledOptions
+                )
+                expect(denied.map((tool) => tool.name)).not.toContain(toolName)
+            }
+        }
+    )
+
     it('should return only tools with no required scopes when user has no matching scopes', async () => {
         const context = createMockContext(['some:unknown'])
-        const tools = await getToolsFromContext(context, { featureFlags: { 'mcp-feedback-tool': true } })
+        const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
         // Only tools with no required scopes (or that bypass scope checks) should be available.
@@ -338,12 +392,65 @@ describe('Tool Filtering - API Scopes', () => {
 
     it('should return only tools with no required scopes when user has empty scopes', async () => {
         const context = createMockContext([])
-        const tools = await getToolsFromContext(context, { featureFlags: { 'mcp-feedback-tool': true } })
+        const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
         expect(toolNames).toContain('debug-mcp-ui-apps')
         expect(toolNames).toContain('agent-feedback')
         expectAllToolsHaveNoRequiredScopes(toolNames)
+    })
+})
+
+describe('Tool Filtering - Staff-only (OAuth-hidden scope) tools', () => {
+    const STAFF_TOOLS = ['managed-migrations-support-list', 'managed-migrations-support-get']
+
+    it.each([
+        {
+            description: 'hidden from a full-access `*` key even for a staff user',
+            scopes: ['*'],
+            getUser: async () => ({ is_staff: true }),
+            visible: false,
+        },
+        {
+            description: 'visible for a staff user whose key explicitly carries the hidden scope',
+            scopes: ['batch_import_support:read', 'user:read'],
+            getUser: async () => ({ is_staff: true }),
+            visible: true,
+        },
+        {
+            description: 'hidden from a non-staff user even when the key carries the hidden scope',
+            scopes: ['batch_import_support:read', 'user:read'],
+            getUser: async () => ({ is_staff: false }),
+            visible: false,
+        },
+        {
+            // Default mock getUser rejects, like a key minted without `user:read`.
+            description: 'hidden (fail closed) when staffness cannot be determined',
+            scopes: ['batch_import_support:read'],
+            getUser: undefined,
+            visible: false,
+        },
+        {
+            // The staff endpoints reject tenant-scoped keys, so discovery must not
+            // advertise tools whose every call would 403.
+            description: 'hidden for a tenant-scoped key even with staff + explicit scope',
+            scopes: ['batch_import_support:read', 'user:read'],
+            getUser: async () => ({ is_staff: true }),
+            apiKeyExtra: { scoped_organizations: ['0195b1a0-0000-0000-0000-000000000000'] },
+            visible: false,
+        },
+    ])('$description', async ({ scopes, getUser, visible, apiKeyExtra }) => {
+        const context = createMockContext(scopes, getUser, apiKeyExtra)
+        const tools = await getToolsFromContext(context)
+        const toolNames = tools.map((t) => t.name)
+
+        for (const tool of STAFF_TOOLS) {
+            if (visible) {
+                expect(toolNames).toContain(tool)
+            } else {
+                expect(toolNames).not.toContain(tool)
+            }
+        }
     })
 })
 
@@ -369,7 +476,22 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // Minted directly into a server-issued token, never advertised via OAuth metadata
     // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
-    const SERVER_MINT_ONLY_SCOPES = new Set(['signal_scout_internal:read', 'signal_scout_internal:write'])
+    const SERVER_MINT_ONLY_SCOPES = new Set([
+        'context_layer_internal:write',
+        'internal_run:read',
+        'loop_context_internal:write',
+        'signal_scout_internal:read',
+        'signal_scout_internal:write',
+        'signal_scout_report:read',
+        'signal_scout_report:write',
+        'signal_scratchpad_internal:read',
+        'signal_scratchpad_internal:write',
+    ])
+
+    // OAuth-hidden scopes (generated from OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py)
+    // are PAT-grantable but never OAuth-advertised: tools requiring one (e.g. the staff-only
+    // managed-migrations support tools) only surface for personal API keys carrying it.
+    const oauthHiddenScopes = new Set<string>(OAUTH_SCOPES_HIDDEN)
 
     it('should include every scope referenced in tool definitions', () => {
         const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
@@ -384,13 +506,61 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         }
 
         const missing = [...scopesFromTools]
-            .filter((s) => !supportedScopes.has(s) && !SERVER_MINT_ONLY_SCOPES.has(s))
+            .filter((s) => !supportedScopes.has(s) && !SERVER_MINT_ONLY_SCOPES.has(s) && !oauthHiddenScopes.has(s))
             .sort()
 
         expect(
             missing,
             `OAUTH_SCOPES_SUPPORTED is missing scopes used by tool definitions: ${missing.join(', ')}`
         ).toEqual([])
+    })
+})
+
+describe('server-minted scope matching', () => {
+    it('requires literal internal scopes instead of accepting a wildcard', () => {
+        expect(hasScope(['*'], 'loop_context_internal:write')).toBe(false)
+        expect(hasScope(['loop_context_internal:write'], 'loop_context_internal:write')).toBe(true)
+    })
+
+    // The scratchpad write scope was split out of `signal_scout_internal`, which is on the
+    // server-mint-only list. Moving the tools without moving the object would let a
+    // user-consented `*` token through this filter and back onto durable agent memory, which
+    // later runs read verbatim into their prompts.
+    it('never lets a wildcard reach the scratchpad write scope', () => {
+        expect(hasScope(['*'], 'signal_scratchpad_internal:write')).toBe(false)
+        expect(hasScope(['signal_scratchpad_internal:write'], 'signal_scratchpad_internal:write')).toBe(true)
+    })
+
+    // Withholding the wildcard from these objects must not also withhold write-implies-read.
+    // Scout sandbox tokens carry `signal_scout_internal:write` and never the `:read` form, so
+    // dropping that rule hid `scout-members-list` from every scout's toolset and left reports
+    // with nobody to route to. Django authorizes the same tokens with the rule applied.
+    it.each([
+        'context_layer_internal',
+        'internal_run',
+        'loop_context_internal',
+        'mcp_builtin_agent',
+        'signal_scout_internal',
+        'signal_scout_report',
+        'signal_scratchpad_internal',
+    ])('lets a %s:write token satisfy the matching :read scope', (scopeObject) => {
+        expect(hasScope([`${scopeObject}:write`], `${scopeObject}:read`)).toBe(true)
+        // The implication runs one way only.
+        expect(hasScope([`${scopeObject}:read`], `${scopeObject}:write`)).toBe(false)
+        // A wildcard still reaches neither form.
+        expect(hasScope(['*'], `${scopeObject}:read`)).toBe(false)
+        expect(hasScope(['*'], `${scopeObject}:write`)).toBe(false)
+    })
+
+    it('does not let a write on one internal object reach another', () => {
+        expect(hasScope(['signal_scout_report:write'], 'signal_scout_internal:read')).toBe(false)
+    })
+
+    it('leaves wildcard and write-implies-read intact for user-grantable scopes', () => {
+        expect(hasScope(['*'], 'insight:read')).toBe(true)
+        expect(hasScope(['*'], 'insight:write')).toBe(true)
+        expect(hasScope(['insight:write'], 'insight:read')).toBe(true)
+        expect(hasScope(['insight:read'], 'insight:write')).toBe(false)
     })
 })
 
@@ -579,15 +749,22 @@ describe('Tool Filtering - Scoped Teams', () => {
     })
 
     it('keeps project-scoped tools visible when scopedTeams is non-empty', () => {
-        const tools = getToolsForFeatures({ scopedTeams: [42] })
+        const tools = getToolsForFeatures({ scopedTeams: [42], featureFlags: { 'context-layer': true } })
         expect(tools).toContain('dashboard-get')
         expect(tools).toContain('feature-flag-get-all')
+        expect(tools).not.toContain('context-wiki-channel-resolve')
+        expect(tools).not.toContain('context-wiki-page-retrieve')
+        expect(tools).not.toContain('context-wiki-page-update')
+        expect(tools).toContain('task-context-wiki-channel-resolve')
+        expect(tools).toContain('task-context-wiki-page-retrieve')
+        expect(tools).toContain('task-context-wiki-page-update')
     })
 
     it('keeps org-scope tools visible when scopedTeams is empty (unscoped token)', () => {
-        const tools = getToolsForFeatures({ scopedTeams: [] })
+        const tools = getToolsForFeatures({ scopedTeams: [], featureFlags: { 'context-layer': true } })
         expect(tools).toContain('roles-list')
         expect(tools).toContain('organization-get')
+        expect(tools).toContain('context-wiki-page-update')
     })
 
     it('keeps org-scope tools visible when scopedTeams is undefined', () => {
@@ -689,22 +866,9 @@ describe('Tool Filtering - Feature Flags', () => {
     // need a different approach: directly test the filtering logic extracted
     // as a pure function.
 
-    // Since getToolsForFeatures is tightly coupled to getToolDefinitions,
-    // we'll test the filtering behavior by using real definitions plus
-    // verifying the feature flag logic with tools that already exist.
-    // We'll also add a tool definition with feature_flag to the real JSON
-    // as a fixture.
-
-    // Alternative: test the logic inline. getToolsForFeatures applies filters
-    // to entries from getToolDefinitions. We can test the filter predicate
-    // directly by examining what happens when we pass featureFlags to the
-    // real getToolsForFeatures — since no real tool has feature_flag set,
-    // featureFlags should have no effect on the real set.
-
     it('should not affect tools without feature_flag when featureFlags is provided', () => {
         const withoutFlags = getToolsForFeatures({})
         const withFlags = getToolsForFeatures({ featureFlags: { 'some-flag': true } })
-        // No real tool has feature_flag, so results should be identical
         expect(withFlags).toEqual(withoutFlags)
     })
 
@@ -727,33 +891,148 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).not.toContain('notebooks-partial-update')
     })
 
+    it('billing-mcp-read-tools flag gates billing read tools', () => {
+        const off = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': false } })
+        expect(off).not.toContain('billing-overview-get')
+        expect(off).not.toContain('billing-usage-get')
+        expect(off).not.toContain('billing-spend-get')
+
+        const on = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': true } })
+        expect(on).toContain('billing-overview-get')
+        expect(on).toContain('billing-usage-get')
+        expect(on).toContain('billing-spend-get')
+    })
+
+    it('customer-analytics-csp flag gates account meeting tools', () => {
+        const off = getToolsForFeatures({ featureFlags: { 'customer-analytics-csp': false } })
+        expect(off).not.toContain('accounts-meetings-list')
+
+        const on = getToolsForFeatures({ featureFlags: { 'customer-analytics-csp': true } })
+        expect(on).toContain('accounts-meetings-list')
+    })
+
+    it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
+        // Flag ON: the cell tools take over create/read/edit — the model never sees two
+        // tools for the same job. Flag OFF: only the legacy surface.
+        const off = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': false } })
+        expect(off).toContain('notebooks-create')
+        expect(off).toContain('notebooks-retrieve')
+        expect(off).not.toContain('notebooks-create-markdown')
+        expect(off).not.toContain('notebooks-add-cell')
+        expect(off).not.toContain('notebooks-set-variables')
+        expect(off).not.toContain('notebooks-get')
+
+        const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
+        expect(on).toContain('notebooks-create-markdown')
+        expect(on).toContain('notebooks-add-cell')
+        expect(on).toContain('notebooks-update-cell')
+        expect(on).toContain('notebooks-delete-cell')
+        expect(on).toContain('notebooks-set-variables')
+        expect(on).toContain('notebooks-run-cell-result')
+        expect(on).toContain('notebooks-get')
+        expect(on).toContain('notebooks-list-frames')
+        expect(on).toContain('notebooks-configure-compute')
+        expect(on).not.toContain('notebooks-create')
+        expect(on).not.toContain('notebooks-retrieve')
+        expect(on).not.toContain('notebooks-run-cell')
+
+        // notebook-edit keeps its collaboration gate but retires under the cell tools.
+        const collabOnly = getToolsForFeatures({
+            featureFlags: { 'notebooks-collaboration': true, 'revamped-py-notebooks': false },
+        })
+        expect(collabOnly).toContain('notebook-edit')
+        const both = getToolsForFeatures({
+            featureFlags: { 'notebooks-collaboration': true, 'revamped-py-notebooks': true },
+        })
+        expect(both).not.toContain('notebook-edit')
+    })
+
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
-        // Includes the gating flag for agent-feedback alongside the other gated tools.
         expect(flags).toEqual(
             expect.arrayContaining([
-                'agent-platform',
-                'logs-alerting',
-                'replay-video-based-summarization',
+                'logs-anomalies',
+                'llm-analytics-datasets',
                 'tracing',
                 'visual-review',
-                'mcp-feedback-tool',
                 'user-interviews',
                 'customer-analytics-csp',
+                'customer-analytics-feature-requests',
                 'notebooks-collaboration',
-                'replay-vision',
+                'revamped-py-notebooks',
+                'notebook-generated-widgets',
                 'tasks',
-                'promoted-product',
                 'dashboard-widgets',
-                'heatmaps-mcp',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
                 'field-notes',
                 'mcp-analytics',
                 'metrics',
+                'endpoints-ai-materialization-fix',
+                'engineering-analytics',
+                'web-analytics-path-cleaning-suggestions',
+                'stamphog',
+                'loops',
+                'review-hog',
+                'warehouse-person-properties',
+                'billing-alerts',
+                'billing-mcp-read-tools',
+                'streamlit-apps',
+                'posthog-connect',
+                'experiment-behavior-comparison',
+                'experiment-flag-cleanup-pr',
+                'data-warehouse-scene',
+                'data-quality-checks',
+                'context-layer',
+                'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(19)
+        expect(flags).toHaveLength(34)
+    })
+
+    it('every loops tool is gated on the loops flag', () => {
+        // Guards against a loops tool (hand-written like loops-review, or generated)
+        // shipping without the gate and leaking the unreleased surface pre-rollout.
+        const loopsTools = Object.entries(getToolDefinitions()).filter(([name]) => name.startsWith('loops-'))
+        expect(loopsTools.length).toBeGreaterThan(0)
+        for (const [name, definition] of loopsTools) {
+            expect({ name, feature_flag: definition.feature_flag }).toEqual({ name, feature_flag: 'loops' })
+        }
+    })
+
+    it('keeps human, task, and loop context wiki tools on separate scopes', () => {
+        const definitions = getToolDefinitions()
+        expect(definitions['context-wiki-page-update']!.required_scopes).toEqual(['organization:write'])
+        expect(definitions['task-context-wiki-page-update']!.required_scopes).toEqual([
+            'task:write',
+            'internal_run:read',
+            'context_layer_internal:write',
+        ])
+        expect(definitions['loop-context-wiki-page-update']!.required_scopes).toEqual([
+            'task:write',
+            'loop_context_internal:write',
+        ])
+        expect(definitions['loop-channel-instructions-update']!.required_scopes).toEqual([
+            'task:write',
+            'loop_context_internal:write',
+        ])
+        expect(definitions['loop-channel-instructions-update']!.feature_flag).toBeUndefined()
+    })
+
+    it('shows task context writes only to write-enabled task credentials', async () => {
+        const options = { featureFlags: { 'context-layer': true } }
+        const readOnlyTools = await getToolsFromContext(
+            createMockContext(['task:read', 'task:write', 'internal_run:read']),
+            options
+        )
+        const writeTools = await getToolsFromContext(
+            createMockContext(['task:read', 'task:write', 'internal_run:read', 'context_layer_internal:write']),
+            options
+        )
+
+        expect(readOnlyTools.map((tool) => tool.name)).toContain('task-context-wiki-page-retrieve')
+        expect(readOnlyTools.map((tool) => tool.name)).not.toContain('task-context-wiki-page-update')
+        expect(writeTools.map((tool) => tool.name)).toContain('task-context-wiki-page-update')
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries
@@ -851,99 +1130,119 @@ describe('Tool Filtering - Feature Flags', () => {
             expect(toolsOff).toContain('old-tool-v1')
             expect(toolsOff).toContain('unrelated-tool')
         })
+    })
+})
 
-        describe('feature_flag_variant matching', () => {
-            const variantToolEntries: [string, ToolDefinition][] = [
-                ['unrelated-tool', { ...baseDef }],
-                [
-                    'variant-gated-tool',
-                    {
-                        ...baseDef,
-                        feature_flag: 'promoted-product',
-                        feature_flag_variant: 'intent_plus',
-                    },
-                ],
-            ]
+describe('getFlagGatedTools', () => {
+    it('reports a retired tool with the successor its definition declares', () => {
+        const gated = getFlagGatedTools({ featureFlags: { 'revamped-py-notebooks': true } })
 
-            it('shows variant-gated tool only when the variant matches', () => {
-                const tools = filterByFeatureFlags(variantToolEntries, { 'promoted-product': 'intent_plus' })
-                expect(tools).toContain('variant-gated-tool')
-                expect(tools).toContain('unrelated-tool')
-            })
+        expect(gated.find((tool) => tool.name === 'notebooks-create')?.supersededBy).toEqual([
+            'notebooks-create-markdown',
+        ])
+    })
 
-            it.each(['control', 'control_b', 'intent', false, true, undefined])(
-                'hides variant-gated tool when flag value is %p',
-                (flagValue) => {
-                    const tools = filterByFeatureFlags(variantToolEntries, { 'promoted-product': flagValue })
-                    expect(tools).not.toContain('variant-gated-tool')
-                    expect(tools).toContain('unrelated-tool')
-                }
-            )
+    it('leaves out a tool the flags keep in the catalog', () => {
+        const gated = getFlagGatedTools({ featureFlags: { 'revamped-py-notebooks': false } })
 
-            it('hides variant-gated tool when featureFlags map is omitted entirely', () => {
-                const tools = filterByFeatureFlags(variantToolEntries)
-                expect(tools).not.toContain('variant-gated-tool')
-                expect(tools).toContain('unrelated-tool')
-            })
+        expect(gated.map((tool) => tool.name)).not.toContain('notebooks-create')
+    })
 
-            it('hides a hand-rolled misconfig tool with feature_flag_variant but no feature_flag', () => {
-                // The Zod `.refine` rejects this at parse time, but a developer
-                // can still construct one in code via cast — the runtime predicate
-                // must treat it as hidden, not ungated.
-                const misconfigEntries: [string, ToolDefinition][] = [
-                    ['orphan-variant', { ...baseDef, feature_flag_variant: 'intent_plus' }],
-                ]
-                expect(filterByFeatureFlags(misconfigEntries, { 'promoted-product': 'intent_plus' })).not.toContain(
-                    'orphan-variant'
-                )
-                expect(filterByFeatureFlags(misconfigEntries)).not.toContain('orphan-variant')
-            })
-        })
+    it('reports a tool an unset flag never enabled, so a caller learns it exists', () => {
+        const gated = getFlagGatedTools({ featureFlags: {} })
 
-        describe('feature_flag_variant schema validation', () => {
-            const baseFields = {
-                description: '',
-                category: 'platform_features',
-                feature: 'platform_features',
-                summary: '',
-                title: '',
-                required_scopes: [],
-                annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: true },
-            }
+        const entry = gated.find((tool) => tool.name === 'notebooks-add-cell')
+        expect(entry).not.toBeUndefined()
+        expect(entry?.supersededBy).toEqual([])
+    })
 
-            it('rejects feature_flag_variant without feature_flag', () => {
-                const result = ToolDefinitionSchema.safeParse({
-                    ...baseFields,
-                    feature_flag_variant: 'intent_plus',
-                })
-                expect(result.success).toBe(false)
-                if (!result.success) {
-                    expect(result.error.issues[0]?.message).toMatch(/feature_flag_variant.*requires.*feature_flag/i)
-                    expect(result.error.issues[0]?.path).toEqual(['feature_flag_variant'])
-                }
-            })
+    // The successor lives on the definition next to the gate that retires the tool.
+    // Without it, a call to the retired name reads to an agent as a removed capability.
+    it('every retired tool declares a successor or says why it has none', () => {
+        const undeclared = Object.entries(getToolDefinitions())
+            .filter(([_, def]) => def.feature_flag_behavior === 'disable' || def.hidden_when_flag_on)
+            .filter(([_, def]) => !def.superseded_by?.length && !def.redirect_hint)
+            .map(([name]) => name)
 
-            it('accepts feature_flag_variant when feature_flag is also set', () => {
-                const result = ToolDefinitionSchema.safeParse({
-                    ...baseFields,
-                    feature_flag: 'promoted-product',
-                    feature_flag_variant: 'intent_plus',
-                })
-                expect(result.success).toBe(true)
-            })
+        expect(undeclared).toEqual([])
+    })
+})
 
-            it('accepts feature_flag alone (no variant)', () => {
-                const result = ToolDefinitionSchema.safeParse({
-                    ...baseFields,
-                    feature_flag: 'promoted-product',
-                })
-                expect(result.success).toBe(true)
-            })
+describe('toolPassesEntitlementGate', () => {
+    const gated = { feature_entitlement: 'audit_logs' } as ToolDefinition
+    const ungated = {} as ToolDefinition
 
-            it('accepts a definition with neither flag field set', () => {
-                const result = ToolDefinitionSchema.safeParse(baseFields)
-                expect(result.success).toBe(true)
-            })
-        })
+    it('passes tools with no feature_entitlement regardless of features', () => {
+        expect(toolPassesEntitlementGate(ungated, [], true)).toBe(true)
+        expect(toolPassesEntitlementGate(ungated, undefined, true)).toBe(true)
+    })
+
+    it('passes when the org has the entitlement on cloud', () => {
+        expect(toolPassesEntitlementGate(gated, ['audit_logs', 'sso'], true)).toBe(true)
+    })
+
+    it('hides when cloud org positively lacks the entitlement', () => {
+        expect(toolPassesEntitlementGate(gated, ['sso'], true)).toBe(false)
+        expect(toolPassesEntitlementGate(gated, [], true)).toBe(false)
+    })
+
+    it('fails open on self-hosted (isCloud false)', () => {
+        expect(toolPassesEntitlementGate(gated, [], false)).toBe(true)
+    })
+
+    it('fails open when entitlements are unknown', () => {
+        expect(toolPassesEntitlementGate(gated, undefined, true)).toBe(true)
+    })
+})
+
+describe('Tool Filtering - Entitlements (activity log family)', () => {
+    // Guards the full YAML -> generated definitions -> getToolsForFeatures wire-up:
+    // a predicate-only test wouldn't catch the entitlement missing from the
+    // generated JSON for these specific tools.
+    it('hides audit-log tools for a cloud org without audit_logs, shows them with it', () => {
+        const withoutAudit = getToolsForFeatures({ availableFeatures: [], isCloud: true })
+        expect(withoutAudit).not.toContain('advanced-activity-logs-list')
+        expect(withoutAudit).not.toContain('advanced-activity-logs-filters')
+
+        const withAudit = getToolsForFeatures({ availableFeatures: ['audit_logs'], isCloud: true })
+        expect(withAudit).toContain('advanced-activity-logs-list')
+        expect(withAudit).toContain('advanced-activity-logs-filters')
+
+        // Fail-open: unresolved entitlements still advertise.
+        const unknown = getToolsForFeatures({ isCloud: true })
+        expect(unknown).toContain('advanced-activity-logs-list')
+    })
+})
+
+describe('Tool Filtering - Entitlements (access control family)', () => {
+    const memberAndDefaultTools = [
+        'access-control-defaults-get',
+        'access-control-members-list',
+        'access-control-member-objects-list',
+        'access-control-member-properties-list',
+        'access-control-default-objects-list',
+        'access-control-default-properties-list',
+    ]
+    const roleTools = [
+        'access-control-roles-list',
+        'access-control-role-objects-list',
+        'access-control-role-properties-list',
+    ]
+
+    it.each(memberAndDefaultTools)('%s needs access_control', (tool) => {
+        expect(getToolsForFeatures({ availableFeatures: [], isCloud: true })).not.toContain(tool)
+        expect(getToolsForFeatures({ availableFeatures: ['access_control'], isCloud: true })).toContain(tool)
+    })
+
+    it.each(roleTools)('%s needs role_based_access, not just access_control', (tool) => {
+        expect(getToolsForFeatures({ availableFeatures: ['access_control'], isCloud: true })).not.toContain(tool)
+        expect(getToolsForFeatures({ availableFeatures: ['role_based_access'], isCloud: true })).toContain(tool)
+    })
+
+    it('fails open when entitlements are unknown', () => {
+        const unknown = getToolsForFeatures({ isCloud: true })
+        for (const tool of [...memberAndDefaultTools, ...roleTools]) {
+            expect(unknown).toContain(tool)
+        }
     })
 })

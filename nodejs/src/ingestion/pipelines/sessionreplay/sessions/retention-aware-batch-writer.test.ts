@@ -1,13 +1,10 @@
 import { S3Client } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 
-import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
-import { TeamId } from '~/types'
-
 import { RetentionAwareStorage } from './retention-aware-batch-writer'
 
 jest.mock('@aws-sdk/lib-storage')
-jest.mock('~/utils/logger')
+jest.mock('~/common/utils/logger')
 
 jest.setTimeout(1000)
 
@@ -17,7 +14,6 @@ describe('RetentionAwareStorage', () => {
     let mockUploadDone: jest.Mock
     let uploadedData: Buffer
     let mockS3Client: jest.Mocked<S3Client>
-    let mockRetentionService: jest.Mocked<RetentionService>
 
     beforeEach(() => {
         uploadedData = Buffer.alloc(0)
@@ -39,17 +35,7 @@ describe('RetentionAwareStorage', () => {
         })
         jest.mocked(Upload).mockImplementation(mockUpload)
 
-        mockRetentionService = {
-            getSessionRetention: jest.fn().mockImplementation((teamId: TeamId, sessionId: string) => {
-                const sessionKey = `${teamId}$${sessionId}`
-                return {
-                    '1$123': '1y',
-                    '2$456': '90d',
-                }[sessionKey]
-            }),
-        } as unknown as jest.Mocked<RetentionService>
-
-        storage = new RetentionAwareStorage(mockS3Client, 'test-bucket', 'test-prefix', 5000, mockRetentionService)
+        storage = new RetentionAwareStorage(mockS3Client, 'test-bucket', 'test-prefix', 5000)
     })
 
     afterEach(() => {
@@ -61,7 +47,12 @@ describe('RetentionAwareStorage', () => {
         it('should write session data to correct retention prefix and return bytes written with URL', async () => {
             const writer = storage.newBatch()
             const testData = Buffer.from('test data')
-            const result = await writer.writeSession({ buffer: testData, teamId: 1, sessionId: '123' })
+            const result = await writer.writeSession({
+                buffer: testData,
+                teamId: 1,
+                sessionId: '123',
+                retentionPeriod: '1y',
+            })
 
             expect(mockUpload).toHaveBeenCalledTimes(1)
             expect(mockUpload).toHaveBeenCalledWith(
@@ -85,7 +76,12 @@ describe('RetentionAwareStorage', () => {
             const writer = storage.newBatch()
             const testData = Buffer.from('test data\nmore test data\n')
 
-            const result = await writer.writeSession({ buffer: testData, teamId: 2, sessionId: '456' })
+            const result = await writer.writeSession({
+                buffer: testData,
+                teamId: 2,
+                sessionId: '456',
+                retentionPeriod: '90d',
+            })
             await writer.finish()
 
             expect(mockUpload).toHaveBeenCalledTimes(1)

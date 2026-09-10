@@ -15,6 +15,7 @@
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -27,6 +28,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -66,9 +68,10 @@ export interface UserBasicApi {
  * * `allow` - Allow
  * * `reject` - Reject
  */
-export type EnforcementModeEnumApi = (typeof EnforcementModeEnumApi)[keyof typeof EnforcementModeEnumApi]
+export type SchemaEnforcementModeEnumApi =
+    (typeof SchemaEnforcementModeEnumApi)[keyof typeof SchemaEnforcementModeEnumApi]
 
-export const EnforcementModeEnumApi = {
+export const SchemaEnforcementModeEnumApi = {
     Allow: 'allow',
     Reject: 'reject',
 } as const
@@ -98,7 +101,7 @@ export interface EnterpriseEventDefinitionApi {
     readonly verified_by: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
-    enforcement_mode?: EnforcementModeEnumApi
+    enforcement_mode?: SchemaEnforcementModeEnumApi
     /**
      * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
      * @maxLength 400
@@ -149,7 +152,7 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly verified_by?: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
-    enforcement_mode?: EnforcementModeEnumApi
+    enforcement_mode?: SchemaEnforcementModeEnumApi
     /**
      * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
      * @maxLength 400
@@ -171,43 +174,80 @@ export interface PatchedEnterpriseEventDefinitionApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
 } as const
 
-export interface BulkUpdateTagsRequestApi {
+/**
+ * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+ */
+export interface BulkUpdateTagsUUIDRequestApi {
     /**
-     * List of object IDs to update tags on.
+     * List of object UUIDs to update tags on.
      * @maxItems 500
      */
-    ids: number[]
+    ids: string[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
      *
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
-    /** Tag names to add, remove, or set. */
+    action: BulkUpdateTagsActionEnumApi
+    /**
+     * Tag names to add, remove, or set.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags: string[]
 }
 
-export interface BulkUpdateTagsItemApi {
-    id: number
+export interface BulkUpdateTagsUUIDItemApi {
+    /** UUID of the object whose tags were updated. */
+    id: string
+    /** The object's full tag list after the update. */
     tags: string[]
 }
 
-export interface BulkUpdateTagsErrorApi {
-    id: number
+export interface BulkUpdateTagsUUIDErrorApi {
+    /** UUID of the object that was skipped. */
+    id: string
+    /** Why the object was skipped, e.g. 'Not found'. */
     reason: string
 }
 
-export interface BulkUpdateTagsResponseApi {
-    updated: BulkUpdateTagsItemApi[]
-    skipped: BulkUpdateTagsErrorApi[]
+export interface BulkUpdateTagsUUIDResponseApi {
+    /** Objects whose tags were successfully updated. */
+    updated: BulkUpdateTagsUUIDItemApi[]
+    /** Objects that were skipped, with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
+}
+
+export interface EventDefinitionBulkUpdateVerifiedRequestApi {
+    /**
+     * List of event definition UUIDs to update.
+     * @maxItems 500
+     */
+    ids: string[]
+    /** Target verified state to apply to every matched event. `true` marks the events as verified (and unhides them, since an event cannot be both hidden and verified); `false` unverifies them. */
+    verified: boolean
+}
+
+export interface EventDefinitionBulkUpdateVerifiedItemApi {
+    /** UUID of the event definition whose verified state changed. */
+    id: string
+    /** The event's verified state after the update. */
+    verified: boolean
+}
+
+export interface EventDefinitionBulkUpdateVerifiedResponseApi {
+    /** Events whose verified state was changed. Events already in the target state are omitted. */
+    updated: EventDefinitionBulkUpdateVerifiedItemApi[]
+    /** Events that were skipped (e.g. not found in this project), with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
 }
 
 /**
@@ -223,7 +263,7 @@ export interface EventDefinitionRecordApi {
     last_seen_at?: string | null
     readonly last_updated_at: string
     tags?: unknown[]
-    enforcement_mode?: EnforcementModeEnumApi
+    enforcement_mode?: SchemaEnforcementModeEnumApi
     /**
      * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
      * @maxLength 400
@@ -261,6 +301,10 @@ export type EventDefinitionsListParams = {
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * Return exact matches for these event names. Pass names as repeated or comma-separated values.
+     */
+    names?: string[]
     /**
      * The initial index from which to return the results.
      */

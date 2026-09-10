@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "label_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        },
+        "prompt_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["label_name", "prompt_name"],
+    "type": "object"
+}

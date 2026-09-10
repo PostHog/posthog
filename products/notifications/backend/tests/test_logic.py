@@ -7,8 +7,9 @@ from django.core.cache import cache
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.notifications.backend.cache import _unread_count_cache_key
 from products.notifications.backend.facade.contracts import NotificationData
 from products.notifications.backend.facade.enums import (
@@ -18,7 +19,7 @@ from products.notifications.backend.facade.enums import (
     SourceType,
     TargetType,
 )
-from products.notifications.backend.logic import create_notification
+from products.notifications.backend.logic import create_notification, publish_resource_edited
 from products.notifications.backend.models import NotificationEvent
 from products.notifications.backend.resolvers import RecipientsResolver
 
@@ -51,6 +52,50 @@ class TestCreateNotification(BaseTest):
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_deduplicates_idempotency_key(self, mock_publish, mock_ff):
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.COMMENT_MENTION,
+            title="Test notification",
+            body="Test body",
+            target_type=TargetType.USER,
+            target_id=str(self.user.id),
+            idempotency_key="test-notification",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first = create_notification(data)
+        with self.captureOnCommitCallbacks(execute=True):
+            second = create_notification(data)
+
+        assert first is not None
+        assert second is not None
+        assert second.id == first.id
+        assert NotificationEvent.objects.count() == 1
+        mock_publish.assert_called_once()
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_scopes_idempotency_key_to_team(self, mock_publish, mock_ff):
+        second_team = Team.objects.create(organization=self.organization, name="Second team")
+
+        for team in (self.team, second_team):
+            create_notification(
+                NotificationData(
+                    team_id=team.id,
+                    notification_type=NotificationType.COMMENT_MENTION,
+                    title="Test notification",
+                    body="Test body",
+                    target_type=TargetType.USER,
+                    target_id=str(self.user.id),
+                    idempotency_key="shared-key",
+                )
+            )
+
+        assert NotificationEvent.objects.filter(idempotency_key="shared-key").count() == 2
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
     def test_create_notification_for_organization(self, mock_publish, mock_ff):
         user2 = User.objects.create_and_join(self.organization, "test2@test.com", "password")
 
@@ -67,6 +112,58 @@ class TestCreateNotification(BaseTest):
 
         assert event is not None
         assert set(event.resolved_user_ids) == {self.user.id, user2.id}
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_for_team(self, mock_publish, mock_ff):
+        user2 = User.objects.create_and_join(self.organization, "team_test@test.com", "password")
+
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.COMMENT_MENTION,
+            title="Team alert",
+            body="Something happened",
+            target_type=TargetType.TEAM,
+            target_id=str(self.team.id),
+        )
+        event = create_notification(data)
+
+        assert event is not None
+        assert set(event.resolved_user_ids) == {self.user.id, user2.id}
+
+    def test_resolve_team_excludes_org_members_without_project_access(self):
+        from posthog.models import OrganizationMembership
+
+        from products.access_control.backend.models.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        allowed_user = User.objects.create_and_join(self.organization, "allowed@test.com", "password")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=allowed_user),
+            access_level="member",
+        )
+        denied_user = User.objects.create_and_join(self.organization, "denied@test.com", "password")
+
+        result = RecipientsResolver().resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+
+        assert allowed_user.id in result
+        assert denied_user.id not in result
 
     def test_resolve_unknown_target_type_raises(self):
         resolver = RecipientsResolver()
@@ -235,6 +332,22 @@ class TestAccessControlFiltering(BaseTest):
         self.user2 = User.objects.create_and_join(self.organization, "ac2@test.com", "password")
         self.resolver = RecipientsResolver()
 
+    def test_role_recipient_ignores_membership_from_another_organization(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        role = Role.objects.create(name="Other organization role", organization=other_organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=self.user,
+            organization_member=OrganizationMembership.objects.get(
+                organization=self.organization,
+                user=self.user,
+            ),
+        )
+
+        result = self.resolver.resolve(TargetType.ROLE, str(role.id), self.team.id)
+
+        assert result == []
+
     def test_passthrough_when_org_lacks_access_control(self):
         self.organization.available_product_features = []
         self.organization.save()
@@ -282,3 +395,80 @@ class TestAccessControlFiltering(BaseTest):
         user_ids = [self.user.id, self.user2.id]
         result = self.resolver.filter_by_access_control(user_ids, "dashboard", self.team)
         assert result == [self.user.id]
+
+
+class TestPublishResourceEdited(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization = Organization.objects.create(name="RE Org")
+        self.team = Team.objects.create(organization=self.organization, name="RE Team")
+        self.user = User.objects.create_and_join(self.organization, "re@test.com", "password")
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic.get_producer")
+    def test_publishes_transient_event_without_persisting(self, mock_get_producer, mock_ff):
+        producer = mock_get_producer.return_value
+
+        with self.captureOnCommitCallbacks(execute=True):
+            publish_resource_edited(
+                team=self.team,
+                resource_type="HogFlow",
+                resource_id="flow-123",
+                updated_at="2026-06-16T00:00:00+00:00",
+                actor_user_id=self.user.id,
+                ac_resource_type="hog_flow",
+            )
+
+        producer.produce.assert_called_once()
+        payload = producer.produce.call_args.kwargs["data"]
+        assert payload["notification_type"] == "resource_edited"
+        assert payload["resource_type"] == "HogFlow"
+        assert payload["resource_id"] == "flow-123"
+        assert payload["updated_at"] == "2026-06-16T00:00:00+00:00"
+        assert self.user.id in payload["resolved_user_ids"]
+        # Editor-state sync only — it must never become an inbox notification.
+        assert NotificationEvent.objects.count() == 0
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.notifications.backend.logic.get_producer")
+    def test_noops_when_flag_disabled(self, mock_get_producer, mock_ff):
+        with self.captureOnCommitCallbacks(execute=True):
+            publish_resource_edited(
+                team=self.team,
+                resource_type="HogFlow",
+                resource_id="flow-123",
+                updated_at="2026-06-16T00:00:00+00:00",
+            )
+
+        mock_get_producer.assert_not_called()
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic.get_producer")
+    @patch.object(RecipientsResolver, "resolve", return_value=[])
+    def test_noops_when_no_recipients(self, mock_resolve, mock_get_producer, mock_ff):
+        with self.captureOnCommitCallbacks(execute=True):
+            publish_resource_edited(
+                team=self.team,
+                resource_type="HogFlow",
+                resource_id="flow-123",
+                updated_at="2026-06-16T00:00:00+00:00",
+            )
+
+        mock_get_producer.assert_not_called()
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic.get_producer")
+    @patch.object(RecipientsResolver, "filter_by_access_control")
+    def test_skips_access_control_filtering_for_non_ac_resource(self, mock_ac_filter, mock_get_producer, mock_ff):
+        # annotation is not an access-controlled resource type, so recipients are not AC-filtered.
+        with self.captureOnCommitCallbacks(execute=True):
+            publish_resource_edited(
+                team=self.team,
+                resource_type="Annotation",
+                resource_id="annotation-123",
+                updated_at="2026-06-16T00:00:00+00:00",
+                ac_resource_type="annotation",
+            )
+
+        mock_ac_filter.assert_not_called()
+        mock_get_producer.return_value.produce.assert_called_once()

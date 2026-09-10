@@ -16,8 +16,9 @@ class EvaluationActivityResult(TypedDict, total=False):
       attribution doesn't credit phantom calls, and `execute_hog_eval_activity` (whose
       output also flows into `emit_evaluation_event_activity`) emits only `verdict`,
       `reasoning`, `allows_na`, and optionally `applicable`.
-    - `sentiment_*` fields are set for sentiment evaluations and deliberately omit
-      `verdict` so report and pass/fail metrics do not treat sentiment as N/A.
+    - `sentiment_*` fields are set for successful sentiment evaluations (the skip path
+      omits them) and deliberately omit `verdict` so report and pass/fail metrics do
+      not treat sentiment as N/A.
     """
 
     result_type: Required[Literal["boolean", "sentiment"]]
@@ -34,6 +35,9 @@ class EvaluationActivityResult(TypedDict, total=False):
     applicable: NotRequired[bool]
     skipped: NotRequired[bool]
     skip_reason: NotRequired[str]
+    terminal_user_error: NotRequired[bool]
+    status_reason: NotRequired[str | None]
+    provider_key_state: NotRequired[str]
     sentiment_label: NotRequired[str]
     sentiment_score: NotRequired[float]
     sentiment_scores: NotRequired[dict[str, float]]

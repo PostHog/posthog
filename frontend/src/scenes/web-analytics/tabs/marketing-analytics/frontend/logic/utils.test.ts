@@ -1,6 +1,5 @@
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import {
+    ConversionGoalFilter,
     DatabaseSchemaDataWarehouseTable,
     MARKETING_INTEGRATION_CONFIGS,
     MarketingAnalyticsColumnsSchemaNames,
@@ -9,6 +8,7 @@ import {
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
+import { BaseMathType, PropertyMathType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 import {
@@ -16,57 +16,19 @@ import {
     findSchemaByFieldName,
     getEnabledNativeMarketingSources,
     getOrderBy,
+    goalSumsAProperty,
     getSortedColumnsByArray,
     orderArrayByPreference,
     rowMatchesSearch,
+    sanitizeIntegrationFilter,
     validColumnsForTiles,
 } from './utils'
 
 describe('marketing analytics utils', () => {
     describe('getEnabledNativeMarketingSources', () => {
-        it.each([
-            ['filters out BingAds when flag is disabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: false }, 'BingAds', false],
-            ['includes BingAds when flag is enabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: true }, 'BingAds', true],
-            ['filters out BingAds with empty feature flags', {}, 'BingAds', false],
-            [
-                'filters out SnapchatAds when flag is disabled',
-                { [FEATURE_FLAGS.SNAPCHAT_ADS_SOURCE]: false },
-                'SnapchatAds',
-                false,
-            ],
-            [
-                'includes SnapchatAds when flag is enabled',
-                { [FEATURE_FLAGS.SNAPCHAT_ADS_SOURCE]: true },
-                'SnapchatAds',
-                true,
-            ],
-            ['filters out SnapchatAds with empty feature flags', {}, 'SnapchatAds', false],
-            [
-                'filters out PinterestAds when flag is disabled',
-                { [FEATURE_FLAGS.PINTEREST_ADS_SOURCE]: false },
-                'PinterestAds',
-                false,
-            ],
-            [
-                'includes PinterestAds when flag is enabled',
-                { [FEATURE_FLAGS.PINTEREST_ADS_SOURCE]: true },
-                'PinterestAds',
-                true,
-            ],
-            ['filters out PinterestAds with empty feature flags', {}, 'PinterestAds', false],
-        ])('%s', (_name, featureFlags, source, shouldInclude) => {
-            const result = getEnabledNativeMarketingSources(featureFlags ?? {})
-            expect(result.includes(source as any)).toBe(shouldInclude)
-        })
-
-        it('always includes sources without feature flag requirements', () => {
-            const sourcesWithoutFlags = VALID_NATIVE_MARKETING_SOURCES.filter(
-                (s) => s !== 'BingAds' && s !== 'SnapchatAds' && s !== 'PinterestAds'
-            )
+        it('returns every native source when no source is flag-gated', () => {
             const result = getEnabledNativeMarketingSources({})
-            sourcesWithoutFlags.forEach((source) => {
-                expect(result).toContain(source)
-            })
+            expect([...result]).toEqual([...VALID_NATIVE_MARKETING_SOURCES])
         })
     })
 
@@ -492,6 +454,46 @@ describe('marketing analytics utils', () => {
             ['numeric values in result no match', { result: [123, 456] }, '123', false],
         ])('%s', (_name, record, searchTerm, expected) => {
             expect(rowMatchesSearch(record, searchTerm)).toBe(expected)
+        })
+    })
+
+    describe('goalSumsAProperty', () => {
+        const goalWithMath = (math: ConversionGoalFilter['math']): ConversionGoalFilter =>
+            ({
+                kind: NodeKind.EventsNode,
+                math,
+                conversion_goal_id: 'g',
+                conversion_goal_name: 'Goal',
+                schema_map: {},
+            }) as ConversionGoalFilter
+
+        it.each([
+            ['sum is a summed property', PropertyMathType.Sum, true],
+            ['dau counts conversions', BaseMathType.UniqueUsers, false],
+            ['total counts conversions', BaseMathType.TotalCount, false],
+            ['a *_sum math is a summed property', 'property_sum' as ConversionGoalFilter['math'], true],
+            ['undefined math counts conversions', undefined, false],
+        ])('%s', (_name, math, expected) => {
+            expect(goalSumsAProperty(goalWithMath(math))).toBe(expected)
+        })
+    })
+
+    describe('sanitizeIntegrationFilter', () => {
+        it('drops a key the query schema no longer accepts', () => {
+            const stored = { integrationSourceIds: ['abc'], includeNonIntegrated: true }
+            expect(sanitizeIntegrationFilter(stored)).toEqual({ integrationSourceIds: ['abc'] })
+        })
+
+        it.each([
+            ['selected ids survive', { integrationSourceIds: ['a', 'b'] }, ['a', 'b']],
+            ['empty selection', { integrationSourceIds: [] }, []],
+            ['missing field', {}, []],
+            ['null', null, []],
+            ['undefined', undefined, []],
+            ['non-array ids', { integrationSourceIds: 'a' }, []],
+            ['non-string entries', { integrationSourceIds: ['a', 3, null] }, ['a']],
+        ])('%s', (_name, stored, expected) => {
+            expect(sanitizeIntegrationFilter(stored)).toEqual({ integrationSourceIds: expected })
         })
     })
 })

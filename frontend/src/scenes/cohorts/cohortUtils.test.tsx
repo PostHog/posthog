@@ -1,5 +1,12 @@
-import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
-import { validateGroup } from 'scenes/cohorts/cohortUtils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { BehavioralFilterKey, CohortClientErrors } from 'scenes/cohorts/CohortFilters/types'
+import {
+    cleanBehavioralTypeCriteria,
+    cleanCriteria,
+    criteriaToHumanSentence,
+    determineFilterType,
+    validateGroup,
+} from 'scenes/cohorts/cohortUtils'
 
 import { AnyCohortCriteriaType, BehavioralEventType, CohortCriteriaGroupFilter, FilterLogicalOperator } from '~/types'
 
@@ -86,4 +93,139 @@ describe('validateGroup', () => {
         // Exercises the `.join(', ')` and the `are` (vs `is a`) pluralization in the changed expression.
         expect(errors.id).toContain("'legacy_unknown_type', 'Did not complete event' are negative cohort criteria")
     })
+
+    const negationGroup: CohortCriteriaGroupFilter = {
+        type: FilterLogicalOperator.And,
+        values: [
+            {
+                type: BehavioralFilterKey.Behavioral,
+                value: BehavioralEventType.PerformEvent,
+                negation: true,
+            },
+        ],
+    }
+    const positiveSiblingGroup: CohortCriteriaGroupFilter = {
+        type: FilterLogicalOperator.And,
+        values: [
+            {
+                type: BehavioralFilterKey.Behavioral,
+                value: BehavioralEventType.PerformEvent,
+                negation: false,
+            },
+        ],
+    }
+
+    it('allows a negation alone in its group when a sibling group has a positive criterion and outer op is AND', () => {
+        // The reported bug: a "Did not complete event" negation in its own group, matched against a
+        // positive criterion in a sibling group under the top-level "Match all criteria" (AND) operator.
+        const errors = validateGroup(negationGroup, FilterLogicalOperator.And, [positiveSiblingGroup])
+
+        expect(errors.id).toBeUndefined()
+    })
+
+    it('still rejects a negation alone in its group when the outer operator is OR', () => {
+        // Under OR the sibling group is unioned, not intersected, so it cannot bound the negation.
+        const errors = validateGroup(negationGroup, FilterLogicalOperator.Or, [positiveSiblingGroup])
+
+        expect(errors.id).toContain(CohortClientErrors.NegationCriteriaMissingOther)
+    })
+
+    it('still rejects a negation alone in its group when no sibling group has a positive criterion', () => {
+        const errors = validateGroup(negationGroup, FilterLogicalOperator.And, [negationGroup])
+
+        expect(errors.id).toContain(CohortClientErrors.NegationCriteriaMissingOther)
+    })
+
+    it('still rejects a negation inside an inner OR group even when the outer operator is AND', () => {
+        // A negation only makes sense intersected with a positive set. An OR group unions the negation
+        // with its own members, so a positive sibling under outer AND must not rescue it.
+        const orGroupWithNegation: CohortCriteriaGroupFilter = {
+            type: FilterLogicalOperator.Or,
+            values: [
+                { type: BehavioralFilterKey.Behavioral, value: BehavioralEventType.PerformEvent, negation: true },
+                { type: BehavioralFilterKey.Behavioral, value: BehavioralEventType.PerformEvent, negation: false },
+            ],
+        }
+        const errors = validateGroup(orGroupWithNegation, FilterLogicalOperator.And, [positiveSiblingGroup])
+
+        expect(errors.id).toContain(CohortClientErrors.NegationCriteriaMissingOther)
+    })
+})
+
+describe('determineFilterType', () => {
+    it('preserves PersonMetadata across the negation flow', () => {
+        const negated = determineFilterType(BehavioralFilterKey.PersonMetadata, BehavioralEventType.HaveProperty, true)
+        expect(negated.type).toBe(BehavioralFilterKey.PersonMetadata)
+    })
+
+    it('still maps regular Person criteria to Person on negation', () => {
+        const negated = determineFilterType(BehavioralFilterKey.Person, BehavioralEventType.HaveProperty, true)
+        expect(negated.type).toBe(BehavioralFilterKey.Person)
+    })
+})
+
+describe('cleanBehavioralTypeCriteria', () => {
+    // event_type is the transient taxonomic-group hint set when the user first picks a
+    // property. It is dropped by later cleanCriteria passes, so the durable `type` must
+    // survive on its own once derived.
+    it('derives PersonMetadata type from the event_type hint on first selection', () => {
+        const criteria: AnyCohortCriteriaType = {
+            type: BehavioralFilterKey.Person,
+            value: BehavioralEventType.HaveProperty,
+            event_type: TaxonomicFilterGroupType.PersonMetadata,
+        }
+        expect(cleanBehavioralTypeCriteria(criteria).type).toBe(BehavioralFilterKey.PersonMetadata)
+    })
+
+    it('does not downgrade a loaded PersonMetadata criterion when event_type is gone', () => {
+        const criteria: AnyCohortCriteriaType = {
+            type: BehavioralFilterKey.PersonMetadata,
+            value: BehavioralEventType.HaveProperty,
+            // no event_type — mirrors a cohort loaded from the API
+        }
+        expect(cleanBehavioralTypeCriteria(criteria).type).toBe(BehavioralFilterKey.PersonMetadata)
+    })
+
+    it('maps a plain person property criterion to Person', () => {
+        const criteria: AnyCohortCriteriaType = {
+            type: BehavioralFilterKey.Person,
+            value: BehavioralEventType.HaveProperty,
+        }
+        expect(cleanBehavioralTypeCriteria(criteria).type).toBe(BehavioralFilterKey.Person)
+    })
+
+    it('downgrades a PersonMetadata criterion to Person when the user switches to a plain person property', () => {
+        // The picker merges the new selection's event_type onto the old criteria, so a
+        // stale PersonMetadata `type` arrives alongside `event_type: PersonProperties`. The
+        // fresh event_type must win, otherwise the criterion saves as `person_metadata` with
+        // a non-metadata key and the server rejects the whole cohort.
+        const criteria: AnyCohortCriteriaType = {
+            type: BehavioralFilterKey.PersonMetadata,
+            value: BehavioralEventType.HaveProperty,
+            event_type: TaxonomicFilterGroupType.PersonProperties,
+        }
+        expect(cleanBehavioralTypeCriteria(criteria).type).toBe(BehavioralFilterKey.Person)
+    })
+})
+
+describe('criteria whose value collides with an Object.prototype key', () => {
+    // The API stores `value` as an unconstrained string, so keys like `constructor` can reach the
+    // client. A plain ROWS lookup resolves those to a truthy non-row, which slips past both
+    // functions' missing-row guards and then throws on the `fields` access behind them.
+    const criteria = (value: string): AnyCohortCriteriaType => ({
+        type: BehavioralFilterKey.Behavioral,
+        value: value as BehavioralEventType,
+        key: '$pageview',
+    })
+
+    it.each([['constructor'], ['toString'], ['__proto__']])('cleanCriteria empties the criterion for %s', (value) => {
+        expect(cleanCriteria(criteria(value))).toEqual({ type: undefined, value: undefined, negation: false })
+    })
+
+    it.each([['constructor'], ['toString'], ['__proto__']])(
+        'criteriaToHumanSentence renders nothing for %s',
+        (value) => {
+            expect(criteriaToHumanSentence(criteria(value), {}, {})).toEqual(<></>)
+        }
+    )
 })

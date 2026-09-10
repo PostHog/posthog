@@ -6,18 +6,23 @@ import {
     Controls,
     EdgeTypes,
     NodeTypes,
+    Panel,
     ReactFlow,
     ReactFlowProvider,
+    useNodesInitialized,
     useReactFlow,
 } from '@xyflow/react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+
+import { IconInfo } from '@posthog/icons'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { workflowLogic } from '../workflowLogic'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
+import { LOW_DETAIL_ZOOM, MIN_ZOOM } from './react_flow_utils/constants'
 import { REACT_FLOW_EDGE_TYPES } from './react_flow_utils/SmartEdge'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
 import { HogFlowActionEdge, HogFlowActionNode } from './types'
@@ -26,7 +31,7 @@ import { HogFlowActionEdge, HogFlowActionNode } from './types'
 function HogFlowEditorContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { nodes, edges, dropzoneNodes } = useValues(hogFlowEditorLogic)
+    const { nodes, edges, dropzoneNodes, isMovingNode, isCopyingNode, isZoomedOutFar } = useValues(hogFlowEditorLogic)
     const {
         onEdgesChange,
         onNodesChange,
@@ -38,10 +43,13 @@ function HogFlowEditorContent(): JSX.Element {
         onDrop,
         setReactFlowWrapper,
         handlePaneClick,
+        setIsZoomedOutFar,
+        fitView,
     } = useActions(hogFlowEditorLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
     const reactFlowInstance = useReactFlow()
+    const nodesInitialized = useNodesInitialized()
 
     useEffect(() => {
         setReactFlowInstance(reactFlowInstance)
@@ -51,12 +59,34 @@ function HogFlowEditorContent(): JSX.Element {
         setReactFlowWrapper(reactFlowWrapper)
     }, [setReactFlowWrapper])
 
+    useEffect(() => {
+        if (nodesInitialized) {
+            fitView({ duration: 0 })
+        }
+    }, [fitView, nodesInitialized])
+
+    // ReactFlow diffs its nodes prop by reference: an inline spread would hand it a fresh array
+    // every render, making every render look like a graph change.
+    const nodesWithDropzones = useMemo(
+        () => [...nodes, ...(dropzoneNodes as unknown as HogFlowActionNode[])],
+        [nodes, dropzoneNodes]
+    )
+
     return (
         <div ref={reactFlowWrapper} className="flex flex-col grow w-full" data-attr="workflow-editor">
             <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
                 className="grow"
                 fitView
-                nodes={[...nodes, ...(dropzoneNodes as unknown as HogFlowActionNode[])]}
+                minZoom={MIN_ZOOM}
+                // Only dispatched when the detail tier flips, so panning and zooming don't put a
+                // Redux action on every animation frame.
+                onMove={(_, viewport) => {
+                    const zoomedOutFar = viewport.zoom < LOW_DETAIL_ZOOM
+                    if (zoomedOutFar !== isZoomedOutFar) {
+                        setIsZoomedOutFar(zoomedOutFar)
+                    }
+                }}
+                nodes={nodesWithDropzones}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
@@ -72,6 +102,17 @@ function HogFlowEditorContent(): JSX.Element {
                 onPaneClick={handlePaneClick}
             >
                 <Background gap={36} variant={BackgroundVariant.Dots} />
+
+                {(isMovingNode || isCopyingNode) && (
+                    <Panel position="bottom-left">
+                        {/* Offset right of the zoom controls so the hint sits beside them */}
+                        <div className="flex items-center gap-1.5 ml-12 px-3 py-1.5 rounded border shadow-sm bg-surface-primary text-sm">
+                            <IconInfo className="text-base text-muted shrink-0" />
+                            <span>Click a highlighted spot to {isMovingNode ? 'move' : 'copy'} this step</span>
+                            <span className="text-muted">· press Esc to cancel</span>
+                        </div>
+                    </Panel>
+                )}
 
                 <Controls showInteractive={false} />
 

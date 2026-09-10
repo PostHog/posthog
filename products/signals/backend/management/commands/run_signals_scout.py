@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from django.core.management.base import BaseCommand, CommandError
 
+from products.signals.backend.scout_harness.limits import TRIGGERED_BY_MANUAL
 from products.signals.backend.scout_harness.runner import run_signals_scout
 from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError
 
@@ -35,6 +36,7 @@ class Command(BaseCommand):
                 skill_version=options["skill_version"],
                 repository=options["repository"],
                 verbose=options["verbose"],
+                triggered_by=TRIGGERED_BY_MANUAL,
             )
         except SkillNotFoundError as exc:
             raise CommandError(str(exc))

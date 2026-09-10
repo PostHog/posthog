@@ -8,7 +8,7 @@ from parameterized import parameterized
 from posthog.schema import RecordingOrder, RecordingsQuery
 
 from posthog.models import User
-from posthog.session_recordings.utils import gate_surfacing_score_order
+from posthog.session_recordings.utils import gate_replay_relevance
 
 
 def _query(order: RecordingOrder | None) -> RecordingsQuery:
@@ -30,25 +30,45 @@ class TestGateSurfacingScoreOrder(TestCase):
     def test_non_surfacing_orders_never_evaluate_the_flag(self, _name, order, expected):
         with mock.patch("posthog.session_recordings.utils.posthoganalytics.feature_enabled") as feature_enabled:
             query = _query(order)
-            gate_surfacing_score_order(query, _user())
+            gate_replay_relevance(query, _user())
             assert query.order == expected
             feature_enabled.assert_not_called()
 
-    def test_surfacing_score_kept_when_flag_enabled(self):
-        with mock.patch("posthog.session_recordings.utils.posthoganalytics.feature_enabled", return_value=True):
+    @parameterized.expand(
+        [
+            ("surfacing_flag_enabled", True, RecordingOrder.SURFACING_SCORE),
+            ("surfacing_flag_disabled", False, RecordingOrder.START_TIME),
+        ]
+    )
+    def test_surfacing_score_kept_only_for_rollout(self, _name, surfacing_enabled, expected):
+        with mock.patch(
+            "posthog.session_recordings.utils.posthoganalytics.feature_enabled", return_value=surfacing_enabled
+        ):
             query = _query(RecordingOrder.SURFACING_SCORE)
-            gate_surfacing_score_order(query, _user())
-            assert query.order == RecordingOrder.SURFACING_SCORE
+            gate_replay_relevance(query, _user())
+            assert query.order == expected
 
-    def test_surfacing_score_falls_back_when_flag_disabled(self):
-        with mock.patch("posthog.session_recordings.utils.posthoganalytics.feature_enabled", return_value=False):
-            query = _query(RecordingOrder.SURFACING_SCORE)
-            gate_surfacing_score_order(query, _user())
-            assert query.order == RecordingOrder.START_TIME
+    @parameterized.expand(
+        [
+            ("test_variant", "test", True),
+            ("control_variant", "control", False),
+            ("missing_variant", None, False),
+        ]
+    )
+    def test_recommended_filter_kept_only_for_test_variant(self, _name, variant, expected):
+        with mock.patch("posthog.session_recordings.utils.posthoganalytics.get_feature_flag", return_value=variant):
+            query = RecordingsQuery(recommended_only=True)
+            gate_replay_relevance(query, _user())
+            assert query.recommended_only is expected
 
-    def test_surfacing_score_falls_back_without_a_user(self):
-        with mock.patch("posthog.session_recordings.utils.posthoganalytics.feature_enabled") as feature_enabled:
-            query = _query(RecordingOrder.SURFACING_SCORE)
-            gate_surfacing_score_order(query, None)
+    def test_relevance_features_fall_back_without_a_user(self):
+        with (
+            mock.patch("posthog.session_recordings.utils.posthoganalytics.feature_enabled") as feature_enabled,
+            mock.patch("posthog.session_recordings.utils.posthoganalytics.get_feature_flag") as get_feature_flag,
+        ):
+            query = RecordingsQuery(order=RecordingOrder.SURFACING_SCORE, recommended_only=True)
+            gate_replay_relevance(query, None)
             assert query.order == RecordingOrder.START_TIME
+            assert query.recommended_only is False
             feature_enabled.assert_not_called()
+            get_feature_flag.assert_not_called()

@@ -1,3 +1,4 @@
+import { UserNameWithEmail } from 'lib/components/ActivityLog/UserNameWithEmail'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { fullName } from 'lib/utils/strings'
@@ -6,7 +7,7 @@ import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/type
 
 export interface ActivityChange {
     type: ActivityScope
-    action: 'changed' | 'created' | 'deleted' | 'exported' | 'split' | 'copied'
+    action: 'changed' | 'created' | 'deleted' | 'exported' | 'split' | 'merged' | 'copied'
     field?: string
     before?: string | number | any[] | Record<string, any> | boolean | null
     after?: string | number | any[] | Record<string, any> | boolean | null
@@ -73,9 +74,13 @@ export type HumanizedChange = { description: Description | null; extendedDescrip
 export type HumanizedActivityLogItem = {
     id?: string
     email?: string | null
+    /** The email to offer on hover, or null when the row already prints it as the actor's name. */
+    emailToReveal?: string | null
     name?: string
     isSystem?: boolean
     wasImpersonated?: boolean
+    /** SDK or integration that triggered this action (from x-posthog-client header). */
+    client?: string | null
     description: Description
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     created_at: dayjs.Dayjs
@@ -117,12 +122,14 @@ export function humanize(
             const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
             logLines.push({
                 id: logItem.id,
-                email: logItem.was_impersonated ? undefined : logItem.user?.email,
+                email: actorEmailForLogItem(logItem),
+                emailToReveal: actorEmailToRevealForLogItem(logItem),
                 name: logItem.was_impersonated
                     ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
                     : impersonatedUserName,
                 isSystem: logItem.is_system,
                 wasImpersonated: logItem.was_impersonated,
+                client: logItem.client,
                 description,
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),
@@ -139,10 +146,44 @@ export function userNameForLogItem(logItem: ActivityLogItem): string {
         return 'PostHog'
     }
     if (logItem.was_impersonated) {
-        const impersonatedUserName = logItem.user ? fullName(logItem.user) : 'a user'
-        return `PostHog Support (as ${impersonatedUserName})`
+        return `PostHog Support (as ${nameOrEmailForUser(logItem.user, 'a user')})`
     }
-    return logItem.user ? fullName(logItem.user) : 'A user'
+    return nameOrEmailForUser(logItem.user, 'A user')
+}
+
+// The user's name can be blank (e.g. SCIM-provisioned members whose IdP omits a name), so fall
+// back to their email — which is always in the payload — before the generic placeholder.
+function nameOrEmailForUser(
+    user: Pick<UserBasicType, 'email' | 'first_name' | 'last_name'> | undefined,
+    fallback: string
+): string {
+    if (!user) {
+        return fallback
+    }
+    return fullName(user) || user.email || fallback
+}
+
+// An impersonated row names PostHog Support as the actor, so the address on it belongs to the
+// member who was impersonated and attributing it to Support would misread the audit trail. Every
+// surface that shows the email must use this, or a row can disclose it in one place and hide it
+// in another.
+export function actorEmailForLogItem(logItem: ActivityLogItem): string | null {
+    if (logItem.is_system || logItem.was_impersonated) {
+        return null
+    }
+    return logItem.user?.email ?? null
+}
+
+// Kept apart from actorEmailForLogItem because that one also feeds the Gravatar lookup, and a
+// member whose name is their email still has a Gravatar to show.
+export function actorEmailToRevealForLogItem(logItem: ActivityLogItem): string | null {
+    const email = actorEmailForLogItem(logItem)
+    return email && email !== userNameForLogItem(logItem) ? email : null
+}
+
+/** The person who did the thing, with their email on hover. */
+export function ActivityLogUserName({ logItem }: { logItem: ActivityLogItem }): JSX.Element {
+    return <UserNameWithEmail name={userNameForLogItem(logItem)} email={actorEmailForLogItem(logItem)} />
 }
 
 const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
@@ -151,6 +192,7 @@ const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
 const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plural: string }>> = {
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
+    [ActivityScope.CANVAS]: { singular: 'Canvas', plural: 'Canvases' },
     [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
     [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },
     [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API key', plural: 'Personal API keys' },
@@ -160,6 +202,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
         singular: 'Project secret API key',
         plural: 'Project secret API keys',
     },
+    [ActivityScope.TICKET]: { singular: 'Support ticket', plural: 'Support tickets' },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {
@@ -195,7 +238,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> deleted <b>{resource}</b>
                 </>
             ),
         }
@@ -205,7 +248,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> created <b>{resource}</b>
                 </>
             ),
         }
@@ -215,7 +258,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> restored <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> restored <b>{resource}</b>
                 </>
             ),
         }
@@ -225,7 +268,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> updated <b>{resource}</b>
                 </>
             ),
         }
@@ -235,8 +278,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> copied <b>{resource}</b> to
-                    another project
+                    <ActivityLogUserName logItem={logItem} /> copied <b>{resource}</b> to another project
                 </>
             ),
         }
@@ -248,14 +290,13 @@ export function defaultDescriber(
         if (logItem.scope === 'Comment') {
             description = (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> replied to a{' '}
-                    {humanizeScope(logItem.scope, true)}
+                    <ActivityLogUserName logItem={logItem} /> replied to a {humanizeScope(logItem.scope, true)}
                 </>
             )
         } else {
             description = (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> commented
+                    <ActivityLogUserName logItem={logItem} /> commented
                     {asNotification ? <> on a {humanizeScope(logItem.scope, true)}</> : null}
                 </>
             )

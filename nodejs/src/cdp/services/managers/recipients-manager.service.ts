@@ -1,6 +1,6 @@
-import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
-import { LazyLoader } from '../../../utils/lazy-loader'
-import { logger } from '../../../utils/logger'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
 
 export type RecipientGetArgs = {
     teamId: number
@@ -15,6 +15,11 @@ const fromKey = (key: string): RecipientGetArgs => {
 }
 
 export type PreferenceStatus = 'OPTED_IN' | 'OPTED_OUT' | 'NO_PREFERENCE'
+
+// Reserved key in the preferences JSON for open/click tracking consent, alongside the '$all'
+// unsubscribe key. Mirrors EMAIL_TRACKING_PREFERENCE_ID in
+// products/messaging/backend/models/message_preferences.py.
+export const EMAIL_TRACKING_PREFERENCE_ID = '$email_tracking'
 
 // Type for the query result from the database
 type MessageRecipientPreferenceRow = {
@@ -69,6 +74,12 @@ export class RecipientsManagerService {
 
     public getAllMarketingMessagingPreference(recipient: RecipientManagerRecipient): PreferenceStatus {
         return recipient.preferences['$all'] ?? 'NO_PREFERENCE'
+    }
+
+    // Consent for open/click tracking, distinct from messaging opt-out: a recipient can keep
+    // receiving emails while refusing to have their opens/clicks tracked.
+    public getEmailTrackingPreference(recipient: RecipientManagerRecipient): PreferenceStatus {
+        return recipient.preferences[EMAIL_TRACKING_PREFERENCE_ID] ?? 'NO_PREFERENCE'
     }
 
     /**

@@ -1,4 +1,17 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -10,13 +23,15 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
 
-import type { appMetricsLogicType } from './appMetricsLogicType'
+import type { TeamPublicType, TeamType } from '../../../types'
 
 const DEFAULT_INTERVAL = 'day'
 
 export type AppMetricsCommonParams = {
     appSource?: string
     appSourceId?: string
+    /** Match all app_source_ids starting with this prefix (e.g. `<hog flow id>/` for versioned hog flow metrics). */
+    appSourceIdPrefix?: string
     instanceId?: string
     metricName?: string | string[]
     metricKind?: string | string[]
@@ -39,6 +54,8 @@ export type AppMetricsTimeSeriesRequest = AppMetricsCommonParams
 
 export type AppMetricsTimeSeriesResponse = {
     labels: string[]
+    interval: NonNullable<AppMetricsCommonParams['interval']>
+    timezone: string
     series: {
         name: string
         values: number[]
@@ -47,6 +64,15 @@ export type AppMetricsTimeSeriesResponse = {
 
 export type AppMetricsTotalsRequest = Omit<AppMetricsCommonParams, 'interval' | 'breakdownBy'> & {
     breakdownBy: ('metric_name' | 'metric_kind' | 'app_source_id' | 'instance_id')[]
+    /**
+     * Caps the number of breakdown groups returned, highest total first.
+     *
+     * Without this the executor applies its own default (`DEFAULT_RETURNED_ROWS`, 100) to a query
+     * that has no ORDER BY, so an over-100 breakdown silently returns an arbitrary 100 groups.
+     * Callers whose breakdown cardinality can exceed that must set it; ordering by total means
+     * truncation keeps the groups worth showing.
+     */
+    limit?: number
 }
 
 export type AppMetricsTotalsResponse = Record<
@@ -56,6 +82,11 @@ export type AppMetricsTotalsResponse = Record<
         breakdowns: string[]
     }
 >
+
+const appSourceIdPrefixPattern = (prefix: string): string => {
+    // Escape LIKE wildcards so the prefix matches literally.
+    return prefix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_') + '%'
+}
 
 export const loadAppMetricsTotals = async (
     request: AppMetricsTotalsRequest,
@@ -73,6 +104,10 @@ export const loadAppMetricsTotals = async (
 
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
+    }
+    if (request.appSourceIdPrefix) {
+        query = (query +
+            hogql`\nAND app_source_id LIKE ${appSourceIdPrefixPattern(request.appSourceIdPrefix)}`) as HogQLQueryString
     }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
@@ -93,10 +128,16 @@ export const loadAppMetricsTotals = async (
             GROUP BY ${hogql.raw(breakdownBy.join(', '))}
         `) as HogQLQueryString
 
+    if (request.limit) {
+        query = (query +
+            hogql`
+ORDER BY total DESC LIMIT ${request.limit}`) as HogQLQueryString
+    }
+
     const response = await api.queryHogQL(
         query,
         { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        { refresh: 'async_except_on_cache_miss' }
+        { refresh: 'force_blocking' }
     )
 
     const res: AppMetricsTotalsResponse = {}
@@ -113,7 +154,7 @@ export const loadAppMetricsTotals = async (
     return res
 }
 
-const loadAppMetricsTimeSeries = async (
+export const loadAppMetricsTimeSeries = async (
     request: AppMetricsTimeSeriesRequest,
     timezone: string
 ): Promise<AppMetricsTimeSeriesResponse> => {
@@ -177,6 +218,10 @@ const loadAppMetricsTimeSeries = async (
     if (request.appSourceId) {
         query = (query + hogql`\nAND app_source_id = ${request.appSourceId}`) as HogQLQueryString
     }
+    if (request.appSourceIdPrefix) {
+        query = (query +
+            hogql`\nAND app_source_id LIKE ${appSourceIdPrefixPattern(request.appSourceIdPrefix)}`) as HogQLQueryString
+    }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
     }
@@ -210,22 +255,13 @@ const loadAppMetricsTimeSeries = async (
     const response = await api.queryHogQL(
         query,
         { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        { refresh: 'async_except_on_cache_miss' }
+        { refresh: 'force_blocking' }
     )
 
-    const labels = response.results?.[0]?.[0].map((label: string) => {
-        switch (interval) {
-            case 'day':
-                return dayjs(label).tz(timezone).format('YYYY-MM-DD')
-            case 'hour':
-                return dayjs(label).tz(timezone).format('YYYY-MM-DD HH:mm')
-            case 'minute':
-                return dayjs(label).tz(timezone).format('YYYY-MM-DD HH:mm')
-        }
-    })
-
     return {
-        labels: labels || [],
+        labels: (response.results?.[0]?.[0] as string[] | undefined) ?? [],
+        interval,
+        timezone,
         series:
             response.results?.map((result) => ({
                 name: result[1],
@@ -237,6 +273,105 @@ const loadAppMetricsTimeSeries = async (
 const convertDateFieldToDayJs = (date: string, timezone: string): Dayjs => {
     return dateStringToDayJs(date, timezone) ?? dayjs().tz(timezone)
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface appMetricsLogicValues {
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
+    appMetricsTrends: AppMetricsTimeSeriesResponse | null
+    appMetricsTrendsLoading: boolean
+    appMetricsTrendsPreviousPeriod: AppMetricsTimeSeriesResponse | null
+    appMetricsTrendsPreviousPeriodLoading: boolean
+    availableIntervals: AppMetricsCommonParams['interval'][]
+    getDateRangeAbsolute: () => {
+        dateFrom: Dayjs
+        dateTo: Dayjs
+        diffMs: number
+    }
+    getSingleTrendSeries: (name: string, previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null
+    params: Partial<AppMetricsCommonParams>
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface appMetricsLogicActions {
+    loadAppMetricsTrends: () => {
+        value: true
+    }
+    loadAppMetricsTrendsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAppMetricsTrendsPreviousPeriod: () => {
+        value: true
+    }
+    loadAppMetricsTrendsPreviousPeriodFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAppMetricsTrendsPreviousPeriodSuccess: (
+        appMetricsTrendsPreviousPeriod: AppMetricsTimeSeriesResponse,
+        payload?: {
+            value: true
+        }
+    ) => {
+        appMetricsTrendsPreviousPeriod: AppMetricsTimeSeriesResponse
+        payload?: {
+            value: true
+        }
+    }
+    loadAppMetricsTrendsSuccess: (
+        appMetricsTrends: AppMetricsTimeSeriesResponse,
+        payload?: {
+            value: true
+        }
+    ) => {
+        appMetricsTrends: AppMetricsTimeSeriesResponse
+        payload?: {
+            value: true
+        }
+    }
+    setParams: (params: Partial<AppMetricsCommonParams>) => {
+        params: Partial<AppMetricsCommonParams>
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface appMetricsLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        getSingleTrendSeries: (
+            appMetricsTrends: AppMetricsTimeSeriesResponse | null,
+            appMetricsTrendsPreviousPeriod: AppMetricsTimeSeriesResponse | null
+        ) => (name: string, previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null
+        getDateRangeAbsolute: (
+            params: Partial<AppMetricsCommonParams>,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => () => {
+            dateFrom: Dayjs
+            dateTo: Dayjs
+            diffMs: number
+        }
+        availableIntervals: (
+            getDateRangeAbsolute: () => {
+                dateFrom: Dayjs
+                dateTo: Dayjs
+                diffMs: number
+            }
+        ) => AppMetricsCommonParams['interval'][]
+    }
+}
+
+export type appMetricsLogicType = MakeLogicType<
+    appMetricsLogicValues,
+    appMetricsLogicActions,
+    AppMetricsLogicProps,
+    appMetricsLogicMeta
+>
 
 // IDEA - have a generic helper logic that can be used anywhere for rendering metrics
 export const appMetricsLogic = kea<appMetricsLogicType>([
@@ -307,7 +442,10 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
     selectors(() => ({
         getSingleTrendSeries: [
             (s) => [s.appMetricsTrends, s.appMetricsTrendsPreviousPeriod],
-            (appMetricsTrends, appMetricsTrendsPreviousPeriod) =>
+            (
+                appMetricsTrends: AppMetricsTimeSeriesResponse | null,
+                appMetricsTrendsPreviousPeriod: AppMetricsTimeSeriesResponse | null
+            ) =>
                 (name: string, previousPeriod: boolean = false): AppMetricsTimeSeriesResponse | null => {
                     const targetTrend = previousPeriod ? appMetricsTrendsPreviousPeriod : appMetricsTrends
                     if (!targetTrend) {
@@ -319,7 +457,7 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                     }
 
                     return {
-                        labels: targetTrend.labels,
+                        ...targetTrend,
                         series: [series],
                     }
                 },
@@ -327,23 +465,33 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
 
         getDateRangeAbsolute: [
             (s) => [s.params, s.currentTeam],
-            (params, currentTeam) => (): { dateFrom: Dayjs; dateTo: Dayjs; diffMs: number } => {
-                const dateFrom = convertDateFieldToDayJs(params.dateFrom ?? '-7d', currentTeam?.timezone ?? 'UTC')
-                const dateTo = params.dateTo
-                    ? convertDateFieldToDayJs(params.dateTo, currentTeam?.timezone ?? 'UTC')
-                    : dayjs()
-                          .tz(currentTeam?.timezone ?? 'UTC')
-                          .endOf(params.interval ?? DEFAULT_INTERVAL)
+            (
+                params: Partial<AppMetricsCommonParams>,
+                currentTeam: null | import('../../../types').TeamPublicType | import('../../../types').TeamType
+            ) =>
+                (): { dateFrom: Dayjs; dateTo: Dayjs; diffMs: number } => {
+                    const dateFrom = convertDateFieldToDayJs(params.dateFrom ?? '-7d', currentTeam?.timezone ?? 'UTC')
+                    const dateTo = params.dateTo
+                        ? convertDateFieldToDayJs(params.dateTo, currentTeam?.timezone ?? 'UTC')
+                        : dayjs()
+                              .tz(currentTeam?.timezone ?? 'UTC')
+                              .endOf(params.interval ?? DEFAULT_INTERVAL)
 
-                const diffMs = dateTo.diff(dateFrom)
+                    const diffMs = dateTo.diff(dateFrom)
 
-                return { dateFrom, dateTo, diffMs }
-            },
+                    return { dateFrom, dateTo, diffMs }
+                },
         ],
 
         availableIntervals: [
             (s) => [s.getDateRangeAbsolute],
-            (getDateRangeAbsolute): AppMetricsCommonParams['interval'][] => {
+            (
+                getDateRangeAbsolute: () => {
+                    dateFrom: Dayjs
+                    dateTo: Dayjs
+                    diffMs: number
+                }
+            ): AppMetricsCommonParams['interval'][] => {
                 const diffMs = getDateRangeAbsolute().diffMs
 
                 // If the diff is less than 2 days (ish), we can show the minute interval but not day

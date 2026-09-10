@@ -9,9 +9,17 @@
             "description": "Filter by dashboard ID.",
             "type": "number"
         },
+        "dashboard_tiles": {
+            "description": "Filter to subscriptions on insights that are tiles of the given dashboard ID.",
+            "type": "number"
+        },
         "insight": {
             "description": "Filter by insight ID.",
             "type": "number"
+        },
+        "insights": {
+            "description": "Filter by a comma-separated list of insight IDs.",
+            "type": "string"
         },
         "limit": {
             "description": "Number of results to return per page.",
@@ -35,8 +43,8 @@
             "type": "string"
         },
         "target_type": {
-            "description": "Filter by delivery channel (email or Slack).",
-            "enum": ["email", "slack"],
+            "description": "Filter by delivery channel: email, Slack, or Microsoft Teams.",
+            "enum": ["email", "slack", "teams"],
             "type": "string"
         }
     },

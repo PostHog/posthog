@@ -1,31 +1,25 @@
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { createMockEncryptor, createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
-import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { createMockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
+import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
-import { SessionBatchManager } from './session-batch-manager'
+import { SessionBatchManager, SessionBatchManagerConfig } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
-import { SessionFilter } from './session-filter'
-import { SessionTracker } from './session-tracker'
 
 jest.setTimeout(1000)
 jest.mock('./session-batch-recorder')
 
 describe('SessionBatchManager', () => {
     let manager: SessionBatchManager
-    let currentBatch: jest.Mocked<SessionBatchRecorder>
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
     let mockFileStorage: jest.Mocked<SessionBatchFileStorage>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockFeatureStore: jest.Mocked<SessionFeatureStore>
-    let mockSessionTracker: jest.Mocked<SessionTracker>
-    let mockSessionFilter: jest.Mocked<SessionFilter>
-    let mockKeyStore: jest.Mocked<KeyStore>
     let mockEncryptor: jest.Mocked<RecordingEncryptor>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
@@ -35,19 +29,27 @@ describe('SessionBatchManager', () => {
             get size() {
                 return 0
             },
-            discardPartition: jest.fn(),
         }) as unknown as jest.Mocked<SessionBatchRecorder>
 
+    const config = (overrides: Partial<SessionBatchManagerConfig> = {}): SessionBatchManagerConfig => ({
+        maxBatchSizeBytes: 100,
+        maxBatchAgeMs: 1000,
+        maxEventsPerSessionPerBatch: Number.MAX_SAFE_INTEGER,
+        offsetManager: mockOffsetManager,
+        fileStorage: mockFileStorage,
+        metadataStore: mockMetadataStore,
+        consoleLogStore: mockConsoleLogStore,
+        featureStore: mockFeatureStore,
+        encryptor: mockEncryptor,
+        ...overrides,
+    })
+
     beforeEach(() => {
-        jest.mocked(SessionBatchRecorder).mockImplementation(() => {
-            currentBatch = createMockBatch()
-            return currentBatch
-        })
+        jest.mocked(SessionBatchRecorder).mockImplementation(() => createMockBatch())
 
         mockOffsetManager = {
             commit: jest.fn().mockResolvedValue(undefined),
             trackOffset: jest.fn(),
-            discardPartition: jest.fn(),
         } as unknown as jest.Mocked<KafkaOffsetManager>
 
         mockWriter = {
@@ -71,242 +73,93 @@ describe('SessionBatchManager', () => {
             storeSessionFeatures: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionFeatureStore>
 
-        mockSessionTracker = {
-            trackSession: jest.fn().mockResolvedValue(false),
-        } as unknown as jest.Mocked<SessionTracker>
-
-        mockSessionFilter = {
-            isBlocked: jest.fn().mockResolvedValue(false),
-            handleNewSession: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<SessionFilter>
-
-        mockKeyStore = createMockKeyStore()
         mockEncryptor = createMockEncryptor()
 
-        manager = new SessionBatchManager({
-            maxBatchSizeBytes: 100,
-            maxBatchAgeMs: 1000,
-            maxEventsPerSessionPerBatch: Number.MAX_SAFE_INTEGER,
-            offsetManager: mockOffsetManager,
-            fileStorage: mockFileStorage,
-            metadataStore: mockMetadataStore,
-            consoleLogStore: mockConsoleLogStore,
-            featureStore: mockFeatureStore,
-            sessionTracker: mockSessionTracker,
-            sessionFilter: mockSessionFilter,
-            keyStore: mockKeyStore,
-            encryptor: mockEncryptor,
-        })
+        manager = new SessionBatchManager(config())
     })
 
     afterEach(() => {
         jest.clearAllMocks()
     })
 
-    it('should create new batch with correct params on flush', async () => {
-        const firstBatch = manager.getCurrentBatch()
-        await manager.flush()
+    describe('createBatch', () => {
+        it('mints a recorder with the configured collaborators', () => {
+            manager.createBatch()
+            expect(SessionBatchRecorder).toHaveBeenCalledWith(
+                mockOffsetManager,
+                mockFileStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                mockFeatureStore,
+                mockEncryptor,
+                Number.MAX_SAFE_INTEGER,
+                100
+            )
+        })
 
-        expect(firstBatch.flush).toHaveBeenCalled()
-        expect(SessionBatchRecorder).toHaveBeenCalledWith(
-            mockOffsetManager,
-            mockFileStorage,
-            mockMetadataStore,
-            mockConsoleLogStore,
-            mockFeatureStore,
-            mockSessionTracker,
-            mockSessionFilter,
-            mockKeyStore,
-            mockEncryptor,
-            Number.MAX_SAFE_INTEGER
+        it('returns a fresh recorder on each call', () => {
+            const first = manager.createBatch()
+            const second = manager.createBatch()
+            expect(second).not.toBe(first)
+        })
+
+        // The rate limiter is per-batch, so the configured cap must reach every minted recorder.
+        it.each([0, 250, 500, Number.MAX_SAFE_INTEGER])(
+            'passes maxEventsPerSessionPerBatch=%p to minted recorders',
+            (maxEventsPerSessionPerBatch) => {
+                manager = new SessionBatchManager(config({ maxEventsPerSessionPerBatch }))
+                manager.createBatch()
+                expect(SessionBatchRecorder).toHaveBeenLastCalledWith(
+                    mockOffsetManager,
+                    mockFileStorage,
+                    mockMetadataStore,
+                    mockConsoleLogStore,
+                    mockFeatureStore,
+                    mockEncryptor,
+                    maxEventsPerSessionPerBatch,
+                    100
+                )
+            }
         )
-
-        const secondBatch = manager.getCurrentBatch()
-        expect(secondBatch).not.toBe(firstBatch)
-        expect(secondBatch.size).toBe(0)
     })
 
-    describe('size-based flushing', () => {
-        it('should indicate flush needed when buffer is full', () => {
-            jest.spyOn(currentBatch, 'size', 'get').mockReturnValue(150)
-            expect(manager.shouldFlush()).toBe(true)
+    describe('shouldFlush', () => {
+        it('flushes when the batch is at or over the size limit', () => {
+            const batch = manager.createBatch()
+            jest.spyOn(batch, 'size', 'get').mockReturnValue(150)
+            expect(manager.shouldFlush(batch, Date.now())).toBe(true)
         })
 
-        it('should not indicate flush needed when buffer is under limit', () => {
-            jest.spyOn(currentBatch, 'size', 'get').mockReturnValue(50)
-            expect(manager.shouldFlush()).toBe(false)
-        })
-    })
-
-    describe('time-based flushing', () => {
-        beforeEach(() => {
-            jest.useFakeTimers()
+        it('does not flush when the batch is under the size limit', () => {
+            const batch = manager.createBatch()
+            jest.spyOn(batch, 'size', 'get').mockReturnValue(50)
+            expect(manager.shouldFlush(batch, Date.now())).toBe(false)
         })
 
-        afterEach(() => {
-            jest.useRealTimers()
-        })
-
-        it('should not indicate flush needed when buffer is under limit and timeout not reached', () => {
-            jest.spyOn(currentBatch, 'size', 'get').mockReturnValue(50)
-            jest.advanceTimersByTime(500)
-            expect(manager.shouldFlush()).toBe(false)
-        })
-
-        it('should indicate flush needed when timeout is reached', () => {
-            jest.spyOn(currentBatch, 'size', 'get').mockReturnValue(50)
-            jest.advanceTimersByTime(1500)
-            expect(manager.shouldFlush()).toBe(true)
-        })
-
-        it('should not indicate flush needed immediately after flushing', async () => {
-            jest.spyOn(currentBatch, 'size', 'get').mockReturnValue(50)
-            jest.advanceTimersByTime(1500)
-            expect(manager.shouldFlush()).toBe(true)
-
-            await manager.flush()
-            expect(manager.shouldFlush()).toBe(false)
-        })
-    })
-
-    describe('partition handling', () => {
-        it('should discard partitions on current batch', () => {
-            const batch = manager.getCurrentBatch()
-            manager.discardPartitions([1, 2])
-
-            expect(batch.discardPartition).toHaveBeenCalledWith(1)
-            expect(batch.discardPartition).toHaveBeenCalledWith(2)
-            expect(batch.discardPartition).toHaveBeenCalledTimes(2)
-        })
-
-        it('should handle empty partition array', () => {
-            const batch = manager.getCurrentBatch()
-            manager.discardPartitions([])
-            expect(batch.discardPartition).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('rate limiting config', () => {
-        it('should pass maxEventsPerSessionPerBatch to new batches', () => {
-            manager = new SessionBatchManager({
-                maxBatchSizeBytes: 100,
-                maxBatchAgeMs: 1000,
-                maxEventsPerSessionPerBatch: 500,
-                offsetManager: mockOffsetManager,
-                fileStorage: mockFileStorage,
-                metadataStore: mockMetadataStore,
-                consoleLogStore: mockConsoleLogStore,
-                featureStore: mockFeatureStore,
-                sessionTracker: mockSessionTracker,
-                sessionFilter: mockSessionFilter,
-                keyStore: mockKeyStore,
-                encryptor: mockEncryptor,
+        describe('time-based', () => {
+            beforeEach(() => {
+                jest.useFakeTimers()
             })
 
-            expect(SessionBatchRecorder).toHaveBeenCalledWith(
-                mockOffsetManager,
-                mockFileStorage,
-                mockMetadataStore,
-                mockConsoleLogStore,
-                mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
-                mockEncryptor,
-                500
-            )
-        })
-
-        it('should pass maxEventsPerSessionPerBatch to batches created after flush', async () => {
-            manager = new SessionBatchManager({
-                maxBatchSizeBytes: 100,
-                maxBatchAgeMs: 1000,
-                maxEventsPerSessionPerBatch: 250,
-                offsetManager: mockOffsetManager,
-                fileStorage: mockFileStorage,
-                metadataStore: mockMetadataStore,
-                consoleLogStore: mockConsoleLogStore,
-                featureStore: mockFeatureStore,
-                sessionTracker: mockSessionTracker,
-                sessionFilter: mockSessionFilter,
-                keyStore: mockKeyStore,
-                encryptor: mockEncryptor,
+            afterEach(() => {
+                jest.useRealTimers()
             })
 
-            await manager.flush()
-
-            expect(SessionBatchRecorder).toHaveBeenLastCalledWith(
-                mockOffsetManager,
-                mockFileStorage,
-                mockMetadataStore,
-                mockConsoleLogStore,
-                mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
-                mockEncryptor,
-                250
-            )
-        })
-
-        it('should handle maxEventsPerSessionPerBatch = 0', () => {
-            manager = new SessionBatchManager({
-                maxBatchSizeBytes: 100,
-                maxBatchAgeMs: 1000,
-                maxEventsPerSessionPerBatch: 0,
-                offsetManager: mockOffsetManager,
-                fileStorage: mockFileStorage,
-                metadataStore: mockMetadataStore,
-                consoleLogStore: mockConsoleLogStore,
-                featureStore: mockFeatureStore,
-                sessionTracker: mockSessionTracker,
-                sessionFilter: mockSessionFilter,
-                keyStore: mockKeyStore,
-                encryptor: mockEncryptor,
+            it('does not flush when under the size limit and the age timeout is not reached', () => {
+                const batch = manager.createBatch()
+                jest.spyOn(batch, 'size', 'get').mockReturnValue(50)
+                const lastFlushTime = Date.now()
+                jest.advanceTimersByTime(500)
+                expect(manager.shouldFlush(batch, lastFlushTime)).toBe(false)
             })
 
-            expect(SessionBatchRecorder).toHaveBeenCalledWith(
-                mockOffsetManager,
-                mockFileStorage,
-                mockMetadataStore,
-                mockConsoleLogStore,
-                mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
-                mockEncryptor,
-                0
-            )
-        })
-
-        it('should handle maxEventsPerSessionPerBatch = MAX_SAFE_INTEGER', () => {
-            manager = new SessionBatchManager({
-                maxBatchSizeBytes: 100,
-                maxBatchAgeMs: 1000,
-                maxEventsPerSessionPerBatch: Number.MAX_SAFE_INTEGER,
-                offsetManager: mockOffsetManager,
-                fileStorage: mockFileStorage,
-                metadataStore: mockMetadataStore,
-                consoleLogStore: mockConsoleLogStore,
-                featureStore: mockFeatureStore,
-                sessionTracker: mockSessionTracker,
-                sessionFilter: mockSessionFilter,
-                keyStore: mockKeyStore,
-                encryptor: mockEncryptor,
+            it('flushes when the age timeout is reached', () => {
+                const batch = manager.createBatch()
+                jest.spyOn(batch, 'size', 'get').mockReturnValue(50)
+                const lastFlushTime = Date.now()
+                jest.advanceTimersByTime(1500)
+                expect(manager.shouldFlush(batch, lastFlushTime)).toBe(true)
             })
-
-            expect(SessionBatchRecorder).toHaveBeenCalledWith(
-                mockOffsetManager,
-                mockFileStorage,
-                mockMetadataStore,
-                mockConsoleLogStore,
-                mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
-                mockEncryptor,
-                Number.MAX_SAFE_INTEGER
-            )
         })
     })
 })

@@ -55,14 +55,15 @@ export function TurnstileChallenge({ siteKey, onSuccess, tokenReceived, email }:
                     </LemonButton>
                     {failureCount >= 2 && (
                         <p className="text-sm text-secondary">
-                            Having trouble signing up?{' '}
+                            {/* Text is span-wrapped so Chrome's in-page translation (which replaces bare text
+                                nodes with <font> elements) can't break React sibling ops — react#11538 */}
+                            <span>Having trouble signing up?</span>{' '}
                             <Link
                                 data-attr="turnstile-error-contact-support"
                                 onClick={(e) => {
                                     e.preventDefault()
                                     openSupportForm({
                                         kind: 'support',
-                                        target_area: 'login',
                                         email,
                                     })
                                 }}

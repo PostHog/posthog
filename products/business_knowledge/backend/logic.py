@@ -20,12 +20,11 @@ from django.db import (
     connection as db_connection,
     transaction,
 )
-from django.db.models import Count, Exists, F, OuterRef, Q, QuerySet
+from django.db.models import Count, Exists, F, Max, OuterRef, Q, QuerySet
 from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from posthog.api.embedding_worker import generate_embedding
@@ -34,6 +33,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.security.url_validation import is_url_allowed
 
 from ee.hogai.llm import MaxChatAnthropic
@@ -49,6 +49,7 @@ from .constants import (
     BK_RERANK_SNIPPET_CHARS,
     BK_RRF_K,
     BK_RRF_SCORE_FLOOR,
+    BK_SEARCH_MAX_LIMIT,
     BK_SEMANTIC_DISTANCE_CUTOFF,
     BK_SEMANTIC_OVERFETCH,
     CHUNK_HARD_MAX_CHARS,
@@ -69,12 +70,16 @@ from .constants import (
     RECONCILE_EMBEDDING_GRACE,
     RECONCILE_EMBEDDING_SCAN_CAP,
     REEMIT_EMBEDDING_SCAN_CAP,
+    TRIAL_MAX_CHUNKS,
+    TRIAL_QUIET_PERIOD,
 )
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
     CrawlMode,
+    GapStatus,
     KnowledgeChunk,
     KnowledgeDocument,
+    KnowledgeGapSuggestion,
     KnowledgeSource,
     RefreshInterval,
     SafetyVerdict,
@@ -1570,6 +1575,61 @@ def has_ready_sources(team_id: int) -> bool:
 
 
 @with_team_scope(canonical=True)
+def has_maintained_sources(team_id: int) -> bool:
+    """`has_ready_sources`, minus the try-it-once-and-never-return shape.
+
+    For a caller deciding whether to spend prompt space describing this team's knowledge base.
+    Searches leave no trace anywhere — no hit counters, no `last_searched_at`, no analytics
+    event — so this reads the rows for evidence of upkeep instead of for evidence of use. Any
+    of a second source, an `always_include` pin, a configured refresh cadence, more than
+    `TRIAL_MAX_CHUNKS` searchable chunks, or a source touched inside `TRIAL_QUIET_PERIOD` counts
+    as maintained; only the full trial shape fails.
+
+    Only sources with SAFE, searchable content count — both the second-source shortcut and the
+    chunk bar sit behind the exact gate the search path uses (`_safe_chunks_qs`). Search returns
+    nothing for UNSAFE or still-`UNKNOWN` content, so a base made only of those would render a
+    prompt section promising a searchable base that comes back empty. A freshly-created source
+    whose documents haven't classified SAFE yet reads as not-yet-maintained and starts counting
+    on the run after its first ingest finishes — the same "resolved fresh per run" posture the
+    scout runner relies on.
+
+    The content bar counts chunks, not documents: an upload or a paste is one document however
+    long, so a document count would read a book-length handbook as a one-item trial (see the
+    note on `TRIAL_MAX_CHUNKS`). It caps the scan at `TRIAL_MAX_CHUNKS + 1` rows rather than
+    counting the whole base, because this runs once per scout run and several scouts on a team
+    can be due in the same coordinator tick. `updated_at` is load-bearing too, and only
+    trustworthy because the disqualifier already requires a manual source: the refresh
+    coordinator stamps `updated_at` on every pass of an auto-refreshing source (a 304 included),
+    so recency on those proves a cron ran, not that a human returned.
+    """
+    has_safe_content = Exists(_safe_chunks_qs(team_id).filter(source_id=OuterRef("pk")))
+    sources = list(
+        KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY)
+        .filter(has_safe_content)
+        .values("id", "refresh_interval", "always_include", "updated_at")[:2]
+    )
+    if not sources:
+        return False
+    if len(sources) > 1:
+        return True
+    (only,) = sources
+    updated_at = only["updated_at"]
+    if (
+        only["always_include"]
+        or only["refresh_interval"] != RefreshInterval.MANUAL
+        or (updated_at is not None and updated_at > timezone.now() - TRIAL_QUIET_PERIOD)
+    ):
+        return True
+    # A lone old manual source is a real base, not a tire-kick, only above TRIAL_MAX_CHUNKS
+    # searchable chunks. Slice to one past the bar so the query stops at 3 rows instead of a
+    # COUNT(*) over a base that can run to 100k chunks.
+    searchable_over_bar = (
+        _safe_chunks_qs(team_id).filter(source_id=only["id"]).values_list("id", flat=True)[: TRIAL_MAX_CHUNKS + 1]
+    )
+    return len(searchable_over_bar) > TRIAL_MAX_CHUNKS
+
+
+@with_team_scope(canonical=True)
 def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
     """Return all SAFE/READY chunks from always_include sources, hard-capped by chars.
 
@@ -1625,7 +1685,7 @@ def has_feature_flag(team: Team) -> bool:
     check — `ee/hogai/utils/feature_flags.py` delegates here."""
     if settings.DEBUG:
         return True
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "product-business-knowledge",
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
@@ -1635,11 +1695,28 @@ def has_feature_flag(team: Team) -> bool:
 
 
 def is_available_for_team(team: Team) -> bool:
-    """Feature flag + ready sources — the full "should agents use BK?" predicate."""
-    return has_feature_flag(team) and has_ready_sources(team.id)
+    """Feature flag + ready sources — the full "should agents use BK?" predicate.
+
+    Accepts a child-environment team: knowledge rows are project-scoped under the canonical
+    parent, and `has_ready_sources` is `canonical=True` (it does not resolve the parent itself),
+    so a child id is resolved here. The flag is org-keyed, and a child shares its parent's org.
+    """
+    return has_feature_flag(team) and has_ready_sources(team.parent_team_id or team.id)
 
 
-_SEARCH_LIMIT_CAP = 20
+def is_maintained_for_team(team: Team) -> bool:
+    """Feature flag + a maintained knowledge base — the "is this worth prompt space?" predicate.
+
+    Stricter than `is_available_for_team`, and for a different question. A tool decides whether
+    it can serve a search (availability); a prompt section decides whether every run on this
+    project should carry a description of the knowledge base (upkeep, per
+    `has_maintained_sources`). Reach for availability when the caller only searches on demand.
+
+    Like `is_available_for_team`, resolves a child-environment team to its canonical parent
+    before reading the (canonical-scoped) source rows — the scout runner passes the run's team,
+    which may be a child env.
+    """
+    return has_feature_flag(team) and has_maintained_sources(team.parent_team_id or team.id)
 
 
 # ---------------------------------------------------------------------------
@@ -1812,7 +1889,7 @@ def search_knowledge(
     Reciprocal Rank Fusion (RRF), safety-re-joined against Postgres, trimmed
     to ``limit``, and ordinal-neighbour-expanded.
     """
-    limit = max(1, min(limit, _SEARCH_LIMIT_CAP))
+    limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
 
     # --- FTS anchors (always computed) ---
     processed = process_query(query)
@@ -2563,3 +2640,118 @@ def clear_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> Non
     KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).update(
         embeddings_emitted_at=None, updated_at=timezone.now()
     )
+
+
+# ---------------------------------------------------------------------------
+# Knowledge gap suggestions
+# ---------------------------------------------------------------------------
+
+_GAP_NOISE_TOPICS = frozenset({"parse_failure"})
+
+
+def _normalize_topic(topic: str) -> str:
+    return topic.strip().lower()[:255]
+
+
+def upsert_knowledge_gaps(
+    team_id: int,
+    ticket_id: str,
+    topics: list[str],
+    ticket_type: str = "",
+    outcome: str = "",
+) -> int:
+    """Create one KnowledgeGapSuggestion per (ticket, normalized topic).
+
+    Idempotent via the unique constraint — safe under Temporal activity retries.
+    Returns the number of rows created (not the total including existing ones).
+    """
+    created_count = 0
+    for raw_topic in topics:
+        normalized = _normalize_topic(raw_topic)
+        if not normalized or normalized in _GAP_NOISE_TOPICS:
+            continue
+        _, created = KnowledgeGapSuggestion.objects.for_team(team_id).get_or_create(
+            team_id=team_id,
+            ticket_id=ticket_id,
+            normalized_topic=normalized,
+            defaults={
+                "topic": raw_topic.strip(),
+                "ticket_type": ticket_type,
+                "outcome": outcome,
+            },
+        )
+        if created:
+            created_count += 1
+    return created_count
+
+
+def list_gap_suggestions_for_ticket(
+    team_id: int,
+    ticket_id: str,
+) -> QuerySet[KnowledgeGapSuggestion]:
+    return KnowledgeGapSuggestion.objects.for_team(team_id).filter(ticket_id=ticket_id).order_by("-created_at")
+
+
+@dataclass
+class AggregatedGap:
+    normalized_topic: str
+    topic: str
+    ticket_count: int
+
+
+def aggregate_gap_suggestions(
+    team_id: int,
+    status: str = GapStatus.PENDING,
+    limit: int = 50,
+) -> list[AggregatedGap]:
+    """Group pending gaps by normalized_topic, ranked by ticket count."""
+    rows = (
+        KnowledgeGapSuggestion.objects.for_team(team_id)
+        .filter(status=status)
+        .values("normalized_topic")
+        .annotate(
+            ticket_count=Count("ticket_id", distinct=True),
+            representative_topic=Substr(Max("topic"), 1, 500),
+        )
+        .order_by("-ticket_count")[:limit]
+    )
+    return [
+        AggregatedGap(
+            normalized_topic=r["normalized_topic"],
+            topic=r["representative_topic"],
+            ticket_count=r["ticket_count"],
+        )
+        for r in rows
+    ]
+
+
+def set_gap_status(
+    team_id: int,
+    *,
+    suggestion_id: UUID | None = None,
+    normalized_topic: str | None = None,
+    status: str,
+    resolved_source_id: UUID | None = None,
+    only_pending: bool = False,
+) -> int:
+    """Accept or dismiss gap suggestions. Returns updated row count.
+
+    Pass suggestion_id for a single row, or normalized_topic to flip the whole
+    cluster (all tickets with that topic). Set only_pending=True to restrict
+    the update to rows still in PENDING status.
+    """
+    qs = KnowledgeGapSuggestion.objects.for_team(team_id)
+    if suggestion_id is not None:
+        qs = qs.filter(id=suggestion_id)
+    elif normalized_topic is not None:
+        qs = qs.filter(normalized_topic=normalized_topic)
+    else:
+        raise ValueError("One of suggestion_id or normalized_topic is required")
+
+    if only_pending:
+        qs = qs.filter(status=GapStatus.PENDING)
+
+    update_kwargs: dict[str, object] = {"status": status}
+    if resolved_source_id is not None:
+        update_kwargs["resolved_source_id"] = resolved_source_id
+    return qs.update(**update_kwargs)

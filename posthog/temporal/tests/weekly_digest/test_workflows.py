@@ -15,6 +15,7 @@ from posthog.temporal.weekly_digest.types import (
     GenerateDigestDataInput,
     SendWeeklyDigestBatchInput,
     SendWeeklyDigestInput,
+    TeamIdRange,
     WeeklyDigestInput,
 )
 from posthog.temporal.weekly_digest.workflows import (
@@ -107,7 +108,7 @@ async def test_generate_digest_data_workflow():
     TEST_BATCH_SIZE = 2
 
     activity_calls = {
-        "count_teams": 0,
+        "team_id_ranges": 0,
         "count_organizations": 0,
         "dashboard": 0,
         "event_definition": 0,
@@ -120,13 +121,15 @@ async def test_generate_digest_data_workflow():
         "filter": 0,
         "recording": 0,
         "product_suggestion": 0,
+        "error_issue": 0,
+        "usage_trends": 0,
         "org_digest": 0,
     }
 
-    @activity.defn(name="count-teams")
-    async def count_teams_mocked() -> int:
-        activity_calls["count_teams"] += 1
-        return TEST_TEAM_COUNT
+    @activity.defn(name="list-team-id-ranges")
+    async def list_team_id_ranges_mocked(input) -> list[TeamIdRange]:
+        activity_calls["team_id_ranges"] += 1
+        return [TeamIdRange(start=i, end=i + TEST_BATCH_SIZE) for i in range(1, TEST_TEAM_COUNT + 1, TEST_BATCH_SIZE)]
 
     @activity.defn(name="count-organizations")
     async def count_organizations_mocked() -> int:
@@ -177,6 +180,14 @@ async def test_generate_digest_data_workflow():
     async def generate_product_suggestion_lookup_mocked(input) -> None:
         activity_calls["product_suggestion"] += 1
 
+    @activity.defn(name="generate-error-issue-lookup")
+    async def generate_error_issue_lookup_mocked(input) -> None:
+        activity_calls["error_issue"] += 1
+
+    @activity.defn(name="generate-usage-trends-lookup")
+    async def generate_usage_trends_lookup_mocked(input) -> None:
+        activity_calls["usage_trends"] += 1
+
     @activity.defn(name="generate-organization-digest-batch")
     async def generate_organization_digest_batch_mocked(input) -> None:
         activity_calls["org_digest"] += 1
@@ -188,7 +199,7 @@ async def test_generate_digest_data_workflow():
             task_queue=task_queue_name,
             workflows=[GenerateDigestDataWorkflow],
             activities=[
-                count_teams_mocked,
+                list_team_id_ranges_mocked,
                 count_organizations_mocked,
                 generate_dashboard_lookup_mocked,
                 generate_event_definition_lookup_mocked,
@@ -201,6 +212,8 @@ async def test_generate_digest_data_workflow():
                 generate_filter_lookup_mocked,
                 generate_recording_lookup_mocked,
                 generate_product_suggestion_lookup_mocked,
+                generate_error_issue_lookup_mocked,
+                generate_usage_trends_lookup_mocked,
                 generate_organization_digest_batch_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
@@ -219,7 +232,7 @@ async def test_generate_digest_data_workflow():
                 task_queue=task_queue_name,
             )
 
-    assert activity_calls["count_teams"] == 1
+    assert activity_calls["team_id_ranges"] == 1
     assert activity_calls["count_organizations"] == 1
 
     # Calculate expected batches for teams
@@ -237,6 +250,8 @@ async def test_generate_digest_data_workflow():
     assert activity_calls["filter"] == expected_team_batches
     assert activity_calls["recording"] == expected_team_batches
     assert activity_calls["product_suggestion"] == expected_team_batches
+    assert activity_calls["error_issue"] == expected_team_batches
+    assert activity_calls["usage_trends"] == expected_team_batches
 
     # Calculate expected batches for organizations
     expected_org_batches = (TEST_ORG_COUNT + TEST_BATCH_SIZE - 1) // TEST_BATCH_SIZE

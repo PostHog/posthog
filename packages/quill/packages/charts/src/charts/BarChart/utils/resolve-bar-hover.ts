@@ -5,6 +5,7 @@ import {
     type BarLayout,
     barContainsPointOnBandAxis,
     barsAtCursor,
+    cursorBeyondTrackCeiling,
     cursorOutsideBarFillExtent,
     findVisibleStackedSegment,
     isStackedLayout,
@@ -15,6 +16,8 @@ export interface BarHoverItem {
     series: ResolvedSeries
     bar: BarRect
     isTrackHighlight: boolean
+    /** Draw in the plain series color, to reveal a floored bar that is invisible at rest. */
+    isBarReveal?: boolean
 }
 
 export interface ResolvedBarHover {
@@ -43,14 +46,7 @@ export interface ResolveBarHoverArgs {
 export function resolveBarHoverItems(
     { series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition }: ChartDrawArgs,
     d3Scales: BarScaleSet,
-    {
-        barLayout,
-        isHorizontal,
-        stackedData,
-        topStackedKeyByAxis,
-        roundStackEnds,
-        barTrackHover,
-    }: ResolveBarHoverArgs
+    { barLayout, isHorizontal, stackedData, topStackedKeyByAxis, roundStackEnds, barTrackHover }: ResolveBarHoverArgs
 ): ResolvedBarHover | null {
     const hoveredLabel = drawLabels[hoverIndex]
     const items: BarHoverItem[] = []
@@ -99,9 +95,16 @@ export function resolveBarHoverItems(
                 barTrackHover &&
                 barLayout === 'grouped' &&
                 hoverPosition != null &&
-                cursorOutsideBarFillExtent(bar, hoverPosition, isHorizontal)
+                cursorOutsideBarFillExtent(bar, hoverPosition, isHorizontal) &&
+                // Don't highlight the blank gap above a capped track (funnel compare's volume gap).
+                !cursorBeyondTrackCeiling(s, bar, d3Scales, hoverPosition, isHorizontal)
             items.push({ series: s, bar, isTrackHighlight })
             composition += isTrackHighlight ? 't' : 'b'
+            // Reveal a floored bar that is invisible at rest; a no-op repaint for taller bars.
+            const extent = isHorizontal ? bar.width : bar.height
+            if (isTrackHighlight && d3Scales.minBarSize != null && extent <= d3Scales.minBarSize) {
+                items.push({ series: s, bar, isTrackHighlight: false, isBarReveal: true })
+            }
         }
     }
     if (items.length === 0) {

@@ -4,10 +4,18 @@ from posthog.conftest import django_db_setup
 __all__ = ["django_db_setup"]
 
 from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import datetime
+from uuid import UUID
 
 import pytest
-from posthog.test.base import reset_clickhouse_database
+from posthog.test.base import reset_clickhouse_database, reset_clickhouse_database_if_dirty
 from unittest.mock import patch
+
+from django.conf import settings
+
+from clickhouse_driver import Client
+from psycopg.types.json import Jsonb
 
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 
@@ -18,6 +26,48 @@ from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
     _dagster_postgres_instance,
     _use_postgres_dagster_instance,
 )
+from posthog.persons_db import persons_db_connection
+
+
+def insert_flag_evaluations(rows: list[tuple[int, str, str | UUID, str | UUID, datetime]], client: Client) -> None:
+    """Insert rows of (team_id, distinct_id, person_id, uuid, timestamp) into flag_evaluations."""
+    client.execute(
+        "INSERT INTO writable_flag_evaluations (team_id, distinct_id, person_id, uuid, timestamp) VALUES",
+        rows,
+    )
+
+
+def refresh_person_from_persons_db(person) -> None:
+    """Reload a Person instance's mutable fields from the persons DB.
+
+    These tests run with the personhog fake off (persons_db_direct) and seed via raw
+    psycopg, so the Django ORM cannot read the persons DB. This mirrors the fields
+    ``refresh_from_db()`` provided to the assertions, without touching the ORM.
+    """
+    with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT properties, version, is_identified, properties_last_updated_at, properties_last_operation "
+            f"FROM {settings.PERSON_TABLE_NAME} WHERE team_id = %s AND uuid = %s",
+            (person.team_id, person.uuid),
+        )
+        row = cursor.fetchone()
+    assert row is not None, f"person {person.uuid} not found in persons DB"
+    (
+        person.properties,
+        person.version,
+        person.is_identified,
+        person.properties_last_updated_at,
+        person.properties_last_operation,
+    ) = row
+
+
+def save_person_to_persons_db(person) -> None:
+    """Persist a Person instance's properties/version to the persons DB via raw psycopg."""
+    with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
+        cursor.execute(
+            f"UPDATE {settings.PERSON_TABLE_NAME} SET properties = %s, version = %s WHERE team_id = %s AND uuid = %s",
+            (Jsonb(person.properties), person.version, person.team_id, person.uuid),
+        )
 
 
 def _patched_get_cluster_hosts(self, client, cluster, retry_policy=None):
@@ -39,12 +89,15 @@ def _patched_get_cluster_hosts(self, client, cluster, retry_policy=None):
     )
 
 
-@pytest.fixture
-def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
+@contextmanager
+def isolated_clickhouse_cluster() -> Iterator[ClickhouseCluster]:
     """
     Cluster fixture with macOS Docker-compatible hostname resolution.
     Patches ClickhouseCluster to use host_name instead of host_address.
     """
+    # Setup reset stays unconditional (Kafka-engine arrivals don't advance the
+    # dirty counter, so a late row would leak into the next test); teardown can
+    # skip when nothing checked out a ClickHouse client.
     reset_clickhouse_database()
     try:
         with patch.object(
@@ -54,4 +107,10 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
         ):
             yield get_cluster()
     finally:
-        reset_clickhouse_database()
+        reset_clickhouse_database_if_dirty()
+
+
+@pytest.fixture
+def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
+    with isolated_clickhouse_cluster() as clickhouse_cluster:
+        yield clickhouse_cluster

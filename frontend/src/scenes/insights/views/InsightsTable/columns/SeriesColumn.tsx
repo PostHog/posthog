@@ -46,7 +46,10 @@ export function SeriesColumnItem({
                         'font-medium': !hasBreakdown,
                     })}
                     pillMaxWidth={165}
-                    compareValue={item.compare && !hideCompare ? formatCompareLabel(item) : undefined}
+                    compareValue={
+                        // Formula results synthesized from filler rows can carry compare_label without compare
+                        (item.compare || item.compare_label) && !hideCompare ? formatCompareLabel(item) : undefined
+                    }
                     onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                 />
             </div>

@@ -1,13 +1,16 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.apps import apps
 
-from posthog.rbac.user_access_control import UserAccessControl
-
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend import logic
+from products.notebooks.backend.analytics import NotebookCreationSource
 from products.notebooks.backend.facade import api, content
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
 from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.notebooks.backend.sql_v2_state import MAX_NOTEBOOK_CELLS
 
 
 def _create_account(team):
@@ -71,12 +74,15 @@ class TestNotebooksFacade(BaseTest):
         self.assertEqual(len(summary.recent), 1)
         self.assertEqual(summary.recent[0].short_id, newer.short_id)
 
-    def test_create_group_notebook_links_internal_notebook(self):
+    @patch("products.notebooks.backend.facade.api.capture_notebook_created")
+    def test_create_group_notebook_links_internal_notebook(self, mock_capture):
         data = api.create_group_notebook(self.team.id, group_id=42, title="Notes", content=self._doc())
         self.assertEqual(data.visibility, Notebook.Visibility.INTERNAL)
         self.assertTrue(api.group_has_notebook(42))
         self.assertEqual(api.get_group_notebook_short_id(42), data.short_id)
         self.assertFalse(api.group_has_notebook(43))
+        mock_capture.assert_called_once()
+        self.assertEqual(mock_capture.call_args.kwargs["creation_source"], NotebookCreationSource.GROUP)
 
     def test_create_account_notebook_and_list_notes(self):
         account = _create_account(self.team)
@@ -141,7 +147,8 @@ class TestNotebooksFacadeAsync(BaseTest):
         self.assertEqual(data.short_id, notebook.short_id)
 
     @pytest.mark.asyncio
-    async def test_aupsert_creates_then_overwrites_and_bumps_version(self):
+    @patch("products.notebooks.backend.facade.api.capture_notebook_created")
+    async def test_aupsert_creates_then_overwrites_and_bumps_version(self, mock_capture):
         data, created = await api.aupsert_notebook(
             self.team.id,
             "abc123",
@@ -152,6 +159,9 @@ class TestNotebooksFacadeAsync(BaseTest):
         )
         self.assertTrue(created)
         self.assertEqual(data.version, 0)
+        # Emits `notebook created` once, on the create, labelled max_ai.
+        mock_capture.assert_called_once()
+        self.assertEqual(mock_capture.call_args.kwargs["creation_source"], NotebookCreationSource.MAX_AI)
 
         data2, created2 = await api.aupsert_notebook(
             self.team.id,
@@ -165,6 +175,8 @@ class TestNotebooksFacadeAsync(BaseTest):
         self.assertEqual(data2.id, data.id)
         self.assertEqual(data2.title, "second")
         self.assertEqual(data2.version, 1)
+        # The overwrite is an update, not a create — no second event (guards double-counting).
+        mock_capture.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_aupdate_notebook_content_bumps_version(self):
@@ -181,6 +193,46 @@ class TestNotebooksFacadeAsync(BaseTest):
         self.assertEqual(data.title, "t2")
         self.assertEqual(data.text_content, "updated")
         self.assertEqual(data.version, notebook.version + 1)
+
+    def _cells_doc(self, count: int) -> dict:
+        markdown = "\n\n".join(
+            f'<SQLV2 nodeId="s{index}" code="select {index}" returnVariable="df{index}" />' for index in range(count)
+        )
+        return {
+            "type": "doc",
+            "content": [{"type": "ph-markdown-notebook", "attrs": {"nodeId": "md", "markdown": markdown}}],
+        }
+
+    @pytest.mark.asyncio
+    async def test_aupdate_notebook_content_refuses_growth_past_the_cell_ceiling(self):
+        # This writer is a queryset update, so it fires no serializer, no save() hook, and no
+        # signal. Max saves notebooks through it, so a ceiling enforced only at the API layer
+        # would not apply to anything Max writes.
+        await Notebook.objects.acreate(team=self.team, short_id="cap001", title="t", content=self._cells_doc(0))
+        with self.assertRaises(NotebookCellLimitExceeded):
+            await api.aupdate_notebook_content(
+                self.team.id,
+                "cap001",
+                content=self._cells_doc(MAX_NOTEBOOK_CELLS + 1),
+                title="t",
+                text_content="",
+                last_modified_by_id=self.user.id,
+            )
+
+    @pytest.mark.asyncio
+    async def test_aupsert_notebook_refuses_the_ceiling_without_writing_a_partial_row(self):
+        # The check has to run before aget_or_create: after it, the over-limit notebook is
+        # already stored by the time the ceiling rejects it.
+        with self.assertRaises(NotebookCellLimitExceeded):
+            await api.aupsert_notebook(
+                self.team.id,
+                "cap002",
+                created_by_id=self.user.id,
+                last_modified_by_id=self.user.id,
+                title="t",
+                content=self._cells_doc(MAX_NOTEBOOK_CELLS + 1),
+            )
+        self.assertFalse(await Notebook.objects.filter(team=self.team, short_id="cap002").aexists())
 
     @pytest.mark.asyncio
     async def test_acan_user_edit_notebook_creator(self):

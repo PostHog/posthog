@@ -3,16 +3,16 @@ import { Message } from 'node-rdkafka'
 import path from 'path'
 
 import { cookielessRedisErrorCounter } from '~/common/metrics'
+import { RedisOperationError } from '~/common/utils/db/error'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUID7 } from '~/common/utils/utils'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import type { PluginEvent } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
+import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
-import { CookielessServerHashMode, EventHeaders, Hub, PipelineEvent, Team } from '~/types'
-import { RedisOperationError } from '~/utils/db/error'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
-import { parseJSON } from '~/utils/json-parse'
-import { UUID7 } from '~/utils/utils'
+import { CookielessServerHashMode, EventHeaders, PipelineEvent, Team } from '~/types'
 
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,
@@ -168,7 +168,7 @@ describe('CookielessManager', () => {
     })
 
     describe('pipeline step', () => {
-        let hub: Hub
+        let infra: IngestionTestInfra
         let organizationId: string
         let teamId: number
         let team: Team
@@ -195,8 +195,8 @@ describe('CookielessManager', () => {
         } as unknown as Message
 
         beforeAll(async () => {
-            hub = await createHub({})
-            organizationId = await createOrganization(hub.postgres)
+            infra = await createIngestionTestInfra({})
+            organizationId = await createOrganization(infra.postgres)
 
             jest.useFakeTimers({
                 now,
@@ -204,32 +204,25 @@ describe('CookielessManager', () => {
             })
         })
         afterAll(async () => {
-            await closeHub(hub)
+            await infra.close()
 
             jest.clearAllTimers()
         })
 
         const setModeForTeam = async (mode: CookielessServerHashMode) => {
-            await hub.postgres.query(
+            await infra.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
                 [mode, teamId],
                 'set team to cookieless'
             )
-            team = (await getTeam(hub.postgres, teamId))!
-        }
-
-        const clearRedis = async () => {
-            const client = await hub.redisPool.acquire()
-            await client.flushall()
-            await hub.redisPool.release(client)
+            team = (await getTeam(infra.postgres, teamId))!
         }
 
         beforeEach(async () => {
-            await clearRedis()
-            hub.cookielessManager.deleteAllLocalSalts()
-            teamId = await createTeam(hub.postgres, organizationId)
-            team = (await getTeam(hub.postgres, teamId))!
+            infra.cookielessManager.deleteAllLocalSalts()
+            teamId = await createTeam(infra.postgres, organizationId)
+            await setModeForTeam(CookielessServerHashMode.Stateful)
             event = deepFreeze({
                 event: 'test event',
                 distinct_id: COOKIELESS_SENTINEL_VALUE,
@@ -336,7 +329,7 @@ describe('CookielessManager', () => {
             event: PipelineEvent,
             headers: EventHeaders = createTestEventHeaders()
         ): Promise<PipelineEvent | undefined> {
-            const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
+            const response = await infra.cookielessManager.doBatch([{ event, team, message, headers }])
             expect(response.length).toBe(1)
             const result = response[0]
             return isOkResult(result) ? result.value.event : undefined
@@ -349,7 +342,7 @@ describe('CookielessManager', () => {
             event: PipelineEvent | undefined
             headers: EventHeaders
         }> {
-            const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
+            const response = await infra.cookielessManager.doBatch([{ event, team, message, headers }])
             expect(response.length).toBe(1)
             const result = response[0]
             return {
@@ -360,14 +353,7 @@ describe('CookielessManager', () => {
             }
         }
 
-        // tests that are shared between both modes
-        describe.each([
-            ['stateless', CookielessServerHashMode.Stateless],
-            ['stateful', CookielessServerHashMode.Stateful],
-        ])('common (%s)', (_, mode) => {
-            beforeEach(async () => {
-                await setModeForTeam(mode)
-            })
+        describe('common behavior', () => {
             it('should give an event a distinct id and session id ', async () => {
                 const actual = await processEvent(event)
 
@@ -431,7 +417,7 @@ describe('CookielessManager', () => {
             })
             it('should work even if the local salt map is torn down between events (as it can use redis)', async () => {
                 const actual1 = await processEvent(event)
-                hub.cookielessManager.deleteAllLocalSalts()
+                infra.cookielessManager.deleteAllLocalSalts()
                 const actual2 = await processEvent(eventABitLater)
 
                 if (!actual1?.properties || !actual2?.properties) {
@@ -461,90 +447,7 @@ describe('CookielessManager', () => {
             })
         })
 
-        describe('stateless', () => {
-            beforeEach(async () => {
-                await setModeForTeam(CookielessServerHashMode.Stateless)
-            })
-
-            it('should provide the same session ID for events within the same day, later than the session timeout', async () => {
-                // this is actually a limitation of this mode, but we have the same test (with a different outcome) for stateful mode
-
-                const actual1 = await processEvent(event)
-                const actual2 = await processEvent(eventMuchLater)
-
-                if (!actual1?.properties || !actual2?.properties) {
-                    throw new Error('no event or properties')
-                }
-                expect(actual2.distinct_id).toEqual(actual1.distinct_id)
-                expect(actual1.properties.$session_id).toBeDefined()
-                expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
-            })
-
-            it('should drop identify events', async () => {
-                // this is also a limitation of this mode
-                const actual1 = await processEvent(identifyEvent)
-                expect(actual1).toBeUndefined()
-            })
-
-            it('should work even if redis is cleared (as it can use the local cache)', async () => {
-                const actual1 = await processEvent(event)
-                await clearRedis()
-                const actual2 = await processEvent(eventABitLater)
-
-                if (!actual1?.properties || !actual2?.properties) {
-                    throw new Error('no event or properties')
-                }
-                expect(actual2.distinct_id).toEqual(actual1.distinct_id)
-                expect(actual1.properties.$session_id).toBeDefined()
-                expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
-            })
-
-            it('should preserve headers through cookieless processing', async () => {
-                const testHeaders = createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-distinct-id',
-                    timestamp: '1234567890',
-                })
-
-                const result = await processEventWithHeaders(event, testHeaders)
-
-                expect(result.headers).toEqual(testHeaders)
-                expect(result.event).toBeDefined()
-            })
-
-            it('should preserve headers for non-cookieless events', async () => {
-                const testHeaders = createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-distinct-id',
-                    timestamp: '1234567890',
-                })
-
-                const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
-
-                expect(result.headers).toEqual(testHeaders)
-                expect(result.event).toBe(nonCookielessEvent)
-            })
-
-            it('should not return dropped events but should not throw', async () => {
-                const testHeaders = createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-distinct-id',
-                    timestamp: '1234567890',
-                })
-
-                // Test with alias event which should be dropped
-                const result = await processEventWithHeaders(aliasEvent, testHeaders)
-
-                // Dropped events are not returned in the response array
-                expect(result.event).toBeUndefined()
-                expect(result.headers).toEqual(createTestEventHeaders())
-            })
-        })
-
-        describe('stateful', () => {
-            beforeEach(async () => {
-                await setModeForTeam(CookielessServerHashMode.Stateful)
-            })
+        describe('stateful behavior', () => {
             it('should provide a different session ID after session timeout', async () => {
                 const actual1 = await processEvent(event)
                 const actual2 = await processEvent(eventMuchLater)
@@ -608,7 +511,7 @@ describe('CookielessManager', () => {
             it('should increment the redis error counter if redis errors', async () => {
                 const operation = 'scard'
                 const error = new RedisOperationError('redis error', new Error(), operation, { key: 'key' })
-                jest.spyOn(hub.cookielessManager.redisHelpers, 'redisSMembersMulti').mockImplementationOnce(() => {
+                jest.spyOn(infra.cookielessManager.redisHelpers, 'redisSMembersMulti').mockImplementationOnce(() => {
                     throw error
                 })
                 const spy = jest.spyOn(cookielessRedisErrorCounter, 'labels')
@@ -620,11 +523,11 @@ describe('CookielessManager', () => {
             it('should DLQ cookieless events when Redis error occurs', async () => {
                 const operation = 'scard'
                 const redisError = new RedisOperationError('redis error', new Error(), operation, { key: 'key' })
-                jest.spyOn(hub.cookielessManager.redisHelpers, 'redisSMembersMulti').mockImplementationOnce(() => {
+                jest.spyOn(infra.cookielessManager.redisHelpers, 'redisSMembersMulti').mockImplementationOnce(() => {
                     throw redisError
                 })
 
-                const response = await hub.cookielessManager.doBatch([
+                const response = await infra.cookielessManager.doBatch([
                     { event, team, message, headers: createTestEventHeaders() },
                     { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
                 ])
@@ -648,11 +551,11 @@ describe('CookielessManager', () => {
 
             it('should DLQ cookieless events when unexpected error occurs', async () => {
                 const unexpectedError = new Error('Something went wrong')
-                jest.spyOn(hub.cookielessManager.redisHelpers, 'redisSMembersMulti').mockImplementationOnce(() => {
+                jest.spyOn(infra.cookielessManager.redisHelpers, 'redisSMembersMulti').mockImplementationOnce(() => {
                     throw unexpectedError
                 })
 
-                const response = await hub.cookielessManager.doBatch([
+                const response = await infra.cookielessManager.doBatch([
                     { event, team, message, headers: createTestEventHeaders() },
                     { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
                 ])
@@ -678,13 +581,13 @@ describe('CookielessManager', () => {
                 // Batch has one cookieless event: pass 1 calls doHashForDay once (base hash),
                 // pass 3 calls it once (final hash with identify offset). We let pass 1 succeed
                 // then fail pass 3 to simulate a day-boundary race.
-                const originalDoHashForDay = hub.cookielessManager.doHashForDay.bind(hub.cookielessManager)
+                const originalDoHashForDay = infra.cookielessManager.doHashForDay.bind(infra.cookielessManager)
                 const spy = jest
-                    .spyOn(hub.cookielessManager, 'doHashForDay')
+                    .spyOn(infra.cookielessManager, 'doHashForDay')
                     .mockImplementationOnce((args) => originalDoHashForDay(args))
                     .mockImplementationOnce(() => Promise.resolve({ success: false, reason: 'date_out_of_range' }))
 
-                const response = await hub.cookielessManager.doBatch([
+                const response = await infra.cookielessManager.doBatch([
                     { event, team, message, headers: createTestEventHeaders() },
                     { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
                 ])
@@ -724,8 +627,8 @@ describe('CookielessManager', () => {
                 //   call 3: pass 3 re-hash for identifyEvent  ← fail this one
                 //   call 4: pass 3 re-hash for eventABitLater ← should succeed
                 let callCount = 0
-                const originalDoHashForDay = hub.cookielessManager.doHashForDay.bind(hub.cookielessManager)
-                const spy = jest.spyOn(hub.cookielessManager, 'doHashForDay').mockImplementation((args) => {
+                const originalDoHashForDay = infra.cookielessManager.doHashForDay.bind(infra.cookielessManager)
+                const spy = jest.spyOn(infra.cookielessManager, 'doHashForDay').mockImplementation((args) => {
                     callCount++
                     if (callCount === 3) {
                         return Promise.resolve({ success: false, reason: 'date_out_of_range' })
@@ -733,7 +636,7 @@ describe('CookielessManager', () => {
                     return originalDoHashForDay(args)
                 })
 
-                const response = await hub.cookielessManager.doBatch([
+                const response = await infra.cookielessManager.doBatch([
                     { event: identifyEvent, team, message, headers: createTestEventHeaders() },
                     { event: eventABitLater, team, message, headers: createTestEventHeaders() },
                 ])
@@ -756,12 +659,34 @@ describe('CookielessManager', () => {
                     expect(anonResult.value.event.distinct_id).toEqual(baselineDistinctId)
                 }
             })
-        })
-        describe('timestamp out of range', () => {
-            beforeEach(async () => {
-                await setModeForTeam(CookielessServerHashMode.Stateful)
+
+            it('should preserve headers through cookieless processing', async () => {
+                const testHeaders = createTestEventHeaders({
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                })
+
+                const result = await processEventWithHeaders(event, testHeaders)
+
+                expect(result.headers).toEqual(testHeaders)
+                expect(result.event).toBeDefined()
             })
 
+            it('should preserve headers for non-cookieless events', async () => {
+                const testHeaders = createTestEventHeaders({
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                })
+
+                const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
+
+                expect(result.headers).toEqual(testHeaders)
+                expect(result.event).toBe(nonCookielessEvent)
+            })
+        })
+        describe('timestamp out of range', () => {
             it('should drop only the event with out-of-range timestamp, not other events in batch', async () => {
                 // Create an event with a timestamp that's too old (more than 72h + timezone buffer in the past)
                 const oldTimestamp = new Date('2025-01-05T11:00:00Z') // 5 days before "now" (2025-01-10)
@@ -771,7 +696,7 @@ describe('CookielessManager', () => {
                     uuid: new UUID7(oldTimestamp.getTime()).toString(),
                 })
 
-                const response = await hub.cookielessManager.doBatch([
+                const response = await infra.cookielessManager.doBatch([
                     {
                         event: eventWithOldTimestamp,
                         team,
@@ -811,7 +736,7 @@ describe('CookielessManager', () => {
                     uuid: new UUID7(futureTimestamp.getTime()).toString(),
                 })
 
-                const response = await hub.cookielessManager.doBatch([
+                const response = await infra.cookielessManager.doBatch([
                     {
                         event: eventWithFutureTimestamp,
                         team,
@@ -842,7 +767,7 @@ describe('CookielessManager', () => {
                     uuid: new UUID7(oldTimestamp.getTime()).toString(),
                 })
 
-                const response = await hub.cookielessManager.doBatch([
+                const response = await infra.cookielessManager.doBatch([
                     {
                         event: eventWithOldTimestamp,
                         team,
@@ -869,7 +794,7 @@ describe('CookielessManager', () => {
             beforeEach(async () => {
                 await setModeForTeam(CookielessServerHashMode.Disabled)
             })
-            it('should drop all events', async () => {
+            it('should drop all cookieless events', async () => {
                 const actual1 = await processEvent(event)
                 expect(actual1).toBeUndefined()
             })
@@ -890,25 +815,21 @@ describe('CookielessManager', () => {
                 expect(result.event).toBeUndefined()
                 expect(result.headers).toEqual(createTestEventHeaders())
             })
-            it('should preserve headers when passing through non-cookieless events', async () => {
-                const testHeaders = createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-distinct-id',
-                    timestamp: '1234567890',
-                })
+        })
+        describe('legacy stateless value', () => {
+            beforeEach(async () => {
+                await setModeForTeam(CookielessServerHashMode.Stateless)
+            })
+            it('should process events as stateful, including $identify', async () => {
+                const actual = await processEvent(event)
+                expect(actual?.distinct_id).toMatch(/^cookieless_/)
 
-                const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
-
-                expect(result.headers).toEqual(testHeaders)
-                expect(result.event).toBe(nonCookielessEvent)
+                // stateless mode used to drop $identify events; sunset means stateful handling
+                const identified = await processEvent(identifyEvent)
+                expect(identified).toBeDefined()
             })
         })
-
         describe('ingestion warnings', () => {
-            beforeEach(async () => {
-                await setModeForTeam(CookielessServerHashMode.Stateful)
-            })
-
             it('should emit warning when timestamp is missing', async () => {
                 const eventWithoutTimestamp = deepFreeze({
                     ...event,
@@ -917,7 +838,7 @@ describe('CookielessManager', () => {
                     sent_at: undefined as any,
                 })
 
-                const response = await hub.cookielessManager.doBatch([
+                const response = await infra.cookielessManager.doBatch([
                     {
                         event: eventWithoutTimestamp,
                         team,
@@ -952,7 +873,7 @@ describe('CookielessManager', () => {
                     },
                 })
 
-                const response = await hub.cookielessManager.doBatch([
+                const response = await infra.cookielessManager.doBatch([
                     { event: eventWithoutUA, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(1)
@@ -983,7 +904,7 @@ describe('CookielessManager', () => {
                     },
                 })
 
-                const response = await hub.cookielessManager.doBatch([
+                const response = await infra.cookielessManager.doBatch([
                     { event: eventWithoutIP, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(1)
@@ -1014,7 +935,7 @@ describe('CookielessManager', () => {
                     },
                 })
 
-                const response = await hub.cookielessManager.doBatch([
+                const response = await infra.cookielessManager.doBatch([
                     { event: eventWithoutHost, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(1)

@@ -3,7 +3,7 @@ import { match } from 'ts-pattern'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import type {
@@ -31,6 +31,8 @@ import { ExperimentMetricSource, ExperimentMetricType, NodeKind } from '~/querie
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { Experiment, FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { EXPOSURE_DEFAULT_EVENT, EXPOSURE_FEATURE_FLAG_PROPERTY, featureFlagVariantProperty } from './exposureContract'
 
 /**
  * We extract all the math properties from the EntityNode type so we can use them as
@@ -385,7 +387,7 @@ export function filterToMetricSource(
         return {
             kind: NodeKind.ExperimentDataWarehouseNode,
             name: data_warehouse[0].name,
-            table_name: data_warehouse[0].id,
+            table_name: data_warehouse[0].table_name || data_warehouse[0].id,
             timestamp_field: data_warehouse[0].timestamp_field,
             events_join_key: data_warehouse[0].events_join_key,
             data_warehouse_join_key: data_warehouse[0].data_warehouse_join_key,
@@ -412,7 +414,7 @@ export function filterToMetricConfig(
 ): ExperimentMetricTypeProps | undefined {
     return match(metricType)
         .with(ExperimentMetricType.FUNNEL, () => {
-            // Combine events and actions and sort by order
+            // Combine all supported source types and sort by order
             const eventSteps =
                 events?.map(
                     (event) =>
@@ -422,7 +424,7 @@ export function filterToMetricConfig(
                             custom_name: event.custom_name,
                             properties: event.properties,
                             order: event.order,
-                        }) as EventsNode & { order: number }
+                        }) as EventsNode & { order?: number }
                 ) || []
 
             const actionSteps =
@@ -434,10 +436,28 @@ export function filterToMetricConfig(
                             name: action.name,
                             properties: action.properties,
                             order: action.order,
-                        }) as ActionsNode & { order: number }
+                        }) as ActionsNode & { order?: number }
                 ) || []
 
-            const combinedSteps = [...eventSteps, ...actionSteps].sort((a, b) => a.order - b.order)
+            const dataWarehouseSteps =
+                data_warehouse?.map(
+                    (dataWarehouse) =>
+                        ({
+                            kind: NodeKind.ExperimentDataWarehouseNode,
+                            table_name: dataWarehouse.table_name || dataWarehouse.id,
+                            name: dataWarehouse.name,
+                            timestamp_field: dataWarehouse.timestamp_field,
+                            events_join_key: dataWarehouse.events_join_key,
+                            data_warehouse_join_key: dataWarehouse.data_warehouse_join_key,
+                            custom_name: dataWarehouse.custom_name,
+                            properties: dataWarehouse.properties,
+                            order: dataWarehouse.order,
+                        }) as ExperimentDataWarehouseNode & { order?: number }
+                ) || []
+
+            const combinedSteps = [...eventSteps, ...actionSteps, ...dataWarehouseSteps]
+                .map((step, index) => ({ ...step, order: step.order ?? index }))
+                .sort((a, b) => a.order - b.order)
 
             // Remove the temporary order field
             const series = combinedSteps.map(({ order, ...step }) => step as ExperimentFunnelMetricStep)
@@ -495,10 +515,15 @@ const createSourceNode = (step: ExperimentFunnelMetricStep | ExperimentMetricSou
  */
 export const getExposureConfigEventsNode = (
     exposureConfig: ExperimentEventExposureConfig,
-    options: { featureFlagKey: string; featureFlagVariants: MultivariateFlagVariant[] }
+    options: {
+        featureFlagKey: string
+        featureFlagVariants: MultivariateFlagVariant[]
+        /** The experiment's server-resolved default exposure event, see `resolvedExposureEvent`. */
+        resolvedExposureEvent?: string
+    }
 ): EventsNode => {
     const exposure_step_name = 'Experiment exposure'
-    if (exposureConfig && exposureConfig.event !== '$feature_flag_called') {
+    if (exposureConfig && exposureConfig.event !== EXPOSURE_DEFAULT_EVENT) {
         const { featureFlagKey, featureFlagVariants } = options
         return {
             kind: NodeKind.EventsNode,
@@ -507,7 +532,7 @@ export const getExposureConfigEventsNode = (
             properties: [
                 ...(exposureConfig.properties || []),
                 {
-                    key: `$feature/${featureFlagKey}`,
+                    key: featureFlagVariantProperty(featureFlagKey),
                     type: PropertyFilterType.Event,
                     value: featureFlagVariants.map(({ key }) => key),
                     operator: PropertyOperator.Exact,
@@ -519,10 +544,10 @@ export const getExposureConfigEventsNode = (
     return {
         kind: NodeKind.EventsNode,
         custom_name: exposure_step_name,
-        event: '$feature_flag_called',
+        event: options.resolvedExposureEvent ?? EXPOSURE_DEFAULT_EVENT,
         properties: [
             {
-                key: '$feature_flag',
+                key: EXPOSURE_FEATURE_FLAG_PROPERTY,
                 type: PropertyFilterType.Event,
                 value: options.featureFlagKey,
                 operator: PropertyOperator.Exact,

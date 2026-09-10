@@ -3,8 +3,11 @@ import type {
     Series,
     TimeSeriesBarChartConfig,
     TimeSeriesLineChartConfig,
+    TimeInterval,
     TooltipConfig,
     TrendLineConfig,
+    XAxisConfig,
+    YAxisConfig,
 } from '@posthog/quill-charts'
 
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
@@ -22,6 +25,7 @@ export interface RetentionResultLike {
     labels?: string[]
     index?: number
     breakdown_value?: string | number | null
+    rawBreakdownValue?: string | number | null
 }
 
 // `retentionGraphLogic.trendSeries` spreads `cohortRetention` onto each entry, so the
@@ -43,6 +47,11 @@ export interface BuildRetentionSeriesOpts {
     /** True when an interval is selected (x-axis is cohorts, not interval offsets).
      *  In this layout the partial-stroke "in-progress" segment doesn't apply per-series. */
     isIntervalView: boolean
+    /** Explicit per-series color; `index` is the array position, matching the chart's own
+     *  `colors[i % len]` fallback. Left undefined (callback absent or returning undefined),
+     *  the chart theme palette applies. A callback rather than resolved colors keeps this
+     *  module free of `~/`/`scenes/` deps for the MCP bundle. */
+    getColor?: (entry: RetentionTrendSeriesEntry, index: number) => string | undefined
 }
 
 export function buildRetentionSeries(
@@ -65,6 +74,7 @@ export function buildRetentionSeries(
             key: `retention-${rowIndex}`,
             label,
             data: s.data,
+            color: opts.getColor?.(s, i),
             meta: {
                 rowIndex,
                 breakdown_value: s.breakdown_value,
@@ -83,6 +93,9 @@ export interface BuildRetentionChartConfigOpts {
     showTrendLines?: boolean
     series: Series<RetentionSeriesMeta>[]
     tooltip?: TooltipConfig
+    isIntervalView?: boolean
+    period?: string
+    timezone?: string
 }
 
 function buildTrendLines(
@@ -99,8 +112,21 @@ function buildGoalLines(goalLines: GoalLineLike[] | null | undefined): GoalLineC
     return schemaGoalLinesToConfigs(goalLines)
 }
 
+const TIME_INTERVAL_BY_RETENTION_PERIOD: Record<string, TimeInterval> = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+}
+
+function buildXAxis(opts: BuildRetentionChartConfigOpts): XAxisConfig | undefined {
+    const interval = opts.period ? TIME_INTERVAL_BY_RETENTION_PERIOD[opts.period] : undefined
+    return opts.isIntervalView && interval && opts.timezone ? { interval, timezone: opts.timezone } : undefined
+}
+
 export function buildRetentionLineChartConfig(opts: BuildRetentionChartConfigOpts): TimeSeriesLineChartConfig {
     return {
+        xAxis: buildXAxis(opts),
         yAxis: {
             format: opts.isPercentage ? 'percentage' : 'numeric',
             scale: 'linear',
@@ -112,8 +138,11 @@ export function buildRetentionLineChartConfig(opts: BuildRetentionChartConfigOpt
     }
 }
 
-export function buildRetentionBarChartConfig(opts: BuildRetentionChartConfigOpts): TimeSeriesBarChartConfig {
+export function buildRetentionBarChartConfig(
+    opts: BuildRetentionChartConfigOpts
+): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     return {
+        xAxis: buildXAxis(opts),
         yAxis: {
             format: opts.isPercentage ? 'percentage' : 'numeric',
             scale: 'linear',
@@ -251,7 +280,7 @@ export interface RetentionChartModel {
     series: Series<RetentionSeriesMeta>[]
     labels: string[]
     lineConfig: TimeSeriesLineChartConfig
-    barConfig: TimeSeriesBarChartConfig
+    barConfig: TimeSeriesBarChartConfig & { yAxis?: YAxisConfig }
     /** Cohort count before the `maxCohorts` cap — lets the host show a truncation notice. */
     totalCohorts: number
 }

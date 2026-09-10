@@ -1,10 +1,9 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { CdpCyclotronWorkerEmail } from './cdp-cyclotron-worker-email.consumer'
 
 jest.setTimeout(5000)
@@ -12,14 +11,11 @@ jest.setTimeout(5000)
 describe('CdpCyclotronWorkerEmail', () => {
     let hub: Hub
 
-    beforeEach(async () => {
-        await resetTestDatabase()
+    beforeAll(async () => {
         hub = await createHub()
-        await getFirstTeam(hub.postgres)
     })
 
-    afterEach(async () => {
-        jest.setTimeout(10000)
+    afterAll(async () => {
         await closeHub(hub)
     })
 

@@ -1,8 +1,8 @@
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -11,6 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { dataWarehouseEmptyState } from '../../emptyState/dataWarehouseEmptyState'
 import { SourcesList } from './SourcesList'
 import { sourcesSceneLogic } from './sourcesSceneLogic'
 
@@ -18,11 +19,12 @@ export const scene: SceneExport = {
     component: SourcesScene,
     logic: sourcesSceneLogic,
     productKey: ProductKey.DATA_WAREHOUSE,
+    emptyState: dataWarehouseEmptyState,
 }
 
 export function SourcesScene(): JSX.Element {
     const action = (
-        <AppShortcut
+        <Shortcut
             name="NewPipelineSource"
             keybind={[keyBinds.new]}
             intent="New source"
@@ -39,7 +41,7 @@ export function SourcesScene(): JSX.Element {
             >
                 New source
             </LemonButton>
-        </AppShortcut>
+        </Shortcut>
     )
 
     return (
@@ -52,7 +54,7 @@ export function SourcesScene(): JSX.Element {
                 }}
                 actions={action}
             />
-            <SourcesList action={action} />
+            <SourcesList />
         </SceneContent>
     )
 }

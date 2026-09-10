@@ -1,26 +1,42 @@
 from io import StringIO
 
+import pytest
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from posthog.models import Group, OrganizationMembership, User
+from posthog.models import OrganizationMembership, User
+from posthog.persons_db import persons_db_connection
+from posthog.persons_seed import insert_seed_group
 
 from products.customer_analytics.backend.models.account import Account
+from products.customer_analytics.backend.models.relationship import AccountRelationship
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
+pytestmark = pytest.mark.persons_db_direct
+
 
 class TestSeedCustomerAnalyticsAccounts(BaseTest):
+    def tearDown(self):
+        # _make_group commits rows outside the test transaction, so remove them here to
+        # avoid leaking into other tests that share the persons database.
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
+            cursor.execute("DELETE FROM posthog_group WHERE team_id = %s", (self.team.pk,))
+        super().tearDown()
+
     def _make_group(self, group_key: str, name: str) -> None:
-        Group.objects.create(
-            team_id=self.team.pk,
-            group_key=group_key,
-            group_type_index=0,
-            group_properties={"name": name, "industry": "tech", "team_size": 3},
-            version=0,
-        )
+        # The command reads groups via a raw persons-DB connection, so fixtures must be
+        # committed — a Django ORM create would be invisible across the connection boundary.
+        with persons_db_connection(writer=True) as conn:
+            insert_seed_group(
+                conn,
+                team_id=self.team.pk,
+                group_key=group_key,
+                group_type_index=0,
+                group_properties={"name": name, "industry": "tech", "team_size": 3},
+            )
 
     def _run(self, **kwargs) -> str:
         out = StringIO()
@@ -51,11 +67,13 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
         assert set(accounts) == {"acme-id", "globex-id", "initech-id"}
         assert accounts["acme-id"].name == "Acme"
 
-        # Users: a pool joined to the org, assigned as account roles.
+        # Users: a pool joined to the org, assigned as account relationships.
         assert len(self._pool_emails()) == 4
-        owner = accounts["acme-id"].properties.account_owner
-        assert owner is not None
-        assert owner.email in self._pool_emails()
+        holders = AccountRelationship.objects.for_team(self.team.pk).filter(
+            account=accounts["acme-id"], ended_at__isnull=True
+        )
+        assert {rel.definition.name for rel in holders} == {"CSM", "Account executive", "Account owner"}
+        assert all(rel.user is not None and rel.user.email in self._pool_emails() for rel in holders)
 
         # Notes: only the first two accounts (by group key) get two notes each.
         notebooks = Notebook.objects.filter(resources__account__team_id=self.team.pk)

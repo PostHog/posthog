@@ -1,12 +1,15 @@
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
 from django.contrib.admin.widgets import AutocompleteSelect
-from django.core.exceptions import ValidationError
+from django.contrib.messages import get_messages
+from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
+from django.template.response import TemplateResponse
 from django.test import RequestFactory
 from django.utils.datastructures import MultiValueDict
 
@@ -32,6 +35,14 @@ def _files(pdf: UploadedFile | None = None) -> MultiValueDict[str, UploadedFile]
     if pdf is not None:
         mvd["signed_pdf"] = pdf
     return mvd
+
+
+def _attach_messages(request) -> None:
+    # Give a RequestFactory request the messages-framework plumbing admin
+    # actions rely on. Untyped param on purpose so the attribute assignments
+    # don't trip the type checker on WSGIRequest.
+    request.session = {}
+    request._messages = FallbackStorage(request)
 
 
 class TestLegalDocumentAdminForm(APIBaseTest):
@@ -90,6 +101,9 @@ class TestLegalDocumentAdminSave(APIBaseTest):
     def _request(self) -> Any:
         request = self.request_factory.post("/admin/posthog/legaldocument/add/")
         request.user = self.user
+        # Admin actions write user-facing feedback via the messages framework,
+        # which needs a storage backend attached to the request.
+        _attach_messages(request)
         return request
 
     def _bound_form(self, document_type: str = "DPA") -> LegalDocumentAdminForm:
@@ -326,6 +340,160 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         }
         self.assertEqual(called_ids, {"doc_111", "doc_222"})
         self.assertFalse(LegalDocument.objects.filter(id__in=[first.id, second.id]).exists())
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_resend_signing_email_dispatches_only_for_unsent_rows(self, mock_pandadoc_cls: Any) -> None:
+        # The recovery action re-triggers the signing email for in-flight rows
+        # whose `document.draft` webhook was missed. It must skip signed rows
+        # (already complete) and rows with no PandaDoc envelope (nothing to
+        # send), and only call /send for the unsigned, enveloped row.
+        stranded = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="DPA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
+            pandadoc_document_id="doc_stranded",
+        )
+        signed = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="BAA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=LegalDocument.Status.SIGNED,
+            pandadoc_document_id="doc_signed",
+        )
+        no_envelope = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="MSA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
+            pandadoc_document_id="",
+        )
+
+        queryset = LegalDocument.objects.filter(id__in=[stranded.id, signed.id, no_envelope.id])
+        self.admin.resend_signing_email(self._request(), queryset)
+
+        mock_pandadoc_cls.return_value.send_document.assert_called_once()
+        self.assertEqual(mock_pandadoc_cls.return_value.send_document.call_args.kwargs["document_id"], "doc_stranded")
+
+    def _signed_document(self, **overrides: Any) -> LegalDocument:
+        fields: dict[str, Any] = {
+            "organization": self.organization,
+            "document_type": "BAA",
+            "company_name": "Acme, Inc.",
+            "company_address": "1 Analytics Way",
+            "representative_email": "ada@acme.example",
+            "status": LegalDocument.Status.SIGNED,
+            "pandadoc_document_id": "doc_123",
+        }
+        fields.update(overrides)
+        return LegalDocument.objects.create(**fields)
+
+    def _refetch_request(self, document: LegalDocument, method: str = "post") -> Any:
+        request = getattr(self.request_factory, method)(f"/admin/posthog/legaldocument/{document.id}/refetch-pdf/")
+        request.user = self.user
+        _attach_messages(request)
+        return request
+
+    @patch("products.legal_documents.backend.admin.logic.download_and_store_signed_pdf", return_value=True)
+    def test_refetch_stores_the_pandadoc_pdf_and_marks_the_row_stored(self, mock_download: Any) -> None:
+        document = self._signed_document(signed_pdf_stored=False)
+
+        response = self.admin.refetch_pdf_view(self._refetch_request(document), str(document.id))
+
+        mock_download.assert_called_once()
+        document.refresh_from_db()
+        self.assertTrue(document.signed_pdf_stored)
+        self.assertEqual(response.status_code, 302)
+
+    @patch("products.legal_documents.backend.admin.logic.download_and_store_signed_pdf", return_value=False)
+    def test_refetch_failure_leaves_the_stored_copy_alone(self, _mock_download: Any) -> None:
+        document = self._signed_document(signed_pdf_stored=True)
+        request = self._refetch_request(document)
+
+        self.admin.refetch_pdf_view(request, str(document.id))
+
+        self.assertIn("Could not refetch", " ".join(str(message) for message in get_messages(request)))
+
+    @parameterized.expand(
+        [
+            ("out_for_signature", {"status": LegalDocument.Status.SUBMITTED_FOR_SIGNATURE}),
+            ("no_envelope", {"pandadoc_document_id": ""}),
+        ]
+    )
+    @patch("products.legal_documents.backend.admin.logic.download_and_store_signed_pdf")
+    def test_refetch_never_downloads_what_pandadoc_cannot_serve(
+        self, _name: str, overrides: dict[str, Any], mock_download: Any
+    ) -> None:
+        # A PDF pulled for anything but a completed envelope would land behind
+        # the customer-facing download link as if it were the signed document.
+        document = self._signed_document(signed_pdf_stored=False, **overrides)
+
+        self.admin.refetch_pdf_view(self._refetch_request(document), str(document.id))
+
+        mock_download.assert_not_called()
+        document.refresh_from_db()
+        self.assertFalse(document.signed_pdf_stored)
+
+    @patch("products.legal_documents.backend.admin.logic.download_and_store_signed_pdf")
+    def test_refetch_rejects_a_get(self, mock_download: Any) -> None:
+        # A refetch overwrites stored bytes, so a prefetched or crawled link
+        # must not trigger one.
+        document = self._signed_document()
+
+        with self.assertRaises(PermissionDenied):
+            self.admin.refetch_pdf_view(self._refetch_request(document, method="get"), str(document.id))
+
+        mock_download.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("signed_with_envelope", {}, True),
+            ("out_for_signature", {"status": LegalDocument.Status.SUBMITTED_FOR_SIGNATURE}, False),
+            ("no_envelope", {"pandadoc_document_id": ""}, False),
+        ]
+    )
+    def test_change_view_offers_the_refetch_button_only_when_pandadoc_can_serve(
+        self, _name: str, overrides: dict[str, Any], expected: bool
+    ) -> None:
+        document = self._signed_document(**overrides)
+        request = self.request_factory.get(f"/admin/posthog/legaldocument/{document.id}/")
+        request.user = self.user
+        _attach_messages(request)
+
+        response = cast(TemplateResponse, self.admin.change_view(request, str(document.id)))
+        response.render()
+
+        self.assertEqual(b"Refetch PDF from PandaDoc" in response.content, expected)
+
+    @parameterized.expand(
+        [
+            (LegalDocument.Status.SIGNED, "cannot void a completed document"),
+            (LegalDocument.Status.SUBMITTED_FOR_SIGNATURE, "voids its PandaDoc envelope"),
+        ]
+    )
+    def test_delete_confirmation_explains_what_the_delete_does(self, status: str, expected_fragment: str) -> None:
+        document = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="BAA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=status,
+            pandadoc_document_id="doc_123",
+        )
+        request = self.request_factory.get(f"/admin/posthog/legaldocument/{document.id}/delete/")
+        request.user = self.user
+        _attach_messages(request)
+
+        self.admin.delete_view(request, str(document.id))
+
+        self.assertIn(expected_fragment, " ".join(str(message) for message in get_messages(request)))
 
 
 class TestLegalDocumentAdminPermissions(APIBaseTest):

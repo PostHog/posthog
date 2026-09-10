@@ -10,11 +10,13 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.tasks import exporter
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
 from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_SYSTEM,
     FAILURE_TYPE_USER,
@@ -40,7 +42,6 @@ class TestIsUserQueryErrorType(TestCase):
             ("TimeoutError", False),
             ("ValueError", False),
             ("CHQueryErrorS3Error", False),
-            ("CHQueryErrorTooManySimultaneousQueries", False),
             ("ClickHouseAtCapacity", False),
             ("ConcurrencyLimitExceeded", False),
             (None, False),
@@ -83,6 +84,33 @@ class TestExporterTask(APIBaseTest):
         assert self.exported_asset.content_location is not None
 
     @patch("products.exports.backend.tasks.image_exporter.export_image")
+    def test_exporter_rechecks_typed_export_scopes(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
+        personal_api_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="typed export key",
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["export:write"],
+            scoped_teams=[self.team.id],
+        )
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=self.exported_asset.dashboard,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            created_by=self.user,
+            source_authentication=ExportedAsset.SourceAuthentication.PERSONAL_API_KEY,
+            source_credential_id=personal_api_key.id,
+        )
+
+        exporter.export_asset(asset.id)
+
+        mock_export.assert_not_called()
+        asset.refresh_from_db()
+        assert (
+            asset.exception
+            == "This export could not verify its original authorization. Create a new export and try again."
+        )
+
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_export_stores_exception_type_on_failure(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
         mock_export.side_effect = QueryError("Unknown table 'foo'")
 
@@ -96,6 +124,35 @@ class TestExporterTask(APIBaseTest):
 
 
 class TestExportAssetFailureRecording(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "missing_dataset_kind",
+                {"dataset_id": "caller-metadata"},
+                "JSONL exports require a dataset export context.",
+            ),
+            (
+                "invalid_dataset_context",
+                {"kind": DATASET_EXPORT_KIND},
+                "The dataset export configuration is invalid.",
+            ),
+        ]
+    )
+    def test_invalid_jsonl_context_is_a_user_error(
+        self, _name: str, export_context: dict[str, str], expected_exception: str
+    ) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context=export_context,
+        )
+
+        exporter.export_asset(asset.id)
+
+        asset.refresh_from_db()
+        assert asset.exception == expected_exception
+        assert asset.failure_type == FAILURE_TYPE_USER
+
     @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_non_retriable_error_records_failure_and_does_not_raise(self, mock_export_direct: MagicMock) -> None:
         mock_export_direct.side_effect = QueryError("Invalid query syntax")
@@ -114,7 +171,7 @@ class TestExportAssetFailureRecording(APIBaseTest):
 
     @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_transient_error_records_failure_without_retry(self, mock_export_direct: MagicMock) -> None:
-        mock_export_direct.side_effect = CHQueryErrorTooManySimultaneousQueries("Too many queries")
+        mock_export_direct.side_effect = ClickHouseAtCapacity()
 
         asset = ExportedAsset.objects.create(
             team=self.team,
@@ -127,6 +184,6 @@ class TestExportAssetFailureRecording(APIBaseTest):
         assert mock_export_direct.call_count == 1
 
         asset.refresh_from_db()
-        assert asset.exception == "Code: None.\nToo many queries"
-        assert asset.exception_type == "CHQueryErrorTooManySimultaneousQueries"
+        assert asset.exception == ClickHouseAtCapacity.default_detail
+        assert asset.exception_type == "ClickHouseAtCapacity"
         assert asset.failure_type == FAILURE_TYPE_SYSTEM

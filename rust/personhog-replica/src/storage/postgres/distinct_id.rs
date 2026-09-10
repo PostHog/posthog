@@ -36,14 +36,23 @@ impl DistinctIdLookup for PostgresStorage {
         let pool = self.pool_for_consistency(consistency);
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
+        // Identified (non-anonymous) distinct_ids must survive the LIMIT, so consumers that
+        // read the first id get the user-defined one. The regex mirrors ANONYMOUS_REGEX in
+        // posthog/utils.py (keep in sync). The inner LIMIT bounds the scan for pathological
+        // persons with enormous distinct_id sets; beyond it the selection is best-effort.
         let rows = match limit {
             Some(l) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
                     r#"
-                    SELECT distinct_id, version
-                    FROM posthog_persondistinctid
-                    WHERE team_id = $1 AND person_id = $2
+                    SELECT capped.distinct_id, capped.version
+                    FROM (
+                        SELECT distinct_id, version, id
+                        FROM posthog_persondistinctid
+                        WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
+                        LIMIT 2500
+                    ) capped
+                    ORDER BY (capped.distinct_id ~ '^([a-z0-9]+-){4}[a-z0-9]+$'), capped.id
                     LIMIT $3
                     "#,
                     team_id as i32,
@@ -59,7 +68,7 @@ impl DistinctIdLookup for PostgresStorage {
                     r#"
                     SELECT distinct_id, version
                     FROM posthog_persondistinctid
-                    WHERE team_id = $1 AND person_id = $2
+                    WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
                     "#,
                     team_id as i32,
                     person_id
@@ -127,6 +136,9 @@ impl DistinctIdLookup for PostgresStorage {
             let pool = pool.clone();
             async move {
                 let mut conn = PostgresStorage::acquire_timed(&pool, pool_label).await?;
+                // Same ordering contract as get_distinct_ids_for_person: identified ids
+                // survive the per-person LIMIT (regex mirrors ANONYMOUS_REGEX in
+                // posthog/utils.py), with the scan capped for pathological persons.
                 let rows = match limit_per_person {
                     Some(l) => {
                         sqlx::query_as!(
@@ -135,9 +147,14 @@ impl DistinctIdLookup for PostgresStorage {
                                 SELECT l.person_id, l.distinct_id, l.version
                                 FROM UNNEST($2::bigint[]) AS pid(id)
                                 CROSS JOIN LATERAL (
-                                    SELECT person_id, distinct_id, version
-                                    FROM posthog_persondistinctid
-                                    WHERE team_id = $1 AND person_id = pid.id
+                                    SELECT capped.person_id, capped.distinct_id, capped.version
+                                    FROM (
+                                        SELECT person_id, distinct_id, version, id
+                                        FROM posthog_persondistinctid
+                                        WHERE team_id = $1 AND person_id = pid.id AND is_deleted = false
+                                        LIMIT 2500
+                                    ) capped
+                                    ORDER BY (capped.distinct_id ~ '^([a-z0-9]+-){4}[a-z0-9]+$'), capped.id
                                     LIMIT $3
                                 ) l
                                 "#,
@@ -154,7 +171,7 @@ impl DistinctIdLookup for PostgresStorage {
                             r#"
                                 SELECT person_id, distinct_id, version
                                 FROM posthog_persondistinctid
-                                WHERE team_id = $1 AND person_id = ANY($2)
+                                WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false
                                 "#,
                             team_id as i32,
                             &chunk

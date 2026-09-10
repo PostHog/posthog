@@ -2,7 +2,7 @@ import copy
 import hmac
 import hashlib
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Union
 from urllib.parse import quote, urlencode
 
@@ -19,6 +19,7 @@ import structlog
 from rest_framework import exceptions
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
@@ -41,6 +42,11 @@ from ee.vercel.client import SSOTokenResponse, VercelAPIClient
 logger = structlog.get_logger(__name__)
 
 VercelItemType = Literal["flag", "experiment"]
+
+# Frameworks only expose an env var to client-side bundles if it carries their own prefix, so the
+# same values are injected under every prefix we support. NEXT_PUBLIC_ must stay first: it is the
+# original contract for already-installed users.
+CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
 
 
 class VercelSSOError(Exception):
@@ -81,9 +87,9 @@ class ResourceConfig:
     protocolSettings: dict[str, Any] | None = None
 
 
-@dataclass
+@frozen
 class InstallationCredentials:
-    access_token: str
+    access_token: str = field(repr=False)
     token_type: str
 
 
@@ -268,8 +274,24 @@ class VercelIntegration:
             account=account,
         )
 
+        contact_email_matches_token = (
+            user_claims.user_email.lower() == contact_data["email"].lower() if user_claims.user_email else None
+        )
+
+        if contact_email_matches_token is False:
+            logger.warning(
+                "Vercel installation contact email differs from token email",
+                installation_id=installation_id,
+                vercel_user_id=vercel_user_id,
+                integration="vercel",
+            )
+
         logger.info(
-            "Starting Vercel installation upsert process", installation_id=installation_id, integration="vercel"
+            "Starting Vercel installation upsert process",
+            installation_id=installation_id,
+            integration="vercel",
+            token_email_verified=user_claims.user_email_verified,
+            contact_email_matches_token=contact_email_matches_token,
         )
 
         # Check if there's already an OrganizationIntegration for this installation_id
@@ -297,7 +319,7 @@ class VercelIntegration:
                 name=config.account.name or f"Vercel Installation {installation_id}"
             )
 
-            existing_user = User.objects.filter(email=config.account.contact.email, is_active=True).first()
+            existing_user = User.objects.filter(email=config.account.contact.email).first()
 
             if existing_user:
                 user = existing_user
@@ -306,17 +328,14 @@ class VercelIntegration:
                 VercelIntegration._add_user_to_organization(
                     existing_user, organization, OrganizationMembership.Level.OWNER
                 )
-                # Only create mapping if user is trusted (has existing Vercel mapping somewhere)
-                # External users will get mapped during SSO when they prove ownership
-                should_create_mapping = VercelIntegration._user_has_any_vercel_mapping(existing_user)
             else:
-                user, user_created = VercelIntegration._find_or_create_user_by_email(
+                user = VercelIntegration._create_user_for_email(
                     email=config.account.contact.email,
                     name=config.account.contact.name,
                     organization=organization,
                     level=OrganizationMembership.Level.OWNER,  # User installing gets owner level
                 )
-                should_create_mapping = user_created
+                user_created = True
 
             try:
                 org_integration, _ = OrganizationIntegration.objects.update_or_create(
@@ -330,7 +349,7 @@ class VercelIntegration:
                     },
                 )
 
-                if should_create_mapping:
+                if user_created:
                     VercelIntegration._set_user_mapping(org_integration, vercel_user_id, user.pk)
 
                 logger.info("Created new Vercel installation", installation_id=installation_id, integration="vercel")
@@ -554,15 +573,14 @@ class VercelIntegration:
 
     @staticmethod
     def _build_secrets(team: Team) -> list[dict[str, str]]:
+        values = {
+            "POSTHOG_PROJECT_TOKEN": team.api_token,
+            "POSTHOG_HOST": absolute_uri(),
+        }
         return [
-            {
-                "name": "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
-                "value": team.api_token,
-            },
-            {
-                "name": "NEXT_PUBLIC_POSTHOG_HOST",
-                "value": absolute_uri(),
-            },
+            {"name": f"{prefix}{name}", "value": value}
+            for prefix in CLIENT_ENV_PREFIXES
+            for name, value in values.items()
         ]
 
     @staticmethod
@@ -608,12 +626,12 @@ class VercelIntegration:
     def _setup_vercel_client_for_team(team: Team) -> VercelSetupResult | None:
         resource = VercelIntegration._get_vercel_resource_for_team(team)
         if not resource:
-            logger.debug("Vercel resource not found for team", team_id=team.id, integration="vercel")
+            logger.info("Vercel resource not found for team", team_id=team.id, integration="vercel")
             return None
 
         installation = VercelIntegration._get_installation_for_organization(team.organization)
         if not installation:
-            logger.debug(
+            logger.info(
                 "Vercel installation not found for organization",
                 team_id=team.pk,
                 organization_id=team.organization.pk,
@@ -870,6 +888,10 @@ class VercelIntegration:
     @staticmethod
     def _authenticate_and_login_user(request, claims: VercelUserClaims, resource_id: str | None) -> User:
         user = VercelIntegration._find_sso_user(claims)
+        if user.is_email_verified is not True and claims.user_email and claims.user_email.lower() == user.email.lower():
+            # Vercel verified the mailbox before issuing the claim, so this login proves it.
+            user.is_email_verified = True
+            user.save(update_fields=["is_email_verified"])
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         if resource_id:
             VercelIntegration.set_active_project(user, resource_id)
@@ -1053,26 +1075,6 @@ class VercelIntegration:
         return response
 
     @staticmethod
-    def _user_has_any_vercel_mapping(user: User) -> bool:
-        """Check if user has any Vercel mappings (i.e., they've used Vercel before)."""
-        configs = (
-            OrganizationIntegration.objects.filter(kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL)
-            .values_list("config", flat=True)
-            .iterator()
-        )
-        for config in configs:
-            if not config:
-                continue
-            user_mappings = config.get("user_mappings", {})
-            for v in user_mappings.values():
-                try:
-                    if int(v) == user.pk:
-                        return True
-                except (ValueError, TypeError):
-                    capture_exception(ValueError(f"Corrupted user_mapping value: {v}"))
-        return False
-
-    @staticmethod
     def _get_user_mapping(installation: OrganizationIntegration, vercel_user_id: str) -> int | None:
         user_mappings = installation.config.get("user_mappings", {})
         return user_mappings.get(vercel_user_id)
@@ -1090,35 +1092,26 @@ class VercelIntegration:
         installation.save(update_fields=["config"])
 
     @staticmethod
-    def _find_or_create_user_by_email(
+    def _create_user_for_email(
         email: str, name: str | None, organization: Organization, level: OrganizationMembership.Level
-    ) -> tuple[User, bool]:
-        user = User.objects.filter(email=email).first()
-        created = False
+    ) -> User:
+        first_name = ""
+        if name:
+            first_name = name.split()[0] if name.split() else name
+        elif email:
+            first_name = email.split("@")[0]
 
-        if user:
-            if not user.is_active:
-                user.is_active = True
-                user.save(update_fields=["is_active"])
-        else:
-            first_name = ""
-            if name:
-                first_name = name.split()[0] if name.split() else name
-            elif email:
-                first_name = email.split("@")[0]
-
-            user = User.objects.create_user(
-                email=email,
-                password=None,
-                first_name=first_name,
-                is_staff=False,
-                is_email_verified=False,
-            )
-            created = True
+        user = User.objects.create_user(
+            email=email,
+            password=None,
+            first_name=first_name,
+            is_staff=False,
+            is_email_verified=False,
+        )
 
         VercelIntegration._add_user_to_organization(user, organization, level)
 
-        return user, created
+        return user
 
     @staticmethod
     def _find_sso_user(claims: VercelUserClaims) -> User:
@@ -1149,7 +1142,7 @@ class VercelIntegration:
                 del user_mappings[claims.user_id]
                 installation.save(update_fields=["config"])
 
-        existing_user = User.objects.filter(email=claims.user_email, is_active=True).first()
+        existing_user = User.objects.filter(email=claims.user_email).first()
         if existing_user:
             raise RequiresExistingUserLogin(
                 email=claims.user_email, vercel_user_id=claims.user_id, installation_id=claims.installation_id
@@ -1157,7 +1150,7 @@ class VercelIntegration:
 
         intended_level = VercelIntegration._determine_membership_level(claims.user_email, installation)
 
-        user, _ = VercelIntegration._find_or_create_user_by_email(
+        user = VercelIntegration._create_user_for_email(
             email=claims.user_email,
             name=claims.user_name,
             organization=installation.organization,
@@ -1280,7 +1273,9 @@ class VercelIntegration:
             capture_exception(e, {"team_id": team.id, "resource_id": setup_result.resource_id})
 
 
-def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_func: Callable[[], None]) -> None:
+def _safe_vercel_sync(
+    operation_name: str, item_id: str | int, team: Team, sync_func: Callable[[], None], *, is_delete: bool = False
+) -> None:
     """
     Safety wrapper for Vercel sync operations triggered by Django signals.
 
@@ -1290,8 +1285,15 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
 
     Operations are silently skipped if Vercel integration is not configured and
     exceptions are caught and logged rather than bubbling up to the caller.
+
+    On delete (``is_delete=True``) we never auto-create a Vercel resource: with no existing resource there is
+    nothing to delete from Vercel, and creating one is actively harmful during team deletion. Signals run in the
+    caller's transaction, so the team-deletion cascade would re-insert an Integration row for a team being deleted
+    in that same transaction — orphaning it and failing the commit with an IntegrityError on the team FK.
     """
     if not VercelIntegration._get_vercel_resource_for_team(team):
+        if is_delete:
+            return
         installation = VercelIntegration._get_installation_for_organization(team.organization)
         if not installation:
             return
@@ -1342,6 +1344,7 @@ def sync_feature_flag_experimentation_item(sender, instance: FeatureFlag, create
             instance.pk,
             instance.team,
             lambda: VercelIntegration.delete_feature_flag_from_vercel(instance),
+            is_delete=True,
         )
     else:
         _safe_vercel_sync(
@@ -1359,6 +1362,7 @@ def delete_resource_experimentation_item(sender, instance: FeatureFlag, **kwargs
         instance.pk,
         instance.team,
         lambda: VercelIntegration.delete_feature_flag_from_vercel(instance),
+        is_delete=True,
     )
 
 
@@ -1370,6 +1374,7 @@ def sync_experiment_experimentation_item(sender, instance: Experiment, created, 
             instance.pk,
             instance.team,
             lambda: VercelIntegration.delete_experiment_from_vercel(instance),
+            is_delete=True,
         )
     else:
         _safe_vercel_sync(
@@ -1387,4 +1392,5 @@ def delete_experiment_experimentation_item(sender, instance: Experiment, **kwarg
         instance.pk,
         instance.team,
         lambda: VercelIntegration.delete_experiment_from_vercel(instance),
+        is_delete=True,
     )

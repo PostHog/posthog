@@ -71,6 +71,7 @@ describe('Toolbar flag loading', () => {
 
     it('should handle fetch errors gracefully', async () => {
         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
 
         await import('./index')
 
@@ -95,10 +96,12 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 
         consoleErrorSpy.mockRestore()
+        consoleWarnSpy.mockRestore()
     })
 
     it('should handle non-ok responses gracefully', async () => {
         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
 
         await import('./index')
 
@@ -126,23 +129,30 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 
         consoleErrorSpy.mockRestore()
+        consoleWarnSpy.mockRestore()
     })
 
     it.each([
         {
             name: 'transient network failure (fetch rejects)',
-            // `fetch` rejects only on network-level failures — these should be logged, not captured.
             setupMock: () => mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch')),
-            expectCapture: false,
         },
         {
-            name: 'unexpected error while applying flags (TypeError thrown in processing)',
-            // A null body makes `data.featureFlags` throw a TypeError during processing —
-            // a genuine bug that must still reach error tracking.
+            name: 'unusable response body (null JSON)',
             setupMock: () => mockFetch.mockResolvedValueOnce({ json: async () => null }),
-            expectCapture: true,
         },
-    ])('reports only genuine errors as exceptions: $name', async ({ setupMock, expectCapture }) => {
+        {
+            name: 'non-JSON response body (proxy error page)',
+            setupMock: () =>
+                mockFetch.mockResolvedValueOnce({
+                    json: async () => {
+                        throw new SyntaxError('Unexpected token < in JSON')
+                    },
+                }),
+        },
+    ])('never reports preload failures to error tracking: $name', async ({ setupMock }) => {
+        // Every failure mode of the flags preload is request-shaped (network, proxy,
+        // malformed body) - it must be logged, never captured as an exception.
         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
         const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
 
@@ -165,12 +175,8 @@ describe('Toolbar flag loading', () => {
 
         await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
 
-        if (expectCapture) {
-            expect(captureToolbarException).toHaveBeenCalledWith(expect.anything(), 'preloaded_flags_fetch')
-        } else {
-            expect(captureToolbarException).not.toHaveBeenCalled()
-            expect(consoleWarnSpy).toHaveBeenCalled()
-        }
+        expect(captureToolbarException).not.toHaveBeenCalled()
+        expect(consoleWarnSpy.mock.calls.length + consoleErrorSpy.mock.calls.length).toBeGreaterThan(0)
 
         consoleErrorSpy.mockRestore()
         consoleWarnSpy.mockRestore()
@@ -198,7 +204,99 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
     })
 
+    it('is idempotent — a repeat ph_load_toolbar keeps the live toolbar instead of remounting it', async () => {
+        // On an SPA, posthog-js calls ph_load_toolbar again on client-side route changes.
+        // Remounting resets the Kea context out from under the mounted React tree, so the toolbar
+        // the user is interacting with disappears (and a duplicate shadow root is stacked). A
+        // repeat call must leave the existing instance untouched.
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: { overrideFeatureFlags: jest.fn(), reloadFeatureFlags: jest.fn() },
+        }
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            token: 'test-token',
+            // no toolbarFlagsKey → skips the flags preload, straight to mount
+        }
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        const container = document.body.firstElementChild
+        const childCountAfterFirstLoad = document.body.childElementCount
+        expect(container).toBeTruthy()
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        // Nothing added, same node still first: the second call was a no-op, not a fresh mount
+        // (which would append another container) or a teardown + remount (which would swap it).
+        expect(document.body.childElementCount).toBe(childCountAfterFirstLoad)
+        expect(document.body.firstElementChild).toBe(container)
+    })
+
+    it('dedupes overlapping ph_load_toolbar calls onto a single mount', async () => {
+        // posthog-js can fire ph_load_toolbar calls that overlap (e.g. two SPA route changes in
+        // quick succession). The mounted-state flag is only set at the end of the async mount, so
+        // without an in-flight guard the second call races past the mounted check and mounts a
+        // second toolbar. Here the flags preload provides the async gap the race needs.
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: { overrideFeatureFlags: jest.fn(), reloadFeatureFlags: jest.fn() },
+        }
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            token: 'test-token',
+            toolbarFlagsKey: 'test-key-123',
+        }
+        // Resolve every fetch (flags preload + uiHost reachability check) so the mount completes.
+        mockFetch.mockResolvedValue({ ok: true, json: async () => ({ featureFlags: {} }) })
+
+        const childCountBeforeLoad = document.body.childElementCount
+
+        // Fire the second call before awaiting the first, so it arrives mid-mount.
+        const first = (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        const second = (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        await Promise.all([first, second])
+
+        // Exactly one container was appended: the two calls shared a single mount.
+        expect(document.body.childElementCount - childCountBeforeLoad).toBe(1)
+    })
+
+    it('remounts a fresh toolbar when the host page has detached the old container', async () => {
+        // The mounted check also requires the container to still be attached, so a stale loaded
+        // flag — the host page ripped our node out of the DOM — must not turn a repeat call into a
+        // no-op, or the toolbar would be gone for good. The repeat call should tear the stale
+        // instance down and mount a fresh, attached one.
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: { overrideFeatureFlags: jest.fn(), reloadFeatureFlags: jest.fn() },
+        }
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            token: 'test-token',
+            // no toolbarFlagsKey → skips the flags preload, straight to mount
+        }
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        const firstContainer = document.body.firstElementChild
+        expect(firstContainer).toBeTruthy()
+
+        // The host page removes our node (e.g. an SPA wiping document.body on a route change).
+        firstContainer?.remove()
+        expect(document.body.firstElementChild).toBeNull()
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        // Recovered: a fresh container is mounted — not a no-op that leaves the toolbar gone, and
+        // a new node rather than the stale detached one.
+        const recovered = document.body.firstElementChild
+        expect(recovered).toBeTruthy()
+        expect(recovered).not.toBe(firstContainer)
+    })
+
     it('should still load toolbar even if flag fetching fails', async () => {
+        // The failed flags fetch is reported through toolbarLogger's console.warn by design
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+
         await import('./index')
 
         const mockPostHog = {
@@ -221,5 +319,7 @@ describe('Toolbar flag loading', () => {
         // Verify toolbar container was created
         const container = document.querySelector('div')
         expect(container).toBeTruthy()
+
+        consoleWarnSpy.mockRestore()
     })
 })

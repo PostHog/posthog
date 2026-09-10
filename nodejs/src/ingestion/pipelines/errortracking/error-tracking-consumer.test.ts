@@ -4,17 +4,16 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
+import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { KafkaConsumer } from '~/kafka/consumer/consumer-v1'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { Hub, PipelineEvent, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresUse } from '~/utils/db/postgres'
-import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
-import { parseJSON } from '~/utils/json-parse'
-import { UUIDT } from '~/utils/utils'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
+import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { PipelineEvent, Team } from '~/types'
 
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
 
@@ -27,8 +26,8 @@ const createMockKafkaConsumer = (): jest.Mocked<Pick<KafkaConsumer, 'connect' | 
 
 jest.setTimeout(60000)
 
-jest.mock('~/utils/posthog', () => {
-    const original = jest.requireActual('~/utils/posthog')
+jest.mock('~/common/utils/posthog', () => {
+    const original = jest.requireActual('~/common/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),
@@ -36,10 +35,10 @@ jest.mock('~/utils/posthog', () => {
 })
 
 // Mock the IngestionWarningLimiter to always allow warnings
-jest.mock('~/utils/token-bucket', () => {
+jest.mock('~/common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
-        ...jest.requireActual('~/utils/token-bucket'),
+        ...jest.requireActual('~/common/utils/token-bucket'),
         IngestionWarningLimiter: {
             consume: mockConsume,
         },
@@ -47,7 +46,7 @@ jest.mock('~/utils/token-bucket', () => {
 })
 
 // Mock the logger to reduce noise
-jest.mock('~/utils/logger', () => ({
+jest.mock('~/common/utils/logger', () => ({
     logger: {
         debug: jest.fn(),
         info: jest.fn(),
@@ -131,41 +130,26 @@ const createKafkaMessage = (event: PipelineEvent, token: string): Message => {
 
 describe('ErrorTrackingConsumer', () => {
     let consumer: ErrorTrackingConsumer
-    let hub: Hub
+    let infra: IngestionTestInfra
     let team: Team
     let fixedTime: DateTime
     let mockHogTransformer: jest.Mocked<ErrorTrackingHogTransformer>
 
-    const createConsumer = async (hub: Hub) => {
+    const createConsumer = async (infra: IngestionTestInfra) => {
         const config = {
-            groupId: hub.ERROR_TRACKING_CONSUMER_GROUP_ID,
-            topic: hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
-            cymbalBaseUrl: hub.ERROR_TRACKING_CYMBAL_BASE_URL,
-            cymbalTimeoutMs: hub.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
-            cymbalMaxBodyBytes: hub.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
-            lane: hub.INGESTION_LANE ?? ('main' as const),
-            overflowEnabled:
-                !!hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
-                hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !== hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
-            overflowBucketCapacity: hub.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
-            overflowBucketReplenishRate: hub.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
-            statefulOverflowEnabled: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
-            statefulOverflowRedisTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
-            statefulOverflowLocalCacheTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-            preservePartitionLocality: hub.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
-            pipeline: hub.INGESTION_PIPELINE ?? 'errortracking',
-            rateLimiterEnabled: hub.ERROR_TRACKING_RATE_LIMITER_ENABLED,
-            rateLimiterReportingMode: hub.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,
-            rateLimiterRedisHost: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
-            rateLimiterRedisPort: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
-            rateLimiterRedisTls: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
-            rateLimiterTtlSeconds: hub.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
-            perIssueGuardThreshold: hub.ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD,
-            perIssueGuardWindowTtlSeconds: hub.ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS,
-            perIssueGuardCooldownTtlSeconds: hub.ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS,
-            fallbackRedisUrl: hub.REDIS_URL,
-            rateLimiterRedisPoolMinSize: hub.REDIS_POOL_MIN_SIZE,
-            rateLimiterRedisPoolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+            groupId: infra.config.ERROR_TRACKING_CONSUMER_GROUP_ID,
+            topic: infra.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+            cymbalBaseUrl: infra.config.ERROR_TRACKING_CYMBAL_BASE_URL,
+            cymbalTimeoutMs: infra.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
+            cymbalMaxBodyBytes: infra.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
+            lane: infra.config.INGESTION_LANE ?? ('main' as const),
+            overflowMode: infra.config.INGESTION_OVERFLOW_MODE,
+            overflowBucketCapacity: infra.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
+            overflowBucketReplenishRate: infra.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
+            statefulOverflowRedisTTLSeconds: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+            statefulOverflowLocalCacheTTLSeconds: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+            preservePartitionLocality: infra.config.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+            pipeline: infra.config.INGESTION_PIPELINE ?? 'errortracking',
         }
         // Create and store the mock so tests can configure it
         mockHogTransformer = createMockHogTransformer()
@@ -173,7 +157,7 @@ describe('ErrorTrackingConsumer', () => {
             outputs: new IngestionOutputs({
                 events: new SingleIngestionOutput(
                     'events',
-                    hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
+                    infra.config.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
                     mockProducer,
                     'test'
                 ),
@@ -183,10 +167,15 @@ describe('ErrorTrackingConsumer', () => {
                     mockProducer,
                     'test'
                 ),
-                dlq: new SingleIngestionOutput('dlq', hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC, mockProducer, 'test'),
+                dlq: new SingleIngestionOutput(
+                    'dlq',
+                    infra.config.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
+                    mockProducer,
+                    'test'
+                ),
                 overflow: new SingleIngestionOutput(
                     'overflow',
-                    hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC || '',
+                    infra.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC || '',
                     mockProducer,
                     'test'
                 ),
@@ -198,17 +187,17 @@ describe('ErrorTrackingConsumer', () => {
                     'test'
                 ),
             }),
-            teamManager: hub.teamManager,
-            errorTrackingSettingsManager: new ErrorTrackingSettingsManager(hub.postgres),
+            teamManager: infra.teamManager,
             hogTransformer: mockHogTransformer,
             groupTypeManager: new ReadOnlyGroupTypeManager({
                 fetchGroupsByKeys: jest.fn().mockResolvedValue([]),
                 fetchGroupTypesByTeamIds: jest.fn().mockResolvedValue({}),
                 fetchGroupTypesByProjectIds: jest.fn().mockResolvedValue({}),
             }),
-            cookielessManager: hub.cookielessManager,
-            redisPool: hub.redisPool,
+            cookielessManager: infra.cookielessManager,
+            redisPool: infra.redisPool,
             personRepository: createMockPersonRepository(),
+            createEventUsageBatch: () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
         }
         const consumer = new ErrorTrackingConsumer(config, deps)
         // Replace Kafka consumer with mock to avoid actual connections
@@ -241,22 +230,29 @@ describe('ErrorTrackingConsumer', () => {
         return events.map((event) => createKafkaMessage(event, token ?? team.api_token))
     }
 
+    // A batch is fully processed once the returned background task (the
+    // scheduled side-effect flush) has settled, matching the consumer loop.
+    const handleBatch = async (messages: Message[]): Promise<void> => {
+        const result = await consumer.handleKafkaBatch(messages)
+        expect(result.backgroundTask).toBeDefined()
+        await result.backgroundTask
+    }
+
     beforeEach(async () => {
         fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
         jest.spyOn(Date.prototype, 'toISOString').mockReturnValue(fixedTime.toISO()!)
 
         offsetIncrementer = 0
-        await resetTestDatabase()
-        hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        infra = await createIngestionTestInfra()
+        team = (await createTestTeamFixture(infra.postgres)).team
 
-        consumer = await createConsumer(hub)
+        consumer = await createConsumer(infra)
     })
 
     afterEach(async () => {
         await consumer.stop()
-        await closeHub(hub)
+        await infra.close()
         mockProducerObserver.resetKafkaProducer()
     })
 
@@ -275,7 +271,7 @@ describe('ErrorTrackingConsumer', () => {
     describe('event processing', () => {
         it('should process a basic exception event', async () => {
             const messages = createKafkaMessages([createEvent()])
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             const producedMessages =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
@@ -294,7 +290,7 @@ describe('ErrorTrackingConsumer', () => {
                 createEvent({ distinct_id: 'user-3' }),
             ]
             const messages = createKafkaMessages(events)
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             const producedMessages =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
@@ -306,7 +302,7 @@ describe('ErrorTrackingConsumer', () => {
 
         it('should include exception fingerprint and issue id from Cymbal', async () => {
             const messages = createKafkaMessages([createEvent()])
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             const producedMessages =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
@@ -329,7 +325,7 @@ describe('ErrorTrackingConsumer', () => {
                     },
                 }),
             ])
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             const producedMessages =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
@@ -361,7 +357,7 @@ describe('ErrorTrackingConsumer', () => {
                     ip: '89.160.20.129',
                 }),
             ])
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             const producedMessages =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
@@ -376,7 +372,7 @@ describe('ErrorTrackingConsumer', () => {
 
         it('should flush invocation results after batch processing', async () => {
             const messages = createKafkaMessages([createEvent()])
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             expect(mockHogTransformer.processInvocationResults).toHaveBeenCalledTimes(1)
         })
@@ -396,7 +392,7 @@ describe('ErrorTrackingConsumer', () => {
     describe('error handling', () => {
         it('should reject events with invalid token', async () => {
             const messages = createKafkaMessages([createEvent()], 'invalid-token-that-does-not-exist')
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             // Event should not be produced to output topic (team not found = dropped)
             const producedMessages =
@@ -408,7 +404,7 @@ describe('ErrorTrackingConsumer', () => {
         })
 
         it('should handle empty batch', async () => {
-            await consumer.handleKafkaBatch([])
+            await handleBatch([])
 
             const producedMessages = mockProducerObserver.getProducedKafkaMessages()
             expect(producedMessages).toHaveLength(0)
@@ -419,267 +415,12 @@ describe('ErrorTrackingConsumer', () => {
         it('should always use full person_mode', async () => {
             // Error tracking always uses full person_mode to preserve group properties
             const messages = createKafkaMessages([createEvent()])
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             const producedMessages =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
             expect(producedMessages).toHaveLength(1)
             expect(producedMessages[0].value.person_mode).toBe('full')
-        })
-    })
-
-    describe('rate limiting', () => {
-        const upsertSettings = async (args: {
-            projectRateLimit?: number | null
-            perIssueRateLimit?: number | null
-        }): Promise<void> => {
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `INSERT INTO posthog_errortrackingsettings
-                    (team_id, project_rate_limit_value, project_rate_limit_bucket_size_minutes,
-                     per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes)
-                 VALUES ($1, $2, 60, $3, 60)
-                 ON CONFLICT (team_id) DO UPDATE SET
-                    project_rate_limit_value = EXCLUDED.project_rate_limit_value,
-                    project_rate_limit_bucket_size_minutes = EXCLUDED.project_rate_limit_bucket_size_minutes,
-                    per_issue_rate_limit_value = EXCLUDED.per_issue_rate_limit_value,
-                    per_issue_rate_limit_bucket_size_minutes = EXCLUDED.per_issue_rate_limit_bucket_size_minutes`,
-                [team.id, args.projectRateLimit ?? null, args.perIssueRateLimit ?? null],
-                'test-upsert-error-tracking-settings'
-            )
-        }
-
-        const enableRateLimiter = async (): Promise<void> => {
-            await consumer.stop()
-            hub.ERROR_TRACKING_RATE_LIMITER_ENABLED = true
-            hub.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE = false
-            consumer = await createConsumer(hub)
-
-            await consumer['rateLimiterRedis']!.useClient({ name: 'test-flush' }, async (client) => {
-                // Per-issue buckets are hash-tagged (`tokens/{teamId}/…`); the team-global
-                // bucket is keyed straight off the id (`tokens/teamId:exceptions:global`).
-                const tokens = `@posthog-test/error-tracking-rate-limiter/tokens`
-                const keys = [
-                    ...(await client.keys(`${tokens}/{${team.id}}/*`)),
-                    ...(await client.keys(`${tokens}/${team.id}:*`)),
-                ]
-                if (keys.length > 0) {
-                    await client.del(...keys)
-                }
-            })
-        }
-
-        const exceptionEvent = (fn: string, value: string = 'msg'): PipelineEvent =>
-            createEvent({
-                properties: {
-                    $exception_list: [
-                        {
-                            type: 'TypeError',
-                            value,
-                            stacktrace: { frames: [{ function: fn, filename: `${fn}.js`, lineno: 1 }] },
-                            mechanism: { type: 'generic', handled: true },
-                        },
-                    ],
-                },
-            })
-
-        const drainProduces = () => consumer['promiseScheduler'].waitForAll()
-
-        const producedCount = (): number =>
-            mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test').length
-
-        // The Lua script reads time via `Date.now()`. `beforeEach` mocks it to a
-        // fixed value; bumping the same spy advances "now" so the bucket refills.
-        const advanceTime = (seconds: number): void => {
-            jest.spyOn(Date, 'now').mockReturnValue(Date.now() + seconds * 1000)
-        }
-
-        describe('project rate limit', () => {
-            it('lets early batches through and partially passes through once the budget is exhausted', async () => {
-                await upsertSettings({ projectRateLimit: 15 })
-                await enableRateLimiter()
-
-                const sendBatch = (size: number) => {
-                    const events = Array.from({ length: size }, (_, i) => exceptionEvent(`fn-${i}`))
-                    return consumer.handleKafkaBatch(createKafkaMessages(events))
-                }
-
-                // tokens 15 → 5 (10 allowed)
-                await sendBatch(10)
-                // budget 5, batch of 30 → partial pass-through: 5 allowed, 25 dropped.
-                await sendBatch(30)
-                // bucket drained — entire batch dropped.
-                await sendBatch(20)
-                await drainProduces()
-
-                expect(producedCount()).toBe(15)
-            })
-
-            it('refills tokens over time once the bucket window has elapsed', async () => {
-                await upsertSettings({ projectRateLimit: 4 })
-                await enableRateLimiter()
-
-                const send = (fn: string) => consumer.handleKafkaBatch(createKafkaMessages([exceptionEvent(fn)]))
-
-                // Team-keyed bucket drains regardless of signature.
-                // tokens 4 → 3
-                await send('foo')
-                // 3 → 2
-                await send('bar')
-                // 2 → 1
-                await send('baz')
-                // 1 → 0 — last token spent, request served
-                await send('qux')
-                await drainProduces()
-                expect(producedCount()).toBe(4)
-
-                // Advance one full bucket window (60 min); refillRate = 4 / 3600s → bucket back to full.
-                advanceTime(60 * 60)
-
-                // tokens 4 → 3
-                await send('foo')
-                await drainProduces()
-                expect(producedCount()).toBe(5)
-            })
-        })
-
-        describe('per-issue rate limit', () => {
-            it('partially passes through a batch that overflows multiple per-issue buckets', async () => {
-                await upsertSettings({ perIssueRateLimit: 3 })
-                await enableRateLimiter()
-
-                // Single batch carrying two interleaved signatures, each with its own
-                // bucket of 3. Per-input fan-out should allow 3 from each and drop the
-                // overflow within each key group independently.
-                const events = [
-                    ...Array.from({ length: 12 }, () => exceptionEvent('foo')),
-                    ...Array.from({ length: 12 }, () => exceptionEvent('bar')),
-                ]
-                await consumer.handleKafkaBatch(createKafkaMessages(events))
-                await drainProduces()
-
-                // 3 allowed per signature × 2 signatures = 6.
-                expect(producedCount()).toBe(6)
-            })
-
-            it('applies independently to each stack signature', async () => {
-                await upsertSettings({ perIssueRateLimit: 4 })
-                await enableRateLimiter()
-
-                const send = (fn: string) => consumer.handleKafkaBatch(createKafkaMessages([exceptionEvent(fn)]))
-
-                // issue A: tokens 4 → 3
-                await send('A')
-                // 3 → 2
-                await send('A')
-                // 2 → 1
-                await send('A')
-                // 1 → 0 — last token spent, request served
-                await send('A')
-                // bucket empty — next A is dropped
-                await send('A')
-
-                expect(producedCount()).toBe(4)
-
-                // issue B has its own fresh bucket: 4 → 3
-                await send('B')
-                await drainProduces()
-
-                expect(producedCount()).toBe(5) // 4 from A + 1 from B
-            })
-
-            it('groups by stack and ignores message interpolation', async () => {
-                await upsertSettings({ perIssueRateLimit: 4 })
-                await enableRateLimiter()
-
-                const send = (fn: string, value: string = 'msg') =>
-                    consumer.handleKafkaBatch(createKafkaMessages([exceptionEvent(fn, value)]))
-
-                // foo: tokens 4 → 3
-                await send('foo')
-                // 3 → 2
-                await send('foo')
-                // 2 → 1
-                await send('foo')
-                // 1 → 0 — last token spent, request served
-                await send('foo')
-
-                // bar has its own bucket: 4 → 3
-                await send('bar')
-
-                expect(producedCount()).toBe(5)
-
-                // foo with different `value` → same Cymbal-resolved issue as foo's burst
-                // (the message doesn't affect issue grouping) → bucket already empty,
-                // request denied.
-                await send('foo', 'different')
-                await drainProduces()
-
-                expect(producedCount()).toBe(5)
-            })
-
-            it('refills tokens over time once the bucket window has elapsed', async () => {
-                await upsertSettings({ perIssueRateLimit: 4 })
-                await enableRateLimiter()
-
-                const send = (fn: string) => consumer.handleKafkaBatch(createKafkaMessages([exceptionEvent(fn)]))
-
-                // tokens 4 → 3
-                await send('foo')
-                // 3 → 2
-                await send('foo')
-                // 2 → 1
-                await send('foo')
-                // 1 → 0 — last token spent, request served
-                await send('foo')
-                await drainProduces()
-                expect(producedCount()).toBe(4)
-
-                // Advance one full bucket window (60 min); refillRate = 4 / 3600s → bucket back to full.
-                advanceTime(60 * 60)
-
-                // tokens 4 → 3
-                await send('foo')
-                await drainProduces()
-                expect(producedCount()).toBe(5)
-            })
-
-            it('emits per-issue app_metrics2 rows keyed by the Cymbal-assigned issue id', async () => {
-                await upsertSettings({ perIssueRateLimit: 2 })
-                await enableRateLimiter()
-
-                // issue-foo bucket of 2: 4 events → 2 allowed, 2 rate_limited.
-                const events = Array.from({ length: 4 }, () => exceptionEvent('foo'))
-                await consumer.handleKafkaBatch(createKafkaMessages(events))
-                await drainProduces()
-
-                const appMetrics = mockProducerObserver
-                    .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
-                    .map((m) => m.value)
-
-                expect(appMetrics).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            team_id: team.id,
-                            app_source: 'exceptions',
-                            app_source_id: 'issue-foo',
-                            metric_kind: 'rate_limiting',
-                            metric_name: 'allowed',
-                            count: 2,
-                        }),
-                        expect.objectContaining({
-                            team_id: team.id,
-                            app_source: 'exceptions',
-                            app_source_id: 'issue-foo',
-                            metric_kind: 'rate_limiting',
-                            metric_name: 'rate_limited',
-                            count: 2,
-                        }),
-                    ])
-                )
-                // Every rate-limiting row is keyed by the issue id, not collapsed per team.
-                expect(appMetrics.every((v) => v?.app_source_id === 'issue-foo')).toBe(true)
-            })
         })
     })
 })

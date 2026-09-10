@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Link } from 'lib/lemon-ui/Link'
@@ -21,6 +22,8 @@ import {
 } from 'lib/utils/operators'
 import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
+import { PropValue } from '~/models/propertyDefinitionsModel'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     GroupTypeIndex,
     PropertyDefinition,
@@ -31,6 +34,13 @@ import {
 } from '~/types'
 
 import { PropertyValue } from './PropertyValue'
+
+const STARTS_ENDS_WITH_OPERATORS = [
+    PropertyOperator.StartsWith,
+    PropertyOperator.NotStartsWith,
+    PropertyOperator.EndsWith,
+    PropertyOperator.NotEndsWith,
+]
 
 // OTel span.kind enum (https://opentelemetry.io/docs/specs/otel/trace/api/#spankind).
 const SPAN_KIND_OPTIONS: { key: number; label: string }[] = [
@@ -135,6 +145,8 @@ export interface OperatorValueSelectProps {
      * Force single-select mode regardless of operator type
      * **/
     forceSingleSelect?: boolean
+    /** Statically known value suggestions, replacing API-fetched ones. See `PropertyValueProps.staticValues`. */
+    staticValues?: PropValue[] | null
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -145,17 +157,24 @@ interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
 }
 
 function getRegexValidationError(operator: PropertyOperator, value: any): string | null {
-    if (isOperatorRegex(operator)) {
+    if (!isOperatorRegex(operator)) {
+        return null
+    }
+    // A regex operator can hold several values (e.g. a multi-value `visited_page` filter), so the
+    // value is an array. RE2JS.compile expects a single string and crashes on an array, so validate
+    // each pattern and surface the first that fails.
+    const patterns: unknown[] = Array.isArray(value) ? value : [value]
+    for (const pattern of patterns) {
         try {
-            RE2JS.compile(value)
+            RE2JS.compile(String(pattern))
         } catch (error) {
-            return formatRE2Error(error as Error, value)
+            return formatRE2Error(error as Error, String(pattern))
         }
     }
     return null
 }
 
-function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
+export function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
     const regexErrorMessage = getRegexValidationError(operator, value)
     if (regexErrorMessage != null) {
         return regexErrorMessage
@@ -190,6 +209,7 @@ export function OperatorValueSelect({
     startVisible,
     operatorAllowlist,
     forceSingleSelect,
+    staticValues,
 }: OperatorValueSelectProps): JSX.Element {
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
@@ -235,6 +255,12 @@ export function OperatorValueSelect({
             )
         ) {
             propertyType = PropertyType.StringArray
+        } else if (type === PropertyFilterType.Recording && propertyKey) {
+            // Recording properties have no entry in propertyDefinitions, so resolve their type from
+            // the authoritative taxonomy (e.g. numeric activity counts get range operators + a numeric
+            // input). Reading CORE_FILTER_DEFINITIONS_BY_GROUP keeps this in sync with the one source
+            // of truth rather than a hardcoded key list that drifts as new recording filters are added.
+            propertyType = getCoreFilterDefinition(propertyKey, TaxonomicFilterGroupType.Replay)?.type ?? propertyType
         }
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
@@ -243,7 +269,7 @@ export function OperatorValueSelect({
             (op) => !operatorAllowlist || operatorAllowlist.includes(op)
         )
 
-        // Restrict message log property to only allow exact, is_not, contains, not contains, regex, and not regex operators
+        // Restrict message log property to only allow string-search operators
         if (propertyKey === 'message' && type === PropertyFilterType.Log) {
             operators = operators.filter((op) =>
                 [
@@ -251,6 +277,7 @@ export function OperatorValueSelect({
                     PropertyOperator.IsNot,
                     PropertyOperator.IContains,
                     PropertyOperator.NotIContains,
+                    ...STARTS_ENDS_WITH_OPERATORS,
                     PropertyOperator.Regex,
                     PropertyOperator.NotRegex,
                 ].includes(op)
@@ -289,7 +316,7 @@ export function OperatorValueSelect({
             )
         }
 
-        // Restrict span name to string equality/contains operators
+        // Restrict span name to string-search operators
         if (propertyKey === 'name' && type === PropertyFilterType.Span) {
             operators = operators.filter((op) =>
                 [
@@ -297,6 +324,7 @@ export function OperatorValueSelect({
                     PropertyOperator.IsNot,
                     PropertyOperator.IContains,
                     PropertyOperator.NotIContains,
+                    ...STARTS_ENDS_WITH_OPERATORS,
                     PropertyOperator.Regex,
                     PropertyOperator.NotRegex,
                 ].includes(op)
@@ -404,6 +432,7 @@ export function OperatorValueSelect({
                             key={propertyKey}
                             propertyKey={propertyKey}
                             endpoint={endpoint}
+                            staticValues={staticValues}
                             operator={currentOperator || PropertyOperator.Exact}
                             placeholder={placeholder}
                             value={value}
@@ -420,6 +449,7 @@ export function OperatorValueSelect({
                             size={size}
                             forceSingleSelect={forceSingleSelect}
                             validationError={validationError}
+                            propertyTypeOverride={propertyDefinition?.property_type}
                         />
                     )}
                 </div>

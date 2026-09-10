@@ -1,17 +1,24 @@
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
+    use chrono::Utc;
     use common_types::TeamId;
     use serde_json::json;
     use std::collections::{HashMap, HashSet};
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
     use uuid::Uuid;
 
     use crate::{
         api::types::{FlagValue, LegacyFlagsResponse},
-        cohorts::cohort_cache_manager::CohortCacheManager,
+        cohorts::{
+            cohort_cache_manager::CohortCacheManager,
+            cohort_models::{Cohort, CohortId, CohortType, MembershipStampPolicy},
+            membership::{CohortMembershipError, CohortMembershipProvider},
+        },
         flags::{
             feature_flag_list::PreparedFlags,
-            flag_group_type_mapping::GroupTypeCacheManager,
+            flag_group_type_mapping::{GroupTypeCacheManager, GroupTypeMapping},
             flag_match_reason::FeatureFlagMatchReason,
             flag_matching::{FeatureFlagMatch, FeatureFlagMatcher, PropertyContext},
             flag_matching_utils::{
@@ -28,7 +35,10 @@ mod tests {
         utils::{
             graph_utils::PrecomputedDependencyGraph,
             mock::MockInto,
-            test_utils::{flag_list_with_metadata, mock_group_type_cache, TestContext},
+            test_utils::{
+                failing_group_type_cache, flag_list_with_metadata, mock_group_type_cache,
+                TestContext,
+            },
         },
     };
 
@@ -493,6 +503,116 @@ mod tests {
             legacy_response.feature_flags.get("test_flag"),
             Some(&FlagValue::Boolean(true))
         );
+    }
+
+    /// Regression test: detailed condition analysis must resolve a group-typed filter
+    /// against the group's properties, not the person's, through the full
+    /// `evaluate_all_feature_flags` -> `process_flag_result` -> `merged_group_properties_for_flag`
+    /// wiring (not just `FlagDetails::build_condition_analysis` in isolation).
+    #[tokio::test]
+    async fn test_detailed_analysis_resolves_group_filters_against_group_properties() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        mock!(PropertyFilter,
+                            key: "plan".mock_into(),
+                            value: Some(json!("pro")),
+                            prop_type: PropertyType::Person
+                        ),
+                        mock!(PropertyFilter,
+                            key: "industry".mock_into(),
+                            value: Some(json!("tech")),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(1)
+                        ),
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: Some(1),
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                early_exit: None,
+                extra: Default::default(),
+            }
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+
+        let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
+
+        // The person carries a conflicting `industry` value; it must not leak into the
+        // group-typed condition's analysis.
+        let person_overrides = HashMap::from([
+            ("plan".to_string(), json!("pro")),
+            ("industry".to_string(), json!("finance")),
+        ]);
+        let group_overrides = HashMap::from([(
+            "organization".to_string(),
+            HashMap::from([("industry".to_string(), json!("tech"))]),
+        )]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None, // device_id
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache,
+            Some(groups),
+        )
+        .with_detailed_analysis(true);
+
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags,
+                Some(person_overrides),
+                Some(group_overrides),
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.errors_while_computing_flags);
+        let flag_details = result.flags.get("test_flag").unwrap();
+        assert_eq!(flag_details.to_value(), FlagValue::Boolean(true));
+
+        let conditions = flag_details
+            .conditions
+            .as_ref()
+            .expect("detailed_analysis(true) should populate conditions");
+        assert_eq!(conditions.len(), 1);
+        let properties = &conditions[0].properties;
+        assert_eq!(properties.len(), 2);
+
+        let plan_analysis = properties.iter().find(|p| p.key == "plan").unwrap();
+        assert!(plan_analysis.matched);
+        assert_eq!(plan_analysis.actual_value, Some(json!("pro")));
+
+        let industry_analysis = properties.iter().find(|p| p.key == "industry").unwrap();
+        assert!(
+            industry_analysis.matched,
+            "group-typed filter should resolve against group properties, not the person's"
+        );
+        assert_eq!(industry_analysis.actual_value, Some(json!("tech")));
     }
 
     /// Helper to create a dependency filter for flag-depends-on-flag patterns.
@@ -1538,6 +1658,689 @@ mod tests {
             .is_condition_match(&flag, &condition, &ctx3, None, &None)
             .unwrap();
         assert!(!is_match);
+        assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
+    }
+
+    /// Regression test: when person-property DB prep never ran (`PersonPropertyState::Pending`,
+    /// the matcher's default), a negative operator like `is_not` must not treat the missing
+    /// key as a match. Fetch misses are transient, so failing open here would let a flag
+    /// intermittently grant access to exactly the users a negative condition should exclude.
+    #[tokio::test]
+    async fn test_is_condition_match_is_not_fails_closed_when_person_properties_pending() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let flag = mock!(FeatureFlag);
+
+        let condition = FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![PropertyFilter {
+                key: "tenant".to_string(),
+                value: Some(json!("mecklenburgische")),
+                operator: Some(OperatorType::IsNot),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            }]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        };
+
+        let matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        // Left at its default `Pending` state: DB prep never ran for this matcher.
+        assert!(matcher.flag_evaluation_state.person_properties_pending());
+
+        // Mirrors what `get_person_properties` returns for a Pending state with no
+        // overrides: an empty map, since the fetch miss is swallowed into a default.
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
+            .unwrap();
+        assert!(!is_match, "a missing property must not satisfy is_not");
+        assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
+    }
+
+    /// Regression test: when DB prep is deliberately skipped because request overrides
+    /// cover every property the batch needs (`PersonPropertyState::Skipped`), a negative
+    /// operator must still evaluate normally against the override-supplied value — the
+    /// fail-closed handling for `Pending` must not make this legitimate path inconclusive.
+    #[tokio::test]
+    async fn test_is_condition_match_is_not_evaluates_normally_when_person_properties_skipped() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let flag = mock!(FeatureFlag);
+
+        let condition = FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![PropertyFilter {
+                key: "tenant".to_string(),
+                value: Some(json!("mecklenburgische")),
+                operator: Some(OperatorType::IsNot),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            }]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        };
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        matcher.flag_evaluation_state.skip_person_properties();
+        assert!(!matcher.flag_evaluation_state.person_properties_pending());
+
+        // Mirrors what `get_person_properties` returns for a Skipped state: the
+        // override value is merged in and present under the filter's key.
+        let mut overridden_person = HashMap::new();
+        overridden_person.insert("tenant".to_string(), json!("acme"));
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&overridden_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
+            .unwrap();
+        assert!(
+            is_match,
+            "acme is not mecklenburgische, so is_not should match"
+        );
+        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    /// Builds a matcher whose seeded group type mapping knows "organization" at index 0 —
+    /// or, when `mapping_knows_organization` is false, a loaded but empty mapping, the
+    /// stale-cache shape a request sees when the mapping was cached before the group type
+    /// was added. Group-property DB prep is deliberately never run, so
+    /// `group_properties_pending(0)` holds unless the caller marks the index fetched.
+    async fn group_matcher_without_group_prep(
+        with_group_key: bool,
+        mapping_knows_organization: bool,
+    ) -> (TestContext, FeatureFlagMatcher) {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let organization_at_zero = HashMap::from([("organization".to_string(), 0)]);
+        let groups =
+            with_group_key.then(|| HashMap::from([("organization".to_string(), json!("acme"))]));
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(organization_at_zero.clone()),
+            groups,
+        );
+        // Set in production by `initialize_group_type_mappings_if_needed`, which a bare
+        // `is_condition_match` test doesn't reach.
+        let seeded_mapping = if mapping_knows_organization {
+            organization_at_zero
+        } else {
+            HashMap::new()
+        };
+        matcher.set_group_type_mapping_for_test(GroupTypeMapping::new(seeded_mapping));
+        (context, matcher)
+    }
+
+    fn organization_tier_filter(operator: OperatorType) -> PropertyFilter {
+        PropertyFilter {
+            key: "tier".to_string(),
+            value: Some(json!("enterprise")),
+            operator: Some(operator),
+            prop_type: PropertyType::Group,
+            group_type_index: Some(1),
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        }
+    }
+
+    /// A flag whose single condition aggregates on the person but filters on an organization
+    /// property. This mixed shape is the one that reaches the group fetch state at all: a
+    /// group-aggregated condition is skipped outright when no group key is present.
+    fn mixed_targeting_flag(team_id: TeamId, operator: OperatorType) -> FeatureFlag {
+        mock!(FeatureFlag,
+            team_id: team_id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![organization_tier_filter(operator)]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: Some(None),
+                    extra: Default::default(),
+                }],
+                aggregation_group_type_index: None,
+                ..Default::default()
+            }
+        )
+    }
+
+    /// Regression test: the group-property analogue of the person `Pending` guard. A
+    /// negative operator must not read an unfetched group property map as "this group has
+    /// no tier", which would grant the flag to precisely the enterprise organizations the
+    /// condition excludes. The other cases pin the deliberate limits of that guard: the
+    /// no-group-key exception applies only after the mapping resolves the filter's index,
+    /// so a stale mapping that predates the group type must not read as "no group key".
+    #[rstest::rstest]
+    #[case::pending_fails_closed(
+        true,
+        true,
+        false,
+        false,
+        "an unfetched group property must not satisfy is_not"
+    )]
+    #[case::fetched_empty_matches(
+        true,
+        true,
+        true,
+        true,
+        "a fetched and genuinely empty group has no tier, so is_not should match"
+    )]
+    #[case::no_group_key_matches(
+        false,
+        true,
+        false,
+        true,
+        "no group context should keep pre-existing behavior rather than fail closed"
+    )]
+    #[case::stale_mapping_fails_closed(
+        true,
+        false,
+        false,
+        false,
+        "a loaded mapping that lacks the filter's index says nothing about the group, so is_not must not match"
+    )]
+    #[tokio::test]
+    async fn test_is_condition_match_group_is_not_honors_group_property_fetch_state(
+        #[case] with_group_key: bool,
+        #[case] mapping_knows_organization: bool,
+        #[case] mark_fetched: bool,
+        #[case] expected_match: bool,
+        #[case] scenario: &str,
+    ) {
+        let (_context, mut matcher) =
+            group_matcher_without_group_prep(with_group_key, mapping_knows_organization).await;
+        let flag = mock!(FeatureFlag);
+        if mark_fetched {
+            matcher
+                .flag_evaluation_state
+                .mark_group_properties_fetched(0);
+        }
+        assert_eq!(
+            matcher.flag_evaluation_state.group_properties_pending(0),
+            !mark_fetched
+        );
+
+        let condition = FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![PropertyFilter {
+                group_type_index: Some(0),
+                ..organization_tier_filter(OperatorType::IsNot)
+            }]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        };
+
+        // Mirrors what the lazy loader caches for an index with no fetched properties.
+        let group_properties = if with_group_key {
+            HashMap::from([(0, HashMap::new())])
+        } else {
+            HashMap::new()
+        };
+        let ctx = PropertyContext {
+            person_properties: None,
+            group_properties: &group_properties,
+            aggregation: None,
+        };
+        let (is_match, _) = matcher
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
+            .unwrap();
+        assert_eq!(is_match, expected_match, "{scenario}");
+    }
+
+    /// Regression test: a real `GroupTypeCacheManager` failure must reach the fail-closed
+    /// guard, and its outcome must be reused for the rest of the request. Without the mapping
+    /// the matcher cannot tell "the request sent no organization" from "the lookup broke", and
+    /// the former reading would let `is_not` match an empty property map for an organization
+    /// that is in fact excluded. The batch path also asks for the mapping once during setup
+    /// and once during preparation, and failures are not cached, so without the recorded
+    /// outcome an outage would cost every affected request two failed queries.
+    #[tokio::test]
+    async fn test_mixed_targeting_is_not_fails_closed_when_mapping_lookup_fails() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        context
+            .create_group(
+                team.id,
+                "organization",
+                "acme",
+                json!({"tier": "enterprise"}),
+            )
+            .await
+            .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({"plan": "pro"})),
+            )
+            .await
+            .unwrap();
+
+        // A matching person filter alongside the group filter keeps the flag in DB
+        // preparation — a failed mapping leaves nothing to fetch for the group filter
+        // itself — and leaves the guard as the only thing stopping the match.
+        let mut flag = mixed_targeting_flag(team.id, OperatorType::IsNot);
+        flag.filters.groups[0]
+            .properties
+            .as_mut()
+            .unwrap()
+            .push(PropertyFilter {
+                key: "plan".to_string(),
+                value: Some(json!("pro")),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            });
+
+        let (group_type_cache, mapping_fetch_calls) = failing_group_type_cache();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            group_type_cache,
+            Some(HashMap::from([("organization".to_string(), json!("acme"))])),
+        );
+
+        // A mapping failure is deliberately not propagated: it must not poison person flags in
+        // the same batch, so evaluation proceeds and the guard is what stops the match.
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag.clone()]),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.flags.get(&flag.key).unwrap().to_value(),
+            FlagValue::Boolean(false),
+            "a failed mapping lookup knows nothing about the organization, so is_not must not match"
+        );
+        assert_eq!(
+            mapping_fetch_calls.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the request must reuse its first failed mapping lookup rather than query again"
+        );
+    }
+
+    /// Regression test: an organization the request names but that has no `posthog_group` row
+    /// must still count as fetched. The fetch is authoritative for every requested pair, so
+    /// "no row" means the organization genuinely has no tier and `is_not` should match. If the
+    /// fetch path stopped recording that, the fail-closed guard would reject every such
+    /// organization instead.
+    #[tokio::test]
+    async fn test_mixed_targeting_is_not_matches_group_with_no_stored_row() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let flag = mixed_targeting_flag(team.id, OperatorType::IsNot);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::from([("organization".to_string(), 1)])),
+            Some(HashMap::from([(
+                "organization".to_string(),
+                json!("no-such-org"),
+            )])),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        assert!(
+            !matcher.flag_evaluation_state.group_properties_pending(1),
+            "the fetch ran for the requested organization, so index 1 must not read as pending"
+        );
+
+        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+        assert!(
+            match_result.matches,
+            "an organization with no stored properties has no tier, so is_not should match"
+        );
+    }
+
+    /// Regression test: a group filter carrying its own `group_type_index` on a
+    /// person-aggregated condition must have its properties loaded, so the organization's
+    /// stored tier decides the flag. Before the fetch covered filter-level indexes, both
+    /// operators resolved against an empty map, so `is` never matched and `is_not` always did.
+    #[rstest::rstest]
+    #[case::exact_matches_stored_tier(OperatorType::Exact, true)]
+    #[case::is_not_rejects_stored_tier(OperatorType::IsNot, false)]
+    #[tokio::test]
+    async fn test_mixed_targeting_reads_stored_group_properties(
+        #[case] operator: OperatorType,
+        #[case] expected_match: bool,
+    ) {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        context
+            .create_group(
+                team.id,
+                "organization",
+                "acme",
+                json!({"tier": "enterprise"}),
+            )
+            .await
+            .unwrap();
+
+        let flag = mixed_targeting_flag(team.id, operator);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::from([("organization".to_string(), 1)])),
+            Some(HashMap::from([("organization".to_string(), json!("acme"))])),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert_eq!(
+            match_result.matches, expected_match,
+            "the organization's stored tier should decide the flag"
+        );
+    }
+
+    /// Regression test: a group filter the fetch cannot serve must not pull its flag into
+    /// DB preparation. With no usable organization key there is nothing to fetch for the
+    /// filter and matching keeps the old no-group-key result either way, so selecting the
+    /// flag anyway only cost an unnecessary person-property query.
+    #[tokio::test]
+    async fn test_mixed_targeting_without_group_key_skips_db_preparation() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let flag = mixed_targeting_flag(team.id, OperatorType::IsNot);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::from([("organization".to_string(), 1)])),
+            None,
+        );
+
+        reset_fetch_calls_count();
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag.clone()]),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.errors_while_computing_flags);
+        assert_eq!(
+            result.flags.get(&flag.key).unwrap().to_value(),
+            FlagValue::Boolean(true),
+            "no group key keeps the pre-existing is_not behavior"
+        );
+        assert_eq!(
+            get_fetch_calls_count(),
+            0,
+            "nothing is fetchable for this flag, so preparation must not run the person query"
+        );
+    }
+
+    /// Regression test: a person property override must not stand in for a same-named group
+    /// property. The request sends `tier` for the person while the condition filters on the
+    /// organization's `tier`, and only the organization's stored value may decide the flag.
+    /// When the override suppressed DB preparation, the organization's properties stayed
+    /// unfetched and the fail-closed guard rejected the condition whichever way it pointed.
+    #[tokio::test]
+    async fn test_person_property_override_does_not_satisfy_same_named_group_filter() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        context
+            .create_group(
+                team.id,
+                "organization",
+                "acme",
+                json!({"tier": "enterprise"}),
+            )
+            .await
+            .unwrap();
+
+        let flag = mixed_targeting_flag(team.id, OperatorType::Exact);
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::from([("organization".to_string(), 1)])),
+            Some(HashMap::from([("organization".to_string(), json!("acme"))])),
+        );
+
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag.clone()]),
+                Some(HashMap::from([("tier".to_string(), json!("free"))])),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.errors_while_computing_flags);
+        assert_eq!(
+            result.flags.get(&flag.key).unwrap().to_value(),
+            FlagValue::Boolean(true),
+            "the organization is enterprise, so the person's own tier must not decide the flag"
+        );
+    }
+
+    /// Regression test: a group filter carrying its own `group_type_index` must be counted
+    /// as a referenced group type even when no condition aggregates on it, otherwise its
+    /// properties are never fetched and it always resolves against an empty map.
+    #[test]
+    fn test_referenced_group_type_indexes_includes_filter_level_index() {
+        let flag = mock!(FeatureFlag,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        mock!(PropertyFilter,
+                            key: "tier".mock_into(),
+                            value: Some(json!("enterprise")),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(3)
+                        ),
+                        mock!(PropertyFilter,
+                            key: "plan".mock_into(),
+                            value: Some(json!("pro")),
+                            prop_type: PropertyType::Person
+                        ),
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    // Person-aggregated: index 3 is referenced only by the filter.
+                    aggregation_group_type_index: Some(None),
+                    extra: Default::default(),
+                }],
+                ..Default::default()
+            }
+        );
+
+        assert_eq!(
+            FeatureFlagMatcher::referenced_group_type_indexes(&flag).collect::<HashSet<_>>(),
+            HashSet::from([3])
+        );
+    }
+
+    /// Regression test: a `NOT_IN` cohort filter must not match when person-property DB prep
+    /// never ran. Cohort evaluation reads the same property map as direct filters, so under
+    /// `Pending` the person looks like they have no properties, the cohort resolves to "not a
+    /// member", and `NOT_IN` flips that into a match — granting the flag to exactly the people
+    /// the condition excludes. Cohorts are loaded here so the check can't pass by falling
+    /// through the `cohorts: None` branch instead.
+    #[tokio::test]
+    async fn test_is_condition_match_cohort_not_in_fails_closed_when_person_properties_pending() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let flag = mock!(FeatureFlag);
+
+        let condition = FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![PropertyFilter {
+                key: "id".to_string(),
+                value: Some(json!(42)),
+                operator: Some(OperatorType::NotIn),
+                prop_type: PropertyType::Cohort,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            }]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        };
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        matcher
+            .flag_evaluation_state
+            .set_cohorts(Arc::from(vec![Cohort {
+                id: 42,
+                team_id: 1,
+                filters: Some(json!({
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {"key": "tenant", "type": "person", "value": "acme", "operator": "exact"}
+                        ]
+                    }
+                })),
+                ..Default::default()
+            }]));
+        // Left at its default `Pending` state: DB prep never ran for this matcher.
+        assert!(matcher.flag_evaluation_state.person_properties_pending());
+
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
+            .unwrap();
+        assert!(
+            !is_match,
+            "unknowable cohort membership must not satisfy NOT_IN"
+        );
         assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
     }
 
@@ -2916,6 +3719,162 @@ mod tests {
         );
     }
 
+    fn flag_with_group(
+        team_id: TeamId,
+        group: FlagPropertyGroup,
+        multivariate: MultivariateFlagOptions,
+    ) -> FeatureFlag {
+        mock!(FeatureFlag,
+            team_id: team_id,
+            key: "freeze-flag".mock_into(),
+            filters: FlagFilters {
+                groups: vec![group],
+                multivariate: Some(multivariate),
+                aggregation_group_type_index: None,
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                early_exit: None,
+                extra: Default::default(),
+            }
+        )
+    }
+
+    async fn evaluate_flag(
+        context: &TestContext,
+        team_id: TeamId,
+        cohort_cache: &Arc<CohortCacheManager>,
+        distinct_id: &str,
+        flag: &FeatureFlag,
+    ) -> FeatureFlagMatch {
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.to_string(),
+            None,
+            team_id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[flag])
+            .await
+            .unwrap();
+        matcher.get_match(flag, None, None, None, &None).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_frozen_exposure_flag_keeps_enrolled_variant_and_excludes_new_user() {
+        // Correctness proof for the experiments "freeze exposure" action against the real matcher.
+        // Freezing AND-s a static-cohort condition into every existing multivariate release group
+        // (products/experiments/backend/experiment_service.py::_transform_filters_for_frozen_exposure).
+        // The user-facing guarantee: an already-exposed user (in the snapshot cohort) keeps matching
+        // AND keeps the exact same variant, while a brand-new user (not in the cohort) no longer matches.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Exposure snapshot".to_string()),
+                json!({}),
+                true,
+            )
+            .await
+            .unwrap();
+
+        // The enrolled user is in the snapshot cohort; the new user is not.
+        let enrolled_id = "enrolled_user".to_string();
+        let new_id = "new_user".to_string();
+        for distinct_id in [&enrolled_id, &new_id] {
+            context
+                .insert_person(team.id, distinct_id.clone(), None)
+                .await
+                .unwrap();
+        }
+        let enrolled_person_id = context
+            .get_person_id_by_distinct_id(team.id, &enrolled_id)
+            .await
+            .unwrap();
+        context
+            .add_person_to_cohort(cohort.id, enrolled_person_id)
+            .await
+            .unwrap();
+
+        // Both flags share this 50/50 split; freezing must not perturb it.
+        let multivariate = MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    name: Some("Control".to_string()),
+                    key: "control".to_string(),
+                    rollout_percentage: 50.0,
+                },
+                MultivariateFlagVariant {
+                    name: Some("Test".to_string()),
+                    key: "test".to_string(),
+                    rollout_percentage: 50.0,
+                },
+            ],
+        };
+
+        // Open flag: one catch-all group at 100%, everyone matches.
+        let open_group = FlagPropertyGroup {
+            properties: Some(vec![]),
+            rollout_percentage: Some(100.0),
+            variant: None,
+            ..Default::default()
+        };
+
+        // Frozen flag: the freeze transform appends the snapshot-cohort condition to that same group
+        // (mirroring _transform_filters_for_frozen_exposure) and leaves everything else untouched.
+        let mut frozen_group = open_group.clone();
+        frozen_group
+            .properties
+            .get_or_insert_with(Vec::new)
+            .push(PropertyFilter {
+                key: "id".to_string(),
+                value: Some(json!(cohort.id)),
+                operator: Some(OperatorType::In),
+                prop_type: PropertyType::Cohort,
+                group_type_index: None,
+                negation: Some(false),
+                compiled_regex: None,
+                extra: Default::default(),
+            });
+
+        let open_flag = flag_with_group(team.id, open_group, multivariate.clone());
+        let frozen_flag = flag_with_group(team.id, frozen_group, multivariate);
+
+        // Variants each user receives while the flag is still open to everyone.
+        let enrolled_open =
+            evaluate_flag(&context, team.id, &cohort_cache, &enrolled_id, &open_flag).await;
+        let new_open = evaluate_flag(&context, team.id, &cohort_cache, &new_id, &open_flag).await;
+        assert!(enrolled_open.matches && enrolled_open.variant.is_some());
+        assert!(new_open.matches);
+
+        // After freezing: the enrolled user still matches and keeps the exact same variant...
+        let enrolled_frozen =
+            evaluate_flag(&context, team.id, &cohort_cache, &enrolled_id, &frozen_flag).await;
+        assert!(enrolled_frozen.matches, "enrolled user should still match");
+        assert_eq!(
+            enrolled_frozen.variant, enrolled_open.variant,
+            "enrolled user's variant must be unchanged by freezing"
+        );
+
+        // ...and the brand-new user no longer matches — enrollment is frozen.
+        let new_frozen =
+            evaluate_flag(&context, team.id, &cohort_cache, &new_id, &frozen_flag).await;
+        assert!(
+            !new_frozen.matches,
+            "new user should be excluded after freeze"
+        );
+    }
+
     #[tokio::test]
     async fn test_static_cohort_matching_user_not_in_cohort() {
         let context = TestContext::new(None).await;
@@ -3181,6 +4140,576 @@ mod tests {
             !result.matches,
             "User in the static cohort should not match the 'NotIn' flag"
         );
+    }
+
+    /// Membership provider that returns a fixed membership map and counts calls,
+    /// standing in for the behavioral cohorts DB in realtime cohort tests.
+    struct FixedMembershipProvider {
+        memberships: HashMap<CohortId, bool>,
+        calls: AtomicU32,
+    }
+
+    impl FixedMembershipProvider {
+        fn new(memberships: HashMap<CohortId, bool>) -> Self {
+            Self {
+                memberships,
+                calls: AtomicU32::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl CohortMembershipProvider for FixedMembershipProvider {
+        async fn check_memberships(
+            &self,
+            _team_id: TeamId,
+            _person_uuid: Uuid,
+            cohort_ids: &[CohortId],
+        ) -> Result<HashMap<CohortId, bool>, CohortMembershipError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(cohort_ids
+                .iter()
+                .map(|id| (*id, self.memberships.get(id).copied().unwrap_or(false)))
+                .collect())
+        }
+    }
+
+    /// Membership provider that always fails, simulating an unavailable
+    /// behavioral cohorts database.
+    struct FailingMembershipProvider;
+
+    #[async_trait]
+    impl CohortMembershipProvider for FailingMembershipProvider {
+        async fn check_memberships(
+            &self,
+            _team_id: TeamId,
+            _person_uuid: Uuid,
+            _cohort_ids: &[CohortId],
+        ) -> Result<HashMap<CohortId, bool>, CohortMembershipError> {
+            Err(CohortMembershipError::QueryFailed(
+                "behavioral cohorts DB unavailable".to_string(),
+            ))
+        }
+    }
+
+    /// `condition_type` flags for a cohort with a behavioral condition — required for
+    /// `Cohort::uses_realtime_membership()` to route through the `cohort_membership`
+    /// provider rather than falling back to dynamic filter evaluation.
+    fn behavioral_condition_type() -> serde_json::Value {
+        json!({
+            "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false
+        })
+    }
+
+    /// Cohort filters requiring person property plan == `plan`, used so tests can
+    /// tell provider-driven results apart from dynamic filter evaluation.
+    fn plan_cohort_filters(plan: &str) -> serde_json::Value {
+        json!({
+            "properties": {
+                "type": "OR",
+                "values": [{
+                    "type": "AND",
+                    "values": [{
+                        "key": "plan",
+                        "type": "person",
+                        "value": [plan],
+                        "operator": "exact",
+                        "negation": false
+                    }]
+                }]
+            }
+        })
+    }
+
+    fn flag_targeting_cohort(team_id: TeamId, cohort_id: CohortId) -> FeatureFlag {
+        mock!(FeatureFlag,
+            team_id: team_id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: Some(json!(cohort_id)),
+                        operator: Some(OperatorType::In),
+                        prop_type: PropertyType::Cohort,
+                        group_type_index: None,
+                        negation: Some(false),
+                        compiled_regex: None,
+                        extra: Default::default(),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+
+                feature_enrollment: None,
+
+                holdout: None,
+                early_exit: None,
+                extra: Default::default(),
+            }
+        )
+    }
+
+    #[tokio::test]
+    async fn test_realtime_cohort_membership_from_provider_matches_flag() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // Realtime cohort with a backfill timestamp and a behavioral condition_type, so
+        // membership comes from the provider (uses_realtime_membership() requires all
+        // three). Its filters require plan=enterprise, which the person does NOT
+        // satisfy — a match can only come from the provider. The filters themselves are
+        // person-property (not actually behavioral) purely so this test can tell a
+        // provider-driven result apart from dynamic filter evaluation; condition_type is
+        // set directly since this test is exercising the matcher's provider routing, not
+        // condition_type derivation (covered separately in cohort_models.rs tests).
+        let cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Realtime Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+                Some(behavioral_condition_type()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "realtime_member_user".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let provider = Arc::new(FixedMembershipProvider::new(HashMap::from([(
+            cohort.id, true,
+        )])));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(provider.clone())
+        .with_realtime_cohort_evaluation(true);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "Provider-reported membership should match the flag even though dynamic filter evaluation would not"
+        );
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_realtime_cohort_provider_error_degrades_to_non_member() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // The person DOES satisfy the cohort's filters (plan=enterprise), so if a
+        // provider failure wrongly fell through to dynamic evaluation the flag
+        // would match. Graceful degradation must treat the person as a non-member.
+        // condition_type is set directly (see comment in the sibling test above) so this
+        // cohort qualifies for uses_realtime_membership() and routes through the provider.
+        let cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Realtime Cohort Degraded".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+                Some(behavioral_condition_type()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "realtime_degraded_user".to_string();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"plan": "enterprise"})),
+            )
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(Arc::new(FailingMembershipProvider))
+        .with_realtime_cohort_evaluation(true);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .expect("provider failure must not fail flag evaluation");
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            !result.matches,
+            "On provider failure the person must be treated as a non-member, not re-evaluated dynamically"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_realtime_cohort_gate_off_skips_provider_and_falls_back_to_dynamic() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort_with_type(
+                team.id,
+                Some("Realtime Cohort Gated".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "realtime_gated_user".to_string();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"plan": "enterprise"})),
+            )
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        // The provider would report non-membership; with the rollout gate off it
+        // must never be consulted and the cohort evaluates dynamically instead.
+        let provider = Arc::new(FixedMembershipProvider::new(HashMap::from([(
+            cohort.id, false,
+        )])));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(provider.clone())
+        .with_realtime_cohort_evaluation(false);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "With the gate off the cohort should fall back to dynamic filter evaluation"
+        );
+        assert_eq!(
+            provider.calls.load(Ordering::SeqCst),
+            0,
+            "Provider must not be consulted when realtime cohort evaluation is disabled"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_behavioral_cohort_non_match_surfaces_cohort_not_evaluated_reason() {
+        // A behavioral-cohort non-match must report NoConditionMatchCohortNotEvaluated, not a bare
+        // NoConditionMatch: the evaluator can't resolve behavioral membership, so the negative is unreliable.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Behavioral Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+                Some(behavioral_condition_type()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "behavioral_non_member".to_string();
+        // Person does NOT satisfy the cohort filters, so dynamic evaluation is a non-match.
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_realtime_cohort_evaluation(false);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(!result.matches);
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated
+        );
+        // Serializes as the backward-compatible code; the enriched signal rides the description.
+        assert_eq!(result.reason.to_string(), "no_condition_match");
+    }
+
+    #[tokio::test]
+    async fn test_person_property_cohort_non_match_keeps_plain_no_condition_match_reason() {
+        // A cohort without a behavioral condition is fully evaluable from person properties,
+        // so a genuine non-match must stay NoConditionMatch and not be over-labeled.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Person Property Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "person_property_non_member".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(!result.matches);
+        assert_eq!(result.reason, FeatureFlagMatchReason::NoConditionMatch);
+    }
+
+    #[tokio::test]
+    async fn test_disambiguated_policy_person_stamp_only_falls_back_to_dynamic() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // The person satisfies the filters and the provider reports non-membership, so a
+        // match can only have come from dynamic evaluation.
+        let cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Person Stamp Only Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+                Some(behavioral_condition_type()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "person_stamp_only_user".to_string();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"plan": "enterprise"})),
+            )
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let provider = Arc::new(FixedMembershipProvider::new(HashMap::from([(
+            cohort.id, false,
+        )])));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(provider.clone())
+        .with_realtime_cohort_evaluation(true)
+        .with_membership_stamp_policy(MembershipStampPolicy::EventsOrCalculationStamp);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "A person-stamp-only cohort must evaluate dynamically under the disambiguated policy"
+        );
+        assert_eq!(
+            provider.calls.load(Ordering::SeqCst),
+            0,
+            "Provider must not be consulted for a cohort only the overloaded person stamp vouches for"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_disambiguated_policy_calculation_stamp_consults_provider() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // The person's plan is free, so dynamic evaluation cannot match and a match proves
+        // both the provider was consulted and the stamp round-tripped through PG.
+        let cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Calc Stamp Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                None,
+                None,
+                Some(behavioral_condition_type()),
+                Some(Utc::now()),
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "calc_stamp_user".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let provider = Arc::new(FixedMembershipProvider::new(HashMap::from([(
+            cohort.id, true,
+        )])));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(provider.clone())
+        .with_realtime_cohort_evaluation(true)
+        .with_membership_stamp_policy(MembershipStampPolicy::EventsOrCalculationStamp);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "A calculation-stamped cohort must route through the provider under the disambiguated policy"
+        );
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

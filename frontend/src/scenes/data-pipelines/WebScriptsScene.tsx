@@ -4,8 +4,8 @@ import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -15,6 +15,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
+import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
+
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
 import { webScriptsSceneLogic } from './webScriptsSceneLogic'
 
@@ -22,6 +24,7 @@ export const scene: SceneExport = {
     component: WebScriptsScene,
     logic: webScriptsSceneLogic,
     productKey: ProductKey.SITE_APPS,
+    emptyState: webScriptsEmptyState,
 }
 
 export function WebScriptsScene(): JSX.Element {
@@ -29,7 +32,7 @@ export function WebScriptsScene(): JSX.Element {
     const { setActiveTab } = useActions(webScriptsSceneLogic)
 
     const action = (
-        <AppShortcut
+        <Shortcut
             name="NewPipelineApp"
             keybind={[keyBinds.new]}
             intent="New JS snippet"
@@ -46,14 +49,14 @@ export function WebScriptsScene(): JSX.Element {
             >
                 New web script
             </LemonButton>
-        </AppShortcut>
+        </Shortcut>
     )
 
     const tabs = [
         {
             key: 'all',
             label: 'All web scripts',
-            content: <DataPipelinesHogFunctions kind="site_app" action={action} />,
+            content: <DataPipelinesHogFunctions kind="site_app" />,
         },
         {
             key: 'history',

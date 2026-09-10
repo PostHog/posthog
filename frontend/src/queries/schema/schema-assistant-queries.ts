@@ -1,4 +1,5 @@
 import {
+    BehavioralPropertyFilter,
     BreakdownType,
     ChartDisplayType,
     FilterLogicalOperator,
@@ -271,6 +272,19 @@ export type AssistantPropertyFilter =
     | AssistantHogQLPropertyFilter
     | AssistantFlagPropertyFilter
 
+export type AssistantBehavioralPropertyFilterOperator =
+    | PropertyOperator.Exact
+    | PropertyOperator.GreaterThan
+    | PropertyOperator.GreaterThanOrEqual
+    | PropertyOperator.LessThan
+    | PropertyOperator.LessThanOrEqual
+
+export interface AssistantBehavioralPropertyFilter extends Omit<BehavioralPropertyFilter, 'operator'> {
+    operator?: AssistantBehavioralPropertyFilterOperator
+}
+
+export type AssistantInsightPropertyFilter = AssistantPropertyFilter | AssistantBehavioralPropertyFilter
+
 /**
  * Extended property filter union for recordings queries that also supports
  * recording-specific metric filters (e.g. duration, click_count, activity_score).
@@ -295,7 +309,7 @@ export interface AssistantInsightsQueryBase {
      *
      * @default []
      */
-    properties?: AssistantPropertyFilter[]
+    properties?: AssistantInsightPropertyFilter[]
 
     /**
      * Sampling rate from 0 to 1 where 1 is 100% of the data.
@@ -460,6 +474,7 @@ export interface AssistantTrendsFilter {
      * - Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations.
      * Examples of using math formulas:
      * - If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).
+     * For a ratio or percentage, keep the formula as the raw ratio (e.g. `A/B`, which is in the 0-1 range) and set `aggregationAxisFormat` to `percentage_scaled` so it renders as a percentage. Do NOT multiply the formula by 100 (e.g. `A/B*100`) when using `percentage_scaled`, or the value will be scaled twice.
      */
     formulaNodes?: TrendsFormulaNode[]
 
@@ -475,8 +490,8 @@ export interface AssistantTrendsFilter {
      * `ActionsBar` - time-series bar chart.
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
-     * `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series.
-     * `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown.
+     * `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison ("how many X in the last 30 days", "what's our conversion rate this month", "how does this month compare to last"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown.
+     * `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series.
      * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
@@ -496,8 +511,8 @@ export interface AssistantTrendsFilter {
      * `numeric` - no formatting. Prefer this option by default.
      * `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds.
      * `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds.
-     * `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`.
-     * `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`.
+     * `percentage` - appends a percentage sign to a value that is ALREADY on the 0-100 scale, e.g., `50` becomes `50%`. Only use this when the underlying value is already a percentage.
+     * `percentage_scaled` - multiplies a 0-1 value by 100 and appends a percentage sign, e.g., `0.5` becomes `50%`. Use this for ratios in the 0-1 range, such as a bounce rate (`avg($is_bounce)`) or a formula like `A/B`. Because this format already multiplies by 100, do NOT also multiply by 100 in the formula (e.g. `A/B*100`), as that would double-scale the value and render, say, `0.5` as `5000%`.
      * `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.
      * @default numeric
      */
@@ -744,10 +759,10 @@ export interface AssistantFunnelsFilter {
      */
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
     /**
-     * Defines the type of visualization to use. The `steps` option is recommended.
-     * `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default).
-     * `time_to_convert` - shows a histogram of the time it took to complete the funnel.
-     * `trends` - shows trends of the conversion rate of the whole sequence over time.
+     * Defines the type of visualization to use.
+     * `steps` - one bar per step with the conversion between them (default). Use for "what's the conversion rate" and "where do users drop off".
+     * `trends` - the conversion rate of the whole sequence as a time series. Use whenever the question is about change over time ("is conversion improving", "conversion per week", "since we shipped X"); a `steps` chart cannot show that.
+     * `time_to_convert` - a histogram of how long users took to complete the funnel.
      * @default steps
      */
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
@@ -1341,6 +1356,20 @@ export interface AssistantTrendsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /** A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`. */
@@ -1372,6 +1401,20 @@ export interface AssistantLifecycleActorsQuery {
      * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
      */
     status: AssistantLifecycleStatus
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1398,6 +1441,20 @@ export interface AssistantPathsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1427,6 +1484,20 @@ export interface AssistantRetentionActorsQuery {
      * Defaults to `0` when omitted.
      */
     interval?: integer
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * cohort: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call
+     * again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1459,6 +1530,20 @@ export interface AssistantStickinessActorsQuery {
 
     /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
     compare?: 'current' | 'previous'
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1522,6 +1607,20 @@ export interface AssistantFunnelsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1710,6 +1809,8 @@ export interface AssistantInsightVizNode {
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
+ * - `ScatterPlot` — scatter plot of one measure against another. Requires two numeric columns, one per axis.
+ * - `BoxPlot` — box plot from pre-aggregated SQL rows. Requires six numeric summary columns.
  */
 export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsTable
@@ -1720,6 +1821,8 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
+    | ChartDisplayType.ScatterPlot
+    | ChartDisplayType.BoxPlot
 
 export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
@@ -1741,14 +1844,14 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
 export interface AssistantDataVisualizationAxisFormatting {
     /** Text prepended to each value (e.g. `$`). */
     prefix?: string
-    /** Text appended to each value (e.g. `%` or ` ms`). */
+    /** Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign. */
     suffix?: string
     /**
      * Number formatting style.
      * - `none` — no formatting.
      * - `number` — thousands separators (e.g. `1,234`).
      * - `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).
-     * - `percent` — render the value as a percentage.
+     * - `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.
      */
     style?: 'none' | 'number' | 'short' | 'percent'
     /** Number of decimal places to display. */
@@ -1789,8 +1892,32 @@ export interface AssistantDataVisualizationYAxisSettings {
     showGridLines?: boolean
 }
 
+export interface AssistantDataVisualizationBoxPlotSettings {
+    /** X-axis category column. Set to `null` for one overall distribution or one box per series. */
+    xAxisColumn?: string | null
+    /** Optional column that groups each X-axis value into separate colored series. Set to `null` for one series. */
+    seriesColumn?: string | null
+    /** Numeric column containing the minimum for each box. */
+    minColumn: string
+    /** Numeric column containing the 25th percentile for each box. */
+    p25Column: string
+    /** Numeric column containing the median for each box. */
+    medianColumn: string
+    /** Numeric column containing the mean for each box. */
+    meanColumn: string
+    /** Numeric column containing the 75th percentile for each box. */
+    p75Column: string
+    /** Numeric column containing the maximum for each box. */
+    maxColumn: string
+    /** Clip whiskers to 1.5 times the interquartile range. Defaults to true. */
+    excludeOutliers?: boolean
+}
+
 export interface AssistantDataVisualizationChartSettings {
-    /** Column used as the X axis. Typically a time bucket or categorical column. */
+    /**
+     * Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot`
+     * plots two measures against each other, so it needs a numeric column here too.
+     */
     xAxis?: AssistantDataVisualizationAxis
     /** Label rendered under the X axis. */
     xAxisLabel?: string
@@ -1800,9 +1927,12 @@ export interface AssistantDataVisualizationChartSettings {
     leftYAxisSettings?: AssistantDataVisualizationYAxisSettings
     /** Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`. */
     rightYAxisSettings?: AssistantDataVisualizationYAxisSettings
+    /** Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair. */
+    boxPlot?: AssistantDataVisualizationBoxPlotSettings
     /**
      * Column that splits a single Y series into multiple colored series — e.g. breaking down
-     * a line chart by `country`. Set to `null` or omit to disable.
+     * a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by
+     * x value, so it is ignored when `display` is `ScatterPlot`.
      */
     seriesBreakdownColumn?: string | null
     /** Horizontal goal lines drawn across the chart. */
@@ -1815,6 +1945,8 @@ export interface AssistantDataVisualizationChartSettings {
     showValuesOnSeries?: boolean
     /** Replace null aggregation results with zero. */
     showNullsAsZero?: boolean
+    /** Show a total summing all Y series. Applies to line, bar, and area charts. */
+    showTotalRow?: boolean
 }
 
 export interface AssistantDataVisualizationTableSettings {
@@ -1822,8 +1954,6 @@ export interface AssistantDataVisualizationTableSettings {
     columns?: AssistantDataVisualizationAxis[]
     /** Column names to pin to the left of the table. */
     pinnedColumns?: string[]
-    /** Show a total row at the bottom of the table. */
-    showTotalRow?: boolean
     /** Transpose rows and columns. */
     transpose?: boolean
 }
@@ -1849,6 +1979,8 @@ export interface AssistantDataVisualizationNode {
      * - Categorical proportions → `ActionsPie`.
      * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
+     * - Relationship between two numeric measures, one point per row → `ScatterPlot`.
+     * - Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.
      * - Otherwise → `ActionsTable`.
      */
     display?: AssistantDataVisualizationDisplayType

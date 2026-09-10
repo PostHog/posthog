@@ -1,4 +1,4 @@
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { Component, ComponentMap, Started } from './component'
 import type { Startable } from './scope'

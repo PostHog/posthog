@@ -5,15 +5,24 @@ All flag evaluation (decide, toolbar, local eval API, etc.) now goes through the
 flags service. This module provides a shared HTTP client and proxy function.
 """
 
+import time
 from typing import Any
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
+import requests
+
 from posthog.security.outbound_proxy import internal_requests_session
 
 # Reusable session for proxying to the flags service with connection pooling
 _FLAGS_SERVICE_SESSION = internal_requests_session()
+
+# Network blips worth a quick retry on non-SDK debug surfaces (opt-in via max_retries).
+# A refused connection or timeout usually clears on the next attempt; a bad response does not.
+# Public so callers (e.g. the evaluation_reasons endpoint) can catch exactly this set
+# themselves, rather than the broader RequestException that also covers HTTP errors.
+RETRYABLE_FLAGS_SERVICE_EXCEPTIONS = (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
 
 # One page of batch evaluation covers up to ~10k persons evaluated sequentially in the
 # service, so this sits above the service's own per-request timeout (120s) rather than
@@ -23,6 +32,10 @@ BATCH_FLAG_EVALUATION_TIMEOUT_SECONDS = 150
 
 class FlagVersionConflictError(Exception):
     """The feature flag changed while a static cohort was being generated from it."""
+
+
+class PropertyMatchingVersionConflictError(Exception):
+    """Property matching semantics changed during static cohort generation."""
 
 
 def get_flags_from_service(
@@ -36,6 +49,8 @@ def get_flags_from_service(
     internal_request_token: str | None = None,
     override_flags_definitions: dict[str, dict[str, Any]] | None = None,
     evaluation_runtime: str | None = None,
+    max_retries: int = 0,
+    retry_backoff_seconds: float = 0.1,
 ) -> dict[str, Any]:
     """
     Proxy a request to the Rust feature flags service /flags endpoint.
@@ -52,6 +67,11 @@ def get_flags_from_service(
         override_flags_definitions: Optional dict of flag key -> flag definition to override database flags (default: None)
         evaluation_runtime: Optional override for runtime filtering: "all" | "client" | "server".
             When None, the Rust service auto-detects from request headers (User-Agent, origin, sec-fetch-*).
+        max_retries: How many extra attempts to make on a transient connection error or timeout
+            (default 0, i.e. no retries). Only for non-SDK debug/UI surfaces — leave at 0 on the
+            latency-sensitive live evaluation path, since retries block the worker for up to
+            max_retries * (proxy_timeout + retry_backoff_seconds).
+        retry_backoff_seconds: Base delay between retries; grows linearly per attempt (default 0.1s).
 
     Returns:
         The full response from the flags service as a dict, typically containing:
@@ -108,15 +128,27 @@ def get_flags_from_service(
     if internal_request_token and internal_request_token.strip():
         headers["Authorization"] = f"Bearer {internal_request_token}"
 
-    response = _FLAGS_SERVICE_SESSION.post(
-        f"{flags_service_url}/flags",
-        params=params,
-        json=payload,
-        headers=headers,
-        timeout=proxy_timeout,
-    )
-    response.raise_for_status()
-    return response.json()
+    # Only connection errors / timeouts are retried; a non-2xx HTTP response raises
+    # HTTPError out of raise_for_status() and propagates immediately (retrying it is pointless).
+    # Clamp a negative max_retries to 0 rather than letting range() go empty and falling
+    # through to the "unreachable" branch below.
+    for attempt in range(max(max_retries, 0) + 1):
+        try:
+            response = _FLAGS_SERVICE_SESSION.post(
+                f"{flags_service_url}/flags",
+                params=params,
+                json=payload,
+                headers=headers,
+                timeout=proxy_timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+        except RETRYABLE_FLAGS_SERVICE_EXCEPTIONS:
+            if attempt >= max_retries:
+                raise
+            time.sleep(retry_backoff_seconds * (attempt + 1))
+
+    raise RuntimeError("unreachable: retry loop exited without returning or raising")
 
 
 def batch_evaluate_flag_for_team(
@@ -127,6 +159,7 @@ def batch_evaluate_flag_for_team(
     expected_version: int,
     cursor: int,
     limit: int,
+    expected_property_matching_version: int = 1,
 ) -> dict[str, Any]:
     """
     Request one page of batch flag evaluation from the Rust flags service.
@@ -144,13 +177,15 @@ def batch_evaluate_flag_for_team(
         limit: Page size; the service rejects (400) any value above its configured
             maximum (BATCH_FLAG_EVAL_MAX_LIMIT, default 10000) rather than clamping it,
             so keep this at or below that maximum
+        expected_property_matching_version: Matching semantics pinned for every page in the run
 
     Returns:
-        The page as a dict: {"matched_person_uuids": [...], "next_cursor": int | None, "errors_count": int}
+        The page as a dict with matched_person_uuids, next_cursor, errors_count, and property_matching_version
 
     Raises:
         ImproperlyConfigured: `INTERNAL_REQUEST_TOKEN` is not set
         FlagVersionConflictError: The flag's version no longer matches `expected_version`
+        PropertyMatchingVersionConflictError: The service cannot use the pinned matching version
         requests.RequestException: If the HTTP request fails (timeout, connection error, etc.)
         requests.HTTPError: If the service returns a non-2xx status code
     """
@@ -170,6 +205,7 @@ def batch_evaluate_flag_for_team(
             "project_id": project_id,
             "flag_key": flag_key,
             "expected_version": expected_version,
+            "expected_property_matching_version": expected_property_matching_version,
             "cursor": cursor,
             "limit": limit,
         },
@@ -177,9 +213,21 @@ def batch_evaluate_flag_for_team(
         timeout=BATCH_FLAG_EVALUATION_TIMEOUT_SECONDS,
     )
     if response.status_code == 409:
+        error = response.json().get("error")
+        if error == "property_matching_version_conflict":
+            raise PropertyMatchingVersionConflictError(
+                f"Property matching semantics changed while generating a cohort from feature flag '{flag_key}'. "
+                "Re-run cohort generation with the current matching version."
+            )
         raise FlagVersionConflictError(
             f"Feature flag '{flag_key}' changed while generating the cohort (expected version "
             f"{expected_version}). Re-run cohort generation to use the latest flag definition."
         )
     response.raise_for_status()
-    return response.json()
+    response_data = response.json()
+    if response_data.get("property_matching_version", 1) != expected_property_matching_version:
+        raise PropertyMatchingVersionConflictError(
+            f"Feature flags service did not use property matching version {expected_property_matching_version} "
+            f"while generating a cohort from feature flag '{flag_key}'."
+        )
+    return response_data

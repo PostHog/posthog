@@ -14,8 +14,7 @@ Temporal provides us with abstractions that handle the distributed execution whi
 
 That being said, if you do decide to develop an application or feature with Temporal, this README will guide you through how we develop with Temporal, common pitfalls, and useful additional abstractions we have developed over time.
 
-> DuckLake copy workflow configuration lives in `posthog/ducklake/README.md`.
-> DuckLake copy workflow configuration lives in `posthog/ducklake/TEMPORAL.md`.
+> DuckLake copy workflow configuration lives in `products/managed_warehouse/backend/README.md`.
 
 ## Temporal concepts
 
@@ -440,9 +439,13 @@ Once the workers are deployed, they will be able to run your workflows and activ
 
 ### Trigger deployments for workers
 
-Some changes in our CI/CD pipeline will be required to ensure your changes are triggering deployments to your Temporal workers. First, when a new deployment of Temporal workers is created, you may want to trigger the deployment on merges to this repository's `master` branch. For that, edit the `container-images-cd.yaml` GitHub workflow and add a new trigger step.
+This step is not optional, and it is not a follow-up: the charts deployment's image pointer (`state/<worker>.yaml` in the charts repo) is hand-seeded when the fleet is created and is only ever updated by the trigger step in this repository's `container-images-cd.yml` workflow. Without a trigger step your fleet stays pinned at its seed digest forever — and if the seed was taken before your feature merged, you ship a fleet running an image that does not contain your code. A worker started with a task queue that has no registered workflows in its image crash-loops on `ValueError: At least one activity, Nexus service, or workflow must be specified`. Land the trigger step before (or with) the charts fleet PR, and make sure the seed digest postdates your feature's merge commit.
 
-Moreover, notice that in the workflow every trigger step comes after a check step. This step ensures that only certain module changes trigger a worker re-deployment, and not every single change. This is done because restarting workers can be disruptive to workflows running in it, so as a general rule try to minimize the changes that will trigger a re-deployment of workers. You will probably only need the common temporal modules + your product specific modules in the check.
+To add one, edit the `container-images-cd.yml` GitHub workflow and copy an existing narrow worker's check + trigger step pair (the `release` name must match the charts state-file key).
+
+Notice that every trigger step comes after a check step. This step ensures that only certain module changes trigger a worker re-deployment, and not every single change. This is done because restarting workers can be disruptive to workflows running in it, so as a general rule try to minimize the changes that will trigger a re-deployment of workers. You will probably only need the common temporal modules + your product specific modules in the check — including modules your code imports from elsewhere in the repo (grep your entrypoint's imports).
+
+After the first deployment, verify by execution, not by dashboard health: temporal worker deployments disable liveness/readiness probes, so a crash-looping fleet still shows Healthy in ArgoCD, and Python startup tracebacks reach the logs pipeline at info severity (no error-level signal). Check the fleet's logs (`service.name = <worker>`) for the startup banner repeating every few minutes, and confirm one real workflow completed end to end.
 
 > [!NOTE]
 > Temporal workers stop polling for new tasks when a shutdown is initiated, and the deployments can configure a timeout for the shutdown, which can give time for all workflows currently running to finish. Configuring this correctly can minimize the disruption caused by triggering new deployments, but it can be hard to find the right timeout that ensures everything has time to finish without waiting forever.
@@ -579,4 +582,4 @@ The per-test cost is the same as N separate functions, but the file shrinks and 
 
 - All of batch exports is built in Temporal, see [example workflows in batch exports](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/temporal/destinations).
 - [Examples on unit testing Temporal workflows](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/tests/temporal) are available in the batch exports tests.
-- DuckLake data modeling writes leverage Temporal too; follow the [DuckLake copy workflow configuration guide](../ducklake/README.md) to see how we configure environment variables, bucket layouts, and IAM perms for the copy workflow.
+- DuckLake data modeling writes leverage Temporal too. See the [DuckLake copy workflow configuration guide](../../products/managed_warehouse/backend/README.md) for environment variables, bucket layouts, and IAM permissions.

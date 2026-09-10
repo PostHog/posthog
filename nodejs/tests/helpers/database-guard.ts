@@ -1,4 +1,4 @@
-import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 
 // Matches "test" only as an underscore- or boundary-delimited token, so real
 // test databases (test_posthog, posthog_test) pass while names that merely

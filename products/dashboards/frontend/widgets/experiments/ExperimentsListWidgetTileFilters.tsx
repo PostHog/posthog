@@ -1,5 +1,3 @@
-import { useRef } from 'react'
-
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
@@ -22,21 +20,17 @@ export function ExperimentsListWidgetTileFilters({
     const status = parsed.status ?? 'all'
     const createdBy = parsed.createdBy ?? null
 
-    const configRef = useRef(config)
-    configRef.current = config
-    const { persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
+    const { getLatestConfig, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig, config)
 
     const canUpdate = !!onUpdateConfig && !disabledReason
 
     const applyStatus = async (value: ExperimentsListWidgetStatus): Promise<void> => {
-        const nextConfig = patchExperimentsListWidgetConfig(configRef.current, { status: value })
-        configRef.current = nextConfig
+        const nextConfig = patchExperimentsListWidgetConfig(getLatestConfig(), { status: value })
         await persistConfigNow(nextConfig)
     }
 
     const applyCreatedBy = async (userId: number | null): Promise<void> => {
-        const nextConfig = patchExperimentsListWidgetConfig(configRef.current, { createdBy: userId })
-        configRef.current = nextConfig
+        const nextConfig = patchExperimentsListWidgetConfig(getLatestConfig(), { createdBy: userId })
         await persistConfigNow(nextConfig)
     }
 

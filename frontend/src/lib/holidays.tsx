@@ -69,3 +69,15 @@ export const holidaysMatcher = <T,>(matcher: HolidayMatcher<T>, orElse: T): T =>
 
     return orElse
 }
+
+/** The holiday the logomark should dress up for right now, or `undefined` outside the season. */
+export const currentHoliday = (): Holiday | undefined => {
+    if (isChristmas()) {
+        return 'christmas'
+    }
+    if (isHalloween()) {
+        return 'halloween'
+    }
+
+    return undefined
+}

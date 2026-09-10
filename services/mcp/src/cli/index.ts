@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
-import { createExecTool } from '@/tools/exec'
+import { createExecTool, formatInputValidationError, rewrapFlattenedArguments } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import { buildAgentHelp } from './agent-help'
@@ -8,8 +8,9 @@ import { installAgentsMdSnippet } from './agents-md'
 import { takeOption } from './args'
 import type { CliConfig } from './config'
 import { resolveCliConfig, requireApiKey } from './config'
-import { buildCliContext } from './context'
+import { buildCliContext, flushAnalytics } from './context'
 import { installSkill, listSkills } from './skills'
+import { buildToolCallProperties } from './tool-call-properties'
 import { getCliTools } from './tools'
 
 const COMMAND_REFERENCE = `CLI-style command string. Supported commands:
@@ -92,14 +93,7 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
         COMMAND_REFERENCE,
         'posthog-cli',
         (toolName, properties) => {
-            void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
-                tool_name: toolName,
-                $mcp_tool_name: toolName,
-                $mcp_duration_ms: properties.duration_ms,
-                $mcp_is_error: !properties.success,
-                output_format: properties.output_format,
-                ...(properties.error_message ? { error_message: properties.error_message } : {}),
-            })
+            void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, buildToolCallProperties(toolName, properties))
         },
         [],
         { requireDestructiveConfirmation: true }
@@ -151,7 +145,10 @@ async function runDryCall(args: string[]): Promise<void> {
         throw new Error(`Invalid JSON input: ${detail}`)
     }
 
-    const validation = tool.schema.safeParse(parsed)
+    // The same rewrap the MCP paths apply, so a dry run reports what a real call would do.
+    const firstPass = tool.schema.safeParse(parsed, { reportInput: true })
+    const rewrapped = firstPass.success ? undefined : rewrapFlattenedArguments(firstPass.error, parsed, tool.schema)
+    const validation = rewrapped ? tool.schema.safeParse(rewrapped, { reportInput: true }) : firstPass
     printResult({
         dryRun: true,
         tool: tool.name,
@@ -160,7 +157,9 @@ async function runDryCall(args: string[]): Promise<void> {
         outputFormat: forceJson ? 'json' : 'text',
         destructiveConfirmationRequired: tool.annotations.destructiveHint && !confirmed,
         valid: validation.success,
-        ...(validation.success ? { input: validation.data } : { error: validation.error.message }),
+        ...(validation.success
+            ? { input: validation.data }
+            : { error: formatInputValidationError(tool.name, validation.error, parsed, tool.schema) }),
     })
 }
 
@@ -268,8 +267,11 @@ async function main(): Promise<void> {
     }
 }
 
-main().catch((error: unknown) => {
+main().catch(async (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error)
     process.stderr.write(`Error: ${message}\n`)
+    // process.exit() kills in-flight requests, which silently dropped every
+    // errored $mcp_tool_call event; flush analytics before exiting non-zero.
+    await flushAnalytics()
     process.exit(1)
 })

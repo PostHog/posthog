@@ -1,28 +1,57 @@
 import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
+import { z } from 'zod'
 
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { parseWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
+import {
+    KAFKA_CDP_INTERNAL_EVENTS,
+    KAFKA_EVENTS_JSON,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+} from '~/common/config/kafka-topics'
+import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+import { UUIDT } from '~/common/utils/utils'
 
-import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
-import { KafkaConsumerInterface, RdKafkaConsumerConfig, createKafkaConsumer } from '../../kafka/consumer'
-import { HogFlow, HogFlowAction } from '../../schema/hogflow'
-import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
-import { isEvaluableCondition } from '../services/hogflows/hogflow-utils'
-import { HogFlowInvocationContext, HogFunctionInvocationGlobals } from '../types'
-import { convertToHogFunctionInvocationGlobals } from '../utils'
-import { execHog } from '../utils/hog-exec'
+import {
+    ClickHousePerson,
+    ClickHousePersonDistinctId2,
+    HealthCheckResult,
+    PluginsServerConfig,
+    RawClickHouseEvent,
+    Team,
+} from '../../types'
+import { CdpInternalEventSchema } from '../schema'
+import {
+    hasEventOrActionTarget,
+    matchesWaitUntilCondition,
+    runFilterBytecode,
+} from '../services/hogflows/hogflow-utils'
+import { CyclotronPerson, HogFlowInvocationContext, HogFunctionInvocationGlobals, PinnedConversionGoal } from '../types'
+import {
+    convertInternalEventToHogFunctionInvocationGlobals,
+    convertToHogFunctionInvocationGlobals,
+    getPersonDisplayName,
+} from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
-const counterHogflowMatcherBytecodeError = new Counter({
-    name: 'cdp_hogflow_matcher_bytecode_error',
-    help: 'A wait_until_condition or conversion-goal filter threw during evaluation. Filter is treated as non-matching, so the workflow falls through to its timeout branch.',
-})
+// A waker only needs signals that arrive after a job parks, never history. auto.offset.reset=latest
+// makes a fresh consumer group start at the tip instead of replaying the (unconsumable at prod
+// volume) topic backlog. Once the group has committed offsets, both consumer impls resume from them
+// regardless of this value — so steady-state recovery is committed-offset resume; latest only governs
+// the first bootstrap and offset-loss edge cases (covered by the deferred lag alerting follow-up).
+const startAtLatest = START_AT_LATEST
+
+// How stale the has-live-watchers gate may be. A team that just enrolled its first run while its only
+// goal flow was already paused waits at most this long to be admitted.
+const WATCHER_TEAMS_REFRESH_INTERVAL_MS = 30_000
 
 const counterHogflowMatcherCandidatesEvaluated = new Counter({
     name: 'cdp_hogflow_matcher_candidates_evaluated',
@@ -34,13 +63,74 @@ const counterHogflowMatcherJobsWoken = new Counter({
     help: 'Parked hogflow jobs the matcher woke because an incoming event matched.',
 })
 
+const counterHogflowMatcherConversionsCounted = new Counter({
+    name: 'cdp_hogflow_matcher_conversions_counted',
+    help: "Conversions counted by claiming a run's watcher row. Deleting the row is the claim, so a run counts at most once however many matching events arrive.",
+})
+
+// A person merge repoints the merged-away person's distinct_ids at the survivor. A wait parked while
+// that distinct_id belonged to the old person still references the old person_id, so the survivor's
+// person/event updates (keyed on the new id) can't wake it. We re-key such waits onto the survivor;
+// this counts the re-keyed jobs.
+const counterHogflowMatcherJobsRekeyedOnMove = new Counter({
+    name: 'cdp_hogflow_matcher_jobs_rekeyed_on_distinct_id_move',
+    help: 'Parked wait_until_condition jobs re-keyed to the surviving person after a distinct_id was repointed by a merge.',
+})
+
+// A wait parked before its distinct_id had a person keeps a null person_id, and person wakes are keyed on
+// person_id alone, so nothing can ever wake it — only the polling re-check advances it. The distinct_id's
+// first mapping (version 0) is where that anchor becomes available. 'seen' is every first mapping admitted
+// for a team with a wait flow, which is the load this path adds; 'filled' is the jobs it actually anchored.
+// A 'seen' rate far above 'filled' is expected — watch the gap for query cost, not correctness.
+const counterHogflowMatcherFirstMapping = new Counter({
+    name: 'cdp_hogflow_matcher_first_mapping_total',
+    help: 'distinct_id first mappings processed for parked waits with no person anchor, by outcome.',
+    labelNames: ['outcome'],
+})
+
+const counterHogflowMatcherWatchersRekeyed = new Counter({
+    name: 'cdp_hogflow_matcher_watchers_rekeyed',
+    help: 'Conversion watchers repointed onto a merge survivor. Without this they would be addressed to a person no update will ever mention again.',
+})
+
+const counterHogflowMatcherConversionEventSkipped = new Counter({
+    name: 'cdp_hogflow_matcher_conversion_event_skipped',
+    help: 'Conversions counted as a metric but not emitted as $workflows_conversion, because the run had no distinct_id to attribute a capture event to.',
+})
+
+const counterHogflowMatcherWatchersSkipped = new Counter({
+    name: 'cdp_hogflow_matcher_watchers_skipped',
+    help: 'Watcher rows skipped because their pinned goal was missing or unreadable. Each one is a run that can never record a conversion.',
+})
+
+const counterHogflowMatcherWatchersEvaluated = new Counter({
+    name: 'cdp_hogflow_matcher_watchers_evaluated',
+    help: 'Conversion watcher rows loaded and evaluated against a batch.',
+})
+
+const gaugeHogflowMatcherTeamsWithWatchers = new Gauge({
+    name: 'cdp_hogflow_matcher_teams_with_live_watchers',
+    help: 'Teams admitted through the parse gate purely because they still have unexpired conversion watchers.',
+})
+
+const histogramHogflowMatcherFindWatchers = new Histogram({
+    name: 'cdp_hogflow_matcher_find_watchers_seconds',
+    help: 'Duration of the conversion_watchers lookup.',
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+})
+
 // Latency of the cyclotron lookup for parked jobs. Watch this for cyclotron-node
 // read pressure as the wait-until-event feature ramps.
 const histogramHogflowMatcherFindParkedJobs = new Histogram({
     name: 'cdp_hogflow_matcher_find_parked_jobs_seconds',
     help: 'Duration of the findParkedJobs cyclotron query.',
+    labelNames: ['stream'],
     buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
 })
+
+// Which Kafka stream a batch came from. Labels the find_parked_jobs metric so the person and
+// internal-event query load is distinguishable from the events firehose on the shared cyclotron DB.
+type WakeSource = 'events' | 'person' | 'internal_events'
 
 const counterHogflowMatcherEventSkipped = new Counter({
     name: 'cdp_hogflow_matcher_event_skipped',
@@ -52,22 +142,61 @@ type ParkedCandidate = {
     id: string
     teamId: number
     functionId: string
+    parentRunId: string | null
     actionId: string | null
     distinctId: string | null
     personId: string | null
 }
 
-type WakeRequest = {
+// A distinct_id repointed by a merge: the distinct_id and the survivor person it now resolves to.
+// version orders repoints for the same distinct_id — the highest wins when a batch carries several.
+type PersonDistinctIdMove = {
+    teamId: number
+    distinctId: string
+    newPersonId: string
+    version: number
+}
+
+// A parked job the matcher needs to act on this batch: either resume it (stepMatched, or a
+// conversion match on an exit-on-conversion flow) and/or count its conversion once. Carries the
+// fields needed to emit the `conversion` metric without re-reading the hogflow.
+type MatchedJob = {
     id: string
+    teamId: number
+    functionId: string
+    parentRunId: string | null
     stepMatched: boolean
     conversionMatched: boolean
+    exitsOnConversion: boolean
     // Name, UUID and timestamp of the matched event, so the resume log can name it and link to it.
     eventName?: string
     eventUuid?: string
     eventTimestamp?: string
+    // Distinct id + name/uuid of the event that satisfied the conversion goal, so the matcher can
+    // emit the `$workflows_conversion` PostHog event for the converting person.
+    conversionDistinctId?: string
+    conversionEventName?: string
+    conversionEventUuid?: string
 }
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
+
+// Emitted by Django when a run a workflow step dispatched ends; `origin_key` names the parked job.
+export const WORKFLOW_STEP_RESUME_EVENT = '$workflow_step_resume'
+
+const WorkflowStepResumeSchema = z.object({
+    origin_key: z.string().min(1),
+    status: z.enum(['completed', 'failed', 'cancelled']),
+    result: z.record(z.string(), z.unknown()).optional().nullable(),
+})
+
+type StepResume = z.infer<typeof WorkflowStepResumeSchema> & { jobId: string; actionId: string }
+
+const counterStepResume = new Counter({
+    name: 'cdp_hogflow_step_resume',
+    help: 'Workflow step resumes by outcome.',
+    labelNames: ['outcome'],
+})
 
 // Wakes parked hogflow jobs when an event matches a `wait_until_condition` step
 // or a workflow conversion goal.
@@ -76,19 +205,53 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 > extends CdpConsumerBase<TConfig> {
     protected name = 'CdpHogflowSubscriptionMatcherConsumer'
     protected kafkaConsumer: KafkaConsumerInterface
+    // clickhouse_person carries non-event person-property changes (the precalculated topic only
+    // emits a per-condition match boolean, not the full property set the wait bytecode needs).
+    private personKafkaConsumer: KafkaConsumerInterface
+    // cdp_internal_events carries CDP-generated signals (e.g. $insight_alert_firing,
+    // $activity_log_entry_created) that bypass the public capture pipeline and never reach the
+    // analytics events topic. (Email engagement events, by contrast, flow through capture to
+    // clickhouse_events_json and are already covered by the events stream.)
+    private internalEventsKafkaConsumer: KafkaConsumerInterface
+    // clickhouse_person_distinct_id carries distinct_id → person repoints (version > 0). A merge moves the
+    // merged-away person's distinct_ids onto the survivor here; we consume it to re-key parked waits onto
+    // the survivor's id so the survivor's person/event updates can wake them.
+    private personDistinctIdKafkaConsumer: KafkaConsumerInterface
     private cyclotronPool: Pool
+    private watcherTeamsRefreshTimer: NodeJS.Timeout | null = null
+    // Teams with at least one unexpired watcher. Empty until the first refresh, which start() awaits
+    // before consuming, so the gate is never consulted against an unpopulated set.
+    private teamsWithLiveWatchers: Set<number> = new Set()
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
-        // A waker only needs events that arrive after a job parks, never history, so start at the
-        // head: auto.offset.reset=latest makes a fresh consumer group begin at the tip instead of
-        // replaying the clickhouse_events_json backlog (unconsumable at prod volume).
         this.kafkaConsumer = createKafkaConsumer(
             {
                 groupId: 'cdp-hogflow-subscription-matcher-consumer',
                 topic: KAFKA_EVENTS_JSON,
             },
-            { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'latest' as never }
+            startAtLatest
+        )
+        this.personKafkaConsumer = createKafkaConsumer(
+            {
+                groupId: 'cdp-hogflow-subscription-matcher-person-consumer',
+                topic: KAFKA_PERSON,
+            },
+            startAtLatest
+        )
+        this.internalEventsKafkaConsumer = createKafkaConsumer(
+            {
+                groupId: 'cdp-hogflow-subscription-matcher-internal-events-consumer',
+                topic: KAFKA_CDP_INTERNAL_EVENTS,
+            },
+            startAtLatest
+        )
+        this.personDistinctIdKafkaConsumer = createKafkaConsumer(
+            {
+                groupId: 'cdp-hogflow-subscription-matcher-person-distinct-id-consumer',
+                topic: KAFKA_PERSON_DISTINCT_ID,
+            },
+            startAtLatest
         )
 
         // The matcher does nothing but read/write cyclotron_jobs, so a missing connection
@@ -103,20 +266,61 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         })
     }
 
-    public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
+    public async processBatch(
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        source: WakeSource = 'events'
+    ): Promise<void> {
         if (!invocationGlobals.length) {
             return
         }
-        await this.wakeMatchingWorkflows(invocationGlobals)
+        try {
+            await this.wakeMatchingWorkflows(invocationGlobals, source)
+        } finally {
+            // Flush any `conversion` metrics and `$workflows_conversion` events queued during matching.
+            // Best-effort: a flush failure must not crash the batch (which would replay the event
+            // offsets). flush() is a no-op when nothing was queued, so it's safe to call unconditionally.
+            await instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
+                try {
+                    await Promise.all([
+                        this.hogFunctionMonitoringService.flush(),
+                        this.invocationResultsService.capturedEventsService.flush(),
+                    ])
+                } catch (err) {
+                    logger.error('⚠️', 'Failed to flush hogflow matcher app metrics/events', { err })
+                    captureException(err)
+                }
+            })
+        }
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.wakeMatchingWorkflows')
-    private async wakeMatchingWorkflows(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
-        const { teamIds, distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } =
-            indexBatch(invocationGlobals)
+    private async wakeMatchingWorkflows(
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        source: WakeSource = 'events'
+    ): Promise<void> {
+        const indexed = indexBatch(invocationGlobals)
+        const { teamIds, distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } = indexed
         if (byDistinctId.size === 0 && byPersonId.size === 0) {
             return
         }
+
+        // Compute filterGlobals once per event; the same event can match many candidates and many
+        // watchers.
+        const filterGlobalsByEvent = new Map<HogFunctionInvocationGlobals, FilterGlobals>()
+        const filterGlobalsFor = (g: HogFunctionInvocationGlobals): FilterGlobals => {
+            let fg = filterGlobalsByEvent.get(g)
+            if (!fg) {
+                fg = convertToHogFunctionFilterGlobal(g)
+                filterGlobalsByEvent.set(g, fg)
+            }
+            return fg
+        }
+
+        // Claimed before the parked-job work and independently of it: a watcher's run may have
+        // finished long ago, so gating this on the flow still having something parked would put back
+        // exactly the blind spot watchers exist to remove.
+        const conversionsCounted = await this.claimConversionWatchers(indexed, filterGlobalsFor)
+        counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
 
         // Build the set of actionable flows from the in-memory hogflow cache (same pattern as
         // cdp-events). Only flows with a wait_until_condition step or an event-based conversion
@@ -141,25 +345,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             distinctIds,
             personTeamIds,
             personIds,
-            Object.keys(hogflows)
+            Object.keys(hogflows),
+            source
         )
         if (candidates.length === 0) {
             return
         }
         counterHogflowMatcherCandidatesEvaluated.inc(candidates.length)
 
-        // Compute filterGlobals once per event; the same event can match many candidates.
-        const filterGlobalsByEvent = new Map<HogFunctionInvocationGlobals, FilterGlobals>()
-        const filterGlobalsFor = (g: HogFunctionInvocationGlobals): FilterGlobals => {
-            let fg = filterGlobalsByEvent.get(g)
-            if (!fg) {
-                fg = convertToHogFunctionFilterGlobal(g)
-                filterGlobalsByEvent.set(g, fg)
-            }
-            return fg
-        }
-
-        const jobsToWake: WakeRequest[] = []
+        const matchedJobs: MatchedJob[] = []
         for (const candidate of candidates) {
             const hogflow = hogflows[candidate.functionId]
             if (!hogflow) {
@@ -181,78 +375,70 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             let stepMatchedEventUuid: string | undefined
             let stepMatchedEventTimestamp: string | undefined
             let conversionMatched = false
+            let conversionDistinctId: string | undefined
+            let conversionEventName: string | undefined
+            let conversionEventUuid: string | undefined
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
                 if (!stepMatched && action?.type === 'wait_until_condition') {
-                    if (await this.evaluateWaitUntilCondition(action, filterGlobals, hogflow.id)) {
+                    if (
+                        await matchesWaitUntilCondition(action, filterGlobals, {
+                            hogFlowId: hogflow.id,
+                            actionId: action.id,
+                        })
+                    ) {
                         stepMatched = true
                         stepMatchedEventName = globals.event.event
                         stepMatchedEventUuid = globals.event.uuid
                         stepMatchedEventTimestamp = globals.event.timestamp
                     }
                 }
-                if (!conversionMatched) {
-                    conversionMatched = await this.evaluateConversionEvents(hogflow, filterGlobals)
+                if (!conversionMatched && (await this.evaluateConversionEvents(hogflow, filterGlobals))) {
+                    conversionMatched = true
+                    // Remember who converted (and via which event) so we can emit $workflows_conversion.
+                    conversionDistinctId = globals.event.distinct_id
+                    conversionEventName = globals.event.event
+                    conversionEventUuid = globals.event.uuid
                 }
                 if (stepMatched && conversionMatched) {
                     break
                 }
             }
 
-            // A matched wait step always resumes the job. A conversion match only wakes the job when
-            // the workflow is configured to exit on conversion — then the resumed job exits early via
-            // `shouldExitEarly`. For any other exit condition a conversion goal is measurement-only,
-            // so waking would just pull a parked job (e.g. one sitting in a delay) forward and run its
-            // next step early. `conversionMatched` is still surfaced so the executor can act on it.
-            if (stepMatched || (conversionMatched && exitsOnConversion(hogflow))) {
-                jobsToWake.push({
+            // Collect a job when its wait step matched OR a conversion matched. Conversion matches are
+            // collected even on measurement-only (non-exit) flows: processMatchedJobs reads the job's
+            // state under FOR UPDATE to count the conversion exactly once per run (and surface it to
+            // the executor for exit-on-conversion flows). The wake-vs-count-only decision is made there.
+            if (stepMatched || conversionMatched) {
+                matchedJobs.push({
                     id: candidate.id,
+                    teamId: candidate.teamId,
+                    functionId: candidate.functionId,
+                    parentRunId: candidate.parentRunId,
                     stepMatched,
                     conversionMatched,
+                    exitsOnConversion: exitsOnConversion(hogflow),
                     eventName: stepMatchedEventName,
                     eventUuid: stepMatchedEventUuid,
                     eventTimestamp: stepMatchedEventTimestamp,
+                    conversionDistinctId,
+                    conversionEventName,
+                    conversionEventUuid,
                 })
             }
         }
 
-        if (jobsToWake.length === 0) {
+        if (matchedJobs.length === 0) {
             return
         }
 
-        const woken = await this.wakeJobs(jobsToWake)
+        const woken = await this.processMatchedJobs(matchedJobs)
         counterHogflowMatcherJobsWoken.inc(woken)
-        logger.info('⚡', 'Woke waiting workflows from event match', {
+        logger.info('⚡', 'Processed waiting workflows from event match', {
             evaluated: candidates.length,
-            matched: jobsToWake.length,
+            matched: matchedJobs.length,
             woken,
         })
-    }
-
-    private async evaluateWaitUntilCondition(
-        action: Extract<HogFlowAction, { type: 'wait_until_condition' }>,
-        filterGlobals: FilterGlobals,
-        hogflowId: string
-    ): Promise<boolean> {
-        // `events` and the property-based `condition` are OR'd: a step can wait on either,
-        // and either matching wakes the job. The condition is evaluated on every incoming
-        // event, which is what makes property-based waits event-driven rather than polled.
-        const context = { hogFlowId: hogflowId, actionId: action.id }
-        for (const eventConfig of action.config.events ?? []) {
-            if (!hasEventOrActionTarget(eventConfig)) {
-                continue
-            }
-            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
-                return true
-            }
-        }
-        // An empty condition compiles to always-true bytecode, which would wake the job on the next
-        // event of any kind. Only evaluate the condition when it has a real compiled filter;
-        // otherwise the wait relies on its `events` / the step timeout.
-        if (!isEvaluableCondition(action.config.condition)) {
-            return false
-        }
-        return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, context)
     }
 
     private async evaluateConversionEvents(hogflow: HogFlow, filterGlobals: FilterGlobals): Promise<boolean> {
@@ -262,7 +448,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             if (!hasEventOrActionTarget(eventConfig)) {
                 continue
             }
-            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
+            if (await runFilterBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }
         }
@@ -274,7 +460,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         distinctIds: string[],
         personTeamIds: number[],
         personIds: string[],
-        functionIds: string[]
+        functionIds: string[],
+        source: WakeSource
     ): Promise<ParkedCandidate[]> {
         // Two index-friendly branches with UNION (dedupes rows that match both keys).
         // A single OR across distinct_id and person_id often forces Postgres into a
@@ -291,18 +478,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // dedicated queue, the following wait parks on that queue, so a queue_name='hogflow'
         // filter would silently miss it. function_id already scopes to hogflow jobs, and
         // waking the job (scheduled = NOW()) lets whichever worker owns that queue resume it.
-        const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer()
+        const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer({ stream: source })
         let result
         try {
             result = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, action_id, distinct_id, person_id
+                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
                AND scheduled > NOW()
                AND function_id = ANY($5::uuid[])
                AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
              UNION
-             SELECT id, team_id, function_id, action_id, distinct_id, person_id
+             SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
                AND scheduled > NOW()
@@ -318,24 +505,25 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             id: row.id,
             teamId: row.team_id,
             functionId: row.function_id,
+            parentRunId: row.parent_run_id,
             actionId: row.action_id,
             distinctId: row.distinct_id,
             personId: row.person_id,
         }))
     }
 
-    private async wakeJobs(requests: WakeRequest[]): Promise<number> {
-        if (requests.length === 0) {
+    // Only ever resumes runs. Conversions are counted by claimConversionWatchers, which is what keeps
+    // a conversion countable after the run it belongs to has finished.
+    private async processMatchedJobs(matched: MatchedJob[]): Promise<number> {
+        if (matched.length === 0) {
             return 0
         }
 
-        const ids = requests.map((r) => r.id)
-        // The state read-modify-write must be atomic: two matcher instances waking the
-        // same job (one stepMatched, one conversionMatched) would otherwise both read the
-        // original state and the later UPDATE would drop the earlier flag. SELECT ... FOR
-        // UPDATE inside a transaction serializes them — the second waker blocks, then reads
-        // our committed state and merges its flag on top. ORDER BY id keeps lock acquisition
-        // order consistent across instances so concurrent batches can't deadlock.
+        const ids = matched.map((m) => m.id)
+        // The state read-modify-write must be atomic: two matcher instances acting on the same job
+        // would otherwise both read the original state and the later UPDATE would drop the earlier
+        // flag. SELECT ... FOR UPDATE inside a transaction serializes them. ORDER BY id keeps lock
+        // acquisition order consistent across instances so concurrent batches can't deadlock.
         const client = await this.cyclotronPool.connect()
         try {
             await client.query('BEGIN')
@@ -348,44 +536,226 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 [ids]
             )
 
-            const requestById = new Map(requests.map((r) => [r.id, r]))
-            const updates: { id: string; state: Buffer }[] = []
+            const matchedById = new Map(matched.map((m) => [m.id, m]))
+            // Woken jobs get `scheduled = NOW()`; the rest get a state write that leaves `scheduled`
+            // untouched, so a flag persists without pulling a parked job forward.
+            const wakeUpdates: { id: string; state: Buffer }[] = []
+            const stateOnlyUpdates: { id: string; state: Buffer }[] = []
             for (const row of stateRows.rows) {
                 if (!row.state) {
                     continue
                 }
-                const req = requestById.get(row.id)
-                if (!req) {
+                const m = matchedById.get(row.id)
+                if (!m) {
                     continue
                 }
-                const updated = applyWakeFlags(row.state, req)
-                if (updated) {
-                    updates.push({ id: row.id, state: updated })
+                const outcome = applyMatchToState(row.state, m)
+                if (!outcome) {
+                    continue
+                }
+                if (outcome.wake) {
+                    wakeUpdates.push({ id: row.id, state: outcome.state })
+                } else {
+                    stateOnlyUpdates.push({ id: row.id, state: outcome.state })
                 }
             }
 
-            if (updates.length === 0) {
-                await client.query('COMMIT')
-                return 0
+            let woken = 0
+            if (wakeUpdates.length > 0) {
+                const result = await client.query(
+                    `UPDATE cyclotron_jobs cj
+                     SET scheduled = NOW(), state = u.state
+                     FROM (
+                         SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state
+                     ) u
+                     WHERE cj.id = u.id AND cj.status = 'available'`,
+                    [wakeUpdates.map((u) => u.id), wakeUpdates.map((u) => u.state)]
+                )
+                woken = result.rowCount ?? 0
             }
-
-            const result = await client.query(
-                `UPDATE cyclotron_jobs cj
-                 SET scheduled = NOW(), state = u.state
-                 FROM (
-                     SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state
-                 ) u
-                 WHERE cj.id = u.id AND cj.status = 'available'`,
-                [updates.map((u) => u.id), updates.map((u) => u.state)]
-            )
+            if (stateOnlyUpdates.length > 0) {
+                await client.query(
+                    `UPDATE cyclotron_jobs cj
+                     SET state = u.state
+                     FROM (
+                         SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state
+                     ) u
+                     WHERE cj.id = u.id AND cj.status = 'available'`,
+                    [stateOnlyUpdates.map((u) => u.id), stateOnlyUpdates.map((u) => u.state)]
+                )
+            }
             await client.query('COMMIT')
-            return result.rowCount ?? 0
+
+            return woken
         } catch (err) {
             await client.query('ROLLBACK').catch(() => {})
             throw err
         } finally {
             client.release()
         }
+    }
+
+    /**
+     * Counts conversions by claiming the watcher rows of runs whose goal this batch satisfied.
+     *
+     * Runs against watchers rather than parked jobs, which is what lets a conversion count after the
+     * run has ended — by then the run's cyclotron job is gone. Deleting the watcher IS the claim, so
+     * two matcher instances racing on the same run cannot both count it, and no lock or state parse
+     * is involved. Never touches cyclotron_jobs: exiting early on conversion is the run's business,
+     * handled by processMatchedJobs.
+     */
+    private async claimConversionWatchers(
+        indexed: IndexedBatch,
+        filterGlobalsFor: (globals: HogFunctionInvocationGlobals) => FilterGlobals
+    ): Promise<number> {
+        const { distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } = indexed
+
+        const stopTimer = histogramHogflowMatcherFindWatchers.startTimer()
+        let found
+        try {
+            found = await this.cyclotronPool.query(
+                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal
+                 FROM conversion_watchers
+                 WHERE expires_at > NOW()
+                   AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
+                 UNION
+                 SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal
+                 FROM conversion_watchers
+                 WHERE expires_at > NOW()
+                   AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
+                [distinctTeamIds, distinctIds, personTeamIds, personIds]
+            )
+        } finally {
+            stopTimer()
+        }
+        if (found.rows.length === 0) {
+            return 0
+        }
+        counterHogflowMatcherWatchersEvaluated.inc(found.rows.length)
+
+        const converted: {
+            row: any
+            distinctId?: string
+            conversionType: 'property' | 'event'
+            eventName?: string
+            eventUuid?: string
+        }[] = []
+        for (const row of found.rows) {
+            // A watcher with no usable goal can never convert. Skipping it keeps a malformed row from
+            // throwing out of the whole batch, which also carries the unrelated wake path.
+            if (!row.goal || typeof row.goal !== 'object') {
+                counterHogflowMatcherWatchersSkipped.inc()
+                continue
+            }
+            const candidateGlobals = collectCandidateGlobals(
+                { teamId: row.team_id, distinctId: row.distinct_id, personId: row.person_id },
+                byDistinctId,
+                byPersonId
+            )
+            for (const globals of candidateGlobals) {
+                const conversionType = await matchesPinnedGoal(row.goal, filterGlobalsFor(globals), row.function_id)
+                if (conversionType) {
+                    converted.push({
+                        row,
+                        distinctId: globals.event.distinct_id || row.distinct_id || undefined,
+                        conversionType,
+                        // Only an event goal is caused by the event that matched. A property goal is
+                        // detected against person state carried by whatever event delivered the update
+                        // (often the synthetic $person_updated, or an unrelated event), so stamping that
+                        // event would attribute the conversion to something that did not cause it.
+                        eventName: conversionType === 'event' ? globals.event.event : undefined,
+                        eventUuid: conversionType === 'event' ? globals.event.uuid : undefined,
+                    })
+                    break
+                }
+            }
+        }
+        if (converted.length === 0) {
+            return 0
+        }
+
+        // The delete is the claim: only rows this statement actually removed are counted, so a
+        // concurrent instance that removed the same row first counts it and we do not.
+        const claimed = await this.cyclotronPool.query(
+            `DELETE FROM conversion_watchers WHERE id = ANY($1::uuid[]) RETURNING id`,
+            [converted.map((c) => c.row.id)]
+        )
+        const claimedIds = new Set(claimed.rows.map((r) => r.id))
+
+        for (const { row, distinctId, conversionType, eventName, eventUuid } of converted) {
+            if (!claimedIds.has(row.id)) {
+                continue
+            }
+            this.hogFunctionMonitoringService.queueAppMetric(
+                {
+                    team_id: row.team_id,
+                    // Batch children attribute to the parent batch job, matching every other run metric.
+                    app_source_id: row.parent_run_id ?? row.function_id,
+                    instance_id: row.function_id,
+                    metric_kind: 'other',
+                    metric_name: 'conversion',
+                    count: 1,
+                    app_source_version:
+                        row.flow_version !== null ? { id: row.function_id, version: row.flow_version } : undefined,
+                },
+                'hog_flow'
+            )
+            // Surfaced as a billable event too, so conversions can power insights and cohorts. The run
+            // id is what joins it back to the enrollment that earned it.
+            //
+            // A person-triggered run (batch audience, manual person trigger) enrolls with no
+            // distinct_id, and a person-property change carries none either, so there is nothing to
+            // attribute a capture event to. The app metric still counts, but any consumer reading
+            // conversions from the event stream will not see these — watch the counter.
+            if (!distinctId) {
+                counterHogflowMatcherConversionEventSkipped.inc()
+            }
+            if (distinctId) {
+                await this.invocationResultsService.capturedEventsService.queueEvent({
+                    team_id: row.team_id,
+                    event: '$workflows_conversion',
+                    distinct_id: distinctId,
+                    timestamp: new Date().toISOString(),
+                    properties: {
+                        $workflow_id: row.function_id,
+                        $workflow_run_id: row.run_id,
+                        $workflow_version: row.flow_version ?? undefined,
+                        $workflow_conversion_type: conversionType,
+                        $workflow_conversion_event: eventName,
+                        $workflow_conversion_event_uuid: eventUuid,
+                    },
+                })
+            }
+        }
+        return claimedIds.size
+    }
+
+    /**
+     * Whether a team's messages are worth the full parse. True when it has a flow the matcher can act
+     * on, or when it still has live conversion watchers.
+     *
+     * The watcher half matters because the flow cache is active-only. Pausing or archiving a team's
+     * only goal workflow, or removing its goal, would otherwise drop every message for that team, and
+     * its already-enrolled watchers would expire uncounted — silently under-reporting, and defeating
+     * the point of pinning the goal to the run in the first place.
+     */
+    private async teamIsActionable(teamId: number): Promise<boolean> {
+        const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(teamId)
+        if (teamHogFlows.some(hasWaitUntilOrConversion)) {
+            return true
+        }
+        return this.teamsWithLiveWatchers.has(teamId)
+    }
+
+    // One small query per refresh, returning at most one row per team that has ever enrolled a run on
+    // a goal workflow. Kept as a whole-set replace so a team whose watchers have all expired drops out
+    // without needing its own invalidation.
+    private async refreshTeamsWithLiveWatchers(): Promise<void> {
+        const result = await this.cyclotronPool.query(
+            `SELECT DISTINCT team_id FROM conversion_watchers WHERE expires_at > NOW()`
+        )
+        this.teamsWithLiveWatchers = new Set(result.rows.map((row) => row.team_id))
+        gaugeHogflowMatcherTeamsWithWatchers.set(this.teamsWithLiveWatchers.size)
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseKafkaMessages')
@@ -405,8 +775,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     // The vast majority of events belong to teams with no wait_until_condition
                     // step and no event conversion goal. Bail on those via the in-memory hogflow
                     // cache before paying for getTeam + full globals conversion.
-                    const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id)
-                    if (!teamHogFlows.some(hasWaitUntilOrConversion)) {
+                    if (!(await this.teamIsActionable(clickHouseEvent.team_id))) {
                         counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
                         return
                     }
@@ -426,29 +795,522 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         return events
     }
 
+    @instrumented('cdpHogflowSubscriptionMatcher.parsePersonMessages')
+    public async _parsePersonBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        const events: HogFunctionInvocationGlobals[] = []
+
+        await Promise.all(
+            messages.map(async (message) => {
+                try {
+                    const data = parseJSON(message.value!.toString()) as ClickHousePerson
+                    // A deleted person can never satisfy a wait — skip tombstones.
+                    if (data.is_deleted) {
+                        return
+                    }
+                    // Parked waits are matched by person_id (the job's person.id), so a person
+                    // mutation needs an id to wake anything.
+                    if (!data.id) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                        return
+                    }
+                    // clickhouse_person is a firehose; bail before getTeam + JSON parse for teams
+                    // with no flow the matcher can act on.
+                    if (!(await this.teamIsActionable(data.team_id))) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
+                        return
+                    }
+                    const team = await this.deps.teamManager.getTeam(data.team_id)
+                    if (!team) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
+                        return
+                    }
+                    events.push(convertClickhousePersonToWakeGlobals(data, team, this.config.SITE_URL))
+                } catch (e) {
+                    logger.error('Error parsing person message', e)
+                    counterParseError.labels({ error: e.message }).inc()
+                }
+            })
+        )
+
+        return events
+    }
+
+    // Step resumes name their job, so they skip the person and team gates the event parser applies.
+    public _splitStepResumes(messages: Message[]): { resumes: StepResume[]; rest: Message[] } {
+        const resumes: StepResume[] = []
+        const rest: Message[] = []
+        for (const message of messages) {
+            let parsed
+            try {
+                parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
+            } catch {
+                rest.push(message)
+                continue
+            }
+            if (parsed.event.event !== WORKFLOW_STEP_RESUME_EVENT) {
+                rest.push(message)
+                continue
+            }
+            const props = WorkflowStepResumeSchema.safeParse(parsed.event.properties)
+            const key = props.success ? parseWorkflowStepDispatchKey(props.data.origin_key) : null
+            if (!props.success || !key) {
+                counterStepResume.labels({ outcome: 'parse_error' }).inc()
+                continue
+            }
+            resumes.push({ ...props.data, ...key })
+        }
+        return { resumes, rest }
+    }
+
+    @instrumented('cdpHogflowSubscriptionMatcher.processStepResumes')
+    public async processStepResumes(resumes: StepResume[]): Promise<void> {
+        if (resumes.length === 0) {
+            return
+        }
+        const byJob = new Map<string, StepResume[]>()
+        for (const resume of resumes) {
+            const pending = byJob.get(resume.jobId) ?? []
+            pending.push(resume)
+            byJob.set(resume.jobId, pending)
+        }
+        const client = await this.cyclotronPool.connect()
+        try {
+            await client.query('BEGIN')
+            const rows = await client.query(
+                `SELECT id, status, state FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`,
+                [[...byJob.keys()]]
+            )
+            const updates: { id: string; state: Buffer }[] = []
+            for (const row of rows.rows) {
+                const jobResumes = byJob.get(row.id)!
+                byJob.delete(row.id)
+                // A job that is not parked yet cannot take the wake: the worker owns `state` while it
+                // runs, so its flush would drop the write. That step falls back to its own deadline.
+                if (row.status !== 'available') {
+                    counterStepResume.labels({ outcome: `job_${row.status}` }).inc()
+                    continue
+                }
+                // One batch can carry a stale wake from an earlier visit next to the current one.
+                const state = row.state
+                    ? jobResumes.reduce<Buffer | null>(
+                          (applied, resume) => applied ?? applyStepResumeToState(row.state, resume),
+                          null
+                      )
+                    : null
+                if (!state) {
+                    counterStepResume.labels({ outcome: 'stale_key' }).inc()
+                    continue
+                }
+                updates.push({ id: row.id, state })
+            }
+            counterStepResume.labels({ outcome: 'job_missing' }).inc(byJob.size)
+            if (updates.length > 0) {
+                const updated = await client.query(
+                    `UPDATE cyclotron_jobs cj
+                     SET scheduled = NOW(), state = u.state
+                     FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::bytea[]) AS state) u
+                     WHERE cj.id = u.id AND cj.status = 'available'`,
+                    [updates.map((update) => update.id), updates.map((update) => update.state)]
+                )
+                counterStepResume.labels({ outcome: 'delivered' }).inc(updated.rowCount ?? 0)
+            }
+            await client.query('COMMIT')
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => {})
+            throw err
+        } finally {
+            client.release()
+        }
+    }
+
+    @instrumented('cdpHogflowSubscriptionMatcher.parseInternalEventMessages')
+    public async _parseInternalEventsBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        const events: HogFunctionInvocationGlobals[] = []
+
+        await Promise.all(
+            messages.map(async (message) => {
+                try {
+                    const parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
+                    if (!parsed.event.distinct_id && !parsed.person?.id) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                        return
+                    }
+                    if (!(await this.teamIsActionable(parsed.team_id))) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
+                        return
+                    }
+                    const team = await this.deps.teamManager.getTeam(parsed.team_id)
+                    if (!team) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
+                        return
+                    }
+                    events.push(convertInternalEventToHogFunctionInvocationGlobals(parsed, team, this.config.SITE_URL))
+                } catch (e) {
+                    logger.error('Error parsing internal event message', e)
+                    counterParseError.labels({ error: e.message }).inc()
+                }
+            })
+        )
+
+        return events
+    }
+
+    // Synchronous (no getTeam/globals conversion — a repoint only carries ids), so unlike the other
+    // parsers this isn't async or @instrumented.
+    public _parsePersonDistinctIdBatch(messages: Message[]): PersonDistinctIdMove[] {
+        const moves: PersonDistinctIdMove[] = []
+        for (const message of messages) {
+            try {
+                const data = parseJSON(message.value!.toString()) as ClickHousePersonDistinctId2
+                // version > 0 is a repoint (identify/merge). version 0 is the distinct_id's first mapping
+                // to a person, which a wait parked before the person resolved needs to acquire its anchor:
+                // person wakes are keyed on person_id alone, so a job left with a null anchor is
+                // unwakeable by any person-property change. processMoveBatch scopes version 0 to exactly
+                // those jobs, which is what keeps this off the insert firehose.
+                if (data.version === undefined || data.version === null || data.version < 0) {
+                    continue
+                }
+                // A distinct_id being deleted can't wake anything, and must never re-point a wait at a
+                // person that is going away.
+                if (data.is_deleted) {
+                    continue
+                }
+                if (!data.distinct_id || !data.person_id) {
+                    counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                    continue
+                }
+                moves.push({
+                    teamId: data.team_id,
+                    distinctId: data.distinct_id,
+                    newPersonId: data.person_id,
+                    version: data.version,
+                })
+            } catch (e) {
+                logger.error('Error parsing person distinct id message', e)
+                counterParseError.labels({ error: e.message }).inc()
+            }
+        }
+        return moves
+    }
+
+    // Point parked wait_until_condition jobs at the person their distinct_id now belongs to, for the two
+    // ways that can change: a merge repointing it onto a survivor, or the distinct_id acquiring a person
+    // for the first time. Either way the job's existing anchor can no longer be woken — person and event
+    // wakes are keyed on person_id — so we rewrite the anchor (column + state.personId) and wake it.
+    public async processMoveBatch(moves: PersonDistinctIdMove[]): Promise<void> {
+        if (moves.length === 0) {
+            return
+        }
+
+        // A repoint (version > 0) may rewrite any parked wait's anchor. A first mapping (version 0) may
+        // only fill an anchor that is missing: it says "this distinct_id now has a person", which tells us
+        // nothing about a job already anchored elsewhere, and the null-anchor scope is what keeps the
+        // insert firehose off the whole flow set.
+        const repoints = moves.filter((m) => m.version > 0)
+        const firstMappings = moves.filter((m) => m.version === 0)
+
+        if (repoints.length > 0) {
+            await this.applyMoves(repoints, false)
+        }
+        // Watchers are keyed the same two ways parked jobs are, so a merge that repoints a distinct_id
+        // leaves the watcher addressed to a person nothing will ever update again. A watcher can live
+        // for the whole attribution window, so it is far more likely than a parked job to outlast a
+        // merge, and an unreachable one silently stops counting.
+        await this.rekeyWatchers(moves)
+        if (firstMappings.length > 0) {
+            counterHogflowMatcherFirstMapping.labels({ outcome: 'seen' }).inc(firstMappings.length)
+            await this.applyMoves(firstMappings, true)
+        }
+    }
+
+    private async rekeyWatchers(moves: PersonDistinctIdMove[]): Promise<void> {
+        // Highest version wins per distinct_id: repoints are not Kafka-keyed, so a batch can carry a
+        // chain (anon -> A -> B) out of order, and re-keying onto an intermediate person would leave
+        // the watcher just as unreachable.
+        const survivorByKey = new Map<string, { personId: string; version: number }>()
+        for (const move of moves) {
+            const key = `${move.teamId}:${move.distinctId}`
+            const existing = survivorByKey.get(key)
+            if (!existing || move.version > existing.version) {
+                survivorByKey.set(key, { personId: move.newPersonId, version: move.version })
+            }
+        }
+        const teamIds: number[] = []
+        const distinctIds: string[] = []
+        const personIds: string[] = []
+        const versions: number[] = []
+        for (const [key, survivor] of survivorByKey) {
+            const [teamId, ...distinctIdParts] = key.split(':')
+            teamIds.push(Number(teamId))
+            distinctIds.push(distinctIdParts.join(':'))
+            personIds.push(survivor.personId)
+            versions.push(survivor.version)
+        }
+
+        // Let a re-key failure propagate, like applyMoves and the read/wake path do: it fails the batch
+        // so the offset doesn't advance and the pod replays. The UPDATE is idempotent — a no-op once
+        // person_id already matches — so replay is safe. Swallowing it here instead would strand every
+        // watcher in the batch on its pre-merge person until it expires, silently under-counting.
+        const result = await this.cyclotronPool.query(
+            `UPDATE conversion_watchers w
+             SET person_id = u.person_id, person_version = u.version
+             FROM (
+                 SELECT unnest($1::int[]) AS team_id, unnest($2::text[]) AS distinct_id, unnest($3::text[]) AS person_id, unnest($4::int[]) AS version
+             ) u
+             WHERE w.team_id = u.team_id AND w.distinct_id = u.distinct_id AND w.person_id IS DISTINCT FROM u.person_id
+               -- Ordering within a batch is handled above; this is the cross-batch half. A repoint that
+               -- arrives after a higher-versioned one would otherwise rewind the anchor to an
+               -- intermediate person, leaving the watcher unreachable by person_id until it expires.
+               AND u.version > w.person_version
+               -- A first mapping (version 0) only says "this distinct_id now has a person"; it may fill
+               -- an empty anchor but must not overwrite one a merge already set, mirroring the
+               -- onlyNullAnchor scope applyMoves uses. Repoints (version > 0) may repoint any anchor.
+               AND (u.version > 0 OR w.person_id IS NULL)`,
+            [teamIds, distinctIds, personIds, versions]
+        )
+        counterHogflowMatcherWatchersRekeyed.inc(result.rowCount ?? 0)
+    }
+
+    private async applyMoves(moves: PersonDistinctIdMove[], onlyNullAnchor: boolean): Promise<void> {
+        // Only flows with a wait_until_condition step can have a parked wait to re-key. Scope the
+        // function_id filter to them so the cyclotron query stays index-friendly and skips repoints for
+        // teams with no such flow.
+        const teamIds = [...new Set(moves.map((m) => m.teamId))]
+        const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamIds)
+        const hogflows: Record<string, HogFlow> = {}
+        for (const flows of Object.values(hogFlowsByTeam)) {
+            for (const flow of flows) {
+                if (flow.actions.some((a: HogFlowAction) => a.type === 'wait_until_condition')) {
+                    hogflows[flow.id] = flow
+                }
+            }
+        }
+        const functionIds = Object.keys(hogflows)
+        if (functionIds.length === 0) {
+            return
+        }
+
+        // A batch can carry several repoints for the same distinct_id (chained merges anon → A → B).
+        // Repoints aren't Kafka-keyed, so they may arrive out of order within the batch — keep the
+        // highest-version survivor per key rather than the last array entry, or we could re-key onto an
+        // intermediate person the survivor's person-stream updates would never wake.
+        const newPersonByKey = new Map<string, { personId: string; version: number }>()
+        for (const move of moves) {
+            const key = `${move.teamId}:${move.distinctId}`
+            const existing = newPersonByKey.get(key)
+            if (!existing || move.version > existing.version) {
+                newPersonByKey.set(key, { personId: move.newPersonId, version: move.version })
+            }
+        }
+        const moveTeamIds = moves.map((m) => m.teamId)
+        const moveDistinctIds = moves.map((m) => m.distinctId)
+
+        // Scope the lock + state fetch to the wait_until_condition steps we can actually re-key, so jobs
+        // of the same flow parked on unrelated steps (e.g. a delay) aren't locked or shipped over the wire.
+        const waitActionIds = Object.values(hogflows).flatMap((flow) =>
+            flow.actions.filter((a: HogFlowAction) => a.type === 'wait_until_condition').map((a) => a.id)
+        )
+
+        let updatedCount = 0
+        const client = await this.cyclotronPool.connect()
+        try {
+            await client.query('BEGIN')
+            // Lock the parked jobs for the repointed distinct_ids. ORDER BY id keeps lock order consistent
+            // with processMatchedJobs so concurrent move/match batches can't deadlock.
+            const rows = await client.query(
+                `SELECT id, team_id, distinct_id, function_id, action_id, state
+                 FROM cyclotron_jobs
+                 WHERE status = 'available'
+                   AND function_id = ANY($3::uuid[])
+                   AND action_id = ANY($4::text[])
+                   ${onlyNullAnchor ? 'AND person_id IS NULL' : ''}
+                   AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
+                 ORDER BY id
+                 FOR UPDATE`,
+                [moveTeamIds, moveDistinctIds, functionIds, waitActionIds]
+            )
+
+            const updates: { id: string; personId: string; state: Buffer }[] = []
+            for (const row of rows.rows) {
+                // Only re-key jobs currently parked ON a wait_until_condition step. A job of the same flow
+                // could be parked in a delay; rewriting its person_id off a repoint would be wrong, and it
+                // must never be pulled forward.
+                const action = row.action_id
+                    ? hogflows[row.function_id]?.actions.find((a: HogFlowAction) => a.id === row.action_id)
+                    : undefined
+                if (action?.type !== 'wait_until_condition') {
+                    continue
+                }
+                const newPerson = newPersonByKey.get(`${row.team_id}:${row.distinct_id}`)
+                if (!newPerson || !row.state) {
+                    continue
+                }
+                const newState = rewriteStatePersonId(
+                    row.state,
+                    newPerson.personId,
+                    newPerson.version,
+                    row.id,
+                    onlyNullAnchor
+                )
+                if (!newState) {
+                    continue
+                }
+                updates.push({ id: row.id, personId: newPerson.personId, state: newState })
+            }
+
+            if (updates.length > 0) {
+                // scheduled = NOW() wakes the parked wait on the repoint itself, closing the ordering
+                // race where the person-property update lands before this re-key (the matcher would
+                // otherwise miss the still-anon-keyed job and the wait would hang until its poll tick).
+                // Safe now that the worker resolves a re-keyed job by survivor personId (personIdRepointed).
+                const result = await client.query(
+                    `UPDATE cyclotron_jobs cj
+                     SET person_id = u.person_id, state = u.state, scheduled = NOW()
+                     FROM (
+                         SELECT unnest($1::uuid[]) AS id, unnest($2::text[]) AS person_id, unnest($3::bytea[]) AS state
+                     ) u
+                     WHERE cj.id = u.id AND cj.status = 'available'`,
+                    [updates.map((u) => u.id), updates.map((u) => u.personId), updates.map((u) => u.state)]
+                )
+                updatedCount = result.rowCount ?? 0
+            }
+            await client.query('COMMIT')
+            // Counted after COMMIT: an UPDATE that succeeds and then fails to commit is rolled back, so
+            // counting before this would report anchors that no job actually carries.
+            if (updatedCount > 0) {
+                if (onlyNullAnchor) {
+                    counterHogflowMatcherFirstMapping.labels({ outcome: 'filled' }).inc(updatedCount)
+                } else {
+                    counterHogflowMatcherJobsRekeyedOnMove.inc(updatedCount)
+                }
+            }
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => {})
+            throw err
+        } finally {
+            client.release()
+        }
+    }
+
     public override async start(): Promise<void> {
         await super.start()
-        await this.kafkaConsumer.connect(async (messages) => {
-            return await instrumentFn('cdpHogflowSubscriptionMatcher.handleEachBatch', async () => {
-                const invocationGlobals = await this._parseKafkaBatch(messages)
-                // Surface failures to the kafka consumer so the offset doesn't advance past a
-                // batch we couldn't match. The pod will crash and replay; the SELECT is read-only
-                // and the UPDATE (with `status = 'available'` guards) is idempotent, so replay is safe.
-                return { backgroundTask: this.processBatch(invocationGlobals) }
-            })
+        // Awaited so the first batches are gated against a populated set rather than an empty one,
+        // which would drop messages for teams whose only goal flow is paused. A failure here must not
+        // stop the matcher starting: an empty set degrades the gate to its previous flow-only
+        // behavior for one refresh interval, which is milder than refusing to consume at all.
+        await this.refreshTeamsWithLiveWatchers().catch((err) => {
+            logger.error('⚠️', 'Initial conversion-watcher team refresh failed; gating on flows alone', { err })
+            captureException(err)
         })
+        this.watcherTeamsRefreshTimer = setInterval(() => {
+            void this.refreshTeamsWithLiveWatchers().catch((err) => {
+                logger.error('⚠️', 'Failed to refresh teams with live conversion watchers', { err })
+                captureException(err)
+            })
+        }, WATCHER_TEAMS_REFRESH_INTERVAL_MS)
+        // Not work the process should stay alive for: periodic maintenance that the next start picks
+        // up. Unref'd, a consumer that was started but never stopped cannot hold the event loop open —
+        // which is what a leaked one does to a long single-process test run.
+        this.watcherTeamsRefreshTimer.unref()
+        // Surface failures to each kafka consumer so the offset doesn't advance past a batch we
+        // couldn't match. The pod will crash and replay; the SELECT is read-only and the UPDATE
+        // (with `status = 'available'` guards) is idempotent, so replay is safe. All three streams
+        // funnel into the same input-agnostic wakeMatchingWorkflows via processBatch.
+        await Promise.all([
+            this.kafkaConsumer.connect(async (messages) => {
+                return await instrumentFn('cdpHogflowSubscriptionMatcher.handleEachBatch', async () => {
+                    return { backgroundTask: this.processBatch(await this._parseKafkaBatch(messages), 'events') }
+                })
+            }),
+            this.personKafkaConsumer.connect(async (messages) => {
+                return await instrumentFn('cdpHogflowSubscriptionMatcher.handlePersonBatch', async () => {
+                    return { backgroundTask: this.processBatch(await this._parsePersonBatch(messages), 'person') }
+                })
+            }),
+            this.internalEventsKafkaConsumer.connect(async (messages) => {
+                return await instrumentFn('cdpHogflowSubscriptionMatcher.handleInternalEventsBatch', async () => {
+                    const { resumes, rest } = this._splitStepResumes(messages)
+                    const events = await this._parseInternalEventsBatch(rest)
+                    return {
+                        backgroundTask: Promise.all([
+                            this.processBatch(events, 'internal_events'),
+                            this.processStepResumes(resumes),
+                        ]).then(() => undefined),
+                    }
+                })
+            }),
+            this.personDistinctIdKafkaConsumer.connect(async (messages) => {
+                // Parsing repoints is synchronous, so wrap in a resolved promise to satisfy instrumentFn's
+                // promise-returning callback without a no-op async body.
+                return await instrumentFn('cdpHogflowSubscriptionMatcher.handlePersonDistinctIdBatch', () =>
+                    Promise.resolve({
+                        backgroundTask: this.processMoveBatch(this._parsePersonDistinctIdBatch(messages)),
+                    })
+                )
+            }),
+        ])
     }
 
     public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
-        await this.kafkaConsumer.disconnect()
+        if (this.watcherTeamsRefreshTimer) {
+            clearInterval(this.watcherTeamsRefreshTimer)
+        }
+        await Promise.all([
+            this.kafkaConsumer.disconnect(),
+            this.personKafkaConsumer.disconnect(),
+            this.internalEventsKafkaConsumer.disconnect(),
+            this.personDistinctIdKafkaConsumer.disconnect(),
+        ])
         await this.cyclotronPool.end()
         await super.stop()
         logger.info('💤', `${this.name} stopped!`)
     }
 
     public isHealthy(): HealthCheckResult {
-        return this.kafkaConsumer.isHealthy()
+        // Unhealthy if any stream is unhealthy: with polling gone, a stalled stream means dropped wakes.
+        const results = [
+            this.kafkaConsumer.isHealthy(),
+            this.personKafkaConsumer.isHealthy(),
+            this.internalEventsKafkaConsumer.isHealthy(),
+            this.personDistinctIdKafkaConsumer.isHealthy(),
+        ]
+        return results.find((r) => r.status !== 'ok') ?? results[0]
+    }
+}
+
+// Person mutations arrive on clickhouse_person with the full current property set but no triggering
+// analytics event. We synthesize a `$person_updated` event so wakeMatchingWorkflows can run a wait's
+// property condition against the new person.properties. Event-name `events` entries never match this
+// synthetic event name, which is correct: a person change should only satisfy property-based waits.
+function convertClickhousePersonToWakeGlobals(
+    data: ClickHousePerson,
+    team: Team,
+    siteUrl: string
+): HogFunctionInvocationGlobals {
+    const projectUrl = `${siteUrl}/project/${team.id}`
+    const properties = parseJSON(data.properties) as Record<string, any>
+    const person: CyclotronPerson = {
+        id: data.id,
+        properties,
+        name: getPersonDisplayName(team, data.id, properties),
+        url: `${projectUrl}/person/${encodeURIComponent(data.id)}`,
+    }
+    return {
+        project: { id: team.id, name: team.name, url: projectUrl },
+        event: {
+            uuid: new UUIDT().toString(),
+            event: '$person_updated',
+            // Empty so indexBatch only keys this on person_id. A person mutation has no triggering
+            // distinct_id, and using the person UUID here would add a spurious (team_id, distinct_id)
+            // lookup that matches a job only if its distinct_id happened to equal the UUID.
+            distinct_id: '',
+            properties: {},
+            timestamp: data.timestamp,
+            url: person.url,
+            elements_chain: '',
+        },
+        person,
     }
 }
 
@@ -463,15 +1325,6 @@ type IndexedBatch = {
     byPersonId: Map<string, HogFunctionInvocationGlobals[]>
 }
 
-// An "events to wait for" / conversion entry that targets neither events nor actions compiles to
-// always-true bytecode (the UI can leave an empty entry behind when the last event is removed), so
-// it would match every incoming event. Action-based entries (events empty, actions set) are real
-// and must be kept. Shared by the wait_until_condition and conversion evaluators so the rule lives
-// in one place.
-function hasEventOrActionTarget(eventConfig: { filters?: { events?: unknown[]; actions?: unknown[] } }): boolean {
-    return Boolean(eventConfig.filters?.events?.length || eventConfig.filters?.actions?.length)
-}
-
 // Whether a workflow exits when its conversion goal is met. Only then does the matcher wake a
 // parked job on a conversion match (so it can exit early); otherwise the conversion goal is
 // measurement-only and must not perturb the job's progression.
@@ -483,13 +1336,41 @@ function exitsOnConversion(hogflow: HogFlow): boolean {
 }
 
 // Skip teams whose hogflows have nothing the matcher can act on: no wait_until_condition step, and
-// no event-based conversion goal that the workflow exits on.
+// no event-based conversion goal. Event conversions are evaluated regardless of exit condition so
+// the `conversion` metric is tracked even for flows that don't exit on conversion — only the *wake*
+// decision (in wakeMatchingWorkflows) still depends on exitsOnConversion.
 function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
     if (hogflow.actions.some((a: HogFlowAction) => a.type === 'wait_until_condition')) {
         return true
     }
+    // Property goals count as actionable: their watchers are evaluated against person-property
+    // changes, and gating on `events` alone would skip the team before those watchers were ever read,
+    // leaving every property-only goal permanently at zero conversions.
+    if (hogflow.conversion?.filters?.length) {
+        return true
+    }
     const conversionEvents = hogflow.conversion?.events
-    return Array.isArray(conversionEvents) && conversionEvents.length > 0 && exitsOnConversion(hogflow)
+    return Array.isArray(conversionEvents) && conversionEvents.length > 0
+}
+
+// A pinned goal converts when the property branch matches, or any event branch does. The two are
+// independent detectors of the same goal, so they are OR'd — matching the UI, where a person who
+// does either is converted.
+async function matchesPinnedGoal(
+    goal: PinnedConversionGoal,
+    filterGlobals: FilterGlobals,
+    hogFlowId: string
+): Promise<'property' | 'event' | null> {
+    const context = { hogFlowId }
+    if (goal.properties?.length && (await runFilterBytecode(goal.properties, filterGlobals, context))) {
+        return 'property'
+    }
+    for (const bytecode of goal.events ?? []) {
+        if (await runFilterBytecode(bytecode, filterGlobals, context)) {
+            return 'event'
+        }
+    }
+    return null
 }
 
 // Single pass over the batch: dedup distinct/person ids, collect team ids,
@@ -548,7 +1429,7 @@ function pushToMap<K, V>(map: Map<K, V[]>, key: K, value: V): void {
 }
 
 function collectCandidateGlobals(
-    candidate: ParkedCandidate,
+    candidate: Pick<ParkedCandidate, 'teamId' | 'distinctId' | 'personId'>,
     byDistinctId: Map<string, HogFunctionInvocationGlobals[]>,
     byPersonId: Map<string, HogFunctionInvocationGlobals[]>
 ): HogFunctionInvocationGlobals[] {
@@ -566,71 +1447,128 @@ function collectCandidateGlobals(
     return [...seen]
 }
 
-// Logged as separate fields on a bytecode error so it's filterable by flow/action.
-// actionId is absent for a conversion goal (not an action).
-type BytecodeContext = { hogFlowId: string; actionId?: string }
-
-// Evaluates a compiled filter against the event. HogFlowSerializer compiles bytecode for
-// every events[].filters at save time, so missing/empty bytecode means a malformed row:
-// we fail closed (return false) rather than falling back to event-name-only matching, which
-// would silently bypass property filters.
-async function runBytecode(
-    bytecode: unknown,
-    filterGlobals: FilterGlobals,
-    context: BytecodeContext
-): Promise<boolean> {
-    if (!Array.isArray(bytecode) || bytecode.length === 0) {
-        return false
-    }
+// Point the persisted personId at the merge survivor so the worker's re-resolution — which falls back
+// to state.personId when the job has no distinct_id — lands on the survivor. Returns the new state
+// buffer, or null if the state can't be parsed (leave the row untouched).
+function rewriteStatePersonId(
+    stateBuffer: Buffer,
+    newPersonId: string,
+    newVersion: number,
+    jobId: string,
+    fillingNullAnchor = false
+): Buffer | null {
     try {
-        const result = await execHog(bytecode, { globals: filterGlobals })
-        return result.execResult?.result === true
+        const parsed = parseJSON(stateBuffer.toString('utf-8'))
+        // Reject a repoint no newer than the one already applied. Repoints aren't Kafka-keyed, so a
+        // delayed lower-version move (anon → A, v2) can arrive in a later batch than a higher one already
+        // applied (anon → B, v3); without this watermark it would rewind the wait onto the obsolete
+        // person A, and B's person-stream updates would no longer address the parked job.
+        // A first mapping is exempt: it carries version 0, which no watermark can beat, and there is no
+        // anchor to rewind — the caller has already scoped it to jobs with none.
+        const appliedVersion = parsed.state?.personIdRepointVersion ?? 0
+        if (!fillingNullAnchor && newVersion <= appliedVersion) {
+            return null
+        }
+        // Flag the re-key so the worker resolves the person by this survivor personId, not the repointed
+        // distinct_id whose ~1min cache still points at the pre-merge person (see personIdRepointed).
+        parsed.state = {
+            ...parsed.state,
+            personId: newPersonId,
+            personIdRepointed: true,
+            personIdRepointVersion: newVersion,
+        }
+        // Mark this as a re-key wake so the wait handler can attribute its re-check outcome to the
+        // re-key (see rekeyWake). currentAction is always a wait_until_condition here (re-key scope).
+        // Only for merges: counterHogflowRekeyWake exists to judge whether waking on a merge is wasted
+        // churn, so folding first-mapping fills into it would blend two causes into one ratio.
+        if (parsed.state.currentAction && !fillingNullAnchor) {
+            parsed.state.currentAction = { ...parsed.state.currentAction, rekeyWake: true }
+        }
+        return Buffer.from(JSON.stringify(parsed))
     } catch (err) {
-        // A broken filter silently never matches and the workflow falls through to its
-        // timeout branch, which is usually the wrong outcome. Surface loudly so we notice.
-        logger.error('🔴', 'Bytecode evaluation error', { ...context, err })
-        captureException(err, { extra: { ...context } })
-        counterHogflowMatcherBytecodeError.inc()
-        return false
+        logger.warn('Failed to parse state during distinct_id-move re-key', { jobId, err })
+        return null
     }
 }
 
-function applyWakeFlags(stateBuffer: Buffer, req: WakeRequest): Buffer | null {
+// Stamps the resume onto the parked step. Returns null when the job is not waiting on this exact
+// key: the step already advanced, or the wake belongs to an earlier visit of the same step.
+function applyStepResumeToState(stateBuffer: Buffer, resume: StepResume): Buffer | null {
+    try {
+        const parsed = parseJSON(stateBuffer.toString('utf-8'))
+        const currentAction = parsed.state?.currentAction
+        if (currentAction?.id !== resume.actionId || currentAction.awaitingResume?.key !== resume.origin_key) {
+            return null
+        }
+        parsed.state = {
+            ...parsed.state,
+            currentAction: {
+                ...currentAction,
+                resumeResult: {
+                    key: resume.origin_key,
+                    status: resume.status,
+                    result: resume.result ?? undefined,
+                },
+            },
+        }
+        return Buffer.from(JSON.stringify(parsed))
+    } catch (err) {
+        logger.warn('Failed to parse state during step resume', { jobId: resume.jobId, err })
+        return null
+    }
+}
+
+type MatchOutcome = { state: Buffer; wake: boolean }
+
+// Applies a batch match to a parked job's state. Returns the new state plus whether the job should
+// be woken (`scheduled = NOW()`) and whether its conversion should be counted this run. Returns null
+// when nothing changed (e.g. the conversion was already counted and there's no wake to apply).
+function applyMatchToState(stateBuffer: Buffer, m: MatchedJob): MatchOutcome | null {
     try {
         const parsed = parseJSON(stateBuffer.toString('utf-8'))
         const updatedState: HogFlowInvocationContext = { ...parsed.state }
 
-        let applied = false
-        if (req.stepMatched) {
+        let changed = false
+        let wake = false
+
+        // A matched wait_until_condition step resumes the job, tagged so the resume reads as an event
+        // match rather than a timeout.
+        if (m.stepMatched) {
             if (updatedState.currentAction) {
                 updatedState.currentAction = {
                     ...updatedState.currentAction,
                     eventMatched: true,
-                    eventMatchedEvent: req.eventName,
-                    eventMatchedEventUuid: req.eventUuid,
-                    eventMatchedEventTimestamp: req.eventTimestamp,
+                    eventMatchedEvent: m.eventName,
+                    eventMatchedEventUuid: m.eventUuid,
+                    eventMatchedEventTimestamp: m.eventTimestamp,
                 }
-                applied = true
+                changed = true
+                wake = true
             } else {
-                // A parked wait_until_condition job should always carry its current action.
-                // Without it we cannot tag the wake as an event match - skip the flag and
-                // continue, since conversionMatched is independent of currentAction and may
-                // still apply.
-                logger.warn('Skipping eventMatched: no currentAction in state', { jobId: req.id })
+                // A parked wait_until_condition job should always carry its current action. Without it
+                // we cannot tag the wake as an event match - skip the flag and continue, since the
+                // conversion handling above is independent of currentAction and may still apply.
+                logger.warn('Skipping eventMatched: no currentAction in state', { jobId: m.id })
             }
         }
-        if (req.conversionMatched) {
+
+        // Only exit-on-conversion flows resume on a conversion match, so shouldExitEarly can exit. For
+        // any other exit condition the goal is measurement-only and the run must not be rescheduled,
+        // or we'd pull a parked job (e.g. one in a delay) forward. Counting happens on the watcher
+        // either way, so a measurement-only flow needs no write here at all.
+        if (m.conversionMatched && m.exitsOnConversion) {
             updatedState.conversionMatched = true
-            applied = true
+            changed = true
+            wake = true
         }
-        if (!applied) {
-            // No flag set - waking the job without one would misclassify as a timeout wake.
+
+        if (!changed) {
             return null
         }
         parsed.state = updatedState
-        return Buffer.from(JSON.stringify(parsed))
+        return { state: Buffer.from(JSON.stringify(parsed)), wake }
     } catch (err) {
-        logger.warn('Failed to parse state during wake', { jobId: req.id, err })
+        logger.warn('Failed to parse state during match', { jobId: m.id, err })
         return null
     }
 }

@@ -1,6 +1,7 @@
 use crate::{
     config_cache::{get_cached_data, CacheNamespace},
     router::State as AppState,
+    sanitize::sanitize_surveys_for_client,
     token::{Token, TokenError},
 };
 use axum::{
@@ -27,11 +28,7 @@ struct SurveysFormBody {
 }
 
 fn empty_surveys_response() -> Response {
-    Json(serde_json::json!({
-        "surveys": [],
-        "survey_config": null
-    }))
-    .into_response()
+    Json(serde_json::json!({"surveys": []})).into_response()
 }
 
 /// Surveys endpoint handler
@@ -43,7 +40,7 @@ fn empty_surveys_response() -> Response {
 /// - Token from query param `token` or `api_key` (checked first)
 /// - For POST requests, falls back to form-encoded body (`token` or `api_key`)
 /// - No authentication beyond token validation
-/// - Returns cached `{"surveys": [...], "survey_config": {...}}`
+/// - Returns cached `{"surveys": [...]}`
 pub async fn surveys_endpoint(
     State(state): State<AppState>,
     Query(params): Query<SurveysQueryParams>,
@@ -80,7 +77,7 @@ pub async fn surveys_endpoint(
         Err(r) => return r,
     };
 
-    let value = match get_cached_data(
+    let mut value = match get_cached_data(
         &state.surveys_hypercache_reader,
         state.surveys_negative_cache.as_ref(),
         CacheNamespace::Surveys,
@@ -92,6 +89,7 @@ pub async fn surveys_endpoint(
         None => return empty_surveys_response(),
     };
 
+    sanitize_surveys_for_client(&mut value);
     Json(value).into_response()
 }
 
@@ -199,8 +197,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
 
         let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(parsed["surveys"], json!([]));
-        assert_eq!(parsed["survey_config"], json!(null));
+        assert_eq!(parsed, json!({"surveys": []}));
     }
 
     #[tokio::test]
@@ -209,7 +206,23 @@ mod tests {
         let key = cache_key("surveys", "surveys.json", token);
 
         let survey_data = json!({
-            "surveys": [{"id": "s1", "name": "NPS", "type": "popover"}],
+            "surveys": [{
+                "id": "s1",
+                "name": "NPS",
+                "type": "popover",
+                "base_language": "en",
+                "questions": [{"type": "rating", "isNpsQuestion": true}],
+                "conditions": {
+                    "actions": {
+                        "values": [{
+                            "id": 1,
+                            "name": "signed up",
+                            "steps": [{"event": "$pageview"}],
+                            "created_by": {"email": "private@example.com"}
+                        }]
+                    }
+                }
+            }],
             "survey_config": {"appearance": {"theme": "light"}}
         });
 
@@ -224,7 +237,26 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
 
         let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(parsed, survey_data);
+        assert_eq!(
+            parsed,
+            json!({
+                "surveys": [{
+                    "id": "s1",
+                    "name": "NPS",
+                    "type": "popover",
+                    "questions": [{"type": "rating"}],
+                    "conditions": {
+                        "actions": {
+                            "values": [{
+                                "id": 1,
+                                "name": "signed up",
+                                "steps": [{"event": "$pageview"}]
+                            }]
+                        }
+                    }
+                }]
+            })
+        );
     }
 
     #[tokio::test]
@@ -232,7 +264,7 @@ mod tests {
         let token = "phc_apikey_test";
         let key = cache_key("surveys", "surveys.json", token);
 
-        let survey_data = json!({"surveys": [{"id": "s1"}], "survey_config": null});
+        let survey_data = json!({"surveys": [{"id": "s1"}]});
 
         let mut mock = MockRedisClient::new();
         mock = mock.get_raw_bytes_ret(&key, Ok(pickle_json(&survey_data)));
@@ -253,7 +285,7 @@ mod tests {
         let token = "phc_form_test";
         let key = cache_key("surveys", "surveys.json", token);
 
-        let survey_data = json!({"surveys": [{"id": "s2"}], "survey_config": null});
+        let survey_data = json!({"surveys": [{"id": "s2"}]});
 
         let mut mock = MockRedisClient::new();
         mock = mock.get_raw_bytes_ret(&key, Ok(pickle_json(&survey_data)));
@@ -274,7 +306,7 @@ mod tests {
         let token = "phc_form_apikey";
         let key = cache_key("surveys", "surveys.json", token);
 
-        let survey_data = json!({"surveys": [{"id": "s3"}], "survey_config": null});
+        let survey_data = json!({"surveys": [{"id": "s3"}]});
 
         let mut mock = MockRedisClient::new();
         mock = mock.get_raw_bytes_ret(&key, Ok(pickle_json(&survey_data)));
@@ -296,7 +328,7 @@ mod tests {
         let form_token = "phc_form_loses";
 
         let key = cache_key("surveys", "surveys.json", query_token);
-        let survey_data = json!({"surveys": [{"id": "query"}], "survey_config": null});
+        let survey_data = json!({"surveys": [{"id": "query"}]});
 
         let mut mock = MockRedisClient::new();
         mock = mock.get_raw_bytes_ret(&key, Ok(pickle_json(&survey_data)));

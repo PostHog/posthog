@@ -209,6 +209,17 @@ describe('traceloop middleware', () => {
             expect(event.properties!['$ai_stop_reason']).toBe('end_turn')
         })
 
+        it('promotes posthog_-prefixed association properties as custom properties', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'traceloop.association.properties.posthog_env': 'prod',
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['env']).toBe('prod')
+            expect(event.properties!['traceloop.association.properties.posthog_env']).toBeUndefined()
+        })
+
         it('maps finish_reason to $ai_stop_reason when stop_reason is absent', () => {
             const event = createEvent('$ai_generation', {
                 'llm.request.type': 'chat',
@@ -227,6 +238,54 @@ describe('traceloop middleware', () => {
             traceloop.process(event, () => mapOtelAttributes(event))
 
             expect(event.properties!['$ai_stop_reason']).toBeUndefined()
+        })
+
+        it('lifts the per-completion finish reason from indexed attributes', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'gen_ai.completion.0.role': 'assistant',
+                'gen_ai.completion.0.content': 'hi',
+                'gen_ai.completion.0.finish_reason': 'length',
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['$ai_stop_reason']).toBe('length')
+            expect(event.properties!['$ai_output_choices']).toEqual([
+                { role: 'assistant', content: 'hi', finish_reason: 'length' },
+            ])
+        })
+
+        it('ignores an oversized stop reason and falls through to the next source', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'llm.response.stop_reason': 'x'.repeat(129),
+                'gen_ai.response.finish_reasons': ['stop'],
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['$ai_stop_reason']).toBe('stop')
+        })
+
+        it('maps gen_ai.response.finish_reasons when the llm.* names are absent', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'gen_ai.response.finish_reasons': ['length'],
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['gen_ai.response.finish_reasons']).toBeUndefined()
+            expect(event.properties!['$ai_stop_reason']).toBe('length')
+        })
+
+        it('prefers the llm.* reason over gen_ai.response.finish_reasons', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'llm.response.stop_reason': 'end_turn',
+                'gen_ai.response.finish_reasons': ['length'],
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['$ai_stop_reason']).toBe('end_turn')
         })
     })
 })

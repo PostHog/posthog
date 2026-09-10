@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
@@ -5,7 +6,7 @@ import { useCallback, useMemo, type ErrorInfo } from 'react'
 import { PieChart } from '@posthog/quill-charts'
 import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
@@ -13,22 +14,24 @@ import {
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { ChartDisplayType } from '~/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
+import { DonutCenterLabel } from './DonutCenterLabel'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
 
 interface TrendsPieChartProps {
@@ -37,6 +40,8 @@ interface TrendsPieChartProps {
     showPersonsModal?: boolean
 }
 
+const DONUT_INNER_RADIUS_RATIO = 0.6
+
 const handleChartError = (error: Error, info: ErrorInfo): void => {
     posthog.captureException(error, {
         feature: 'trends-pie-chart',
@@ -44,18 +49,22 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
     })
 }
 
-export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieChartProps): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+export function TrendsPieChart({
+    context,
+    inSharedMode,
+    showPersonsModal = true,
+}: TrendsPieChartProps): JSX.Element | null {
+    const theme = useChartTheme()
 
     const { insightProps } = useValues(insightLogic)
+    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
     const { baseCurrency } = useValues(teamLogic)
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { aggregationLabel } = useValues(groupsModel)
 
     const {
+        display,
         indexedResults,
         trendsFilter,
         formula,
@@ -84,17 +93,17 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
 
     const onDataPointClick = context?.onDataPointClick
     const showAggregation = !pieChartVizOptions?.hideAggregation
+    const isDonut = display === ChartDisplayType.ActionsDonut
 
+    // Share the line/bar label resolver so the legend humanizes event names ($pageview → Pageview)
+    // and honors series renames, instead of showing the raw event key.
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
-            breakdownFilter
-                ? formatBreakdownLabel(
-                      r.breakdown_value,
-                      breakdownFilter,
-                      allCohorts.results,
-                      formatPropertyValueForDisplay
-                  )
-                : (r.label ?? ''),
+            getTrendsSeriesDisplayLabel(r, {
+                breakdownFilter,
+                cohorts: allCohorts.results,
+                formatPropertyValueForDisplay,
+            }),
         [breakdownFilter, allCohorts.results, formatPropertyValueForDisplay]
     )
 
@@ -102,10 +111,12 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
         () =>
             buildTrendsPieSeries(indexedResults ?? [], {
                 getColor: getTrendsColor,
-                getHidden: getTrendsHidden,
+                // Hidden series are listed (dimmed) and excluded via config.legend.hiddenKeys instead
+                // of being dropped here, so the legend can restore them.
+                getHidden: undefined,
                 getLabel,
             }),
-        [indexedResults, getTrendsColor, getTrendsHidden, getLabel]
+        [indexedResults, getTrendsColor, getLabel]
     )
 
     const visibleResults = useMemo(
@@ -123,14 +134,30 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
         [trendsFilter, baseCurrency]
     )
 
+    // Values and percentages are independent on a pie: either one alone puts that number on the
+    // slice, and both together read as `352 (18.4%)`, matching the tooltip.
+    const showValue = !!showValuesOnSeries
+    const showPercent = isPercentStackView
+
     const pieConfig: PieChartConfig<TrendsSeriesMeta> = useMemo(
         () => ({
-            showValueOnSlice: !!showValuesOnSeries,
+            showValueOnSlice: showValue || showPercent,
+            sliceValueDisplay: showValue && showPercent ? 'both' : showPercent ? 'percent' : 'value',
             showLabelOnSlice: !!showLabelOnSeries,
             isPercent: isPercentStackView,
             disableHoverOffset: !!pieChartVizOptions?.disableHoverOffset,
+            innerRadiusRatio: isDonut ? DONUT_INNER_RADIUS_RATIO : undefined,
+            legend: legendConfig,
         }),
-        [showValuesOnSeries, showLabelOnSeries, isPercentStackView, pieChartVizOptions?.disableHoverOffset]
+        [
+            showValue,
+            showPercent,
+            showLabelOnSeries,
+            isPercentStackView,
+            pieChartVizOptions?.disableHoverOffset,
+            isDonut,
+            legendConfig,
+        ]
     )
 
     // ActionsPie disables clicks entirely when the insight has data-warehouse series (see
@@ -204,24 +231,23 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
     )
 
     const renderTooltip = useCallback(
-        (ctx: TooltipContext<TrendsSeriesMeta>) => (
-            <TrendsTooltip
-                context={ctx}
-                breakdownFilter={breakdownFilter ?? undefined}
-                trendsFilter={trendsFilter}
-                formula={formula}
-                baseCurrency={baseCurrency}
-                groupTypeLabel={resolvedGroupTypeLabel}
-                formatCompareLabel={context?.formatCompareLabel}
-                onRowClick={onRowClick}
-                showHeader={false}
-                renderCount={renderCount}
-            />
-        ),
+        (ctx: TooltipContext<TrendsSeriesMeta>) => {
+            const sharedProps = {
+                context: ctx,
+                breakdownFilter: breakdownFilter ?? undefined,
+                trendsFilter,
+                baseCurrency,
+                groupTypeLabel: resolvedGroupTypeLabel,
+                formatCompareLabel: context?.formatCompareLabel,
+                onRowClick,
+                showHeader: false as const,
+                renderCount,
+            }
+            return <InsightSeriesTooltip {...sharedProps} />
+        },
         [
             breakdownFilter,
             trendsFilter,
-            formula,
             baseCurrency,
             resolvedGroupTypeLabel,
             context?.formatCompareLabel,
@@ -230,27 +256,53 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
         ]
     )
 
-    if (!visibleResults.length) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+    // An all-hidden pie must keep rendering the legend (dimmed rows) so the hidden slices can be
+    // restored — only a truly empty result set gets the empty state.
+    if (!(indexedResults ?? []).length) {
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="pie"
+            />
+        )
     }
+
+    // A bottom legend (exports/shared images) hugs the bottom of the chart box. If the box fills a
+    // tall card the round pie centers in it, stranding the legend far below the pie and up against
+    // the total. Bound the box to a square around the pie so the legend sits right under it, and
+    // center the whole group. In-app (right legend) the chart keeps filling the column.
+    const legendAtBottom = !!legendConfig.show && legendConfig.position === 'bottom'
+
+    // A donut's hollow center is the natural home for the total, so move it there instead of
+    // stranding it below the chart.
+    const centerLabel =
+        isDonut && showAggregation ? (
+            <DonutCenterLabel>{formatAggregationAxisValue(trendsFilter, total, baseCurrency)}</DonutCenterLabel>
+        ) : undefined
+
+    const pie = (
+        <PieChart<TrendsSeriesMeta>
+            series={series}
+            theme={theme}
+            config={pieConfig}
+            tooltip={renderTooltip}
+            onSliceClick={canHandleClick ? onSliceClick : undefined}
+            valueFormatter={valueFormatter}
+            centerLabel={centerLabel}
+            dataAttr="trend-pie-graph"
+            onError={handleChartError}
+        />
+    )
 
     return (
         // `flex-1 min-h-0` (not `h-full`) so the chart fills the flex column even when the
         // parent only sets `min-height`/`flex` — a percentage height would collapse to 0,
         // leaving `PieChart` with `outerRadius <= 0` and no slices. Mirrors the bar/line charts.
-        <div className="flex flex-col w-full flex-1 min-h-0">
-            <PieChart<TrendsSeriesMeta>
-                series={series}
-                theme={theme}
-                config={pieConfig}
-                tooltip={renderTooltip}
-                onSliceClick={canHandleClick ? onSliceClick : undefined}
-                valueFormatter={valueFormatter}
-                dataAttr="trend-pie-graph"
-                onError={handleChartError}
-            />
-            {showAggregation && (
-                <div className="text-7xl text-center font-bold m-0">
+        <div className={clsx('flex flex-col w-full flex-1 min-h-0', legendAtBottom && 'justify-center')}>
+            {legendAtBottom ? <div className="flex flex-col w-full min-h-0 max-h-full aspect-square">{pie}</div> : pie}
+            {showAggregation && !isDonut && (
+                <div className={clsx('text-7xl text-center font-bold m-0', legendAtBottom && 'mt-6')}>
                     {formatAggregationAxisValue(trendsFilter, total, baseCurrency)}
                 </div>
             )}

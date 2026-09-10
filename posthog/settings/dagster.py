@@ -4,7 +4,6 @@ from posthog.settings.base_variables import CLOUD_DEPLOYMENT
 
 DAGSTER_S3_BUCKET: str = os.getenv("DAGSTER_S3_BUCKET", "posthog-dags")
 DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL: str = os.getenv("DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL", "#alerts-clickhouse")
-DAGSTER_DATA_EXPORT_S3_BUCKET: str = os.getenv("DAGSTER_DATA_EXPORT_S3_BUCKET", "dagster-data-export")
 
 _QUERY_LOG_ARCHIVE_EXPORT_BUCKETS = {
     "US": "posthog-query-log-archive-export-us-east-1",

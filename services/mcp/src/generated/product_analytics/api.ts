@@ -3,10 +3,58 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Counts of $autocapture, $rageclick, and $dead_click events grouped by the element chain
+ * they occurred on, ordered by count. Defaults to all three event types; narrow with the
+ * include parameter.
+ */
+export const ElementsStatsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ElementsStatsRetrieveQueryParams = () => zod.object({
+    data_attributes: zod
+        .string()
+        .optional()
+        .describe(
+            "Comma-separated data attribute names (wildcards allowed, e.g. data-\*). When provided, each element's attributes map is filtered to matching attr__\* keys, shrinking the response."
+        ),
+    date_from: zod
+        .string()
+        .optional()
+        .describe('Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.'),
+    date_to: zod.string().optional().describe('End of the date range (e.g. 2024-01-31). Defaults to now.'),
+    filter_test_accounts: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored."
+        ),
+    include: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.'
+        ),
+    limit: zod.number().optional().describe('Maximum rows per page'),
+    offset: zod.number().optional().describe('Pagination offset'),
+    properties: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of property filters to apply to the underlying events, e.g. [{\"key\": \"$current_url\", \"value\": \"https:\/\/example.com\/page\"}] or [{\"key\": \"email\", \"value\": \"@posthog.com\", \"operator\": \"icontains\", \"type\": \"person\"}]. Supports event, person, cohort, element, and HogQL property filter types.'
+        ),
+    sampling_factor: zod.number().optional().describe('Sampling factor between 0 and 1'),
+})
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
@@ -16,17 +64,17 @@ import * as zod from 'zod'
  * initial() (auth + permissions + throttling) before returning the
  * cached response, ensuring the request is authorized.
  */
-export const InsightsListParams = /* @__PURE__ */ zod.object({
+export const InsightsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const insightsListQueryRefreshDefault = `force_cache`
 
-export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsListQueryParams = () => zod.object({
     basic: zod.boolean().optional().describe('Return basic insight metadata only (no results, faster).'),
     created_by: zod
         .string()
@@ -61,8 +109,14 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Include this parameter (any value) to restrict results to insights marked as favorited.'),
     format: zod.enum(['csv', 'json']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
     insight: zod
-        .enum(['FUNNELS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
+        .enum(['FUNNELS', 'JOURNEYS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
         .optional()
         .describe(
             'Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.'
@@ -101,7 +155,7 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`."
+            "Search term matched across name, derived_name, description, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram) matches instead. Each result's `search_match_type` is `exact` or `similar`."
         ),
     short_id: zod.string().optional(),
     tags: zod
@@ -124,16 +178,22 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
  * initial() (auth + permissions + throttling) before returning the
  * cached response, ensuring the request is authorized.
  */
-export const InsightsCreateParams = /* @__PURE__ */ zod.object({
+export const InsightsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const InsightsCreateQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsCreateQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const insightsCreateBodyNameMax = 400
@@ -145,7 +205,7 @@ export const insightsCreateBodyOrderMax = 2147483647
 
 export const insightsCreateBodyDescriptionMax = 400
 
-export const InsightsCreateBody = /* @__PURE__ */ zod
+export const InsightsCreateBody = () => zod
     .object({
         name: zod.string().max(insightsCreateBodyNameMax).nullish(),
         derived_name: zod.string().max(insightsCreateBodyDerivedNameMax).nullish(),
@@ -155,7 +215,7 @@ export const InsightsCreateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        '
+                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        This field is omitted from session-authenticated responses unless `include_dashboards=true`\n        is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)\n        must opt in the same way. Do not rely on it being present.\n        '
             ),
         description: zod.string().max(insightsCreateBodyDescriptionMax).nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -172,20 +232,20 @@ export const InsightsCreateBody = /* @__PURE__ */ zod
  * initial() (auth + permissions + throttling) before returning the
  * cached response, ensuring the request is authorized.
  */
-export const InsightsRetrieveParams = /* @__PURE__ */ zod.object({
+export const InsightsRetrieveParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const insightsRetrieveQueryRefreshDefault = `force_cache`
 
-export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsRetrieveQueryParams = () => zod.object({
     filters_override: zod
         .string()
         .optional()
@@ -198,6 +258,12 @@ export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "\nOnly if loading an insight in the context of a dashboard: The relevant dashboard's ID.\nWhen set, the specified dashboard's filters and date range override will be applied."
+        ),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
         ),
     refresh: zod
         .enum([
@@ -217,7 +283,7 @@ export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {\"<variable_id>\": {\"code_name\": \"<code_name>\", \"variableId\": \"<variable_id>\", \"value\": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
         ),
 })
 
@@ -229,19 +295,25 @@ export const InsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
  * initial() (auth + permissions + throttling) before returning the
  * cached response, ensuring the request is authorized.
  */
-export const InsightsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const InsightsPartialUpdateParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const InsightsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsPartialUpdateQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
 })
 
 export const insightsPartialUpdateBodyNameMax = 400
@@ -253,7 +325,7 @@ export const insightsPartialUpdateBodyOrderMax = 2147483647
 
 export const insightsPartialUpdateBodyDescriptionMax = 400
 
-export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
+export const InsightsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(insightsPartialUpdateBodyNameMax).nullish(),
         derived_name: zod.string().max(insightsPartialUpdateBodyDerivedNameMax).nullish(),
@@ -263,7 +335,7 @@ export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        '
+                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        This field is omitted from session-authenticated responses unless `include_dashboards=true`\n        is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)\n        must opt in the same way. Do not rely on it being present.\n        '
             ),
         description: zod.string().max(insightsPartialUpdateBodyDescriptionMax).nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -275,34 +347,34 @@ export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const InsightsDestroyParams = /* @__PURE__ */ zod.object({
+export const InsightsDestroyParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const InsightsDestroyQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsDestroyQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
 /**
  * Audit trail for a single insight — every change made to it, by whom, and when. Use this when you want the change history of a specific insight; use the project-wide activity endpoint for a broader view.
  */
-export const InsightsActivityRetrieveParams = /* @__PURE__ */ zod.object({
+export const InsightsActivityRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this insight.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const InsightsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsActivityRetrieveQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     limit: zod.number().optional().describe('Page size. Defaults to 10.'),
     page: zod.number().optional().describe('1-indexed page number. Defaults to 1.'),
@@ -311,15 +383,15 @@ export const InsightsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Project-wide audit trail across all insights — who created, edited, deleted, or restored insights, what changed (with before/after diffs), and when. Useful for surfacing what people (or agents) have been working on recently.
  */
-export const InsightsAllActivityRetrieveParams = /* @__PURE__ */ zod.object({
+export const InsightsAllActivityRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const InsightsAllActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsAllActivityRetrieveQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     limit: zod.number().optional().describe('Page size. Defaults to 10.'),
     page: zod.number().optional().describe('1-indexed page number. Defaults to 1.'),
@@ -328,15 +400,15 @@ export const InsightsAllActivityRetrieveQueryParams = /* @__PURE__ */ zod.object
 /**
  * Returns insights ranked by view count over the last N days (default 7), highest first. Each result includes the same metadata as the standard insights list, plus a `view_count` and up to 3 recent `viewers`. Useful for surfacing the most-used insights in a project.
  */
-export const InsightsTrendingRetrieveParams = /* @__PURE__ */ zod.object({
+export const InsightsTrendingRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const InsightsTrendingRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const InsightsTrendingRetrieveQueryParams = () => zod.object({
     days: zod
         .number()
         .optional()
@@ -344,6 +416,12 @@ export const InsightsTrendingRetrieveQueryParams = /* @__PURE__ */ zod.object({
             "Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now."
         ),
     format: zod.enum(['csv', 'json']).optional(),
+    include_dashboards: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
+        ),
     limit: zod.number().optional().describe('Maximum number of insights to return. Defaults to 10. Capped at 100.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })

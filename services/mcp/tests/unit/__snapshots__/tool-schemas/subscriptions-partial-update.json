@@ -1,6 +1,50 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "ai_prompt_config": {
+            "description": "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes.",
+            "properties": {
+                "window": {
+                    "description": "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery).",
+                    "properties": {
+                        "end_days_ago": {
+                            "anyOf": [
+                                {
+                                    "maximum": 365,
+                                    "minimum": 0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                        },
+                        "mode": {
+                            "default": "since_last_sent",
+                            "description": "What the report analyzes each run:\n* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n* `last_n_days` — a fixed trailing window of start_days_ago days\n* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago",
+                            "enum": ["since_last_sent", "last_n_days", "days_ago_range"],
+                            "type": "string"
+                        },
+                        "start_days_ago": {
+                            "anyOf": [
+                                {
+                                    "maximum": 365,
+                                    "minimum": 1,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
         "bysetpos": {
             "anyOf": [
                 {
@@ -28,7 +72,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
+            "description": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
         },
         "count": {
             "anyOf": [
@@ -55,11 +99,22 @@
             "description": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."
         },
         "dashboard_export_insights": {
-            "description": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
+            "description": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.",
             "items": {
                 "type": "number"
             },
             "type": "array"
+        },
+        "delivery_config": {
+            "description": "Per-delivery rendering options. Each option documents which delivery targets it applies to.",
+            "properties": {
+                "post_all_insights_in_main_message": {
+                    "default": false,
+                    "description": "Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
         },
         "enabled": {
             "description": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.",
@@ -114,7 +169,7 @@
             "description": "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
         },
         "start_date": {
-            "description": "When to start delivering (ISO 8601 datetime).",
+            "description": "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
@@ -129,12 +184,12 @@
             "type": "string"
         },
         "target_type": {
-            "description": "Delivery channel: email or slack.\n\n* `email` - Email\n* `slack` - Slack",
-            "enum": ["email", "slack"],
+            "description": "Delivery channel: email, slack, or teams.\n\n* `email` - Email\n* `slack` - Slack\n* `teams` - Microsoft Teams",
+            "enum": ["email", "slack", "teams"],
             "type": "string"
         },
         "target_value": {
-            "description": "Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack.",
+            "description": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.",
             "type": "string"
         },
         "title": {

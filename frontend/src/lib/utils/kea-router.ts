@@ -7,6 +7,7 @@ const pathsWithoutProjectId = [
     'me',
     'instance',
     'organization',
+    'billing',
     'preflight',
     'login',
     'signup',
@@ -20,10 +21,31 @@ const pathsWithoutProjectId = [
     'render_query',
 ]
 
+// Instance-level pages that live under a product's own path prefix rather than
+// under `/instance/*`, so they need an exact (rather than first-segment) exemption.
+// The startsWith(exactPath + '/') check below also exempts nested staff tools from
+// other products, e.g. the cohorts staff tools at /feature_flags/staff/cohorts —
+// renaming this path affects them too.
+const exactPathsWithoutProjectId = ['/feature_flags/staff', '/experiments/staff']
+
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 
+// `/project` and `/project/` carry no id, so the regex above does not see a project prefix there.
+// Without this, the path survives the strip pass, matches no route, and renders the 404 scene,
+// while `addProjectIdUnlessPresent` prefixes the current team onto it and rewrites the address bar
+// to `/project/<team id>/project`. That rewritten URL reduces to the same bare form once its id is
+// stripped, so bookmarks of it land home too. The lookahead keeps real routes like `/project/new`
+// and `/project/settings` out, because they have their own entries in the redirects map.
+const projectRootWithoutIdentifierInUrlRegex = /^\/project\/?(?=$|[?#])/
+
 function isPathWithoutProjectId(path: string): boolean {
-    const firstPart = path.split('/')[1]
+    const pathname = path.split(/[?#]/)[0]
+    if (
+        exactPathsWithoutProjectId.some((exactPath) => pathname === exactPath || pathname.startsWith(exactPath + '/'))
+    ) {
+        return true
+    }
+    const firstPart = pathname.split('/')[1]
     return pathsWithoutProjectId.includes(firstPart)
 }
 
@@ -41,6 +63,8 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
         path = normalizeRelativePath(path)
     }
 
+    path = path.replace(projectRootWithoutIdentifierInUrlRegex, '/')
+
     let prefix = ''
     try {
         prefix = `/project/${teamId ?? getCurrentTeamId()}`
@@ -57,10 +81,24 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
 }
 
 export function removeProjectIdIfPresent(path: string): string {
-    if (path.match(projectIdentifierInUrlRegex)) {
-        return '/' + path.split('/').splice(3).join('/')
+    const withoutProjectId = path.match(projectIdentifierInUrlRegex) ? '/' + path.split('/').splice(3).join('/') : path
+    return withoutProjectId.replace(projectRootWithoutIdentifierInUrlRegex, '/')
+}
+
+/**
+ * kea-router runs `decodeURI(pathname)` while matching routes. A stray `%` that isn't a valid
+ * escape (e.g. a distinct id like `50%off` in `/person/50%off`) makes `decodeURI` throw
+ * `URIError` synchronously inside the router, before any scene loads, crashing the whole app.
+ * Escape every `%` so the path stays decodable and routing falls through to the scene (or 404)
+ * instead of throwing. Well-formed paths are returned untouched.
+ */
+export function ensureRoutablePathname(path: string): string {
+    try {
+        decodeURI(path)
+        return path
+    } catch {
+        return path.replace(/%/g, '%25')
     }
-    return path
 }
 
 export function stripTrailingSlash(path: string): string {

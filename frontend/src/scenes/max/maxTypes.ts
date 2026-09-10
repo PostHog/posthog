@@ -3,9 +3,6 @@ import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/sc
 import { integer } from '~/queries/schema/type-utils'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-// eslint-disable-next-line import/no-cycle
-import { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
-
 export enum MaxContextType {
     DASHBOARD = 'dashboard',
     INSIGHT = 'insight',
@@ -120,7 +117,6 @@ type MaxInsightContextInput = {
     data: InsightWithQuery
     filtersOverride?: DashboardFilter
     variablesOverride?: Record<string, HogQLVariable>
-    revenueAnalyticsQuery?: RevenueAnalyticsQuery
 }
 type MaxDashboardContextInput = {
     type: MaxContextType.DASHBOARD
@@ -193,18 +189,15 @@ export const createMaxContextHelpers = {
         {
             filtersOverride,
             variablesOverride,
-            revenueAnalyticsQuery,
         }: {
             filtersOverride?: DashboardFilter
             variablesOverride?: Record<string, HogQLVariable>
-            revenueAnalyticsQuery?: RevenueAnalyticsQuery
         } = {}
     ): MaxInsightContextInput => ({
         type: MaxContextType.INSIGHT,
         data: pickInsightFields(insight),
         filtersOverride,
         variablesOverride,
-        revenueAnalyticsQuery,
     }),
 
     event: (event: EventDefinition): MaxEventContextInput => ({
@@ -243,9 +236,9 @@ export function isAgentMode(mode: unknown): mode is AgentMode {
     return typeof mode === 'string' && Object.values(AgentMode).includes(mode as AgentMode)
 }
 
-// `SandboxToolCallMessage` now lives with the relocated sandbox renderer. Re-exported here so
+// `ToolCallMessage` now lives with the relocated sandbox renderer. Re-exported here so
 // the frozen LangGraph path and any in-flight branches keep resolving it from `maxTypes`.
-export type { SandboxToolCallMessage } from 'products/posthog_ai/frontend/sandbox/types/sandboxToolTypes'
+export type { ToolCallMessage } from 'products/posthog_ai/frontend/api/types'
 
 /**
  * Flat context attachment sent to the sandbox agent runtime (`agent_runtime === 'sandbox'`).

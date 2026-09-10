@@ -5,11 +5,9 @@ import { combineUrl, router } from 'kea-router'
 
 import { LemonBanner, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { ListHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -38,22 +36,18 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
+
 export const scene: SceneExport = {
     component: Cohorts,
     logic: cohortsSceneLogic,
     productKey: ProductKey.PRODUCT_ANALYTICS,
+    emptyState: cohortsEmptyState,
 }
 
 export function Cohorts(): JSX.Element {
-    const {
-        cohorts,
-        cohortsLoading,
-        pagination,
-        cohortFilters,
-        shouldShowEmptyState,
-        cohortSorting,
-        cohortsLoadError,
-    } = useValues(cohortsSceneLogic)
+    const { cohorts, cohortsLoading, pagination, cohortFilters, cohortSorting, cohortsLoadError } =
+        useValues(cohortsSceneLogic)
     const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts } =
         useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
@@ -204,7 +198,7 @@ export function Cohorts(): JSX.Element {
 
     const filtersSection = (
         <div className="flex justify-between gap-2 flex-wrap">
-            <AppShortcut
+            <Shortcut
                 name="SearchCohorts"
                 keybind={[keyBinds.filter]}
                 intent="Search cohorts"
@@ -220,7 +214,7 @@ export function Cohorts(): JSX.Element {
                     }}
                     value={cohortFilters.search}
                 />
-            </AppShortcut>
+            </Shortcut>
 
             <div className="flex items-center gap-2">
                 <span>
@@ -279,7 +273,7 @@ export function Cohorts(): JSX.Element {
                     type: sceneConfigurations[Scene.Cohorts].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <AppShortcut
+                    <Shortcut
                         name="NewCohort"
                         keybind={[keyBinds.new]}
                         intent="New cohort"
@@ -295,20 +289,8 @@ export function Cohorts(): JSX.Element {
                         >
                             New cohort
                         </LemonButton>
-                    </AppShortcut>
+                    </Shortcut>
                 }
-            />
-
-            <ProductIntroduction
-                productName="Cohorts"
-                productKey={ProductKey.COHORTS}
-                thingName="cohort"
-                description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn't convert."
-                isEmpty={shouldShowEmptyState}
-                docsURL="https://posthog.com/docs/data/cohorts"
-                action={() => router.actions.push(urls.cohort('new'))}
-                customHog={ListHog}
-                mcpSurfaceKey="cohorts.create"
             />
 
             <div>{filtersSection}</div>

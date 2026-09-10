@@ -7,12 +7,13 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, Team, User
 
 from products.notifications.backend.cache import _unread_count_cache_key
-from products.notifications.backend.models import NotificationEvent, NotificationReadState
+from products.notifications.backend.models import NotificationArchiveState, NotificationEvent, NotificationReadState
 
 
 class TestNotificationsAPI(BaseTest):
@@ -419,6 +420,161 @@ class TestNotificationsAPI(BaseTest):
             format="json",
         )
         assert resp.status_code == 400
+
+    def _create_notification(self, title: str = "Extra") -> NotificationEvent:
+        return NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title=title,
+            body="",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+        )
+
+    def test_archive_notification(self):
+        event = self._create_notification()
+        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
+        assert resp.status_code == 200
+        assert NotificationArchiveState.objects.filter(notification_event=event, user=self.user).exists()
+
+    def test_archived_notification_excluded_from_list(self):
+        event = self._create_notification()
+        NotificationArchiveState.objects.create(notification_event=event, user=self.user)
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/")
+        ids = {r["id"] for r in resp.json()["results"]}
+        assert str(event.id) not in ids
+        assert str(self.event.id) in ids
+
+    def test_archived_list_returns_only_archived(self):
+        archived = self._create_notification("Archived item")
+        NotificationArchiveState.objects.create(notification_event=archived, user=self.user)
+        active = self._create_notification("Still active")
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?archived=true")
+        ids = {r["id"] for r in resp.json()["results"]}
+        assert str(archived.id) in ids
+        assert str(active.id) not in ids
+        assert str(self.event.id) not in ids
+
+    def test_archived_notification_excluded_from_unread_count(self):
+        event = self._create_notification()
+        NotificationArchiveState.objects.create(notification_event=event, user=self.user)
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")
+        assert resp.json()["count"] == 1
+
+    def test_archive_invalidates_cache(self):
+        event = self._create_notification()
+        cache_key = _unread_count_cache_key(self.user.id, self.organization.id)
+        cache.set(cache_key, 5, 60)
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
+        assert cache.get(cache_key) is None
+
+    def test_archive_bulk(self):
+        a1 = self._create_notification("Bulk 1")
+        a2 = self._create_notification("Bulk 2")
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/archive_bulk/",
+            {"notification_ids": [str(a1.id), str(a2.id)]},
+            format="json",
+        )
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == 2
+        for ev in (a1, a2):
+            assert NotificationArchiveState.objects.filter(notification_event=ev, user=self.user).exists()
+
+    def test_archive_bulk_skips_non_recipient(self):
+        other_event = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Other",
+            body="",
+            target_type="user",
+            target_id="999",
+            resolved_user_ids=[],
+        )
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/archive_bulk/",
+            {"notification_ids": [str(other_event.id)]},
+            format="json",
+        )
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == 0
+        assert not NotificationArchiveState.objects.filter(notification_event=other_event, user=self.user).exists()
+
+    def test_archive_detail_skips_non_recipient(self):
+        other_event = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Other",
+            body="",
+            target_type="user",
+            target_id="999",
+            resolved_user_ids=[],
+        )
+        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{other_event.id}/archive/")
+        assert resp.status_code == 404
+        assert not NotificationArchiveState.objects.filter(notification_event=other_event, user=self.user).exists()
+
+    def test_archive_all(self):
+        a1 = self._create_notification("A1")
+        a2 = self._create_notification("A2")
+        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/archive_all/")
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == 3
+        for ev in (self.event, a1, a2):
+            assert NotificationArchiveState.objects.filter(notification_event=ev, user=self.user).exists()
+
+    @parameterized.expand(
+        [
+            ("detail", "{base}/{id}/archive/", None),
+            ("bulk", "{base}/archive_bulk/", "notification_ids"),
+            ("all", "{base}/archive_all/", None),
+        ]
+    )
+    def test_archive_marks_notification_read(self, _name, path_template, ids_field):
+        event = self._create_notification()
+        base = f"/api/environments/{self.team.id}/notifications"
+        path = path_template.format(base=base, id=event.id)
+        payload = {ids_field: [str(event.id)]} if ids_field else None
+
+        resp = self.client.post(path, payload, format="json") if payload else self.client.post(path)
+
+        assert resp.status_code == 200
+        assert NotificationReadState.objects.filter(notification_event=event, user=self.user).exists()
+
+    def test_archived_notification_serializes_as_read(self):
+        event = self._create_notification()
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
+
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?archived=true")
+
+        row = next(r for r in resp.json()["results"] if r["id"] == str(event.id))
+        assert row["read"] is True
+        assert row["read_at"] is not None
+
+    def test_archive_does_not_mark_read_for_another_user(self):
+        other_user = User.objects.create_and_join(self.organization, "archiveread@test.com", "password")
+        event = self._create_notification()
+        NotificationEvent.objects.filter(pk=event.pk).update(resolved_user_ids=[self.user.id, other_user.id])
+
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
+
+        assert not NotificationReadState.objects.filter(notification_event=event, user=other_user).exists()
+
+    def test_archive_is_per_user(self):
+        other_user = User.objects.create_and_join(self.organization, "archiveother@test.com", "password")
+        event = self._create_notification()
+        NotificationEvent.objects.filter(pk=event.pk).update(resolved_user_ids=[self.user.id, other_user.id])
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
+
+        other_client = APIClient()
+        other_client.force_authenticate(user=other_user)
+        resp = other_client.get(f"/api/environments/{self.team.id}/notifications/")
+        ids = {r["id"] for r in resp.json()["results"]}
+        assert str(event.id) in ids
 
 
 class TestNotificationsAPIFeatureFlagDisabled(BaseTest):

@@ -20,6 +20,7 @@ from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import count_cohort_members
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
@@ -507,7 +508,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     "distinct_test_5",
                 ]
             )
-            self.assertEqual(cohort.people.count(), 6)
+            self.assertEqual(count_cohort_members(cohort.team_id, cohort.id, consistency="strong"), 6)
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 

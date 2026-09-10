@@ -10,6 +10,23 @@ vi.mock('@/lib/posthog/flags', () => ({
     resolveFeatureFlagOverrides: vi.fn(() => ({})),
 }))
 
+vi.mock('@/hono/cache/McpSessionRedisStore', () => ({
+    McpSessionRedisStore: class {
+        async resolve(requestContext: Record<string, unknown>): Promise<Record<string, unknown>> {
+            const keys = ['mcpClientName', 'mcpClientVersion', 'mcpProtocolVersion', 'mcpConsumer', 'mcpVendorClient']
+            const resolved = Object.fromEntries(
+                keys.map((key) => [key, mockSessionStore.get(key) ?? requestContext[key]])
+            )
+            for (const key of keys) {
+                if (!mockSessionStore.has(key) && requestContext[key] !== undefined) {
+                    mockSessionStore.set(key, requestContext[key])
+                }
+            }
+            return resolved
+        }
+    },
+}))
+
 vi.mock('@/hono/request-context', () => {
     type MockCache = {
         get: (key: string) => Promise<unknown>
@@ -40,21 +57,17 @@ vi.mock('@/hono/request-context', () => {
     })
 
     return {
-        RequestContext: vi.fn().mockImplementation(function (_redis, _env, props: { mcpSessionId?: string } = {}) {
-            const sessionCache = makeCache(mockSessionStore)
+        RequestContext: vi.fn().mockImplementation(function () {
             return {
                 tokenCache: makeCache(mockTokenStore),
-                get sessionCache() {
-                    if (!props.mcpSessionId) {
-                        throw new Error('Session ID is required to use the session cache')
-                    }
-                    return sessionCache
-                },
                 getContext: vi.fn(async () => ({
                     stateManager: {
                         setDefaultOrganizationAndProject: vi.fn(async () => {}),
                         getApiKey: vi.fn(async () => ({ scopes: ['*'], scoped_teams: [] })),
                         getAiConsentGiven: vi.fn(async () => undefined),
+                        getOrFetchGroupTypes: vi.fn(async () => undefined),
+                        getEnvironmentPrompt: vi.fn(async () => undefined),
+                        getAvailableFeatures: vi.fn(async () => undefined),
                     },
                 })),
                 safelyGetAnalyticsContext: vi.fn(async () => undefined),
@@ -66,9 +79,11 @@ vi.mock('@/hono/request-context', () => {
 })
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
+import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import type { Env } from '@/tools/types'
 
 function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
@@ -87,10 +102,21 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
 }
 
 function makeResolver(): RequestStateResolver {
+    return makeResolverWithCatalog().resolver
+}
+
+function makeResolverWithCatalog(): {
+    resolver: RequestStateResolver
+    getFilteredTools: ReturnType<typeof vi.fn>
+} {
+    const getFilteredTools = vi.fn(() => [])
     const catalog = {
-        getFilteredTools: vi.fn(() => []),
+        getFilteredTools,
     }
-    return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
+    return {
+        resolver: new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env),
+        getFilteredTools,
+    }
 }
 
 describe('RequestStateResolver MCP client contexts', () => {
@@ -133,18 +159,41 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     it('uses cached session client props when request client detection would resolve differently', async () => {
-        await makeResolver().resolve(makeProps())
+        // Cursor pins tools mode at initialize; a later request self-reporting a
+        // cli-defaulting client must not downgrade the session out of tools mode.
+        await makeResolver().resolve(makeProps({ mcpClientName: 'cursor' }))
 
-        const props = makeProps({ mcpClientName: 'Claude Desktop' })
+        const props = makeProps({ mcpClientName: 'claude-code' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.useSingleExec).toBe(false)
+        expect(props.mode).toBe('tools')
+        expect(props.mcpClientName).toBe('claude-code')
+        expect(result.requestContext.mcpClientName).toBe('claude-code')
+        expect(result.sessionContext?.mcpClientName).toBe('cursor')
+        expect(result.clientProfile.clientName).toBe('cursor')
+    })
+
+    it('auto-selects tools mode from the ChatGPT user-agent', async () => {
+        // ChatGPT's clientInfo.name is generic; the surface only shows up in the
+        // User-Agent. Guards the `userAgent: props.clientUserAgent` profile plumbing.
+        const props = makeProps({ mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.useSingleExec).toBe(false)
+        expect(props.mode).toBe('tools')
+    })
+
+    it('defaults to cli mode when no client hints are present', async () => {
+        const props = makeProps({
+            mcpClientName: undefined,
+            mcpClientVersion: undefined,
+            mcpProtocolVersion: undefined,
+        })
         const result = await makeResolver().resolve(props)
 
         expect(result.useSingleExec).toBe(true)
         expect(props.mode).toBe('cli')
-        expect(props.mcpClientName).toBe('Claude Desktop')
-        expect(result.requestContext.mcpClientName).toBe('Claude Desktop')
-        expect(result.sessionContext?.mcpClientName).toBe('claude-code')
-        expect(result.clientProfile.clientName).toBe('claude-code')
-        expect(result.clientProfile.isCliModeEnabled()).toBe(true)
     })
 
     it('uses cached session client props for instruction capabilities without overwriting request props', async () => {
@@ -225,8 +274,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(mockSessionStore.get('mcpVendorClient')).toBe('ClaudeCode')
     })
 
-    it('puts Claude web/desktop in single-exec when the render-ui flag is on', async () => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-render-ui': true })
+    it('puts Claude web/desktop in single-exec and enables render-ui', async () => {
         const props = makeProps({ mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' })
         const result = await makeResolver().resolve(props)
 
@@ -235,51 +283,62 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it('keeps Claude web/desktop in tools mode when the render-ui flag is off', async () => {
-        // A `ClaudeAI` vendor header is unconditionally single-exec, so the render-ui
-        // gate only observably matters on the User-Agent-only path, where the client
-        // isn't otherwise a CLI-mode client.
-        const props = makeProps({ mcpClientName: 'Claude Desktop', clientUserAgent: 'Claude-User' })
+    it('puts header-less Claude.ai (pooled Anthropic/* name + Claude-User UA, no vendor header) in single-exec', async () => {
+        // The production gap: Claude.ai web/desktop sessions that omit the
+        // x-anthropic-client header and report only clientInfo.name "Anthropic/ClaudeAI"
+        // with a Claude-User user-agent previously fell into tools mode.
+        const props = makeProps({
+            mcpClientName: 'Anthropic/ClaudeAI',
+            mcpVendorClient: undefined,
+            clientUserAgent: 'Claude-User',
+        })
         const result = await makeResolver().resolve(props)
 
-        expect(result.renderUiEnabled).toBe(false)
-        expect(result.useSingleExec).toBe(false)
-        expect(props.mode).toBe('tools')
+        expect(result.useSingleExec).toBe(true)
+        expect(props.mode).toBe('cli')
     })
 
-    it('does not enable render-ui for Claude Code even when the flag is on', async () => {
-        // Claude Code pools the same `mcp-render-ui` flag value as Claude web/desktop, but
-        // it isn't an MCP Apps host — it can't mount the iframe. It must stay in single-exec
-        // (it's a CLI client) while `renderUiEnabled` resolves to false, so the tool-executor
-        // never advertises or accepts `render-ui` for it.
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-render-ui': true })
+    it('does not enable render-ui for Claude Code', async () => {
+        // Claude Code is a single-exec CLI client but not an MCP Apps host — it can't
+        // mount the iframe. It must stay in single-exec while `renderUiEnabled` resolves
+        // to false, so the tool-executor never advertises or accepts `render-ui` for it.
         const props = makeProps({ mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' })
         const result = await makeResolver().resolve(props)
 
         expect(result.renderUiEnabled).toBe(false)
         expect(result.useSingleExec).toBe(true)
-        expect(result.toolFeatureFlags?.['mcp-render-ui']).toBe(true)
     })
 
-    it('detects Claude web/desktop via the Claude-User user agent', async () => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-render-ui': true })
+    it('detects Claude web/desktop via the Claude-User user agent and enables render-ui', async () => {
         const props = makeProps({ mcpClientName: 'Claude Desktop', clientUserAgent: 'Claude-User' })
-        const result = await makeResolver().resolve(props)
-
-        expect(result.useSingleExec).toBe(true)
-        expect(props.mode).toBe('cli')
-    })
-
-    it('honors a dev/test flag override even when evaluation returns nothing', async () => {
-        // Evaluation stays empty (analytics client disabled, as in local dev/evals);
-        // the override seam is what flips the flag on.
-        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'mcp-render-ui': true })
-        const props = makeProps({ mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' })
         const result = await makeResolver().resolve(props)
 
         expect(result.renderUiEnabled).toBe(true)
         expect(result.useSingleExec).toBe(true)
-        expect(result.toolFeatureFlags?.['mcp-render-ui']).toBe(true)
+        expect(props.mode).toBe('cli')
+    })
+
+    it('evaluates the exec skills flag even though no generated tool declares it', async () => {
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ [MCP_EXEC_SKILLS_FEATURE_FLAG]: true })
+
+        const result = await makeResolver().resolve(makeProps())
+
+        expect(evaluateFeatureFlags).toHaveBeenCalledWith(
+            expect.arrayContaining([MCP_EXEC_SKILLS_FEATURE_FLAG]),
+            'distinct-id',
+            undefined
+        )
+        expect(result.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG]).toBe(true)
+    })
+
+    it('honors a dev/test flag override even when evaluation returns nothing', async () => {
+        // Evaluation stays empty (analytics client disabled, as in local dev/evals);
+        // the override seam is what flips a tool flag on so it reaches the tool layer.
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'dev-forced-flag': true })
+        const props = makeProps({ mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.toolFeatureFlags?.['dev-forced-flag']).toBe(true)
     })
 
     it('captures consumer from a later request when initialize omitted the header', async () => {
@@ -302,5 +361,38 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.requestContext.mcpConsumer).toBe('posthog-code')
         expect(result.sessionContext?.mcpConsumer).toBe('posthog-code')
         expect(mockSessionStore.get('mcpConsumer')).toBe('posthog-code')
+    })
+
+    it.each([
+        ['a Desktop task', { taskOriginProduct: undefined }, true],
+        ['a support reply task', { taskOriginProduct: 'support_reply' }, true],
+        // Scout sandboxes mount gateway servers directly as `mcp__<server>__<tool>`; a second
+        // `<slug>__<tool>` spelling inside exec resolves for a member but not for the service
+        // account, so skills learned interactively fail on the schedule.
+        ['a scout run', { taskOriginProduct: 'signals_scout' }, false],
+    ] as const)('surfaces gateway tools through exec for %s', async (_label, overrides, enabled) => {
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'mcp-gateway': true })
+
+        const result = await makeResolver().resolve(makeProps({ mcpConsumer: 'posthog-code', ...overrides }))
+
+        expect(result.useSingleExec).toBe(true)
+        expect(result.gatewayToolsEnabled).toBe(enabled)
+    })
+
+    it.each([
+        ['PostHog Code task', { mcpConsumer: 'posthog-code', taskId: 'task-1' }, false],
+        ['PostHog Code without a task', { mcpConsumer: 'posthog-code', taskId: undefined }, true],
+        ['non-PostHog Code task', { mcpConsumer: 'other', taskId: 'task-1' }, true],
+    ] as const)('advertises task artifacts and comments for %s', async (_label, overrides, excluded) => {
+        const { resolver, getFilteredTools } = makeResolverWithCatalog()
+
+        await resolver.resolve(makeProps(overrides))
+
+        const options = getFilteredTools.mock.calls[0]?.[0]
+        expect(options?.excludeTools).toEqual(
+            excluded
+                ? expect.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
+                : expect.not.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
+        )
     })
 })

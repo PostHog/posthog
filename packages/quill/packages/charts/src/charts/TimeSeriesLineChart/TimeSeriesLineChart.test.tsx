@@ -2,7 +2,14 @@ import { cleanup, fireEvent } from '@testing-library/react'
 
 import { useChartLayout } from '../../core/chart-context'
 import type { ChartTheme, Series } from '../../core/types'
-import { getHogChart, renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
+import {
+    createDefaultTooltipAccessor,
+    getHogChart,
+    renderHogChart,
+    setupJsdom,
+    setupSyncRaf,
+    waitForHogChartTooltip,
+} from '../../testing'
 import { TimeSeriesLineChart } from './TimeSeriesLineChart'
 
 const THEME: ChartTheme = {
@@ -66,6 +73,23 @@ describe('TimeSeriesLineChart', () => {
             expect(ticks.length).toBeGreaterThan(0)
             // The auto formatter renders day-mode labels as "MMM D" (or month name on the 1st).
             expect(ticks.some((t) => /Jun \d+/.test(t))).toBe(true)
+        })
+
+        it('infers the date formatter and tooltip header from timezone and chart labels', async () => {
+            const labels = ['2024-06-10', '2024-06-11', '2024-06-12']
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
+                    labels={labels}
+                    theme={THEME}
+                    config={{ xAxis: { timezone: 'UTC' } }}
+                />,
+                { nativeTooltip: true }
+            )
+            expect(chart.xTicks().some((tick) => /Jun \d+/.test(tick))).toBe(true)
+
+            chart.hoverAtIndex(0)
+            expect(createDefaultTooltipAccessor(await waitForHogChartTooltip()).label()).toBe('Mon, Jun 10, 2024')
         })
 
         it('explicit xAxis.tickFormatter wins over the auto date formatter', () => {
@@ -186,6 +210,48 @@ describe('TimeSeriesLineChart', () => {
             // A log axis can't include 0 regardless; this just guards against a crash / NaN domain.
             expect(lowestTick(chart)).toBeGreaterThan(0)
         })
+
+        // The clamp itself is unit-tested on the scale; what only a render catches is
+        // `config.yAxis.min/max` never reaching the scale builder.
+        it.each([
+            ['floors the axis at yAxis.min', { min: 40 }, 40, Math.min],
+            ['caps the axis at yAxis.max', { max: 80 }, 80, Math.max],
+        ])('%s', (_name, bounds, expected, pick) => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={OFFSET_SERIES} labels={LABELS} theme={THEME} config={{ yAxis: bounds }} />
+            )
+            const ticks = chart.yTicks().map((t) => parseFloat(t.replace(/[^0-9.eE+-]/g, '')))
+            expect(pick(...ticks)).toBe(expected)
+        })
+
+        // Same rule as the goal line below. The bound truncates the drawn line, but a label is
+        // DOM-positioned, so without a guard a clipped point still prints its number over the
+        // title and legend. A point exactly on the bound keeps its label.
+        it('hides a value label for a point above the bounded window', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={OFFSET_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { max: 60 }, valueLabels: true }}
+                />
+            )
+            expect(chart.valueLabels().map((l) => l.text)).toEqual(['50', '60'])
+        })
+
+        // A goal line pushed outside a bounded window must drop out, not paint over the axis gutter.
+        it('hides a goal line that falls outside the bounded window', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={OFFSET_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { max: 80 }, goalLines: [{ value: 500, label: 'Target' }] }}
+                />
+            )
+            expect(chart.referenceLines()).toHaveLength(0)
+            expect(chart.yTicks().length).toBeGreaterThan(0)
+        })
     })
 
     describe('config.yAxis array (dual y-axis)', () => {
@@ -203,6 +269,26 @@ describe('TimeSeriesLineChart', () => {
             expect(chart.hasRightAxis).toBe(true)
             expect(chart.yTicks().length).toBeGreaterThan(0)
             expect(chart.yRightTicks().length).toBeGreaterThan(0)
+        })
+
+        it('hides only the right axis when its entry sets hide, keeping the left axis', () => {
+            const yAxis = [{ id: 'left' }, { id: 'right', position: 'right' as const, hide: true }]
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={LEFT_RIGHT_SERIES} labels={LABELS} theme={THEME} config={{ yAxis }} />
+            )
+            expect(chart.yTicks().length).toBeGreaterThan(0)
+            expect(chart.yRightTicks()).toHaveLength(0)
+        })
+
+        it('collapses the y-axis gutter only when every entry sets hide', () => {
+            const yAxis = [
+                { id: 'left', hide: true },
+                { id: 'right', position: 'right' as const, hide: true },
+            ]
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={LEFT_RIGHT_SERIES} labels={LABELS} theme={THEME} config={{ yAxis }} />
+            )
+            expect(chart.yTicks()).toHaveLength(0)
         })
 
         it('formats each axis with its own tick formatter', () => {
@@ -494,7 +580,7 @@ describe('TimeSeriesLineChart', () => {
     })
 
     describe('interactive legend', () => {
-        it('lists the raw series (not derived trend lines) and toggles one off on click', () => {
+        it('lists the raw series (not derived trend lines) and isolates one on click', () => {
             const { container, chart } = renderHogChart(
                 <TimeSeriesLineChart
                     series={MULTI_SERIES}
@@ -513,8 +599,13 @@ describe('TimeSeriesLineChart', () => {
 
             // A + B + trend-of-A are all drawn before any toggle.
             expect(chart.seriesCount).toBe(3)
+            // Isolating A keeps its derived trend line, and drops B.
             fireEvent.click(buttons()[0])
-            // Hiding A also suppresses its trend line, leaving only B.
+            expect(getHogChart(container).seriesCount).toBe(2)
+
+            // Meta-clicking A instead hides it, and its trend line with it, leaving only B.
+            fireEvent.click(buttons()[0])
+            fireEvent.click(buttons()[0], { metaKey: true })
             expect(getHogChart(container).seriesCount).toBe(1)
         })
     })

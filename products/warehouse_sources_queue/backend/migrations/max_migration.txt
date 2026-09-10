@@ -1,1 +1,1 @@
-0003_duckgres_sink
+0010_sourcebatch_destination_ids

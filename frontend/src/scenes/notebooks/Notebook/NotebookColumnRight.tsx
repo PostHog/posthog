@@ -4,7 +4,7 @@ import { BuiltLogic, useValues } from 'kea'
 import { uuid } from 'lib/utils/dom'
 
 import { NotebookNodeChildRenderer } from '../Nodes/NodeWrapper'
-import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
 import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookKernelInfo } from './NotebookKernelInfo'
 import { notebookLogic } from './notebookLogic'
@@ -40,7 +40,10 @@ const Widgets = ({ nodeLogic }: { nodeLogic: BuiltLogic<notebookNodeLogicType> }
 
     // TODO: IMPORTANT: The nodeId is basically now required, so we should be checking that in the logic
     // otherwise we end up in horrible re-rendering loops
-    children.forEach((content) => {
+    // A node's children attribute can be a non-array value, so guard before iterating.
+    const childNodes = Array.isArray(children) ? children : []
+
+    childNodes.forEach((content) => {
         if (!content.attrs.nodeId) {
             content.attrs.nodeId = uuid()
         }
@@ -48,7 +51,7 @@ const Widgets = ({ nodeLogic }: { nodeLogic: BuiltLogic<notebookNodeLogicType> }
 
     return (
         <>
-            {children?.map((child) => (
+            {childNodes.map((child) => (
                 <NotebookNodeChildRenderer key={child.attrs.nodeId} content={child} />
             ))}
         </>

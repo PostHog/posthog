@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useContext, useEffect, useMemo, useRef } from 'react'
 
 import { maxLogic } from 'scenes/max/maxLogic'
-import type { maxLogicType } from 'scenes/max/maxLogicType'
+import type { maxLogicType } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, ThreadMessage, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 

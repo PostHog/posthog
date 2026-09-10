@@ -22,6 +22,7 @@ from temporalio import activity
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
+from posthog.clickhouse.client.connection import ClickHouseCredentials
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
 from posthog.security.outbound_proxy import internal_requests_session
 
@@ -186,6 +187,13 @@ class ClickHouseTooManyBytesError(ClickHouseError):
         super().__init__(error_message, query, query_id)
 
 
+class ClickHouseTooManyRowsOrBytesError(ClickHouseError):
+    """Exception raised when a query's result exceeds max_result_rows/max_result_bytes."""
+
+    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+        super().__init__(error_message, query, query_id)
+
+
 class ClickHouseTooManySimultaneousQueriesError(ClickHouseError):
     """Exception raised when ClickHouse has too many simultaneous queries running."""
 
@@ -283,10 +291,11 @@ class ClickHouseClient:
         database: str = "default",
         timeout: None | aiohttp.ClientTimeout = None,
         ssl: ssl.SSLContext | bool = True,
+        password_file: str | None = None,
         **kwargs,
     ):
         self.url = url
-        self.headers = {}
+        self.headers: dict[str, str] = {}
         self.params = {}
         self.timeout = timeout
         self.ssl = ssl
@@ -294,16 +303,26 @@ class ClickHouseClient:
         self.session: None | aiohttp.ClientSession = None
         self.logger = LOGGER.bind(url=url, database=database, user=user)
 
-        if user:
-            self.headers["X-ClickHouse-User"] = user
-        if password:
-            self.headers["X-ClickHouse-Key"] = password
+        # Build auth per request from the credential, which may read a rotating token file. A long
+        # batch export holds one session for hours, longer than a short-lived token lives, so the
+        # auth header cannot be stamped once at construction.
+        self._credentials = ClickHouseCredentials(user=user, password=password, password_file=password_file)
+
         if database:
             self.params["database"] = database
 
         self.params["max_query_size"] = "1048576"  # 1MB
 
         self.params.update(kwargs)
+
+    def _request_headers(self) -> dict[str, str]:
+        headers = dict(self.headers)
+        if self._credentials.user:
+            headers["X-ClickHouse-User"] = self._credentials.user
+        key = self._credentials.read_password()
+        if key:
+            headers["X-ClickHouse-Key"] = key
+        return headers
 
     @classmethod
     def from_posthog_settings(cls, settings, **kwargs):
@@ -312,6 +331,7 @@ class ClickHouseClient:
             url=settings.CLICKHOUSE_URL,
             user=settings.CLICKHOUSE_USER,
             password=settings.CLICKHOUSE_PASSWORD,
+            password_file=settings.CLICKHOUSE_PASSWORD_FILE,
             database=settings.CLICKHOUSE_DATABASE,
             **kwargs,
         )
@@ -330,7 +350,7 @@ class ClickHouseClient:
         try:
             await self.session.get(
                 url=ping_url,
-                headers=self.headers,
+                headers=self._request_headers(),
                 raise_for_status=True,
                 timeout=aiohttp.ClientTimeout(total=timeout),
             )
@@ -354,10 +374,15 @@ class ClickHouseClient:
         has_format_placeholders = re.search(r"(?<!{){[^{}]*}(?!})|{{[^{}]*}}", query)
 
         format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
-        query = query % format_parameters
 
         if has_format_placeholders:
+            # Escape any curly brackets `{` or `}` in the format parameters so they are not parsed
+            # as format placeholders
+            escaped_parameters = {k: v.replace("{", "{{").replace("}", "}}") for k, v in format_parameters.items()}
+            query = query % escaped_parameters
             query = KeywordOnlyFormatter().format(query, **format_parameters)
+        else:
+            query = query % format_parameters
 
         return query
 
@@ -374,19 +399,22 @@ class ClickHouseClient:
         return request_data
 
     @staticmethod
-    def raise_clickhouse_error(error_message: str, query: str | None = None) -> typing.NoReturn:
+    def raise_clickhouse_error(
+        error_message: str, query: str | None = None, query_id: str | None = None
+    ) -> typing.NoReturn:
         """Raise the appropriate ClickHouseError subclass based on the error message."""
         ERROR_CODE_TO_EXCEPTION: dict[str, type[ClickHouseError]] = {
             "ALL_REPLICAS_ARE_STALE": ClickHouseAllReplicasAreStaleError,
             "MEMORY_LIMIT_EXCEEDED": ClickHouseMemoryLimitExceededError,
+            "TOO_MANY_ROWS_OR_BYTES": ClickHouseTooManyRowsOrBytesError,
             "TOO_MANY_BYTES": ClickHouseTooManyBytesError,
             "TOO_MANY_SIMULTANEOUS_QUERIES": ClickHouseTooManySimultaneousQueriesError,
             "TIMEOUT_EXCEEDED": ClickHouseQueryTimeoutError,
         }
         for error_code, exc_class in ERROR_CODE_TO_EXCEPTION.items():
             if error_code in error_message:
-                raise exc_class(error_message, query=query)
-        raise ClickHouseError(error_message, query=query)
+                raise exc_class(error_message, query=query, query_id=query_id)
+        raise ClickHouseError(error_message, query=query, query_id=query_id)
 
     async def acheck_response(self, response, query) -> None:
         """Asynchronously check the HTTP response received from ClickHouse."""
@@ -439,13 +467,19 @@ class ClickHouseClient:
 
         add_log_comment_param(params)
 
-        async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
+        async with self.session.get(url=self.url, headers=self._request_headers(), params=params) as response:
             await self.acheck_response(response, query)
             yield response
 
     @contextlib.asynccontextmanager
     async def apost_query(
-        self, query, *data, query_parameters, query_id, timeout: float | None = None
+        self,
+        query,
+        *data,
+        query_parameters,
+        query_id,
+        timeout: float | None = None,
+        settings: dict[str, str] | None = None,
     ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
         """POST a query to the ClickHouse HTTP interface.
 
@@ -459,6 +493,7 @@ class ClickHouseClient:
             *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
             query_parameters: Parameters to be formatted in the query.
             query_id: A query ID to pass to ClickHouse.
+            settings: Extra ClickHouse HTTP-interface settings to include as query-string parameters.
 
         Returns:
             The response received from the ClickHouse HTTP interface.
@@ -467,6 +502,8 @@ class ClickHouseClient:
             raise ClickHouseClientNotConnected()
 
         params = {**self.params}
+        if settings is not None:
+            params.update(settings)
         if query_id is not None:
             params["query_id"] = query_id
 
@@ -502,7 +539,7 @@ class ClickHouseClient:
 
         try:
             async with self.session.post(
-                url=self.url, params=params, headers=self.headers, data=request_data, timeout=client_timeout
+                url=self.url, params=params, headers=self._request_headers(), data=request_data, timeout=client_timeout
             ) as response:
                 await self.acheck_response(response, query)
                 yield response
@@ -510,7 +547,14 @@ class ClickHouseClient:
             raise ClickHouseClientTimeoutError(query, query_id)
 
     @contextlib.contextmanager
-    def post_query(self, query, *data, query_parameters, query_id) -> collections.abc.Iterator:
+    def post_query(
+        self,
+        query,
+        *data,
+        query_parameters,
+        query_id,
+        timeout: float | tuple[float, float] | None = None,
+    ) -> collections.abc.Iterator:
         """POST a query to the ClickHouse HTTP interface.
 
         The context manager protocol is used to control when to release the response.
@@ -523,6 +567,11 @@ class ClickHouseClient:
             *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
             query_parameters: Parameters to be formatted in the query.
             query_id: A query ID to pass to ClickHouse.
+            timeout: Optional requests-style timeout — a (connect, read) tuple or a single
+                float for both. The read timeout applies to every blocking socket read,
+                including body reads while streaming the response, so a half-open connection
+                raises instead of blocking the calling thread until TCP gives up. None (the
+                default) preserves the historical unbounded behavior.
 
         Returns:
             The response received from the ClickHouse HTTP interface.
@@ -552,10 +601,11 @@ class ClickHouseClient:
             response = s.post(
                 url=self.url,
                 params=params,
-                headers=self.headers,
+                headers=self._request_headers(),
                 data=request_data,
                 stream=True,
                 verify=False,
+                timeout=timeout,
             )
             self.check_response(response, query)
             yield response
@@ -571,6 +621,51 @@ class ClickHouseClient:
             query, *data, query_parameters=query_parameters, query_id=query_id, timeout=timeout
         ):
             return None
+
+    async def execute_query_with_summary(
+        self,
+        query,
+        *data,
+        query_parameters=None,
+        query_id: str | None = None,
+        timeout: float | None = None,
+        settings: dict[str, str] | None = None,
+    ) -> dict[str, typing.Any] | None:
+        """Execute the given query and return ClickHouse's query summary, if available.
+
+        ClickHouse reports an `X-ClickHouse-Summary` response header (a JSON object with
+        counters like `written_rows`, `read_rows`, `written_bytes`). We set
+        `wait_end_of_query=1` so the summary reflects the completed query and is sent as a
+        regular response header (rather than a trailer). Returns the parsed summary, or
+        `None` if the header is absent or cannot be parsed.
+
+        `wait_end_of_query` is an HTTP-interface URL parameter (not a SQL setting); it makes
+        ClickHouse buffer the whole response server-side until the query finishes. Only use
+        this for queries whose client-bound response is small — e.g. `INSERT INTO FUNCTION
+        s3(...)`, whose response body is empty (rows go to S3, counts come back in the
+        header) — so the buffering is negligible regardless of `http_response_buffer_size`.
+
+        Arguments:
+            settings: Extra ClickHouse settings to apply to this query, sent as
+                query-string parameters.
+        """
+        async with self.apost_query(
+            query,
+            *data,
+            query_parameters=query_parameters,
+            query_id=query_id,
+            timeout=timeout,
+            settings={**(settings or {}), "wait_end_of_query": "1"},
+        ) as response:
+            summary = response.headers.get("X-ClickHouse-Summary")
+            if not summary:
+                self.logger.warning("No 'X-ClickHouse-Summary' header found in response")
+                return None
+            try:
+                return json.loads(summary)
+            except json.JSONDecodeError:
+                self.logger.warning("Could not JSON decode 'X-ClickHouse-Summary' header", exc_info=True)
+                return None
 
     async def read_query(self, query, query_parameters=None, query_id: str | None = None) -> bytes:
         """Execute the given readonly query in ClickHouse and read the response in full.
@@ -650,7 +745,7 @@ class ClickHouseClient:
             results = await self.read_query_as_jsonl(
                 query,
                 query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
-                query_id=f"{query_id}-CHECK-QUERY-LOG",
+                query_id=f"{query_id}-CHECK-QUERY-LOG-{uuid.uuid4()}",
             )
         except ClickHouseError as e:
             error_message = f"Error checking for query '{query_id}' in query log: {str(e)}"
@@ -684,14 +779,56 @@ class ClickHouseClient:
         elif "ExceptionWhileProcessing" in events or "ExceptionBeforeStart" in events:
             if raise_on_error:
                 error_message = error or f"Unknown query error in query with ID: {query_id}"
-                # we don't have the original query here so just use the query id
-                raise ClickHouseError(error_message, query_id=query_id)
+                # The query log's `exception` column holds the same text ClickHouse returns over
+                # HTTP, so classify it the same way for consistency. Otherwise, the exception a
+                # caller sees for a query result we fetch from the query log would differ from that
+                # they would get running the query and waiting for the result.
+                self.raise_clickhouse_error(error_message, query_id=query_id)
 
             return ClickHouseQueryStatus.ERROR
         elif "QueryStart" in events:
             return ClickHouseQueryStatus.RUNNING
         else:
             raise ClickHouseQueryNotFound(query_id)
+
+    async def aget_written_rows_from_query_log(self, query_id: str) -> int | None:
+        """Fetch the number of rows a completed query wrote, from the query log.
+
+        Reads `written_rows` from the initiating query's `QueryFinish` entry in
+        `system.query_log`. Best-effort: returns None if the query isn't found (e.g. not yet
+        flushed) or the value can't be parsed.
+        """
+        query = """
+                SELECT written_rows
+                FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
+                WHERE query_id = {{query_id:String}}
+                    AND type = 'QueryFinish'
+                    AND is_initial_query = 1
+                    AND event_date >= yesterday() AND event_time >= now() - interval 24 hour
+                ORDER BY event_time DESC
+                LIMIT 1
+                FORMAT JSONEachRow
+                """
+
+        try:
+            results = await self.read_query_as_jsonl(
+                query,
+                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_id=f"{query_id}-GET-WRITTEN-ROWS",
+            )
+        except ClickHouseError:
+            self.logger.warning("Failed to fetch written rows from query log", query_id=query_id, exc_info=True)
+            return None
+
+        if not results:
+            self.logger.warning("Failed to fetch written rows from query log: no results found", query_id=query_id)
+            return None
+
+        try:
+            return int(results[0]["written_rows"])
+        except (KeyError, TypeError, ValueError):
+            self.logger.warning("Failed to read written rows from query log", query_id=query_id, exc_info=True)
+            return None
 
     async def acheck_query_in_process_list(self, query_id: str) -> bool:
         """Check if a query is running in the ClickHouse process list.
@@ -788,6 +925,7 @@ class ClickHouseClient:
         *data,
         query_parameters=None,
         query_id: str | None = None,
+        on_schema: collections.abc.Callable[[pa.Schema], None] | None = None,
     ) -> typing.AsyncGenerator[pa.RecordBatch]:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
@@ -795,6 +933,8 @@ class ClickHouseClient:
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             reader = asyncpa.AsyncRecordBatchReader(ChunkBytesAsyncStreamIterator(response.content))
+            if on_schema is not None:
+                on_schema(await reader.get_schema())
             async for batch in reader:
                 yield batch
 
@@ -916,6 +1056,7 @@ async def get_client(
         url=url,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
+        password_file=settings.CLICKHOUSE_PASSWORD_FILE,
         database=settings.CLICKHOUSE_DATABASE,
         timeout=timeout,
         ssl=False,

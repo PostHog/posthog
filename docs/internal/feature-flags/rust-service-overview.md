@@ -170,6 +170,21 @@ pub struct FlagRequest {
 }
 ```
 
+#### GeoIP enrichment of `person_properties`
+
+Unless `geoip_disable: true` is set in the body, `handler::properties::get_person_property_overrides` looks up the request IP in MaxMind and merges the resulting `$geoip_*` properties into `person_properties` before evaluation.
+
+GeoIP only fills gaps. A `$geoip_*` key present in the request body is left alone, and a JSON null counts as absent, since callers clear a property with `$unset`, so a null is a gap to fill.
+This matters for server-side evaluation: the IP we geolocate is whoever made the HTTP request, so a call from a backend or an SSR render resolves the server's own location, not the end user's.
+A caller that resolved geo itself (from `CF-IPCountry`, `X-Forwarded-For`, or similar) is the authority for those keys.
+
+Two signals size how often that precedence matters:
+
+- `flags_geoip_properties_differ_from_lookup_total` counts requests that supplied a `$geoip_*` value disagreeing with the lookup, i.e. requests that would evaluate differently if the lookup won.
+- The canonical log line carries the same fact as `geoip_properties_differ_from_lookup`. The counter has no labels, so query the log line in Loki to attribute a spike to a team or SDK.
+
+Both are removable once the precedence change has settled.
+
 ### `FlagsResponse` (v2 response)
 
 ```rust
@@ -222,6 +237,10 @@ All values come from environment variables via the `envconfig` crate. Defined in
 | `ENABLE_METRICS`  | `false`          | Expose `/metrics` endpoint                        |
 | `SERVICE_MODE`    | `all`            | Fleet mode: `flags`, `definitions`, or `all`      |
 
+### Property matching rollout
+
+Exact property matching is selected per team through `TeamFeatureFlagsConfig.property_matching_version`. Version `1` preserves legacy boolean coercion, while version `2` uses exact scalar and array equality. Team metadata and local-evaluation responses expose the selected version.
+
 ### PostgreSQL
 
 | Variable                                  | Default                                             | Purpose                               |
@@ -239,33 +258,41 @@ All values come from environment variables via the `envconfig` crate. Defined in
 
 ### Behavioral cohorts
 
-| Variable                               | Default  | Purpose                                                                                                                   |
-| -------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `BEHAVIORAL_COHORTS_READ_DATABASE_URL` | (empty)  | Optional PostgreSQL connection for realtime cohort membership lookups. When empty, realtime cohort evaluation is disabled |
-| `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`  | `60`     | Cache TTL for cohort membership lookups                                                                                   |
-| `COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES`  | `500000` | Max entries in cohort membership cache                                                                                    |
+| Variable                               | Default  | Purpose                                                                                                                                                                           |
+| -------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BEHAVIORAL_COHORTS_READ_DATABASE_URL` | (empty)  | Optional PostgreSQL connection for realtime cohort membership lookups. When empty, no pool is created and a NoOp provider resolves every realtime cohort lookup to non-membership |
+| `REALTIME_COHORT_EVALUATION_TEAM_IDS`  | `none`   | Rollout gate for realtime cohort evaluation: `none`, `all`, or specific team IDs / ranges (e.g. `1,5,300:400`)                                                                    |
+| `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`  | `60`     | Cache TTL for cohort membership lookups                                                                                                                                           |
+| `COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES`  | `500000` | Max entries in cohort membership cache                                                                                                                                            |
+| `REALTIME_COHORT_LOOKUP_TIMEOUT_MS`    | `1000`   | Upper bound on one membership lookup (pool acquire + query), matching the pool's 1s statement timeout; on timeout the lookup degrades to non-membership                           |
 
-The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement timeout) since it only performs simple key lookups against the `cohort_membership` table. When `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is not set, a `NoOpCohortMembershipProvider` is used and all realtime cohort checks return `false` (graceful degradation).
+The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement timeout) since it only performs simple key lookups against the `cohort_membership` table.
+Realtime cohort evaluation degrades gracefully at every layer, always treating people as non-members rather than failing flag evaluation:
+when `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is not set a `NoOpCohortMembershipProvider` returns `false` for all checks (with a startup warning if `REALTIME_COHORT_EVALUATION_TEAM_IDS` is set at the same time),
+and when the database is unavailable at runtime, query errors and lookups exceeding `REALTIME_COHORT_LOOKUP_TIMEOUT_MS` also resolve to non-membership.
+Cache and query health are observable via the `flags_cohort_membership_cache_*` and `flags_realtime_cohort_*` metrics — see [database-interaction-patterns.md](database-interaction-patterns.md#prometheus-metrics).
 
 ### Redis
 
-| Variable                      | Default                     | Purpose                                  |
-| ----------------------------- | --------------------------- | ---------------------------------------- |
-| `REDIS_URL`                   | `redis://localhost:6379/`   | Shared Redis primary                     |
-| `REDIS_READER_URL`            | (falls back to `REDIS_URL`) | Shared Redis replica                     |
-| `FLAGS_REDIS_URL`             | (empty)                     | Dedicated flags Redis primary            |
-| `FLAGS_REDIS_READER_URL`      | (empty)                     | Dedicated flags Redis replica            |
-| `FLAGS_REDIS_ENABLED`         | `false`                     | Read from dedicated flags Redis          |
-| `REDIS_RESPONSE_TIMEOUT_MS`   | `100`                       | Redis response timeout (capped at 30s)   |
-| `REDIS_CONNECTION_TIMEOUT_MS` | `5000`                      | Redis connection timeout (capped at 60s) |
+| Variable                                   | Default                     | Purpose                                                                                                                                                                               |
+| ------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REDIS_URL`                                | `redis://localhost:6379/`   | Shared Redis primary                                                                                                                                                                  |
+| `REDIS_READER_URL`                         | (falls back to `REDIS_URL`) | Shared Redis replica                                                                                                                                                                  |
+| `FLAGS_REDIS_URL`                          | (empty)                     | Dedicated flags Redis primary                                                                                                                                                         |
+| `FLAGS_REDIS_READER_URL`                   | (empty)                     | Dedicated flags Redis replica                                                                                                                                                         |
+| `FLAGS_REDIS_ENABLED`                      | `false`                     | Inert. Nothing reads it, so setting it moves no read path                                                                                                                             |
+| `FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED` | `false`                     | Serve the `/flags/definitions` payload and its ETag from the dedicated flags Redis instead of the shared one. See [dedicated flags Redis](hypercache-system.md#dedicated-flags-redis) |
+| `REDIS_RESPONSE_TIMEOUT_MS`                | `100`                       | Redis response timeout (capped at 30s)                                                                                                                                                |
+| `REDIS_CONNECTION_TIMEOUT_MS`              | `5000`                      | Redis connection timeout (capped at 60s)                                                                                                                                              |
 
 ### S3 / HyperCache
 
-| Variable                  | Default     | Purpose                          |
-| ------------------------- | ----------- | -------------------------------- |
-| `OBJECT_STORAGE_BUCKET`   | `posthog`   | S3 bucket name                   |
-| `OBJECT_STORAGE_REGION`   | `us-east-1` | AWS region                       |
-| `OBJECT_STORAGE_ENDPOINT` | (empty)     | Custom S3 endpoint for local dev |
+| Variable                             | Default     | Purpose                                                                                                                                                                                    |
+| ------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OBJECT_STORAGE_BUCKET`              | `posthog`   | S3 bucket name                                                                                                                                                                             |
+| `OBJECT_STORAGE_REGION`              | `us-east-1` | AWS region                                                                                                                                                                                 |
+| `OBJECT_STORAGE_ENDPOINT`            | (empty)     | Custom S3 endpoint for local dev                                                                                                                                                           |
+| `HYPERCACHE_READ_REPAIR_TTL_SECONDS` | `600`       | TTL for writing an S3 hit back into Redis after a confirmed miss. `0` disables, as does `SKIP_WRITES`. Also read by hypercache-server. See [read repair](hypercache-system.md#read-repair) |
 
 ### Team lookup
 

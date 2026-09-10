@@ -46,6 +46,7 @@ from products.marketing_analytics.backend.services.data_source_health import (
 )
 from products.marketing_analytics.backend.services.event_suggestions import CandidateEvent, EventSuggestionsResponse
 from products.marketing_analytics.backend.services.mapping_suggester import (
+    CampaignMappingSuggestion,
     CatalogueEntry,
     CurrentMapping,
     RawUnmatchedSample,
@@ -118,7 +119,7 @@ def _make_data_source_entry(
 
 def _make_goal_summary(
     *,
-    id="goal-1",
+    conversion_goal_id="goal-1",
     name="Purchase",
     kind="EventsNode",
     target_label="purchase",
@@ -132,7 +133,7 @@ def _make_goal_summary(
     misconfig_reason=None,
 ):
     return ConversionGoalSummary(
-        id=id,
+        conversion_goal_id=conversion_goal_id,
         name=name,
         kind=kind,
         target_label=target_label,
@@ -408,7 +409,7 @@ class TestFormatConversionGoalsForLlm(BaseTest):
 
     def test_populated_goals_includes_goal_names(self):
         response = ConversionGoalsListResponse(
-            goals=[_make_goal_summary(name="Signup"), _make_goal_summary(id="goal-2", name="Purchase")],
+            goals=[_make_goal_summary(name="Signup"), _make_goal_summary(conversion_goal_id="goal-2", name="Purchase")],
             attribution_window_days=30,
             attribution_mode="last_touch",
             has_misconfigured=False,
@@ -449,7 +450,7 @@ class TestFormatGoalLine(BaseTest):
         assert "EventsNode" in result
 
     def test_include_id_prepends_id(self):
-        goal = _make_goal_summary(id="abc-123")
+        goal = _make_goal_summary(conversion_goal_id="abc-123")
         result = _format_goal_line(goal, include_id=True)
         assert "abc-123" in result
 
@@ -538,7 +539,7 @@ class TestFormatDataSourcesForLlm(BaseTest):
 class TestFormatExplainGoalForLlm(BaseTest):
     def _make_explanation(self, *, kind="EventsNode", total_count=200):
         return GoalExplanation(
-            goal_id="goal-1",
+            conversion_goal_id="goal-1",
             goal_name="Signup",
             kind=kind,
             period=DateRange(date_from="2025-04-01", date_to="2025-05-01"),
@@ -719,6 +720,26 @@ class TestFormatUtmMappingSuggestionsForLlm(BaseTest):
         assert "facebook_paid" in result
         assert "Meta Ads" in result
 
+    def test_campaign_suggestions_shown(self):
+        # The tool returns the response dict as its artifact, but Max composes its reply from this
+        # string. A section missing here is a suggestion the user is never told about.
+        suggestion = CampaignMappingSuggestion(
+            integration="google_ads",
+            integration_display_name="Google Ads",
+            suggested_clean_name="autumn_clearance",
+            raw_campaign_values=["autum_clearnce"],
+            confidence=0.72,
+            method="fuzzy_exact_scope",
+            reason="'autum_clearnce' — 150 events, 93% similar to Google Ads campaign 'autumn_clearance'.",
+            event_count_30d=150,
+        )
+        response = self._make_empty_response()
+        response.campaign_suggestions = [suggestion]
+        result = _format_utm_mapping_suggestions_for_llm(response)
+        assert "autum_clearnce" in result
+        assert "autumn_clearance" in result
+        assert "Google Ads" in result
+
     def test_no_suggestions_shows_none(self):
         result = _format_utm_mapping_suggestions_for_llm(self._make_empty_response())
         assert "none" in result.lower()
@@ -853,7 +874,7 @@ class TestMarketingExplainConversionGoalTool(BaseTest):
     async def test_arun_impl_success(self):
         tool = self._setup_tool()
         explanation = GoalExplanation(
-            goal_id="goal-1",
+            conversion_goal_id="goal-1",
             goal_name="Signup",
             kind="EventsNode",
             period=DateRange(date_from="2025-04-01", date_to="2025-05-01"),
@@ -872,7 +893,7 @@ class TestMarketingExplainConversionGoalTool(BaseTest):
             "products.marketing_analytics.backend.max_tools.explain_conversion_goal",
             new=AsyncMock(return_value=explanation),
         ):
-            content, artifact = await tool._arun_impl(goal_id="goal-1")
+            content, artifact = await tool._arun_impl(conversion_goal_id="goal-1")
 
         assert isinstance(content, str)
         assert isinstance(artifact, dict)
@@ -886,11 +907,11 @@ class TestMarketingExplainConversionGoalTool(BaseTest):
             "products.marketing_analytics.backend.max_tools.explain_conversion_goal",
             new=AsyncMock(side_effect=ValueError("Goal 'missing-id' not found")),
         ):
-            content, artifact = await tool._arun_impl(goal_id="missing-id")
+            content, artifact = await tool._arun_impl(conversion_goal_id="missing-id")
 
         assert "Could not explain" in content
         assert artifact["error"] == "goal_not_found"
-        assert artifact["goal_id"] == "missing-id"
+        assert artifact["conversion_goal_id"] == "missing-id"
 
 
 class TestMarketingListConversionGoalsTool(BaseTest):

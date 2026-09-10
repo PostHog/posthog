@@ -1,11 +1,16 @@
 import clsx from 'clsx'
 
-import { IconCheck } from '@posthog/icons'
+import { IconCheck, IconStarFilled } from '@posthog/icons'
+
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 type WidgetTypePickerCardProps = {
     label: string
+    badge?: string
     description: string
     selected: boolean
+    /** Live (self-updating) widget type — tags the card so pickers know the tile updates in real time. */
+    live?: boolean
     preview: JSX.Element
     onSelect: () => void
 }
@@ -26,8 +31,10 @@ function WidgetTypePickerSelectionIndicator({ selected }: { selected: boolean })
 
 export function WidgetTypePickerCard({
     label,
+    badge,
     description,
     selected,
+    live,
     preview,
     onSelect,
 }: WidgetTypePickerCardProps): JSX.Element {
@@ -38,7 +45,7 @@ export function WidgetTypePickerCard({
             aria-label={label}
             tabIndex={0}
             className={clsx(
-                'text-left w-full rounded border p-3 transition-colors cursor-pointer',
+                'text-left w-full overflow-hidden rounded border transition-colors cursor-pointer',
                 'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2',
                 selected ? 'border-accent bg-accent/5 ring-1 ring-accent' : 'border-primary hover:border-accent/40'
             )}
@@ -50,13 +57,28 @@ export function WidgetTypePickerCard({
                 }
             }}
         >
-            <div className="flex items-center justify-between gap-2">
-                <div className="font-semibold">{label}</div>
-                <WidgetTypePickerSelectionIndicator selected={selected} />
-            </div>
-            <p className="text-xs text-muted m-0 mt-0.5 mb-2">{description}</p>
-            <div className="pointer-events-none select-none overflow-hidden rounded" aria-hidden="true">
-                {preview}
+            {badge ? (
+                <div className="flex items-center gap-1 bg-accent-highlight-secondary px-3 py-1 text-xs font-semibold text-accent">
+                    <IconStarFilled className="text-sm" />
+                    {badge}
+                </div>
+            ) : null}
+            <div className="p-3">
+                <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 font-semibold">
+                        {label}
+                        {live ? (
+                            <LemonTag type="success" size="small">
+                                Live
+                            </LemonTag>
+                        ) : null}
+                    </span>
+                    <WidgetTypePickerSelectionIndicator selected={selected} />
+                </div>
+                <p className="text-xs text-muted m-0 mt-0.5 mb-2">{description}</p>
+                <div className="pointer-events-none select-none overflow-hidden rounded" aria-hidden="true">
+                    {preview}
+                </div>
             </div>
         </div>
     )

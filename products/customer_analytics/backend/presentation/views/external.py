@@ -1,8 +1,20 @@
 """
 External API endpoints for the Customer analytics product.
 
-These endpoints are used by the CDP worker for workflow actions. Authenticated
-via the team secret API token passed as a Bearer token in the Authorization header.
+The single-account endpoints are used by the CDP worker for workflow actions and
+authenticate via the team secret API token passed as a Bearer token in the
+Authorization header. The bulk account list instead authenticates via a project
+secret API key carrying the ``account:read`` scope, because the team token is
+readable by every project member and must not unlock a team-wide account export.
+The single-account GET accepts either credential; its writes stay team-token only.
+
+The team token deliberately grants single-account writes (create, tags,
+relationships, custom property values) without per-user ``account`` scope checks:
+workflow executions have no acting user to authorize, and the token is only
+readable by members of the project whose accounts it writes. Security reviewers
+periodically flag this as a write-permission bypass — it is the accepted model
+for this surface, matching the resource-level scoping note in the product's
+CLAUDE.md.
 
 The view holds only HTTP concerns — Bearer auth, throttles, the feature-flag gate,
 request validation, and mapping facade results to responses. Data access, the
@@ -11,12 +23,16 @@ capture live behind ``facade.api``.
 """
 
 import hashlib
-from typing import Any
+from typing import Any, cast
+from uuid import UUID
 
 from django.db.models import Q
+from django.http import HttpRequest
 
 import structlog
 import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -24,18 +40,27 @@ from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
+from posthog.api.utils import ErrorResponseSerializer
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models import Team
+from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
+from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
-from products.customer_analytics.backend.facade import (
-    api as facade,
-    contracts,
-)
-from products.customer_analytics.backend.facade.constants import (
-    ACCOUNT_ASSIGNMENT_ROLE_FIELDS,
-    CUSTOMER_ANALYTICS_CSP_FLAG,
+from products.customer_analytics.backend.facade import api as facade
+from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CSP_FLAG
+from products.customer_analytics.backend.presentation.views.account_actions import (
+    ACCOUNT_ACTION_AUTH_COUNTER,
+    ExternalAccountCustomPropertiesSerializer,
+    handle_account_create,
+    handle_account_get,
+    handle_account_set_properties,
+    handle_account_update,
 )
 
 logger = structlog.get_logger(__name__)
+
+EXTERNAL_ACCOUNT_LIST_MAX_LIMIT = 100
+EXTERNAL_ACCOUNT_READ_SCOPE = "account:read"
 
 
 class _ExternalAccountThrottle(SimpleRateThrottle):
@@ -58,6 +83,36 @@ class ExternalAccountSustainedThrottle(_ExternalAccountThrottle):
     rate = "600/hour"
 
 
+class ExternalAccountTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "external_account_psak_team_burst"
+    rate = ExternalAccountBurstThrottle.rate
+
+
+class ExternalAccountTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "external_account_psak_team_sustained"
+    rate = ExternalAccountSustainedThrottle.rate
+
+
+class ExternalAccountListBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "external_account_list_burst"
+    rate = ExternalAccountBurstThrottle.rate
+
+
+class ExternalAccountListSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "external_account_list_sustained"
+    rate = ExternalAccountSustainedThrottle.rate
+
+
+class ExternalAccountListTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "external_account_list_psak_team_burst"
+    rate = ExternalAccountBurstThrottle.rate
+
+
+class ExternalAccountListTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "external_account_list_psak_team_sustained"
+    rate = ExternalAccountSustainedThrottle.rate
+
+
 def _customer_analytics_enabled(team: Team) -> bool:
     organization_id = str(team.organization_id)
     return bool(
@@ -69,6 +124,18 @@ def _customer_analytics_enabled(team: Team) -> bool:
             send_feature_flag_events=False,
         )
     )
+
+
+class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthentication):
+    """Returns None instead of raising when the key's team lacks customer analytics, so a
+    key for a disabled team is indistinguishable from an unknown token and the response
+    cannot reveal that the key exists or which scopes it carries."""
+
+    def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
+        result = super().authenticate(request)
+        if result is None or not _customer_analytics_enabled(self.project_secret_api_key.team):
+            return None
+        return result
 
 
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
@@ -96,123 +163,354 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     return team, None
 
 
-def _external_account_body(account: contracts.ExternalAccount) -> dict[str, Any]:
-    return {
-        "id": account.id,
-        "external_id": account.external_id,
-        "name": account.name,
-        "properties": account.properties,
-        "tags": account.tags,
+def _authenticate_psak_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
+    """Resolve the team from a project secret API key with the ``account:read`` scope."""
+    if not is_authenticated_via_project_secret_api_key(request):
+        return None, Response({"error": "Missing or invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    authenticator = cast(ProjectSecretAPIKeyAuthentication, request.successful_authenticator)
+    psak = authenticator.project_secret_api_key
+
+    key_scopes = set(get_authenticator_scopes(authenticator) or [])
+    valid_scopes = {
+        EXTERNAL_ACCOUNT_READ_SCOPE,
+        EXTERNAL_ACCOUNT_READ_SCOPE.replace(":read", ":write"),
     }
-
-
-_UPDATE_ERROR_RESPONSES = {
-    contracts.ExternalAccountUpdateError.NOT_FOUND: ("Account not found", status.HTTP_404_NOT_FOUND),
-    contracts.ExternalAccountUpdateError.INVALID_PROPERTIES: (
-        "Invalid account properties",
-        status.HTTP_400_BAD_REQUEST,
-    ),
-    contracts.ExternalAccountUpdateError.UPDATE_FAILED: ("Failed to update account", status.HTTP_400_BAD_REQUEST),
-}
-
-
-def _update_error_response(result: contracts.ExternalAccountUpdateResult) -> Response:
-    if result.error == contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION:
-        return Response(
-            {"error": f"{result.error_field}: user is not a member of this organization"},
-            status=status.HTTP_400_BAD_REQUEST,
+    if "*" not in key_scopes and key_scopes.isdisjoint(valid_scopes):
+        return None, Response(
+            {"error": f"API key missing required scope '{EXTERNAL_ACCOUNT_READ_SCOPE}'"},
+            status=status.HTTP_403_FORBIDDEN,
         )
-    assert result.error is not None
-    message, code = _UPDATE_ERROR_RESPONSES[result.error]
-    return Response({"error": message}, status=code)
+
+    return psak.team, None
 
 
-class ExternalAccountUpdateSerializer(serializers.Serializer):
-    external_id = serializers.CharField(max_length=400)
-    # Each role accepts a `posthog_assignee` value `{type, id}`, `null` to clear, or is
-    # omitted to leave unchanged. Roles (RBAC) are rejected — accounts assign users only.
-    # `validate` normalizes a provided assignment down to the user id; the facade resolves
-    # the email against an org membership so the stored `{id, email}` is always trusted.
-    csm = serializers.JSONField(required=False, allow_null=True)
-    account_executive = serializers.JSONField(required=False, allow_null=True)
-    account_owner = serializers.JSONField(required=False, allow_null=True)
-    tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
-    tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
+def _authenticate_team_for_write(request: Request) -> tuple[Team, None] | tuple[None, Response]:
+    """Writes stay team-token only. A project secret API key is rejected explicitly, because
+    the team-token lookup treats it as an unknown token and answers 401 instead of 403."""
+    if is_authenticated_via_project_secret_api_key(request):
+        return None, Response(
+            {"error": "Project secret API keys can only read accounts on this route"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return _authenticate_team(request)
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS:
-            if field in attrs and attrs[field] is not None:
-                attrs[field] = self._normalize_assignee(field, attrs[field])
-        return attrs
 
-    def _normalize_assignee(self, field: str, value: Any) -> int:
-        if not isinstance(value, dict):
-            raise serializers.ValidationError({field: "Must be an assignee object or null"})
-        if value.get("type") != "user":
-            raise serializers.ValidationError({field: "Accounts can only be assigned to users, not roles"})
-        raw_id = value.get("id")
-        if not isinstance(raw_id, (int, str)):
-            raise serializers.ValidationError({field: "Assignee id must be a user id"})
-        try:
-            return int(raw_id)
-        except (TypeError, ValueError):
-            raise serializers.ValidationError({field: "Assignee id must be a user id"})
+class ExternalAccountAssignmentSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(help_text="PostHog user id of the assigned user.")
+    email = serializers.CharField(help_text="Email address of the assigned user.")
+
+
+class ExternalAccountSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Account UUID.")
+    external_id = serializers.CharField(
+        allow_null=True, help_text="External account key — the group key the account is linked to."
+    )
+    name = serializers.CharField(help_text="Human-readable account name.")
+    churned_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the account churned, or null if it has not churned.",
+    )
+    ignored_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When Track Rules ignored the account, or null if it is tracked.",
+    )
+    properties = serializers.DictField(
+        child=serializers.JSONField(help_text="Property value: a string or null."),
+        help_text="Typed account properties: external-system ids. Role assignments live under `relationships`.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(), help_text="Tag names on the account, sorted alphabetically."
+    )
+    relationships = serializers.DictField(
+        child=ExternalAccountAssignmentSerializer(many=True),
+        help_text=(
+            "Active relationship assignments keyed by definition name (e.g. 'CSM'). "
+            "Definitions with no active assignment are omitted."
+        ),
+    )
+    custom_properties = serializers.DictField(
+        child=serializers.JSONField(help_text="The property's active scalar value, or null when unset."),
+        help_text="Every team custom property definition keyed by name, with the account's active value or null.",
+    )
+
+
+class ExternalAccountErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="What went wrong with the request.")
 
 
 class ExternalAccountView(APIView):
     """
     GET /api/customer_analytics/external/account?external_id=<external_id> — Fetch account data
-    PATCH /api/customer_analytics/external/account — Update an account's role contacts and tags
+    POST /api/customer_analytics/external/account — Create an account (no-op if it already exists)
+    PATCH /api/customer_analytics/external/account — Update an account's relationships, tags, and churn state
 
-    Authenticated via Bearer token (team secret_api_token) in Authorization header.
+    GET accepts either the team secret_api_token or a project secret API key with the
+    ``account:read`` scope as a Bearer token. POST and PATCH accept only the team
+    secret_api_token.
+    """
+
+    authentication_classes = [ExternalAccountProjectSecretAPIKeyAuthentication]
+    permission_classes = [AllowAny]
+    throttle_classes = [
+        ExternalAccountBurstThrottle,
+        ExternalAccountSustainedThrottle,
+        ExternalAccountTeamBurstThrottle,
+        ExternalAccountTeamSustainedThrottle,
+    ]
+    # Opts the route into the OpenAPI spec and generated types; the schema preprocessor drops
+    # views without a scope_object. Authorization itself stays in the manual Bearer checks above.
+    scope_object = "account"
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "external_id",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="External account key: the group key the account is linked to.",
+            )
+        ],
+        responses={
+            200: OpenApiResponse(response=ExternalAccountSerializer, description="The account."),
+            400: OpenApiResponse(response=ExternalAccountErrorSerializer, description="Missing external_id."),
+            401: OpenApiResponse(
+                response=ExternalAccountErrorSerializer, description="Missing or invalid Bearer token."
+            ),
+            403: OpenApiResponse(
+                response=ExternalAccountErrorSerializer,
+                description="Project secret API key does not carry the account:read scope.",
+            ),
+            404: OpenApiResponse(
+                response=ExternalAccountErrorSerializer, description="No account with that external_id."
+            ),
+        },
+        summary="Get an external customer analytics account",
+        description=(
+            "Fetch one account by external ID with its properties, tags, active relationship assignments "
+            "and custom property values. Accepts the team secret API token or a project secret API key with "
+            "the `account:read` scope."
+        ),
+    )
+    def get(self, request: Request) -> Response:
+        if is_authenticated_via_project_secret_api_key(request):
+            team, error = _authenticate_psak_team(request)
+            auth_method = "project_secret_api_key"
+        else:
+            team, error = _authenticate_team(request)
+            auth_method = "secret_api_token"
+        if error:
+            return error
+
+        assert team is not None
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=auth_method, http_method="get").inc()
+
+        external_id = request.query_params.get("external_id", "").strip()
+        if not external_id:
+            return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return handle_account_get(team, external_id)
+
+    # The write operations stay out of the generated schema. drf-spectacular renders a PATCH body
+    # as fully optional although this route requires external_id, and validation failures return
+    # field-keyed errors that ExternalAccountErrorSerializer does not describe.
+    @extend_schema(exclude=True)
+    def post(self, request: Request) -> Response:
+        team, error = _authenticate_team_for_write(request)
+        if error:
+            return error
+
+        assert team is not None
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="post").inc()
+        return handle_account_create(request, team)
+
+    @extend_schema(exclude=True)
+    def patch(self, request: Request) -> Response:
+        team, error = _authenticate_team_for_write(request)
+        if error:
+            return error
+
+        assert team is not None
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="patch").inc()
+        return handle_account_update(request, team)
+
+
+class ExternalAccountListQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=EXTERNAL_ACCOUNT_LIST_MAX_LIMIT,
+        help_text=(
+            "Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100."
+        ),
+    )
+    cursor = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+        help_text="Account UUID from `next_cursor` to continue listing from. Omit for the first page.",
+    )
+    assigned_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, return only accounts with at least one active relationship assignment "
+            "to a current member of the project's organization."
+        ),
+    )
+    include_ignored = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Include ignored accounts. Ignored accounts are hidden by default.",
+    )
+
+    def validate_limit(self, value: int) -> int:
+        return max(1, min(value, EXTERNAL_ACCOUNT_LIST_MAX_LIMIT))
+
+    def validate_cursor(self, value: str) -> str | None:
+        if not value:
+            return None
+        try:
+            UUID(value)
+        except ValueError:
+            raise serializers.ValidationError("Must be a valid account id.")
+        return value
+
+
+class ExternalAccountListAssignmentSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(help_text="PostHog user id of the assigned user.")
+    email = serializers.CharField(help_text="Current email address of the assigned user.")
+    name = serializers.CharField(
+        allow_null=True,
+        help_text="Current display name of the assigned user, or null when the user has no name set.",
+    )
+
+
+class ExternalAccountListItemSerializer(serializers.Serializer):
+    external_id = serializers.CharField(help_text="External account key used by downstream systems.")
+    name = serializers.CharField(help_text="Human-readable account name.")
+    churned_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the account churned, or null if it has not churned.",
+    )
+    ignored_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When Track Rules ignored the account, or null if it is tracked.",
+    )
+    relationships = serializers.DictField(
+        child=ExternalAccountListAssignmentSerializer(many=True),
+        help_text=(
+            "Active relationship assignments to current organization members, keyed by relationship definition name "
+            "(e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted."
+        ),
+    )
+
+
+class ExternalAccountListPageSerializer(serializers.Serializer):
+    results = ExternalAccountListItemSerializer(
+        many=True,
+        help_text="Accounts in this page, ordered by account id.",
+    )
+    next_cursor = serializers.CharField(
+        allow_null=True,
+        help_text="Account UUID to pass as `cursor` for the next page, or null when the list is exhausted.",
+    )
+
+
+class ExternalAccountListValidationErrorSerializer(serializers.Serializer):
+    error = serializers.DictField(
+        child=serializers.ListField(child=serializers.CharField()),
+        help_text="Validation errors keyed by query parameter.",
+    )
+
+
+class ExternalAccountListView(APIView):
+    """
+    GET /api/customer_analytics/external/accounts — List accounts with their relationship assignments
+
+    Cursor-paginated by account id. ``assigned_only=true`` restricts the listing
+    to accounts with at least one active relationship assignment, which is what
+    the billing service's ownership sync consumes.
+
+    Authenticated via a project secret API key (Bearer ``phs_...``) carrying the
+    ``account:read`` scope, not the team secret_api_token the sibling views
+    accept. The team token is readable by any project member, so it must not
+    grant this team-wide export; a PSAK is a service credential minted with an
+    explicit scope.
+    """
+
+    authentication_classes = [ExternalAccountProjectSecretAPIKeyAuthentication]
+    permission_classes = [AllowAny]
+    throttle_classes = [
+        ExternalAccountListBurstThrottle,
+        ExternalAccountListSustainedThrottle,
+        ExternalAccountListTeamBurstThrottle,
+        ExternalAccountListTeamSustainedThrottle,
+    ]
+    scope_object = "account"
+
+    @extend_schema(
+        parameters=[ExternalAccountListQuerySerializer],
+        responses={
+            200: OpenApiResponse(response=ExternalAccountListPageSerializer, description="Page of external accounts."),
+            400: OpenApiResponse(
+                response=ExternalAccountListValidationErrorSerializer,
+                description="Invalid query parameters.",
+            ),
+            401: OpenApiResponse(response=ErrorResponseSerializer, description="Authentication failed."),
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="API key does not carry the account:read scope.",
+            ),
+        },
+        summary="List external customer analytics accounts",
+        description=(
+            "List tracked accounts with external IDs, lifecycle timestamps, and active relationship assignments. "
+            "Set `include_ignored=true` to include ignored accounts. Requires a project secret API key with the "
+            "`account:read` scope."
+        ),
+    )
+    def get(self, request: Request) -> Response:
+        team, error = _authenticate_psak_team(request)
+        if error:
+            return error
+
+        assert team is not None
+
+        query_serializer = ExternalAccountListQuerySerializer(data=request.query_params)
+        if not query_serializer.is_valid():
+            return Response({"error": query_serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        query_data = query_serializer.validated_data
+
+        page = facade.list_external_accounts(
+            team.id,
+            organization_id=team.organization_id,
+            cursor=query_data.get("cursor"),
+            limit=query_data["limit"],
+            assigned_only=query_data["assigned_only"],
+            include_ignored=query_data["include_ignored"],
+        )
+        return Response(ExternalAccountListPageSerializer(page).data)
+
+
+class ExternalAccountCustomPropertiesView(APIView):
+    """
+    PATCH /api/customer_analytics/external/account/custom_property_values — Set an account's custom
+    property values, addressing each property by its definition id (UUID).
+
+    Authenticated via Bearer token (team secret_api_token) in the Authorization header.
     """
 
     authentication_classes: list = []
     permission_classes = [AllowAny]
     throttle_classes = [ExternalAccountBurstThrottle, ExternalAccountSustainedThrottle]
 
-    def get(self, request: Request) -> Response:
-        team, error = _authenticate_team(request)
-        if error:
-            return error
-
-        assert team is not None
-
-        external_id = request.query_params.get("external_id", "").strip()
-        if not external_id:
-            return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        account = facade.get_external_account(team.id, external_id)
-        if account is None:
-            return Response({"error": "Account not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        return Response(_external_account_body(account))
-
+    @extend_schema(request=ExternalAccountCustomPropertiesSerializer, responses={200: OpenApiTypes.OBJECT})
     def patch(self, request: Request) -> Response:
         team, error = _authenticate_team(request)
         if error:
             return error
 
         assert team is not None
-
-        serializer = ExternalAccountUpdateSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-        data = serializer.validated_data
-
-        external_id = data["external_id"].strip()
-        if not external_id:
-            return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        role_assignments = {field: data[field] for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS if field in data}
-        result = facade.update_external_account(
-            team.id,
-            external_id,
-            role_assignments=role_assignments,
-            tags=data["tags"] if "tags" in data else None,
-            tags_mode=data.get("tags_mode", "add"),
-        )
-        if result.account is None:
-            return _update_error_response(result)
-
-        return Response(_external_account_body(result.account))
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="patch").inc()
+        return handle_account_set_properties(request, team)

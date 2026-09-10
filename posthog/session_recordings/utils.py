@@ -5,30 +5,74 @@ import posthoganalytics
 from pydantic import ValidationError
 from rest_framework import exceptions
 
-from posthog.schema import RecordingOrder, RecordingsQuery
+from posthog.schema import PropertyFilterType, RecordingOrder, RecordingsQuery
 
 if TYPE_CHECKING:
     from posthog.models import User
 
 SURFACING_SCORE_ORDER_FLAG = "replay-playlist-surfacing-score"
+RECOMMENDED_RECORDINGS_FILTER_FLAG = "replay-recommended-recordings-filter-experiment"
+
+
+def recordings_query_has_event_filters(query: RecordingsQuery) -> bool:
+    """Whether a query carries something the matching_events endpoint can highlight: an event filter,
+    an action filter, or an event-property filter. The endpoint rejects queries without one, so both
+    the endpoint's own precondition and any caller that decides whether to hit it share this check."""
+    has_event_properties = any(
+        getattr(prop, "type", None) == PropertyFilterType.EVENT for prop in (query.properties or [])
+    )
+    return bool(query.events) or bool(query.actions) or has_event_properties
 
 
 def gate_surfacing_score_order(query: RecordingsQuery, user: "User | None") -> None:
     """`surfacing_score` ordering is gated behind a feature flag. It's exposed to clients via the
     generated RecordingOrder enum (both the REST list endpoint and the MCP query), so the gate has to
-    be enforced server-side, not just in the UI. When the flag is off — or there's no user to evaluate
-    it against — fall back to the default ordering rather than erroring on an otherwise valid request."""
+    be enforced server-side, not just in the UI. Without the surfacing-score rollout, fall back to the
+    default ordering rather than erroring on an otherwise valid request."""
     if query.order != RecordingOrder.SURFACING_SCORE:
         return
 
-    enabled = user is not None and posthoganalytics.feature_enabled(
-        SURFACING_SCORE_ORDER_FLAG,
-        str(user.distinct_id),
-        person_properties={"email": user.email},
-        send_feature_flag_events=False,
-    )
-    if not enabled:
+    if user is None or not _can_order_by_surfacing_score(user):
         query.order = RecordingOrder.START_TIME
+
+
+def gate_recommended_recordings_filter(query: RecordingsQuery, user: "User | None") -> None:
+    if not query.recommended_only:
+        return
+
+    if user is None or not _can_filter_recommended_recordings(user):
+        query.recommended_only = False
+
+
+def gate_replay_relevance(query: RecordingsQuery, user: "User | None") -> None:
+    gate_surfacing_score_order(query, user)
+    gate_recommended_recordings_filter(query, user)
+
+
+def _can_order_by_surfacing_score(user: "User") -> bool:
+    distinct_id = str(user.distinct_id)
+    person_properties = {"email": user.email}
+    return (
+        posthoganalytics.feature_enabled(
+            SURFACING_SCORE_ORDER_FLAG,
+            distinct_id,
+            person_properties=person_properties,
+            send_feature_flag_events=False,
+        )
+        is True
+    )
+
+
+def _can_filter_recommended_recordings(user: "User") -> bool:
+    return (
+        posthoganalytics.get_feature_flag(
+            RECOMMENDED_RECORDINGS_FILTER_FLAG,
+            str(user.distinct_id),
+            person_properties={"email": user.email},
+            send_feature_flag_events=False,
+        )
+        == "test"
+    )
 
 
 def clean_prompt_whitespace(prompt: str) -> str:

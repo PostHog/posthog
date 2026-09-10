@@ -16,6 +16,7 @@ import {
     GoInstallation,
     GoogleTagManagerInstallation,
     IOSInstallation,
+    KMPInstallation,
     LaravelInstallation,
     NextJSInstallation,
     NodeEventCapture,
@@ -221,6 +222,13 @@ export const SDK_CONFIGS: { [key in SDKKey]?: SDKConfig } = {
         docsLink: 'https://posthog.com/docs/libraries/ios',
         category: 'mobile',
     },
+    [SDKKey.KMP]: {
+        Installation: KMPInstallation,
+        wizardIntegrationName: 'Kotlin Multiplatform',
+        name: 'Kotlin Multiplatform',
+        docsLink: 'https://posthog.com/docs/libraries/kmp',
+        category: 'mobile',
+    },
 
     // Server
     [SDKKey.DJANGO]: {
@@ -321,6 +329,10 @@ export function buildSDKSelectOptions(categories?: SDKCategory[]): LemonSelectSe
     return groups
 }
 
+// Derived purely from the static SDK_CONFIGS, so compute once at module scope rather than rebuilding
+// a fresh options array (new identity) on every render.
+const ALL_SDK_SELECT_OPTIONS = buildSDKSelectOptions()
+
 export function SDKSetupInstructions(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const [selectedSDK, setSelectedSDK] = useState<SDKKey>(SDKKey.JS_WEB)
@@ -352,7 +364,7 @@ export function SDKSetupInstructions(): JSX.Element {
                     setSelectedSDK(value)
                     setShowFullSetup(false)
                 }}
-                options={buildSDKSelectOptions()}
+                options={ALL_SDK_SELECT_OPTIONS}
                 className="max-w-80"
             />
             <OnboardingDocsContentWrapper snippets={snippets} minimal useReverseProxy={isClientSideSDK}>

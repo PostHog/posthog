@@ -11,16 +11,33 @@ from posthog.hogql.database.models import (
 
 LOG_ENTRIES_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-    "log_source": StringDatabaseField(name="log_source", nullable=False),
-    "log_source_id": StringDatabaseField(name="log_source_id", nullable=False),
-    "instance_id": StringDatabaseField(name="instance_id", nullable=False),
-    "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
-    "message": StringDatabaseField(name="message", nullable=False),
-    "level": StringDatabaseField(name="level", nullable=False),
+    "log_source": StringDatabaseField(
+        name="log_source",
+        nullable=False,
+        description="Origin of the log line, e.g. 'session_replay' (console logs) or 'batch_export'.",
+    ),
+    "log_source_id": StringDatabaseField(
+        name="log_source_id",
+        nullable=False,
+        description="Identifier of the source entity that produced the log (e.g. the session or batch export id).",
+    ),
+    "instance_id": StringDatabaseField(
+        name="instance_id",
+        nullable=False,
+        description="Identifier of the specific run/instance that emitted the log line.",
+    ),
+    "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False, description="When the log line was emitted."),
+    "message": StringDatabaseField(name="message", nullable=False, description="The log message text."),
+    "level": StringDatabaseField(
+        name="level", nullable=False, description="Log severity level, e.g. 'info', 'warn', 'error'."
+    ),
 }
 
 
 class LogEntriesTable(Table):
+    description: str = (
+        "Console/diagnostic log lines emitted by plugins, batch exports, and session replay, filtered by `log_source`."
+    )
     fields: dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
     def to_printed_clickhouse(self, context):
@@ -31,6 +48,7 @@ class LogEntriesTable(Table):
 
 
 class ReplayConsoleLogsLogEntriesTable(LazyTable):
+    description: str = "Browser console log lines captured during session replay (`log_source` = 'session_replay')."
     fields: dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
@@ -56,6 +74,7 @@ class ReplayConsoleLogsLogEntriesTable(LazyTable):
 
 
 class BatchExportLogEntriesTable(LazyTable):
+    description: str = "Log lines emitted by batch export runs (`log_source` = 'batch_export')."
     fields: dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):

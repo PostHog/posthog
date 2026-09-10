@@ -3,27 +3,55 @@ import { Message } from 'node-rdkafka'
 import pLimit from 'p-limit'
 import { Counter, Histogram } from 'prom-client'
 
+import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/common/kafka/consumer'
+import { retryOnDependencyUnavailableError } from '~/common/kafka/error-handling'
+import { recordPiiReplacements } from '~/common/metrics/otel-metrics'
 import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting, QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/kafka/consumer'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
+import { isDevEnv } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
+import { TeamManager } from '~/common/utils/team-manager'
+import { UUID7 } from '~/common/utils/utils'
 import type { LogsSettings } from '~/types'
 import { HealthCheckResult, PluginServerService } from '~/types'
-import { isDevEnv } from '~/utils/env-utils'
-import { logger } from '~/utils/logger'
-import { TeamManager } from '~/utils/team-manager'
 
 import { LogsIngestionConsumerConfig } from './config'
+import {
+    recordLogMessageDlq,
+    recordLogMessageDropped,
+    recordLogsAllowed,
+    recordLogsDropped,
+    recordLogsReceived,
+} from './ingestion-otel-metrics'
+import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from './log-pattern-stage'
 import { type PiiScrubStats } from './log-pii-scrub'
-import { processLogMessageBuffer } from './log-record-avro'
+import {
+    type LogRecord,
+    type LogRecordsTransform,
+    bufferProcessingMode,
+    processLogMessageBuffer,
+} from './log-record-avro'
+import type { CompiledMetricRule } from './metrics-rules/compile-metric-rules'
+import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
+import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
+import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
+import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import { EMPTY_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
+import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
+import { RetentionRulesCache } from './retention/retention-rules-cache'
+import { makeRetentionStage } from './retention/retention-stage'
 import type { CompiledRuleSet } from './sampling/evaluate'
 import { LogsSamplingService } from './sampling/logs-sampling.service'
 import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
+import { LogsTransformerService, TransformationBatchBudget } from './transformations/logs-transformer.service'
 import { LogsIngestionMessage } from './types'
 
 export interface LogsIngestionConsumerDeps {
@@ -31,6 +59,14 @@ export interface LogsIngestionConsumerDeps {
     quotaLimiting: QuotaLimiting
     /** When set, enabled teams may run head sampling before ClickHouse Kafka produce. */
     samplingRulesCache?: SamplingRulesCache
+    /** When set (with `metricsEmitter`), enabled teams generate metrics from matching log records. */
+    metricRulesCache?: MetricRulesCache
+    /** OTLP sender for log-generated metrics; required alongside `metricRulesCache` to activate the feature. */
+    metricsEmitter?: LogsMetricsEmitter
+    /** When set, enabled teams run hog log transformations after the built-in processing. */
+    logsTransformer?: LogsTransformerService
+    /** When set, enabled teams stamp per-row retention from retention rules before produce. */
+    retentionRulesCache?: RetentionRulesCache
     /**
      * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
@@ -38,12 +74,19 @@ export interface LogsIngestionConsumerDeps {
      * directly.
      */
     outputs: IngestionOutputs<LogsOutput | LogsDlqOutput | AppMetricsOutput>
+    usageBatch: UsageRecordBatch
+    /**
+     * Backoff for a `DependencyUnavailableError` from the team lookup or a Kafka produce. Defaults
+     * to the `retryOnDependencyUnavailableError` policy (5 tries, 1 s doubling to 16 s). Tests
+     * shorten it.
+     */
+    dependencyRetry?: { retryCount: number; initialRetryDelayMs: number }
 }
 
 /** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
-/** Retention tiers that get their own per-tier usage metric; total = sum across all tiers. */
+/** Retention day counts that get their own per-tier usage metric. */
 const RETENTION_USAGE_TIERS = new Set([14, 30, 90])
 
 function retentionBytesMetricName(retentionDays: number): string | null {
@@ -61,6 +104,57 @@ export type UsageStats = {
     recordsDropped: number
     piiReplacements: number
     retentionDays: number
+}
+
+/** `raw` is a comma-separated team-ID list, `*` for all teams, or empty for none. */
+function teamIdMatchesCsv(raw: string, teamId: number): boolean {
+    const trimmed = (raw || '').trim()
+    if (!trimmed) {
+        return false
+    }
+    if (trimmed === '*') {
+        return true
+    }
+    return trimmed
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !Number.isNaN(n))
+        .includes(teamId)
+}
+
+/**
+ * Per-partition offset span of a batch, for the batch log line. A consumer that dies mid-batch
+ * writes nothing after it, so this is what names the records it was holding.
+ */
+export function describeBatchPosition(messages: Message[]): Record<string, string> {
+    const spans = new Map<number, { min: number; max: number }>()
+    for (const message of messages) {
+        const span = spans.get(message.partition)
+        if (span) {
+            span.min = Math.min(span.min, message.offset)
+            span.max = Math.max(span.max, message.offset)
+        } else {
+            spans.set(message.partition, { min: message.offset, max: message.offset })
+        }
+    }
+
+    const spanByPartition: Record<string, string> = {}
+    for (const [partition, { min, max }] of spans) {
+        spanByPartition[partition.toString()] = min === max ? min.toString() : `${min}-${max}`
+    }
+    return spanByPartition
+}
+
+/**
+ * Parse a batch size header, or `null` when the value is unusable. These feed usage counters and
+ * billing stats, so a malformed one must not reach them: `parseInt` returns NaN for junk, and
+ * prom-client's own guard treats NaN as falsy and lets it through, which leaves the counter NaN
+ * for the life of the process. Parsing stays as lenient as before — only NaN and negatives, which
+ * no caller can use, are rejected.
+ */
+export function parseSizeHeader(raw: string | undefined): number | null {
+    const parsed = parseInt(raw ?? '0', 10)
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
 const DEFAULT_USAGE_STATS: UsageStats = {
@@ -160,6 +254,31 @@ export const logsBillingRecordsCreditedCounter = new Counter({
     labelNames: ['team_id'],
 })
 
+// --- Metric rules (generate metrics from logs) ---
+export const logsMetricRulesRecordsMatchedCounter = new Counter({
+    name: 'logs_metrics_rules_records_matched_total',
+    help: 'Log records that matched a metric rule and fed a generated metric data point.',
+    labelNames: ['team_id'],
+})
+
+export const logsMetricRulesValueSkippedCounter = new Counter({
+    name: 'logs_metrics_rules_value_skipped_total',
+    help: 'Records matching a value-attribute metric rule whose value was missing or non-numeric.',
+    labelNames: ['team_id'],
+})
+
+export const logsMetricRulesSeriesOverflowCounter = new Counter({
+    name: 'logs_metrics_rules_series_overflow_total',
+    help: 'Matching records dropped because a metric rule exceeded its per-batch label-set cap.',
+    labelNames: ['team_id'],
+})
+
+export const logsMetricRulesEvalErrorCounter = new Counter({
+    name: 'logs_metrics_rules_eval_error_total',
+    help: 'Per-record metric-rule filter evaluations that threw; the record was skipped for that rule.',
+    labelNames: ['team_id'],
+})
+
 // --- Pro-rate accuracy-confidence signals (Tier 2). No team_id label — kept low-cardinality. ---
 export const logsBillingProrateDivergenceHistogram = new Histogram({
     name: 'logs_ingestion_billing_prorate_divergence',
@@ -201,6 +320,28 @@ export function billingByteReductionForDrops(headerBytes: number, bytesDropped: 
     return Math.round(headerBytes * droppedFraction)
 }
 
+/**
+ * Wraps a hog log transform (mutates the surviving records in place, may drop) as the last pipeline
+ * `filter` stage. Partial transform drops are not billed-credited — only the all-dropped case is
+ * attributed — so it reports no per-rule accounting, just the `transformations` tag when it removed
+ * any record.
+ */
+function makeTransformStage(transform: LogRecordsTransform): PipelineStage {
+    return {
+        kind: 'filter',
+        name: 'transformations',
+        run: async (records) => {
+            const before = records.length
+            await transform(records)
+            const stats = EMPTY_DROP_STATS()
+            if (records.length < before) {
+                stats.droppedBy = 'transformations'
+            }
+            return { kept: records, stats }
+        },
+    }
+}
+
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
@@ -214,6 +355,14 @@ export class LogsIngestionConsumer {
     private readonly samplingEnabledTeamsRaw: string
     private readonly samplingKillswitch: boolean
     private readonly billingProrateEnabled: boolean
+    private readonly metricRulesEnabledTeamsRaw: string
+    private readonly metricRulesKillswitch: boolean
+    private readonly transformationsEnabledTeamsRaw: string
+    private readonly transformationsKillswitch: boolean
+    private readonly retentionEnabledTeamsRaw: string
+    private readonly retentionKillswitch: boolean
+    private readonly patternMaskingEnabledTeamsRaw: string
+    private readonly patternMaskingStage: PipelineStage
 
     protected groupId: string
     protected topic: string
@@ -257,33 +406,82 @@ export class LogsIngestionConsumer {
         this.samplingEnabledTeamsRaw = mergedConfig.LOGS_SAMPLING_ENABLED_TEAMS
         this.samplingKillswitch = mergedConfig.LOGS_SAMPLING_KILLSWITCH
         this.billingProrateEnabled = mergedConfig.LOGS_BILLING_PRORATE_ENABLED
+        this.metricRulesEnabledTeamsRaw = mergedConfig.LOGS_METRICS_RULES_ENABLED_TEAMS
+        this.metricRulesKillswitch = mergedConfig.LOGS_METRICS_RULES_KILLSWITCH
+        this.transformationsEnabledTeamsRaw = mergedConfig.LOGS_TRANSFORMATIONS_ENABLED_TEAMS
+        this.transformationsKillswitch = mergedConfig.LOGS_TRANSFORMATIONS_KILLSWITCH
+        this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
+        this.retentionKillswitch = mergedConfig.LOGS_RETENTION_KILLSWITCH
+        this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
+        this.patternMaskingStage = makePatternMaskingStage()
     }
 
     private isSamplingEvalEnabledForTeam(teamId: number): boolean {
         if (this.samplingKillswitch) {
             return false
         }
-        const raw = (this.samplingEnabledTeamsRaw || '').trim()
-        if (!raw) {
+        return teamIdMatchesCsv(this.samplingEnabledTeamsRaw, teamId)
+    }
+
+    private isRetentionEvalEnabledForTeam(teamId: number): boolean {
+        if (this.retentionKillswitch) {
             return false
         }
-        if (raw === '*') {
-            return true
+        return teamIdMatchesCsv(this.retentionEnabledTeamsRaw, teamId)
+    }
+
+    private isMetricRulesEnabledForTeam(teamId: number): boolean {
+        if (this.metricRulesKillswitch || !this.deps.metricRulesCache || !this.deps.metricsEmitter) {
+            return false
         }
-        return raw
-            .split(',')
-            .map((s) => parseInt(s.trim(), 10))
-            .filter((n) => !Number.isNaN(n))
-            .includes(teamId)
+        return teamIdMatchesCsv(this.metricRulesEnabledTeamsRaw, teamId)
+    }
+
+    private isTransformationsEnabledForTeam(teamId: number): boolean {
+        if (this.transformationsKillswitch || !this.deps.logsTransformer) {
+            return false
+        }
+        return teamIdMatchesCsv(this.transformationsEnabledTeamsRaw, teamId)
+    }
+
+    /**
+     * Logs only. `TracesIngestionConsumer` subclasses this one and reads the same config key, but a
+     * trace record has no `body` field, so masking one measures nothing and would mix trace shapes
+     * into the log-body split these metrics exist to produce.
+     */
+    private isPatternMaskingEnabledForTeam(teamId: number): boolean {
+        return this.appSource === 'logs' && teamIdMatchesCsv(this.patternMaskingEnabledTeamsRaw, teamId)
+    }
+
+    /**
+     * Builds the hog log transformation hook for a message, or undefined when the team
+     * is not gated in or has no enabled transformation_log functions (the existence
+     * check is an in-process cache hit, preserving the no-decode passthrough).
+     */
+    private async buildRecordsTransform(
+        message: LogsIngestionMessage,
+        batchBudget?: TransformationBatchBudget
+    ): Promise<LogRecordsTransform | undefined> {
+        const transformer = this.deps.logsTransformer
+        if (!transformer || !this.isTransformationsEnabledForTeam(message.teamId)) {
+            return undefined
+        }
+        if (!(await transformer.teamHasTransformations(message.teamId))) {
+            return undefined
+        }
+        return (records) => transformer.transformRecords(message.teamId, records, batchBudget)
     }
 
     /**
      * Decode + optional head sampling, or passthrough `processLogMessageBuffer`.
-     * `sampling_all_dropped` means do not enqueue to logs output (message fully sampled out).
+     * `all_dropped` means do not enqueue to logs output (every record was sampled out
+     * or dropped by transformations); `reason` distinguishes the source.
      */
     private async resolveLogMessageBufferWithOptionalSampling(
         message: LogsIngestionMessage,
-        logsSettings: LogsSettings
+        logsSettings: LogsSettings,
+        onRecordsDecoded?: (records: LogRecord[]) => void,
+        batchBudget?: TransformationBatchBudget
     ): Promise<
         | {
               outcome: 'produce'
@@ -296,7 +494,8 @@ export class LogsIngestionConsumer {
               contentBytesTotal: number
           }
         | {
-              outcome: 'sampling_all_dropped'
+              outcome: 'all_dropped'
+              reason: 'sampling_all_dropped' | 'transformations_all_dropped' | 'empty_batch'
               pii: PiiScrubStats
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
@@ -312,6 +511,46 @@ export class LogsIngestionConsumer {
             ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
         }
         const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
+        const recordsTransform = await this.buildRecordsTransform(message, batchBudget)
+
+        // Per-row retention: resolve the team's retention rules when enabled. Any matching rule stamps
+        // `retention_days` per surviving record (falling back to the team default), which ClickHouse
+        // reads in place of the batch `retention-days` header. With no rules the header — still emitted
+        // below — carries the team default, keeping this a no-decode passthrough.
+        const retentionCache = this.deps.retentionRulesCache
+        const retentionEvalEnabled = this.isRetentionEvalEnabledForTeam(message.teamId)
+        let retentionRuleSet: CompiledRetentionRuleSet | null = null
+        if (retentionCache && retentionEvalEnabled) {
+            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId)
+        }
+        const useRetention = Boolean(retentionRuleSet && retentionRuleSet.rules.length > 0)
+
+        // Assemble the ordered decode → transform → encode pipeline: sampling drop rules + rate limits
+        // first, hog transformations next, per-row retention stamping last (so it only stamps
+        // survivors). An empty list (with no metric visitor) leaves the buffer as a no-decode passthrough
+        // inside `processLogMessageBuffer`.
+        const stages: PipelineStage[] = []
+        if (useSamplingPipeline && ruleSet) {
+            stages.push(this.samplingService.makeSamplingStage(ruleSet, message.teamId, message.bytesUncompressed))
+        }
+        if (recordsTransform) {
+            stages.push(makeTransformStage(recordsTransform))
+        }
+        if (useRetention && retentionRuleSet) {
+            const defaultRetentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+            stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
+        }
+
+        // Runs last so it only sees survivors. Adding any stage forces the full decode and re-encode,
+        // so a batch that would have passed through pays both, and one already decoded for a visitor
+        // pays the encode. The counter prices each.
+        if (this.isPatternMaskingEnabledForTeam(message.teamId)) {
+            const modeWithoutMasking = bufferProcessingMode(logsSettings, stages.length, Boolean(onRecordsDecoded))
+            if (modeWithoutMasking !== 'decode_and_reencode') {
+                logsPatternForcedDecodeCounter.inc({ from: modeWithoutMasking })
+            }
+            stages.push(this.patternMaskingStage)
+        }
 
         trace.getActiveSpan()?.setAttributes({
             'logs.sampling.killswitch': this.samplingKillswitch,
@@ -320,58 +559,61 @@ export class LogsIngestionConsumer {
             'logs.sampling.cache_present': Boolean(samplingCache),
             'logs.sampling.eval_enabled_for_team': samplingEvalEnabled,
             'logs.sampling.compiled_rule_count': ruleSet?.rules.length ?? 0,
+            'logs.transformations.enabled_for_team': Boolean(recordsTransform),
+            'logs.retention.cache_present': Boolean(retentionCache),
+            'logs.retention.eval_enabled_for_team': retentionEvalEnabled,
+            'logs.retention.compiled_rule_count': retentionRuleSet?.rules.length ?? 0,
+            'logs.retention.use_retention': useRetention,
             'logs.sampling.pipeline': useSamplingPipeline
                 ? 'decode_sample_encode'
-                : 'passthrough_processLogMessageBuffer',
+                : recordsTransform
+                  ? 'decode_transform_encode'
+                  : 'passthrough',
         })
 
-        if (useSamplingPipeline && ruleSet) {
-            const sampled = await this.samplingService.processBuffer(
-                message.message.value!,
-                logsSettings,
-                ruleSet,
-                message.teamId
-            )
-            if (sampled.recordsDropped > 0) {
-                logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, sampled.recordsDropped)
-            }
-            if (sampled.bytesDropped > 0) {
-                logsBytesDroppedByRuleCounter.inc({ team_id: message.teamId.toString() }, sampled.bytesDropped)
-            }
-            if (sampled.allDropped) {
-                return {
-                    outcome: 'sampling_all_dropped',
-                    pii: sampled.pii,
-                    recordsDropped: sampled.recordsDropped,
-                    recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
-                    bytesDroppedByRuleId: sampled.bytesDroppedByRuleId,
-                    contentBytesDropped: sampled.contentBytesDropped,
-                    contentBytesTotal: sampled.contentBytesTotal,
-                }
-            }
-            return {
-                outcome: 'produce',
-                processedValue: sampled.value,
-                pii: sampled.pii,
-                recordsDropped: sampled.recordsDropped,
-                recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
-                bytesDroppedByRuleId: sampled.bytesDroppedByRuleId,
-                contentBytesDropped: sampled.contentBytesDropped,
-                contentBytesTotal: sampled.contentBytesTotal,
-            }
+        const { value, pii, drops } = await processLogMessageBuffer(message.message.value!, logsSettings, {
+            onRecordsDecoded,
+            stages,
+        })
+
+        // Only the sampling stage attributes per-rule drops; the transform stage reports none, so
+        // these increments are no-ops on the transform-only and passthrough paths.
+        if (drops.recordsDropped > 0) {
+            logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, drops.recordsDropped)
+        }
+        if (drops.bytesDropped > 0) {
+            logsBytesDroppedByRuleCounter.inc({ team_id: message.teamId.toString() }, drops.bytesDropped)
         }
 
-        // Passthrough (sampling disabled / no rules): nothing dropped, so nothing to credit.
-        const res = await processLogMessageBuffer(message.message.value!, logsSettings)
+        if (value === null) {
+            // `droppedBy` tells us which filter emptied the batch; its absence means the batch decoded
+            // to zero records to begin with, so attribute it to an empty batch rather than sampling.
+            const reason =
+                drops.droppedBy === 'transformations'
+                    ? 'transformations_all_dropped'
+                    : drops.droppedBy === 'sampling'
+                      ? 'sampling_all_dropped'
+                      : 'empty_batch'
+            return {
+                outcome: 'all_dropped',
+                reason,
+                pii,
+                recordsDropped: drops.recordsDropped,
+                recordsDroppedByRuleId: drops.recordsDroppedByRuleId,
+                bytesDroppedByRuleId: drops.bytesDroppedByRuleId,
+                contentBytesDropped: drops.contentBytesDropped,
+                contentBytesTotal: drops.contentBytesTotal,
+            }
+        }
         return {
             outcome: 'produce',
-            processedValue: res.value,
-            pii: res.pii,
-            recordsDropped: 0,
-            recordsDroppedByRuleId: new Map(),
-            bytesDroppedByRuleId: new Map(),
-            contentBytesDropped: 0,
-            contentBytesTotal: 0,
+            processedValue: value,
+            pii,
+            recordsDropped: drops.recordsDropped,
+            recordsDroppedByRuleId: drops.recordsDroppedByRuleId,
+            bytesDroppedByRuleId: drops.bytesDroppedByRuleId,
+            contentBytesDropped: drops.contentBytesDropped,
+            contentBytesTotal: drops.contentBytesTotal,
         }
     }
 
@@ -401,11 +643,24 @@ export class LogsIngestionConsumer {
             ...rateLimiterDroppedMessages,
         ])
 
+        // One transformation time budget shared by all messages of this batch
+        const transformationBatchBudget = this.deps.logsTransformer?.startBatch()
+
         return {
             // Produce first so PII replacement counts are folded into `usageStats` before MSK usage emit
             backgroundTask: (async () => {
-                await this.processAndProduceLogMessages(rateLimiterAllowedMessages, usageStats)
+                await this.processAndProduceLogMessages(
+                    rateLimiterAllowedMessages,
+                    usageStats,
+                    transformationBatchBudget
+                )
                 await this.emitUsageMetrics(usageStats)
+                // Best-effort flush of transformation app metrics + function logs; never block the data path
+                if (this.deps.logsTransformer) {
+                    await this.deps.logsTransformer.flush().catch((error) => {
+                        logger.error('Failed to flush logs transformer monitoring', { error: String(error) })
+                    })
+                }
             })(),
             messages: rateLimiterAllowedMessages,
         }
@@ -420,6 +675,7 @@ export class LogsIngestionConsumer {
         }
         logsBytesReceivedCounter.inc(totalBytesReceived)
         logsRecordsReceivedCounter.inc(totalRecordsReceived)
+        recordLogsReceived(totalBytesReceived, totalRecordsReceived)
     }
 
     private trackOutgoingTrafficAndBuildUsageStats(
@@ -449,6 +705,7 @@ export class LogsIngestionConsumer {
         // Gross, before the drop-rule billing credit applied in processAndProduceLogMessages (see counter help).
         logsBytesAllowedCounter.inc(totalBytesAllowed)
         logsRecordsAllowedCounter.inc(totalRecordsAllowed)
+        recordLogsAllowed(totalBytesAllowed, totalRecordsAllowed)
 
         for (const message of droppedMessages) {
             const stats = usageStats.get(message.teamId) || { ...DEFAULT_USAGE_STATS }
@@ -467,6 +724,7 @@ export class LogsIngestionConsumer {
             if (stats.recordsDropped > 0) {
                 logsRecordsDroppedCounter.inc({ team_id: teamIdLabel }, stats.recordsDropped)
             }
+            recordLogsDropped(teamId, stats.bytesDropped, stats.recordsDropped)
         }
 
         return usageStats
@@ -476,6 +734,7 @@ export class LogsIngestionConsumer {
         if (delta.piiReplacements === 0) {
             return
         }
+        recordPiiReplacements(this.appSource, delta.piiReplacements)
         const row = usage.get(teamId) || { ...DEFAULT_USAGE_STATS }
         row.piiReplacements += delta.piiReplacements
         usage.set(teamId, row)
@@ -513,6 +772,7 @@ export class LogsIngestionConsumer {
 
         for (const [teamId, count] of droppedCountByTeam) {
             logMessageDroppedCounter.inc({ reason: 'quota_limited', team_id: teamId.toString() }, count)
+            recordLogMessageDropped('quota_limited', teamId.toString(), count)
         }
 
         return { quotaAllowedMessages, quotaDroppedMessages }
@@ -530,29 +790,117 @@ export class LogsIngestionConsumer {
         }
         for (const [teamId, count] of droppedCountByTeam) {
             logMessageDroppedCounter.inc({ reason: 'rate_limited', team_id: teamId.toString() }, count)
+            recordLogMessageDropped('rate_limited', teamId.toString(), count)
         }
 
         return { rateLimiterAllowedMessages: allowed, rateLimiterDroppedMessages: dropped }
     }
 
+    /**
+     * Per-team metric-rule tally state for one batch. Rules are fetched once per team per
+     * batch (30s-cached); tallies accumulate across the batch's messages and are emitted
+     * as one OTLP payload per team after produce.
+     */
+    private async getMetricRuleBatchState(
+        byTeam: Map<number, { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }>,
+        message: LogsIngestionMessage
+    ): Promise<{ token: string; rules: CompiledMetricRule[]; tallies: BatchTallies } | null> {
+        if (!this.isMetricRulesEnabledForTeam(message.teamId)) {
+            return null
+        }
+        let state = byTeam.get(message.teamId)
+        if (!state) {
+            let rules: CompiledMetricRule[]
+            try {
+                rules = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+            } catch (error) {
+                // Fail open: metric rules are a purely additive side feature, so a rules-fetch
+                // failure (e.g. a Postgres blip) must never DLQ or block the log records —
+                // skip metric generation for this team this batch instead.
+                logger.warn('[logs-metric-rules] rules fetch failed — skipping metric rules for batch', {
+                    teamId: message.teamId,
+                    error: String(error),
+                })
+                return null
+            }
+            // Re-check after the await: concurrent messages for the same team race here,
+            // and replacing an existing state would silently drop its accumulated tallies.
+            state = byTeam.get(message.teamId)
+            if (!state) {
+                state = { token: message.token, rules, tallies: createBatchTallies() }
+                byTeam.set(message.teamId, state)
+            }
+        }
+        return state.rules.length > 0 ? state : null
+    }
+
+    private async emitMetricRuleTallies(
+        byTeam: Map<number, { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }>
+    ): Promise<void> {
+        for (const [teamId, { token, rules, tallies }] of byTeam) {
+            const teamIdLabel = teamId.toString()
+            if (tallies.valueSkipped > 0) {
+                logsMetricRulesValueSkippedCounter.inc({ team_id: teamIdLabel }, tallies.valueSkipped)
+            }
+            if (tallies.evalErrors > 0) {
+                logsMetricRulesEvalErrorCounter.inc({ team_id: teamIdLabel }, tallies.evalErrors)
+            }
+            let overflow = 0
+            for (const count of tallies.seriesOverflow.values()) {
+                overflow += count
+            }
+            if (overflow > 0) {
+                logsMetricRulesSeriesOverflowCounter.inc({ team_id: teamIdLabel }, overflow)
+            }
+            let matched = 0
+            for (const ruleTallies of tallies.byRule.values()) {
+                for (const entry of ruleTallies.values()) {
+                    matched += entry.count
+                }
+            }
+            if (matched > 0) {
+                logsMetricRulesRecordsMatchedCounter.inc({ team_id: teamIdLabel }, matched)
+            }
+
+            const payload = buildMetricRulesOtlpPayload(rules, tallies, Date.now())
+            if (!payload) {
+                continue
+            }
+            try {
+                await this.deps.metricsEmitter!.emit(token, teamId, payload)
+            } catch (error) {
+                // Emission is best-effort: a failing metrics endpoint must never fail log ingestion.
+                logger.warn('[logs-metric-rules] emit threw', { teamId, error: String(error) })
+            }
+        }
+    }
+
     private async processAndProduceLogMessages(
         messages: LogsIngestionMessage[],
-        usageStats: UsageStatsByTeam
+        usageStats: UsageStatsByTeam,
+        transformationBatchBudget?: TransformationBatchBudget
     ): Promise<void> {
+        const metricTalliesByTeam = new Map<
+            number,
+            { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }
+        >()
         const limit = pLimit(MAX_CONCURRENT_MESSAGE_PROCESSES)
+        let quarantined = 0
         const results = await Promise.allSettled(
             messages.map((message) =>
                 limit(async () => {
                     try {
                         // Fetch team to get logs_settings
-                        const team = await this.deps.teamManager.getTeam(message.teamId)
+                        const team = await this.retryOnDependencyUnavailable(() =>
+                            this.deps.teamManager.getTeam(message.teamId)
+                        )
                         const logsSettings = team?.logs_settings || {}
 
                         // Extract settings with defaults
                         const jsonParse = logsSettings.json_parse_logs ?? false
                         const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
 
-                        // Retention is uniform per team; stash for retention-bucketed usage emit
+                        // Retention is uniform per team; stash it for the retention usage metrics.
                         const teamStats = usageStats.get(message.teamId)
                         if (teamStats) {
                             teamStats.retentionDays = retentionDays
@@ -562,6 +910,13 @@ export class LogsIngestionConsumer {
                         if (message.message.value === null) {
                             return Promise.resolve()
                         }
+
+                        const metricRuleState = await this.getMetricRuleBatchState(metricTalliesByTeam, message)
+                        const onRecordsDecoded = metricRuleState
+                            ? (records: LogRecord[]) =>
+                                  tallyRecords(metricRuleState.rules, records, metricRuleState.tallies, Date.now())
+                            : undefined
+
                         const resolved = await instrumentFn(
                             {
                                 key: 'logsIngestion.sampling.resolveLogMessageBuffer',
@@ -572,11 +927,18 @@ export class LogsIngestionConsumer {
                                     inbound_bytes: message.message.value?.length ?? 0,
                                 }),
                             },
-                            async () => this.resolveLogMessageBufferWithOptionalSampling(message, logsSettings)
+                            async () =>
+                                this.resolveLogMessageBufferWithOptionalSampling(
+                                    message,
+                                    logsSettings,
+                                    onRecordsDecoded,
+                                    transformationBatchBudget
+                                )
                         )
 
                         let bytesUncompressedHeaderOverride: number | undefined
                         let bytesCompressedHeaderOverride: number | undefined
+                        let recordCountHeaderOverride: number | undefined
 
                         // Drop rules removed rows from this message — credit billing by the dropped
                         // content fraction. `bytesReceived` stays gross (what was sent); `bytesAllowed`
@@ -628,8 +990,9 @@ export class LogsIngestionConsumer {
                                     )
                                 }
 
-                                // Scale both size headers down by the same dropped content fraction so
-                                // downstream accounting sees only the surviving bytes.
+                                // Scale both size headers down by the same dropped content fraction, and
+                                // reduce the record count by the exact number of rows dropped, so
+                                // downstream accounting sees only the surviving rows and bytes.
                                 const compressedCredit = billingByteReductionForDrops(
                                     message.bytesCompressed,
                                     resolved.contentBytesDropped,
@@ -637,14 +1000,16 @@ export class LogsIngestionConsumer {
                                 )
                                 bytesUncompressedHeaderOverride = Math.max(0, header - contentCredit)
                                 bytesCompressedHeaderOverride = Math.max(0, message.bytesCompressed - compressedCredit)
+                                recordCountHeaderOverride = Math.max(0, message.recordCount - resolved.recordsDropped)
                             }
                         }
 
-                        if (resolved.outcome === 'sampling_all_dropped') {
+                        if (resolved.outcome === 'all_dropped') {
                             logMessageDroppedCounter.inc(
-                                { reason: 'sampling_all_dropped', team_id: message.teamId.toString() },
+                                { reason: resolved.reason, team_id: message.teamId.toString() },
                                 1
                             )
+                            recordLogMessageDropped(resolved.reason, message.teamId.toString())
                             this.addPiiStatsIntoUsage(usageStats, message.teamId, resolved.pii)
                             this.queueSamplingRecordsDroppedByRule(message.teamId, resolved.recordsDroppedByRuleId)
                             this.queueBytesDroppedByRule(message.teamId, resolved.bytesDroppedByRuleId)
@@ -656,68 +1021,131 @@ export class LogsIngestionConsumer {
                         this.queueBytesDroppedByRule(message.teamId, bytesDroppedByRuleId)
 
                         // Await so a rejection here lands in the catch and routes to the DLQ.
-                        await this.deps.outputs.queueMessages(LOGS_OUTPUT, [
-                            {
-                                value: processedValue,
-                                key: null,
-                                headers: {
-                                    ...parseKafkaHeaders(message.message.headers),
-                                    token: message.token,
-                                    team_id: message.teamId.toString(),
-                                    'json-parse': jsonParse.toString(),
-                                    'retention-days': retentionDays.toString(),
-                                    ...(bytesUncompressedHeaderOverride !== undefined
-                                        ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
-                                        : {}),
-                                    ...(bytesCompressedHeaderOverride !== undefined
-                                        ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
-                                        : {}),
+                        await this.retryOnDependencyUnavailable(() =>
+                            this.deps.outputs.queueMessages(LOGS_OUTPUT, [
+                                {
+                                    value: processedValue,
+                                    key: null,
+                                    headers: {
+                                        ...parseKafkaHeaders(message.message.headers),
+                                        token: message.token,
+                                        team_id: message.teamId.toString(),
+                                        'json-parse': jsonParse.toString(),
+                                        'retention-days': retentionDays.toString(),
+                                        ...(bytesUncompressedHeaderOverride !== undefined
+                                            ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
+                                            : {}),
+                                        ...(bytesCompressedHeaderOverride !== undefined
+                                            ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
+                                            : {}),
+                                        ...(recordCountHeaderOverride !== undefined
+                                            ? { record_count: recordCountHeaderOverride.toString() }
+                                            : {}),
+                                    },
                                 },
-                            },
-                        ])
+                            ])
+                        )
                     } catch (error) {
+                        // A dependency outage (Postgres, Redis, Kafka) is infrastructure-scoped. The
+                        // message itself is fine and processes once the dependency is back, so
+                        // quarantining it would move good data into the DLQ. The retries above
+                        // already absorbed a blip; a longer outage leaves the message on the source
+                        // topic and fails the batch below instead.
+                        if (error instanceof DependencyUnavailableError) {
+                            throw error
+                        }
+                        // Quarantine succeeded: the DLQ copy is the record of this failure, so the
+                        // message resolves and the batch can commit past it. A failed DLQ write
+                        // rejects here instead, so the batch keeps the only copy on the source topic.
                         await this.produceToDlq(message, error)
-                        throw error
+                        quarantined += 1
                     }
                 })
             )
         )
 
-        const failures = results.filter((r) => r.status === 'rejected')
-        if (failures.length > 0) {
+        // Every rejection means this batch must not commit: a dependency outage, or a DLQ write
+        // that failed. `Promise.allSettled` swallows rejections, so rethrow before the tallies and
+        // usage metrics are emitted. The rejected background task stops the offset commit and the
+        // consumer replays the batch from the last good commit, which would count them twice.
+        const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+        if (failures.length > 0 || quarantined > 0) {
             logger.error('Failed to process some log messages', {
+                quarantinedCount: quarantined,
                 failureCount: failures.length,
                 totalCount: messages.length,
             })
         }
+        if (failures.length > 0) {
+            throw failures[0].reason
+        }
+
+        await this.emitMetricRuleTallies(metricTalliesByTeam)
     }
 
     private async produceToDlq(message: LogsIngestionMessage, error: unknown): Promise<void> {
+        await this.produceRawToDlq(message.message, error, { token: message.token, teamId: message.teamId })
+    }
+
+    /**
+     * Absorb a dependency blip in place. A batch that fails after some of its messages were
+     * produced is replayed in full, and the logs table has no dedupe, so every retry here is a
+     * duplicate avoided. Only an outage that outlasts the backoff reaches the caller.
+     */
+    private retryOnDependencyUnavailable<T>(fn: () => Promise<T>): Promise<T> {
+        return retryOnDependencyUnavailableError(fn, this.deps.dependencyRetry)
+    }
+
+    /**
+     * Quarantine a raw Kafka message. Takes the message rather than a `LogsIngestionMessage` so
+     * failures from before the team is resolved can reach the DLQ too — those used to be counted
+     * and discarded, which lost the only copy of the payload.
+     */
+    private async produceRawToDlq(
+        message: Message,
+        error: unknown,
+        context: { token?: string; teamId?: number }
+    ): Promise<void> {
         const errorMessage = error instanceof Error ? error.message : String(error)
         const errorName = error instanceof Error ? error.name : 'UnknownError'
+        const teamIdLabel = context.teamId?.toString() ?? 'unknown'
 
-        logMessageDlqCounter.inc({ reason: errorName, team_id: message.teamId.toString() })
+        logMessageDlqCounter.inc({ reason: errorName, team_id: teamIdLabel })
+        recordLogMessageDlq(errorName, teamIdLabel)
 
         try {
-            await this.deps.outputs.queueMessages(LOGS_DLQ_OUTPUT, [
-                {
-                    value: message.message.value,
-                    key: null,
-                    headers: {
-                        ...parseKafkaHeaders(message.message.headers),
-                        token: message.token,
-                        team_id: message.teamId.toString(),
-                        error_message: errorMessage,
-                        error_name: errorName,
-                        failed_at: new Date().toISOString(),
+            await this.retryOnDependencyUnavailable(() =>
+                this.deps.outputs.queueMessages(LOGS_DLQ_OUTPUT, [
+                    {
+                        value: message.value,
+                        key: null,
+                        headers: {
+                            ...parseKafkaHeaders(message.headers),
+                            ...(context.token !== undefined ? { token: context.token } : {}),
+                            team_id: teamIdLabel,
+                            error_message: errorMessage,
+                            error_name: errorName,
+                            failed_at: new Date().toISOString(),
+                            // Where the message came from, so a quarantined record can be read back
+                            // from the source partition and replayed against the consumer.
+                            source_topic: message.topic,
+                            source_partition: message.partition.toString(),
+                            source_offset: message.offset.toString(),
+                        },
                     },
-                },
-            ])
+                ])
+            )
         } catch (dlqError) {
             logger.error('Failed to produce message to DLQ', {
                 error: dlqError,
                 originalError: errorMessage,
+                partition: message.partition,
+                offset: message.offset,
             })
+            // Rethrow: quarantine is what lets the caller move past the record. Swallowing this
+            // would commit the source offset with no copy anywhere, which loses the payload for
+            // good. Failing the batch keeps the record on the source topic until the DLQ is back.
+            throw dlqError
         }
     }
 
@@ -739,14 +1167,39 @@ export class LogsIngestionConsumer {
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
+            // Byte-days: ingested bytes weighted by the full retention day count, only for teams that
+            // chose a retention longer than the default. The default tier is covered by `bytes_ingested`,
+            // so it must not be billed a second time here. Uses credit-adjusted `bytesAllowed` to
+            // reconcile with `bytes_ingested`. Runs beside the per-tier metric above until billing
+            // leaves fixed tiers.
+            if (stats.retentionDays !== DEFAULT_LOGS_RETENTION_DAYS) {
+                this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
+            }
+            const source = this.appSource === 'traces' ? 'apm_traces' : 'logs'
+            // These records are per-flush aggregates, not one per billed thing, so there is no
+            // stable identity to reproduce. A fresh ID per flush is what keeps two pods flushing
+            // the same team from colliding and collapsing one flush's quantity away.
+            const flushId = new UUID7().toString()
+            this.deps.usageBatch.add(teamId, `${source}_bytes`, flushId, stats.bytesAllowed, 'bytes')
+            this.deps.usageBatch.add(
+                teamId,
+                source === 'apm_traces' ? 'apm_traces_spans' : 'logs_records',
+                flushId,
+                stats.recordsAllowed,
+                'records'
+            )
         }
 
-        // Best-effort: don't let metric failures block ingestion
-        try {
-            await this.appMetricsAggregator.flush()
-        } catch (error) {
-            logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', { error })
-        }
+        // Best-effort, and independent of each other: neither failing may block ingestion or skip
+        // the other, and nothing downstream reads either result, so they go out together.
+        await Promise.all([
+            this.appMetricsAggregator.flush().catch((error) => {
+                logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', { error })
+            }),
+            this.deps.usageBatch.flush().catch((error) => {
+                logger.error('🔴', 'Failed to emit usage records - billing data may be lost', { error })
+            }),
+        ])
     }
 
     private queueUsageMetric(teamId: number, metricName: string, count: number): void {
@@ -817,8 +1270,9 @@ export class LogsIngestionConsumer {
                     const token = headers.token
 
                     if (!token) {
-                        logger.error('missing_token')
+                        logger.warn('missing_token')
                         logMessageDroppedCounter.inc({ reason: 'missing_token', team_id: 'unknown' })
+                        recordLogMessageDropped('missing_token', 'unknown')
                         return
                     }
 
@@ -833,19 +1287,43 @@ export class LogsIngestionConsumer {
                     } catch (e) {
                         logger.error('team_lookup_error', { error: e })
                         logMessageDroppedCounter.inc({ reason: 'team_lookup_error', team_id: 'unknown' })
+                        recordLogMessageDropped('team_lookup_error', 'unknown')
                         return
                     }
 
                     if (!team) {
-                        logger.error('team_not_found', { token_with_no_team: token })
+                        // A well-formed but unknown or rotated token is a client-input problem, not a
+                        // service fault. capture-logs accepts any well-formed token shape and defers team
+                        // resolution to here because it has no Postgres access, so this fires on every
+                        // dropped message for a bad token. Already tracked via the metrics below.
+                        logger.warn('team_not_found', { token_with_no_team: token })
                         logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })
+                        recordLogMessageDropped('team_not_found', 'unknown')
                         return
                     }
 
-                    const bytesUncompressed = parseInt(headers.bytes_uncompressed ?? '0', 10)
-                    const bytesUncompressedRecords = parseInt(headers.bytes_uncompressed_records ?? '0', 10)
-                    const bytesCompressed = parseInt(headers.bytes_compressed ?? '0', 10)
-                    const recordCount = parseInt(headers.record_count ?? '0', 10)
+                    const bytesUncompressed = parseSizeHeader(headers.bytes_uncompressed)
+                    const bytesUncompressedRecords = parseSizeHeader(headers.bytes_uncompressed_records)
+                    const bytesCompressed = parseSizeHeader(headers.bytes_compressed)
+                    const recordCount = parseSizeHeader(headers.record_count)
+
+                    if (
+                        bytesUncompressed === null ||
+                        bytesUncompressedRecords === null ||
+                        bytesCompressed === null ||
+                        recordCount === null
+                    ) {
+                        logger.error('🔴', 'logs_ingestion_invalid_size_headers', {
+                            teamId: team.id,
+                            partition: message.partition,
+                            offset: message.offset,
+                        })
+                        await this.produceRawToDlq(message, new Error('invalid_size_headers'), {
+                            token,
+                            teamId: team.id,
+                        })
+                        return
+                    }
 
                     if (bytesUncompressedRecords > bytesUncompressed) {
                         // Billing can only switch from payload-based to records-based bytes if the
@@ -863,8 +1341,16 @@ export class LogsIngestionConsumer {
                         recordCount,
                     })
                 } catch (e) {
-                    logger.error('Error parsing message', e)
+                    // A message we cannot parse is message-scoped and will fail the same way on
+                    // every redelivery, so quarantine it instead of discarding the payload.
+                    logger.error('🔴', 'logs_ingestion_parse_error', {
+                        error: String(e),
+                        partition: message.partition,
+                        offset: message.offset,
+                    })
                     logMessageDroppedCounter.inc({ reason: 'parse_error', team_id: 'unknown' })
+                    recordLogMessageDropped('parse_error', 'unknown')
+                    await this.produceRawToDlq(message, e, {})
                     return
                 }
             })
@@ -876,8 +1362,23 @@ export class LogsIngestionConsumer {
     public async processKafkaBatch(
         messages: Message[]
     ): Promise<{ backgroundTask?: Promise<any>; messages: LogsIngestionMessage[] }> {
-        const events = await this._parseKafkaBatch(messages)
-        return await this.processBatch(events)
+        try {
+            const events = await this._parseKafkaBatch(messages)
+            return await this.processBatch(events)
+        } catch (error) {
+            // Rethrow: the consumer deliberately lets a batch failure crash the process, which is
+            // what preserves at-least-once. We do not DLQ here — everything on this path (quota
+            // lookups, the rate limiter) is infrastructure-scoped, and quarantining a whole batch
+            // over a Redis blip would drop good data. Name the records first so the restart loop
+            // that follows points somewhere.
+            logger.error('🔴', `${this.name} - batch failed`, {
+                error: String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+                size: messages.length,
+                offsets: describeBatchPosition(messages),
+            })
+            throw error
+        }
     }
 
     public async start(): Promise<void> {
@@ -885,6 +1386,7 @@ export class LogsIngestionConsumer {
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
                 size: messages.length,
+                offsets: describeBatchPosition(messages),
             })
 
             return await instrumentFn('logsIngestionConsumer.handleEachBatch', async () => {

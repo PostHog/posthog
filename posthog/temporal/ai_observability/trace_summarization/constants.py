@@ -15,12 +15,12 @@ DEFAULT_TRACE_BATCH_SIZE = 6  # Traces processed in small parallel batches
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
-DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
-
-# Max text representation length (in characters)
-# GPT-4.1-nano has 1M token context. At typical 2.5:1 char/token ratio,
-# 2M chars = ~800K tokens, leaving room for system prompt and output.
-MAX_TEXT_REPR_LENGTH = 2_000_000
+# Not env-configurable: the coordinator schedule bakes this value into its stored input in
+# whatever process re-creates it, so an env override would govern only part of the traffic.
+# Changing the model is a deploy, and the value must also be on the Python gateway's
+# llma_summarization allowlist (services/llm-gateway/src/llm_gateway/products/config.py),
+# or the fallback path 403s.
+DEFAULT_MODEL = OpenAIModel.GPT_5_NANO
 
 # Max estimated raw trace size (in characters) before formatting.
 # Traces exceeding this are skipped — formatting huge traces is CPU-intensive
@@ -106,8 +106,14 @@ WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 30  # Max time for single team workflow —
 COORDINATOR_EXECUTION_TIMEOUT_MINUTES = 55  # Must finish before next hourly trigger to avoid silent skips
 
 # Retry policies
+# Do not make ClickHouse capacity errors non-retryable here. Each run samples a disjoint window
+# with no persisted cursor, so a run that gives up drops that window of traces for that team
+# permanently.
 SAMPLE_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=2,
+    maximum_attempts=5,
+    initial_interval=timedelta(seconds=10),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=120),
     non_retryable_error_types=["ValueError", "TypeError"],
 )
 COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
@@ -126,6 +132,14 @@ GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-l
 # ($ai_batch_run_id); `job_id` scopes a clustering read to one ClusteringJob.
 EMBEDDING_METADATA_BATCH_RUN_ID_KEY = "batch_run_id"
 EMBEDDING_METADATA_JOB_ID_KEY = "job_id"
+
+# The summary embedding's `document_id` is `{item_id}::{job_id}` — the clustering job id is
+# appended to the trace/generation id (joined by this delimiter). `document_id` is the only
+# non-LowCardinality component of the document_embeddings ReplacingMergeTree key, so scoping per
+# job here keeps two jobs that summarize the same item on the same day in distinct rows instead of
+# collapsing them on merge (which would drop a job's embeddings). Stage B strips it back to the
+# bare item id (item ids contain no ":", so a single split recovers it) before pairing summaries.
+EMBEDDING_DOCUMENT_ID_JOB_DELIMITER = "::"
 
 # Generation-level configuration
 DEFAULT_MAX_GENERATIONS_PER_WINDOW = 20  # Higher than traces - generations are simpler units

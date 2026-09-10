@@ -15,6 +15,7 @@ import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
+import { EmojiSuggestionExtension } from 'lib/components/RichContentEditor/EmojiSuggestionExtension'
 import { MentionsExtension } from 'lib/components/RichContentEditor/MentionsExtension'
 import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 import { RichContentEditorType, RichContentNodeType, TTEditor } from 'lib/components/RichContentEditor/types'
@@ -25,8 +26,8 @@ import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export type LemonRichContentEditorProps = {
     logicKey?: string
@@ -37,6 +38,8 @@ export type LemonRichContentEditorProps = {
     onPressCmdEnter?: () => void
     disabled?: boolean
     minRows?: number
+    /** Extra controls rendered in the footer toolbar, left of the write/preview toggle. */
+    footerActions?: React.ReactNode
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -51,6 +54,7 @@ const DEFAULT_INITIAL_CONTENT: JSONContent = {
 
 export const DEFAULT_EXTENSIONS = [
     MentionsExtension,
+    EmojiSuggestionExtension,
     RichContentNodeMention,
     ExtensionDocument,
     StarterKit.configure({
@@ -103,6 +107,7 @@ export function LemonRichContentEditor({
     onPressCmdEnter,
     disabled = false,
     minRows,
+    footerActions,
 }: LemonRichContentEditorProps): JSX.Element {
     const [isPreviewShown, setIsPreviewShown] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -204,6 +209,7 @@ export function LemonRichContentEditor({
                     )}
                 </div>
                 <div className="flex items-center gap-0.5">
+                    {footerActions}
                     <LemonButton size="small" active={!isPreviewShown} onClick={() => setIsPreviewShown(false)}>
                         <IconPencil />
                     </LemonButton>

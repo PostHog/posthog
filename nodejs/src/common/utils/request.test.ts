@@ -1,0 +1,428 @@
+import dns from 'dns/promises'
+import { range } from 'lodash'
+import http from 'node:http'
+import { AddressInfo } from 'node:net'
+
+import { getExternalRequestConfig } from '~/common/config'
+
+import { parseJSON } from './json-parse'
+import {
+    FetchOptions,
+    SecureRequestError,
+    fetch,
+    internalFetch,
+    legacyFetch,
+    raiseIfUserProvidedUrlUnsafe,
+} from './request'
+
+const realDnsLookup = jest.requireActual('dns/promises').lookup
+jest.mock('dns/promises', () => ({
+    lookup: jest.fn((hostname: string, options?: any) => {
+        return realDnsLookup(hostname, options)
+    }),
+}))
+
+// Local HTTP server used in place of flaky external services (httpbin.org, example.com).
+// Serves a few httpbin-compatible routes plus a default 200 response.
+let testServer: http.Server
+let baseUrl: string
+
+beforeAll(async () => {
+    testServer = http.createServer((req, res) => {
+        const url = new URL(req.url ?? '/', `http://${req.headers.host}`)
+        if (url.pathname === '/get') {
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ url: url.toString() }))
+        } else if (url.pathname === '/status/404') {
+            res.writeHead(404)
+            res.end()
+        } else if (url.pathname === '/stream/50') {
+            res.writeHead(200, { 'content-type': 'application/json' })
+            for (let i = 0; i < 50; i++) {
+                res.write(JSON.stringify({ id: i }) + '\n')
+            }
+            res.end()
+        } else {
+            res.writeHead(200, { 'content-type': 'text/html' })
+            res.end('<html><body>Example</body></html>')
+        }
+    })
+    await new Promise<void>((resolve) => testServer.listen(0, '127.0.0.1', resolve))
+    baseUrl = `http://127.0.0.1:${(testServer.address() as AddressInfo).port}`
+})
+
+afterAll(async () => {
+    // undici keeps connections alive, so force them closed or server.close() never resolves.
+    testServer.closeAllConnections()
+    await new Promise<void>((resolve, reject) => testServer.close((err) => (err ? reject(err) : resolve())))
+})
+
+describe('fetch', () => {
+    beforeEach(() => {
+        jest.setTimeout(1000)
+        jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
+        // NOTE: We are testing production-only features hence the override
+        process.env.NODE_ENV = 'production'
+        delete process.env.DEBUG
+    })
+    describe('raiseIfUserProvidedUrlUnsafe', () => {
+        it.each([
+            'https://google.com?q=20', // Safe
+            'https://posthog.com', // Safe
+            'https://posthog.com/foo/bar', // Safe, with path
+            'https://posthog.com:443', // Safe, good port
+            'https://1.1.1.1', // Safe, public IP
+        ])('should allow safe URLs: %s', async (url) => {
+            await expect(raiseIfUserProvidedUrlUnsafe(url)).resolves.not.toThrow()
+        })
+
+        it.each([
+            ['', 'Invalid URL'],
+            ['@@@', 'Invalid URL'],
+            ['posthog.com', 'Invalid URL'],
+            ['ftp://posthog.com', 'Scheme must be either HTTP or HTTPS'],
+            ['http://localhost', 'Hostname is not allowed'],
+            ['http://192.168.0.5', 'Hostname is not allowed'],
+            ['http://0.0.0.0', 'Hostname is not allowed'],
+            ['http://10.0.0.24', 'Hostname is not allowed'],
+            ['http://172.20.0.21', 'Hostname is not allowed'],
+            ['http://fgtggggzzggggfd.com', 'Invalid hostname'],
+            // IPv6 literal SSRF bypasses
+            ['http://[::ffff:169.254.169.254]/', 'Hostname is not allowed'],
+            ['http://[::ffff:127.0.0.1]/', 'Hostname is not allowed'],
+            ['http://[::ffff:10.0.0.1]/', 'Hostname is not allowed'],
+            ['http://[::ffff:192.168.1.1]/', 'Hostname is not allowed'],
+            ['http://[::1]/', 'Hostname is not allowed'],
+            ['http://[fe80::1]/', 'Hostname is not allowed'],
+            ['http://[fc00::1]/', 'Hostname is not allowed'],
+            ['http://[fd12:3456:789a::1]/', 'Hostname is not allowed'],
+        ])('should raise against unsafe URLs: %s', async (url, error) => {
+            await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(error)
+        })
+    })
+
+    describe('fetch call', () => {
+        // By default security features are only enabled in production but for tests we want to enable them
+
+        it('should raise if the URL is unsafe', async () => {
+            await expect(fetch('http://localhost')).rejects.toMatchInlineSnapshot(
+                `[SecureRequestError: Hostname is not allowed]`
+            )
+        })
+
+        it('should raise if the URL is unknown', async () => {
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+            await expect(fetch('http://unknown.domain.unknown')).rejects.toMatchInlineSnapshot(
+                `[ResolutionError: Invalid hostname]`
+            )
+        })
+
+        it('should successfully fetch from safe URLs', async () => {
+            // Non-prod so the secure path allows the loopback test server (prod blocks private IPs).
+            const originalNodeEnv = process.env.NODE_ENV
+            process.env.NODE_ENV = 'test'
+            try {
+                const response = await fetch(baseUrl)
+                expect(response.status).toBe(200)
+            } finally {
+                process.env.NODE_ENV = originalNodeEnv
+            }
+        })
+
+        // The split is only worth anything if `fetch` reads the third-party setting and
+        // `internalFetch` does not. Wiring either one to the other's budget fails silently: raising
+        // the third-party timeout would then do nothing, or internal calls would quietly inherit it.
+        it('resolves each entry point against its own timeout setting', async () => {
+            const originalNodeEnv = process.env.NODE_ENV
+            process.env.NODE_ENV = 'test'
+            process.env.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS = '7654'
+            try {
+                await jest.isolateModulesAsync(async () => {
+                    // Re-import against the isolated registry: request.ts reads the config once, at
+                    // module load, so the override only lands on a fresh copy.
+                    const fresh = require('./request')
+                    const thirdPartyOptions: FetchOptions = {}
+                    const internalOptions: FetchOptions = {}
+
+                    await fresh.fetch(baseUrl, thirdPartyOptions)
+                    await fresh.internalFetch(baseUrl, internalOptions)
+
+                    expect(thirdPartyOptions.timeoutMs).toBe(7654)
+                    expect(internalOptions.timeoutMs).toBe(getExternalRequestConfig().EXTERNAL_REQUEST_TIMEOUT_MS)
+                })
+            } finally {
+                delete process.env.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS
+                process.env.NODE_ENV = originalNodeEnv
+            }
+        }, 10000)
+
+        it('keeps a timeout the caller set explicitly', async () => {
+            const originalNodeEnv = process.env.NODE_ENV
+            process.env.NODE_ENV = 'test'
+            try {
+                const options: FetchOptions = { timeoutMs: 1234 }
+                await fetch(baseUrl, options)
+                expect(options.timeoutMs).toBe(1234)
+            } finally {
+                process.env.NODE_ENV = originalNodeEnv
+            }
+        })
+
+        it.each([
+            ['http://[::ffff:169.254.169.254]/latest/api/token', 'IPv6-mapped IMDS'],
+            ['http://[::ffff:127.0.0.1]/', 'IPv6-mapped loopback'],
+            ['http://[::ffff:10.0.0.1]/', 'IPv6-mapped private'],
+            ['http://[::ffff:192.168.1.1]/', 'IPv6-mapped private'],
+            ['http://[::1]/', 'IPv6 loopback'],
+            ['http://[fe80::1]/', 'IPv6 link-local'],
+            ['http://[fc00::1]/', 'IPv6 unique-local'],
+            ['http://[fd12:3456:789a::1]/', 'IPv6 unique-local'],
+            ['http://169.254.169.254/latest/api/token', 'IPv4 IMDS'],
+            ['http://127.0.0.1/', 'IPv4 loopback'],
+        ])('should block IP literal SSRF bypasses: %s (%s)', async (url) => {
+            await expect(fetch(url)).rejects.toThrow(new SecureRequestError('Hostname is not allowed'))
+        })
+    })
+
+    describe('Address validation', () => {
+        beforeEach(() => {
+            jest.mocked(dns.lookup).mockClear()
+        })
+
+        it.each([
+            ['0.0.0.0', 'This network'],
+            ['0.1.2.3', 'This network'],
+            ['127.0.0.1', 'Loopback'],
+            ['127.1.2.3', 'Loopback'],
+            ['169.254.0.1', 'Link-local'],
+            ['169.254.1.2', 'Link-local'],
+            ['255.255.255.255', 'Broadcast'],
+            ['224.0.0.1', 'Non-unicast (multicast)'],
+            ['192.168.1.1', 'Private network'],
+            ['10.0.0.1', 'Private network'],
+            ['172.16.0.1', 'Private network'],
+        ])('should block requests to %s (%s)', async (ip) => {
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: ip, family: 4 }] as any)
+
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+            await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
+        })
+
+        it('uses secure DNS lookup when HTTP/2 is enabled', async () => {
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: '10.0.0.1', family: 4 }] as any)
+
+            await expect(fetch('https://example.com', { allowH2: true })).rejects.toThrow(
+                new SecureRequestError('Hostname is not allowed')
+            )
+        })
+
+        it.each([
+            ['::ffff:169.254.169.254', 'IPv6-mapped IMDS'],
+            ['::ffff:127.0.0.1', 'IPv6-mapped loopback'],
+            ['::ffff:10.0.0.1', 'IPv6-mapped private'],
+            ['::ffff:192.168.1.1', 'IPv6-mapped private'],
+            ['::ffff:0.0.0.0', 'IPv6-mapped this network'],
+        ])('should block IPv6-mapped IPv4 addresses: %s (%s)', async (ip) => {
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: ip, family: 6 }] as any)
+
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+            await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
+        })
+
+        it.each([
+            ['::1', 'IPv6 loopback'],
+            ['fe80::1', 'IPv6 link-local'],
+            ['fc00::1', 'IPv6 unique-local'],
+            ['fd12:3456:789a::1', 'IPv6 unique-local'],
+        ])('should block non-global pure IPv6 addresses: %s (%s)', async (ip) => {
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: ip, family: 6 }] as any)
+
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+            await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
+        })
+
+        it('should allow globally routable IPv6 addresses', async () => {
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: '2607:f8b0:4004:800::200e', family: 6 }] as any)
+
+            // This will fail to connect since it's a mock DNS result, but it should NOT throw SecureRequestError
+            await expect(fetch(`http://example.com`)).rejects.not.toThrow(SecureRequestError) // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+        })
+    })
+
+    describe('parallel requests execution', () => {
+        jest.retryTimes(3)
+        // NOTE: This is inherently flakey so we disable it except when validating changes for it
+        it.skip('should execute requests in parallel - completion time test', async () => {
+            const delayMs = 200
+            const parallelRequests = 20
+
+            // Measure sequential execution
+            const sequentialStart = performance.now()
+            for (let i = 0; i < parallelRequests; i++) {
+                await fetch(`https://httpbin.org/delay/${delayMs / 1000}`)
+            }
+            const sequentialTime = performance.now() - sequentialStart
+
+            const parallelStart = performance.now()
+            await Promise.all(range(parallelRequests).map(() => fetch(`https://httpbin.org/delay/${delayMs / 1000}`)))
+            const parallelTime = performance.now() - parallelStart
+
+            // Parallel should be significantly faster than sequential
+            const speedup = sequentialTime / parallelTime
+            expect(speedup).toBeGreaterThan(3)
+        })
+    })
+})
+
+describe('legacyFetch', () => {
+    beforeEach(() => {
+        jest.setTimeout(1000)
+        jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
+        // NOTE: We are testing production-only features hence the override
+        process.env.NODE_ENV = 'production'
+        delete process.env.DEBUG
+    })
+
+    describe('calls', () => {
+        // By default security features are only enabled in production but for tests we want to enable them
+        it('should raise if the URL is unsafe', async () => {
+            await expect(legacyFetch('http://localhost')).rejects.toMatchInlineSnapshot(`[TypeError: fetch failed]`)
+        })
+
+        it('should raise if the URL is unknown', async () => {
+            await expect(legacyFetch('http://unknown.domain.unknown')).rejects.toMatchInlineSnapshot(
+                `[TypeError: fetch failed]`
+            )
+        })
+
+        it('should successfully fetch from safe URLs', async () => {
+            // Non-prod so the secure path allows the loopback test server (prod blocks private IPs).
+            const originalNodeEnv = process.env.NODE_ENV
+            process.env.NODE_ENV = 'test'
+            try {
+                const response = await legacyFetch(baseUrl)
+                expect(response.ok).toBe(true)
+            } finally {
+                process.env.NODE_ENV = originalNodeEnv
+            }
+        })
+    })
+
+    describe('IPv4 address validation', () => {
+        beforeEach(() => {
+            jest.mocked(dns.lookup).mockClear()
+        })
+
+        it.each([
+            ['0.0.0.0', 'This network'],
+            ['0.1.2.3', 'This network'],
+            ['127.0.0.1', 'Loopback'],
+            ['127.1.2.3', 'Loopback'],
+            ['169.254.0.1', 'Link-local'],
+            ['169.254.1.2', 'Link-local'],
+            ['255.255.255.255', 'Broadcast'],
+            ['224.0.0.1', 'Non-unicast (multicast)'],
+            ['192.168.1.1', 'Private network'],
+            ['10.0.0.1', 'Private network'],
+            ['172.16.0.1', 'Private network'],
+        ])('should block requests to %s (%s)', async (ip) => {
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: ip, family: 4 }] as any)
+
+            const err = await legacyFetch(`http://example.com`).catch((err) => {
+                return err
+            })
+
+            expect(err.name).toBe('TypeError')
+            expect(err.toString()).toContain('fetch failed')
+            expect(err.cause.toString()).toContain('Hostname is not allowed')
+        })
+    })
+
+    // NOTE: Skipped as this is mostly to validate against the new request implementation
+    describe.skip('parallel requests execution', () => {
+        jest.retryTimes(3)
+        it('should execute requests in parallel', async () => {
+            const start = performance.now()
+            const timings: number[] = []
+            const parallelRequests = 100
+
+            const requests = range(parallelRequests).map(() =>
+                legacyFetch('https://example.com').then(() => {
+                    timings.push(performance.now() - start)
+                })
+            )
+
+            await Promise.all(requests)
+
+            expect(timings).toHaveLength(parallelRequests)
+
+            // NOTE: Not the easiest thing to test - what we are testing is that the requests are executed in parallel
+            // so the total time should be close to the time it takes to execute one request.
+            // It's far from perfect but it at the very least caches
+            const totalTime = performance.now() - start
+            const firstTime = timings[0]
+
+            expect(totalTime).toBeGreaterThan(firstTime - 100)
+            expect(totalTime).toBeLessThan(firstTime + 100)
+        })
+    })
+})
+
+describe('_fetch response body handling', () => {
+    // Use internalFetch to skip SSRF DNS checks which fail in CI, hitting the shared
+    // local server (see top of file) to avoid flaky external services.
+    it('should return response body via text()', async () => {
+        const response = await internalFetch(baseUrl)
+        const text = await response.text()
+        expect(typeof text).toBe('string')
+        expect(text.length).toBeGreaterThan(0)
+        expect(response.status).toBe(200)
+    })
+
+    it('should parse response via json() when valid JSON', async () => {
+        const response = await internalFetch(`${baseUrl}/get`)
+        const json = await response.json()
+        expect(json).toHaveProperty('url')
+    })
+
+    it('should return the same result on multiple text() calls', async () => {
+        const response = await internalFetch(baseUrl)
+        const first = await response.text()
+        const second = await response.text()
+        expect(first).toBe(second)
+        expect(first.length).toBeGreaterThan(0)
+    })
+
+    it('should return the same result for concurrent text() calls', async () => {
+        const response = await internalFetch(baseUrl)
+        const [a, b] = await Promise.all([response.text(), response.text()])
+        expect(a).toBe(b)
+        expect(a.length).toBeGreaterThan(0)
+    })
+
+    it('should return empty string after dump() is called', async () => {
+        const response = await internalFetch(baseUrl)
+        await response.dump()
+        expect(await response.text()).toBe('')
+    })
+
+    it('should return correct status code for error responses', async () => {
+        const response = await internalFetch(`${baseUrl}/status/404`)
+        expect(response.status).toBe(404)
+    })
+
+    it('should parse headers', async () => {
+        const response = await internalFetch(baseUrl)
+        expect(response.headers['content-type']).toBeDefined()
+    })
+
+    it('should fully read streamed/chunked response bodies', async () => {
+        const response = await internalFetch(`${baseUrl}/stream/50`)
+        const text = await response.text()
+        const lines = text.trim().split('\n')
+        expect(lines.length).toBe(50)
+        for (const line of lines) {
+            expect(() => parseJSON(line)).not.toThrow()
+        }
+    })
+})

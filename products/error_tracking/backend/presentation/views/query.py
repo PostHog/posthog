@@ -5,9 +5,12 @@ from typing import Literal, cast
 import structlog
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import DateRange, ErrorTrackingIssueAssignee, ErrorTrackingQuery, EventsQuery
+
+from posthog.hogql.errors import ResolutionError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -21,14 +24,15 @@ from products.error_tracking.backend.facade import (
 )
 from products.error_tracking.backend.facade.query_utils import (
     CONTEXT_EVENT_SELECTS,
-    EVENT_SELECTS,
+    DEFAULT_EVENT_CONTEXT_INCLUDES,
     ISSUE_FIELDS,
     LIST_ISSUE_FIELDS,
     build_date_range,
-    build_fingerprint_event_where,
-    build_fingerprint_where,
+    build_event_selects,
     build_impact,
+    build_issue_event_where,
     build_issue_filters,
+    build_issue_where,
     build_property_group,
     build_search_query,
     build_sparkline,
@@ -51,15 +55,6 @@ from products.error_tracking.backend.presentation.views.query_serializers import
 )
 
 logger = structlog.get_logger(__name__)
-
-
-def build_fingerprint_filter_group(fingerprints: list[str]) -> dict[str, object]:
-    filter_group = build_property_group(
-        [{"type": "event", "key": "$exception_fingerprint", "operator": "exact", "value": fingerprints}]
-    )
-    if filter_group is None:
-        raise ValueError("build_property_group unexpectedly returned None for a non-empty filter list")
-    return filter_group
 
 
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -132,12 +127,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         issue_basics = facade_api.get_issue_basics(self.team.id, issue_id)
         if issue_basics is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        fingerprints = facade_api.resolve_fingerprints(self.team.pk, [issue_id])
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             issueId=issue_id,
             dateRange=DateRange(**date_range),
-            filterGroup=build_fingerprint_filter_group(fingerprints) if fingerprints else None,
             filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
             volumeResolution=normalize_volume_resolution(volume_resolution),
             limit=1,
@@ -158,6 +151,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "name": issue_basics.name,
                     "description": issue_basics.description,
                     "status": issue_basics.status,
+                    "severity": issue_basics.severity,
                 }
             )
             payload["impact"] = {}
@@ -166,40 +160,44 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(payload)
         issue = cast(dict[str, object], raw_results[0])
         event_properties: dict[str, object] = {}
-        if fingerprints:
-            try:
-                context_event_query = EventsQuery(
-                    kind="EventsQuery",
-                    event="$exception",
-                    select=CONTEXT_EVENT_SELECTS,
-                    where=build_fingerprint_where(fingerprints),
-                    filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
-                    after=date_range.get("date_from"),
-                    before=date_range.get("date_to"),
-                    orderBy=["timestamp DESC"],
-                    limit=1,
-                    tags={"productKey": "error_tracking"},
-                )
-                with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+        try:
+            context_event_query = EventsQuery(
+                kind="EventsQuery",
+                event="$exception",
+                select=CONTEXT_EVENT_SELECTS,
+                where=build_issue_where(issue_id),
+                filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
+                after=date_range.get("date_from"),
+                before=date_range.get("date_to"),
+                orderBy=["timestamp DESC"],
+                limit=1,
+                tags={"productKey": "error_tracking"},
+            )
+            with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+                try:
                     event_data = (
-                        EventsQueryRunner(team=self.team, query=context_event_query).calculate().model_dump(mode="json")
+                        EventsQueryRunner(team=self.team, query=context_event_query, user=request.user)
+                        .calculate()
+                        .model_dump(mode="json")
                     )
-                if event_data.get("error"):
-                    logger.warning(
-                        "error_tracking_issue_context_query_failed",
-                        issue_id=issue_id,
-                        team_id=self.team.pk,
-                        error=event_data.get("error"),
-                    )
-                else:
-                    event_properties = map_context_event_properties(event_data)
-            except Exception:
+                except ResolutionError as error:
+                    raise ValidationError(str(error)) from error
+            if event_data.get("error"):
                 logger.warning(
                     "error_tracking_issue_context_query_failed",
                     issue_id=issue_id,
                     team_id=self.team.pk,
-                    exc_info=True,
+                    error=event_data.get("error"),
                 )
+            else:
+                event_properties = map_context_event_properties(event_data)
+        except Exception:
+            logger.warning(
+                "error_tracking_issue_context_query_failed",
+                issue_id=issue_id,
+                team_id=self.team.pk,
+                exc_info=True,
+            )
         payload = compact_dict(
             {
                 **pick_fields(issue, ISSUE_FIELDS),
@@ -230,14 +228,18 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not facade_api.issue_exists_by_id(self.team.id, issue_id):
             return Response(status=status.HTTP_404_NOT_FOUND)
         date_range = build_date_range(params.get("dateRange"))
-        fingerprints = facade_api.resolve_fingerprints(self.team.pk, [issue_id])
-        if not fingerprints:
-            return Response({"results": [], "hasMore": False, "limit": limit, "offset": offset})
+        requested_includes = params.get("include")
+        includes = (
+            cast(list[str], requested_includes)
+            if isinstance(requested_includes, list)
+            else DEFAULT_EVENT_CONTEXT_INCLUDES
+        )
+        event_selects = build_event_selects(includes)
         query = EventsQuery(
             kind="EventsQuery",
             event="$exception",
-            select=EVENT_SELECTS,
-            where=build_fingerprint_event_where(fingerprints, cast(str | None, params.get("searchQuery"))),
+            select=event_selects,
+            where=build_issue_event_where(issue_id, cast(str | None, params.get("searchQuery"))),
             properties=cast(list[dict[str, object]], params.get("filterGroup", [])),
             filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
             after=date_range.get("date_from"),
@@ -248,14 +250,25 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             tags={"productKey": "error_tracking"},
         )
         with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-            data = EventsQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
+            try:
+                data = (
+                    EventsQueryRunner(team=self.team, query=query, user=request.user)
+                    .calculate()
+                    .model_dump(mode="json")
+                )
+            except ResolutionError as error:
+                raise ValidationError(str(error)) from error
         raw_columns = data.get("columns")
-        columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else EVENT_SELECTS
+        columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else event_selects
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
-        verbosity = cast(str, params.get("verbosity", "summary"))
+        include_stacktrace = "stacktrace" in includes or "code_variables" in includes
         only_app_frames = cast(bool, params.get("onlyAppFrames", True))
-        results = [map_event_row(row, columns, verbosity, only_app_frames) for row in raw_results[:limit]]
+        include_code_variables = "code_variables" in includes
+        results = [
+            map_event_row(row, columns, include_stacktrace, only_app_frames, include_code_variables)
+            for row in raw_results[:limit]
+        ]
         has_more, next_offset = get_page_info(data, limit, offset)
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:

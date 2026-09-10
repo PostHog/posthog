@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -8,9 +8,13 @@ import { expectLogic } from 'kea-test-utils'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
@@ -30,7 +34,7 @@ describe('projectNoticeLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/organizations/@current/proxy_records': [200, { results: [] }],
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
                 },
             })
             initKeaTests()
@@ -117,7 +121,10 @@ describe('projectNoticeLogic', () => {
         })
     })
 
-    describe('proxy records 401 handling', () => {
+    describe.each([
+        { status: 401, reason: 'missing or expired session' },
+        { status: 403, reason: 'restricted org member below read access' },
+    ])('proxy records $status handling', ({ status }) => {
         let getItemSpy: jest.SpyInstance
         let getDateSpy: jest.SpyInstance
 
@@ -125,8 +132,8 @@ describe('projectNoticeLogic', () => {
             useMocks({
                 get: {
                     // Function form so the [status, body] tuple is honored — a static array value
-                    // would be served as a 200 JSON body instead of a 401.
-                    '/api/organizations/:organization_id/proxy_records': () => [401, {}],
+                    // would be served as a 200 JSON body instead of the error status.
+                    '/api/organizations/:organization_id/proxy_records': () => [status, {}],
                 },
                 post: {
                     '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
@@ -142,7 +149,7 @@ describe('projectNoticeLogic', () => {
             getDateSpy.mockRestore()
         })
 
-        it('swallows a 401 instead of surfacing a load failure', async () => {
+        it(`swallows a ${status} instead of surfacing a load failure`, async () => {
             const logic = projectNoticeLogic()
             logic.mount()
 
@@ -262,7 +269,7 @@ describe('projectNoticeLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/organizations/@current/proxy_records': [200, { results: [] }],
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
                 },
                 post: {
                     '/api/users/request_email_verification/': [200, { success: true }],
@@ -281,8 +288,31 @@ describe('projectNoticeLogic', () => {
             expect(verifyEmailLogic.isMounted()).toBe(true)
 
             await expectLogic(verifyEmailLogic, () => {
-                verifyEmailLogic.actions.requestVerificationLink('test-uuid')
-            }).toDispatchActions(['requestVerificationLink', 'requestVerificationLinkSuccess'])
+                verifyEmailLogic.actions.requestVerificationCode('test-uuid')
+            }).toDispatchActions(['requestVerificationCode', 'requestVerificationCodeSuccess'])
+
+            logic.unmount()
+        })
+
+        // The verification email carries a 6-digit code, not a link. A CTA that only sends the
+        // code leaves a logged-in user (Vercel-provisioned accounts hit this) with nowhere to type it.
+        it('sends a code and routes to the code entry page when the banner CTA is clicked', async () => {
+            preflightLogic.actions.loadPreflightSuccess({ email_service_available: true } as any)
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: false })
+            router.actions.push(urls.settings('user'))
+
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            expect(logic.values.projectNoticeVariant).toEqual('unverified_email')
+
+            await expectLogic(verifyEmailLogic, () => {
+                logic.values.projectNotice?.action?.onClick?.({} as any)
+            }).toDispatchActions(['requestVerificationCode', 'requestVerificationCodeSuccess'])
+
+            // Routing prefixes the current project, so assert the targets rather than exact paths.
+            expect(router.values.location.pathname).toMatch(new RegExp(`${urls.verifyEmail(MOCK_DEFAULT_USER.uuid)}$`))
+            expect(router.values.searchParams.next).toMatch(new RegExp(`${urls.settings('user')}$`))
 
             logic.unmount()
         })
@@ -342,5 +372,115 @@ describe('projectNoticeLogic', () => {
 
             logic.unmount()
         })
+    })
+
+    describe('billing alert CTA navigation', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        it('links single-product billing alerts to that product from the billing root', () => {
+            router.actions.push(urls.organizationBilling())
+            billingLogic.mount()
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            billingLogic.actions.setBillingAlert({
+                status: 'error',
+                title: 'Usage limit reached',
+                message: 'You have reached the usage limit for Product analytics.',
+                productKey: ProductKey.PRODUCT_ANALYTICS,
+            })
+
+            expect(logic.values.projectNoticeVariant).toBe('billing_alert')
+            expect(logic.values.projectNotice?.action).toEqual(
+                expect.objectContaining({
+                    to: urls.organizationBilling([ProductKey.PRODUCT_ANALYTICS]),
+                    children: 'Manage billing',
+                })
+            )
+
+            logic.unmount()
+            billingLogic.unmount()
+        })
+
+        it.each([
+            ['billing root', urls.organizationBilling()],
+            ['billing overview', urls.organizationBillingSection('overview')],
+        ])('hides generic billing alert CTAs on the %s page with checkout query params', (_, billingPath) => {
+            router.actions.push(billingPath, { success: 'true' })
+            billingLogic.mount()
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            billingLogic.actions.setBillingAlert({
+                status: 'error',
+                title: 'Usage limit reached',
+                message: 'You have reached a usage limit.',
+            })
+
+            expect(logic.values.projectNoticeVariant).toBe('billing_alert')
+            expect(logic.values.projectNotice?.action).toBeUndefined()
+
+            logic.unmount()
+            billingLogic.unmount()
+        })
+
+        it.each([
+            ['billing root', urls.organizationBilling()],
+            ['billing overview', urls.organizationBillingSection('overview')],
+        ])('hides single-product billing alert CTAs when the current %s URL targets that product', (_, billingPath) => {
+            router.actions.push(billingPath, {
+                products: ProductKey.PRODUCT_ANALYTICS,
+                success: 'true',
+            })
+            billingLogic.mount()
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            billingLogic.actions.setBillingAlert({
+                status: 'error',
+                title: 'Usage limit reached',
+                message: 'You have reached the usage limit for Product analytics.',
+                productKey: ProductKey.PRODUCT_ANALYTICS,
+            })
+
+            expect(logic.values.projectNoticeVariant).toBe('billing_alert')
+            expect(logic.values.projectNotice?.action).toBeUndefined()
+
+            logic.unmount()
+            billingLogic.unmount()
+        })
+
+        it.each([
+            ['billing root', urls.organizationBilling()],
+            ['billing overview', urls.organizationBillingSection('overview')],
+        ])(
+            'keeps single-product billing alert CTAs when the current %s URL does not target that product',
+            (_, billingPath) => {
+                router.actions.push(billingPath, { success: 'true' })
+                billingLogic.mount()
+                const logic = projectNoticeLogic()
+                logic.mount()
+
+                billingLogic.actions.setBillingAlert({
+                    status: 'error',
+                    title: 'Usage limit reached',
+                    message: 'You have reached the usage limit for Product analytics.',
+                    productKey: ProductKey.PRODUCT_ANALYTICS,
+                })
+
+                expect(logic.values.projectNoticeVariant).toBe('billing_alert')
+                expect(logic.values.projectNotice?.action).toEqual(
+                    expect.objectContaining({
+                        to: urls.organizationBilling([ProductKey.PRODUCT_ANALYTICS]),
+                        children: 'Manage billing',
+                    })
+                )
+
+                logic.unmount()
+                billingLogic.unmount()
+            }
+        )
     })
 })

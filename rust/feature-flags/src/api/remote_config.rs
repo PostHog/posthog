@@ -15,12 +15,27 @@
 //! feature flag access, even though this endpoint can return decrypted payloads. OAuth
 //! access tokens are also not accepted — any non-`phs_` bearer goes through personal-key
 //! validation and gets 401; only `phs_` and `phx_` credentials work.
+//!
+//! Supports `If-None-Match` conditional requests like `/flags/definitions`, but with a
+//! content-derived ETag: no cache backs this endpoint (the payload is read from Postgres
+//! per request), so the etag is a hash of the exact response body computed after payload
+//! resolution. That makes it caller-dependent by construction — a secret-key caller's
+//! redacted body and a personal-key caller's decrypted body hash to different etags, so a
+//! 304 never validates one credential class's cached body against the other's. A match
+//! saves the body transfer, not the DB read.
+//!
+//! Because the body varies by `Authorization` at the same URL, responses carry
+//! `Cache-Control: private, no-cache` (revalidate on every reuse, not just when stale)
+//! and `Vary: Authorization` — otherwise a private cache primed by a personal-key
+//! request could replay the decrypted body to a secret-key caller without ever hitting
+//! the etag check.
 
+use crate::api::api_key_usage::ApiKeyKind;
 use crate::{
     api::{auth, errors::FlagError, flag_definitions},
     database::get_connection_with_metrics,
     flags::flag_payload_decryptor::REDACTED_PAYLOAD_VALUE,
-    metrics::consts::REMOTE_CONFIG_AUTH_COUNTER,
+    metrics::consts::{REMOTE_CONFIG_AUTH_COUNTER, REMOTE_CONFIG_ETAG_COUNTER},
     router::State as AppState,
     team::team_models::Team,
 };
@@ -28,12 +43,18 @@ use axum::{
     debug_handler,
     extract::{Path, Query, State},
     http::{HeaderMap, Method, StatusCode},
-    response::{IntoResponse, Json, Response},
+    response::{IntoResponse, Response},
 };
 use common_metrics::inc;
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::warn;
+
+/// The body varies by `Authorization` at the same URL (decrypted vs redacted), so caches
+/// must revalidate on every reuse (`no-cache`, stronger than the sibling endpoint's
+/// `must-revalidate`) and key entries by credential (`Vary: Authorization`).
+const CACHE_CONTROL: &str = "private, no-cache";
+const VARY: &str = "Authorization";
 
 /// Query params. SDKs pass `?token=phc_...` (the project key) and call this with `@current`
 /// as the URL segment; the token resolves the project, matching Django. `api_key` is Django's
@@ -81,9 +102,8 @@ pub async fn remote_config(
     // `?api_key=` is an alias). SDKs call this with `@current` as the URL segment plus a
     // `?token=phc_...` project key; Django resolves the project from the token first, so the token
     // wins when present (and `@current` never needs interpreting). Without a token, a numeric
-    // segment is the project id; `@current` and other non-numeric values 404 (Django's `int()`
-    // ValueError), and the `@current`-without-token path that resolves the caller's current team
-    // is not an SDK call and is not ported.
+    // segment is the project id, and `@current` resolves to the bearer credential's project (see
+    // `resolve_current_team`); any other non-numeric segment 404s (Django's `int()` ValueError).
     let token_param = params
         .token
         .as_deref()
@@ -94,13 +114,24 @@ pub async fn remote_config(
     // team. The project id is needed solely for the flag lookup, so it is computed after auth and
     // the throttle — no DB read happens before an unauthenticated caller is rejected.
     // `verify_token_and_get_team` is cache-backed, so the `?token=` path does no uncached DB work
-    // at this point either.
+    // at this point either, and `resolve_current_team` goes through the shared auth-token cache so
+    // the bearer-only `@current` path doesn't either.
     let (scope_team_id, resolved_team): (i32, Option<Team>) = if let Some(token) = token_param {
         match state.flag_service().verify_token_and_get_team(token).await {
             // Keep the team so the personal-key auth path and the project lookup below don't
             // re-query it. Django raises AuthenticationFailed for an invalid `?token=`.
             Ok(team) => (team.id, Some(team)),
             Err(_) => return Ok(StatusCode::UNAUTHORIZED.into_response()),
+        }
+    } else if project_segment == "@current" {
+        // `@current` without a `?token=`: resolve the project from the bearer credential,
+        // mirroring Django (`current_team = team_from_request or user.current_team`). Server
+        // SDKs fetch remote config exactly this way — a `phs_`/`phx_` bearer, `@current`, no
+        // query token — so this must resolve, not 404. `Ok(None)` is a valid credential with no
+        // current team (Django: 404 "Project not found"); a missing credential surfaces as 401.
+        match resolve_current_team(&state, &headers).await? {
+            Some(team) => (team.id, Some(team)),
+            None => return Ok(StatusCode::NOT_FOUND.into_response()),
         }
     } else {
         match project_segment.parse::<i32>() {
@@ -153,7 +184,10 @@ pub async fn remote_config(
 
     // Flag lookup scoped to the project. 404 if missing or not a remote config flag (the query
     // filters on `is_remote_configuration`).
-    let Some((filters, has_encrypted_payloads)) =
+    // `resolved_key` is the flag's actual `key` column, not the URL segment (which may be a
+    // numeric id when the caller addresses the flag by id), so decrypt-failure logs always carry
+    // the human-readable key.
+    let Some((filters, has_encrypted_payloads, resolved_key)) =
         load_remote_config_flag(&state, scope_project_id, &key).await?
     else {
         return Ok(StatusCode::NOT_FOUND.into_response());
@@ -174,7 +208,7 @@ pub async fn remote_config(
     let payload: Option<Value> = if has_encrypted_payloads != Some(true) {
         stored.cloned()
     } else if should_decrypt {
-        resolve_decrypted_payload(&state, stored)?
+        resolve_decrypted_payload(&state, stored, scope_project_id, &resolved_key)?
     } else {
         stored.map(|_| Value::String(REDACTED_PAYLOAD_VALUE.to_string()))
     };
@@ -182,40 +216,120 @@ pub async fn remote_config(
     // Django applies `or None` to the final value and renders None as an empty body, not
     // the JSON literal `null`. Apply the falsy check after decryption so an empty decrypted
     // string nulls out too.
-    match payload.filter(|v| !is_falsy(v)) {
-        Some(v) => Ok(Json(v).into_response()),
-        None => Ok(empty_ok_no_content_type()),
+    let payload = payload.filter(|v| !is_falsy(v));
+
+    // `Value::to_string` produces the same compact JSON `Json(v)` would serialize, so the
+    // etag hashes the exact bytes the client receives (empty payloads hash the empty body).
+    let body = payload.as_ref().map(Value::to_string).unwrap_or_default();
+    let current_etag = compute_etag(&body);
+
+    let client_etag = flag_definitions::extract_etag_from_header(headers.get("if-none-match"));
+    if client_etag.as_deref() == Some(current_etag.as_str()) {
+        inc(
+            REMOTE_CONFIG_ETAG_COUNTER,
+            &[("result".to_string(), "hit".to_string())],
+            1,
+        );
+        return Ok(not_modified(&current_etag));
     }
+    inc(
+        REMOTE_CONFIG_ETAG_COUNTER,
+        &[(
+            "result".to_string(),
+            if client_etag.is_some() {
+                "miss"
+            } else {
+                "none"
+            }
+            .to_string(),
+        )],
+        1,
+    );
+
+    match payload {
+        Some(_) => Ok(json_ok_with_etag(body, &current_etag)),
+        None => Ok(empty_ok_no_content_type(&current_etag)),
+    }
+}
+
+/// Content-derived ETag over the exact response body, using the same HyperCache helper
+/// that produces `/flags/definitions` etags, so SDKs see one etag format across both
+/// endpoints.
+fn compute_etag(body: &str) -> String {
+    common_hypercache::writer::compute_etag(body)
+}
+
+/// The ETag/Cache-Control/Vary trio every response carries. Shared so the credential
+/// isolation (`no-cache` + `Vary: Authorization`) can't silently drop off one response
+/// path while surviving on the others.
+fn revalidation_headers(etag: &str) -> [(&'static str, String); 3] {
+    [
+        ("etag", flag_definitions::format_weak_etag(etag)),
+        ("cache-control", CACHE_CONTROL.to_string()),
+        ("vary", VARY.to_string()),
+    ]
+}
+
+/// 200 with a pre-serialized JSON body plus the revalidation headers.
+fn json_ok_with_etag(body: String, etag: &str) -> Response {
+    (
+        StatusCode::OK,
+        [("content-type", "application/json")],
+        revalidation_headers(etag),
+        body,
+    )
+        .into_response()
+}
+
+/// 304 carrying the same revalidation headers as the 200s — not the sibling endpoint's
+/// `not_modified_response`, whose `must-revalidate` would weaken the stored entry's
+/// policy when a cache updates its headers from the 304.
+fn not_modified(etag: &str) -> Response {
+    (StatusCode::NOT_MODIFIED, revalidation_headers(etag)).into_response()
 }
 
 /// Decrypts the stored ciphertext on the personal-key path. Returns `None` when there is no
 /// stored value or it is not a string (Django 500s on those malformed rows; we render an empty
 /// body instead). Errors (500) on a decrypt failure or a missing decryptor.
+///
+/// `project_id`/`flag_key` are logged on failure only for correlation (which flag keeps
+/// failing) -- never the token or any key material, which `FlagPayloadDecryptorError`'s
+/// `Display` already excludes by construction (see `flag_payload_decryptor.rs`).
 fn resolve_decrypted_payload(
     state: &AppState,
     stored: Option<&Value>,
+    project_id: i64,
+    flag_key: &str,
 ) -> Result<Option<Value>, FlagError> {
     let Some(Value::String(token)) = stored else {
         return Ok(None);
     };
     let Some(decryptor) = state.flag_payload_decryptor.as_ref() else {
-        return Err(FlagError::Internal(
-            "no FLAGS_SECRET_KEYS configured; cannot decrypt remote config payload".to_string(),
+        warn!(
+            project_id,
+            flag_key, "remote_config: no FLAGS_SECRET_KEYS configured; cannot decrypt payload"
+        );
+        return Err(FlagError::RemoteConfigDecryptFailed(
+            "no decryption keys configured".to_string(),
         ));
     };
     decryptor
         .decrypt(token)
         .map(|plaintext| Some(Value::String(plaintext)))
         .map_err(|e| {
-            warn!("remote_config payload decrypt failed: {e}");
-            FlagError::Internal("failed to decrypt remote config payload".to_string())
+            warn!(
+                project_id,
+                flag_key, "remote_config payload decrypt failed: {e}"
+            );
+            FlagError::RemoteConfigDecryptFailed(e.to_string())
         })
 }
 
 /// 200 with an empty body and no Content-Type (NOT a JSON `null`), matching DRF's `Response(None)`:
-/// the renderer emits no bytes and DRF then deletes the Content-Type header.
-fn empty_ok_no_content_type() -> Response {
-    StatusCode::OK.into_response()
+/// the renderer emits no bytes and DRF then deletes the Content-Type header. Still carries the
+/// revalidation headers so a client polling a not-yet-set payload can 304 too.
+fn empty_ok_no_content_type(etag: &str) -> Response {
+    (StatusCode::OK, revalidation_headers(etag)).into_response()
 }
 
 /// Mirrors Python truthiness for `payloads.get("true") or None`. In practice the payload
@@ -246,8 +360,8 @@ async fn authenticate(
     headers: &HeaderMap,
 ) -> Result<AuthOutcome, FlagError> {
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let (team_id, _api_token, is_project_secret) =
-            auth::validate_secret_api_token(state, &token).await?;
+        let secret = auth::validate_secret_api_token(state, &token).await?;
+        let team_id = secret.team_id;
         // Django: authenticated_team.id == view.team.id.
         if team_id != scope_team_id {
             // Mismatch resolves like Django: 403 when a real (different) team owns the
@@ -265,16 +379,12 @@ async fn authenticate(
         // because it decides redact-vs-decrypt, so the mix is worth watching during phase 2/3.
         inc(
             REMOTE_CONFIG_AUTH_COUNTER,
-            &[(
-                "method".to_string(),
-                if is_project_secret {
-                    "project_secret_api_key".to_string()
-                } else {
-                    "secret_api_key".to_string()
-                },
-            )],
+            &[("method".to_string(), secret.method_label().to_string())],
             1,
         );
+        state
+            .record_project_secret_key_usage(secret.project_secret_key_id)
+            .await;
         // Secret-key requests are not throttled by Django's RemoteConfigThrottle.
         return Ok(AuthOutcome::Authorized {
             should_decrypt: false,
@@ -313,7 +423,9 @@ async fn authenticate(
 
         // Track PAK usage so a key used only for remote config doesn't look dormant and get
         // rotated as unused. Shared with flag_definitions via the State helper.
-        state.record_pak_last_used(pak_id).await;
+        state
+            .record_api_key_last_used(ApiKeyKind::Personal, pak_id)
+            .await;
 
         return Ok(AuthOutcome::Authorized {
             should_decrypt: true,
@@ -322,6 +434,31 @@ async fn authenticate(
         });
     }
 
+    Err(FlagError::NoAuthenticationProvided)
+}
+
+/// Resolves the project scope for an `@current` request that has no `?token=`, from the bearer
+/// credential — mirroring Django's `current_team = team_from_request or user.current_team`: a
+/// team/project secret token (`phs_`) resolves its own team; a personal API key (`phx_`) resolves
+/// its user's current team. `Ok(None)` means the credential is valid but has no current team
+/// (Django: 404 "Project not found"); an absent or invalid credential surfaces as 401 via the
+/// propagated error. The resolved team is re-validated by `authenticate`, so this only establishes scope.
+async fn resolve_current_team(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Option<Team>, FlagError> {
+    if let Some(token) = auth::extract_team_secret_token(headers) {
+        let team_id = auth::validate_secret_api_token(state, &token)
+            .await?
+            .team_id;
+        return Ok(Some(state.flag_service().get_team_by_id(team_id).await?));
+    }
+    if let Some(key) = auth::extract_personal_api_key(headers)? {
+        return match auth::current_team_id_for_personal_api_key(state, &key).await? {
+            Some(team_id) => Ok(Some(state.flag_service().get_team_by_id(team_id).await?)),
+            None => Ok(None),
+        };
+    }
     Err(FlagError::NoAuthenticationProvided)
 }
 
@@ -349,15 +486,17 @@ async fn project_id_for_team(state: &AppState, team_id: i32) -> Result<Option<i6
     Ok(row.map(|r| r.0))
 }
 
-/// Loads `(filters, has_encrypted_payloads)` for a remote-config flag matched by numeric id (if
-/// `key` is all digits) or key, scoped to `team.project_id == project_id`. The query filters on
-/// `is_remote_configuration IS TRUE`, so a non-remote-config flag returns `None` and the caller
-/// 404s. Uses its own query — not the flag-list path, which excludes encrypted RC flags.
+/// Loads `(filters, has_encrypted_payloads, key)` for a remote-config flag matched by numeric id
+/// (if `key` is all digits) or key, scoped to `team.project_id == project_id`. The returned `key`
+/// is the flag's canonical key column, which is why it is selected even though the caller may have
+/// addressed the flag by id. The query filters on `is_remote_configuration IS TRUE`, so a
+/// non-remote-config flag returns `None` and the caller 404s. Uses its own query, not the
+/// flag-list path, which excludes encrypted RC flags.
 async fn load_remote_config_flag(
     state: &AppState,
     project_id: i64,
     key: &str,
-) -> Result<Option<(Value, Option<bool>)>, FlagError> {
+) -> Result<Option<(Value, Option<bool>, String)>, FlagError> {
     let client: common_database::PostgresReader = state.database_pools.non_persons_reader.clone();
     let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "remote_config")
         .await
@@ -379,8 +518,8 @@ async fn load_remote_config_flag(
     };
 
     let result = if let Some(id) = parsed_id {
-        sqlx::query_as::<_, (Value, Option<bool>)>(
-            "SELECT f.filters, f.has_encrypted_payloads \
+        sqlx::query_as::<_, (Value, Option<bool>, String)>(
+            "SELECT f.filters, f.has_encrypted_payloads, f.key \
              FROM posthog_featureflag f JOIN posthog_team t ON f.team_id = t.id \
              WHERE t.project_id = $1 AND f.deleted = false AND f.is_remote_configuration IS TRUE \
              AND f.id = $2 LIMIT 1",
@@ -390,8 +529,8 @@ async fn load_remote_config_flag(
         .fetch_optional(&mut *conn)
         .await
     } else {
-        sqlx::query_as::<_, (Value, Option<bool>)>(
-            "SELECT f.filters, f.has_encrypted_payloads \
+        sqlx::query_as::<_, (Value, Option<bool>, String)>(
+            "SELECT f.filters, f.has_encrypted_payloads, f.key \
              FROM posthog_featureflag f JOIN posthog_team t ON f.team_id = t.id \
              WHERE t.project_id = $1 AND f.deleted = false AND f.is_remote_configuration IS TRUE \
              AND f.key = $2 LIMIT 1",

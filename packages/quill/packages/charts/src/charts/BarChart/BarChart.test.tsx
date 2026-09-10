@@ -2,7 +2,7 @@ import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { getHogChart, getHogChartTooltip, renderHogChart } from '../../testing'
+import { getHogChart, getHogChartTooltip, renderHogChart, waitForHogChartTooltip } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
 import { BarChart } from './BarChart'
 
@@ -248,23 +248,57 @@ describe('BarChart', () => {
             expect(tooltip.series.b.value).toBe(15)
         })
 
-        it('stacked tooltip bubbles the cursor-resolved segment to seriesData[0]', async () => {
-            // At index 1: a=20 (bottom of stack), b=15 (on top). Mid-plot lands in b's range.
+        it('stacked tooltip keeps series in declaration order regardless of cursor height', async () => {
+            // At index 1: a=20 (bottom of stack), b=15 (on top). The tooltip lists the whole stack in
+            // declaration order — visual top-to-bottom ordering is handled downstream by DefaultTooltip's
+            // yPixel sort, so seriesData stays declaration-ordered no matter which segment the cursor is over.
             const { chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
             )
             chart.hoverAtIndex(1)
-            const tipB = await chart.waitForTooltip()
-            expect(tipB.seriesData[0].series.key).toBe('b')
+            const tipMid = await chart.waitForTooltip()
+            expect(tipMid.seriesData.map((s) => s.series.key)).toEqual(['a', 'b'])
             const step = dimensions.plotWidth / LABELS.length
-            // Just inside the bottom edge of the plot, well below b's top to land in a's segment.
+            // Move the cursor down into a's segment — the data order must not change (no bubbling).
             const NEAR_BOTTOM_OFFSET_PX = 8
             fireEvent.mouseMove(chart.element, {
                 clientX: dimensions.plotLeft + step * 1.5,
                 clientY: dimensions.plotTop + dimensions.plotHeight - NEAR_BOTTOM_OFFSET_PX,
             })
-            const tipA = await chart.waitForTooltip()
-            expect(tipA.seriesData[0].series.key).toBe('a')
+            const tipLow = await chart.waitForTooltip()
+            expect(tipLow.seriesData.map((s) => s.series.key)).toEqual(['a', 'b'])
+        })
+
+        // Mirrors the horizontal funnel bar: breakdown segments plus a tooltip-hidden filler
+        // padding the stack to 100. seriesData keeps declaration order, so consumers need
+        // hoveredSeriesKey to know which segment the cursor is in — including the filler,
+        // which has no seriesData row of its own.
+        it.each<[string, number, string]>([
+            ['first segment', 20, 'a'],
+            ['middle segment', 55, 'b'],
+            ['tooltip-hidden filler segment', 85, 'filler'],
+        ])('stacked exposes hoveredSeriesKey for cursor in the %s', async (_name, valueAtCursor, expectedKey) => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [40] },
+                { key: 'b', label: 'B', data: [30] },
+                { key: 'filler', label: 'Filler', data: [30], visibility: { tooltip: false } },
+            ]
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={series}
+                    labels={['step']}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked', axisOrientation: 'horizontal' }}
+                />
+            )
+            // Stack totals 100, so the nice value scale spans [0, 100] across the plot width.
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + (valueAtCursor / 100) * dimensions.plotWidth,
+                clientY: dimensions.plotTop + dimensions.plotHeight / 2,
+            })
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.hoveredSeriesKey).toBe(expectedKey)
+            expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(['a', 'b'])
         })
 
         it('stacked onPointClick routes to the segment whose rect contains the cursor', async () => {
@@ -387,6 +421,41 @@ describe('BarChart', () => {
             await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
         })
 
+        const hoverBandCenter = async (hitArea: 'bar' | 'band', index: number): Promise<void> => {
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={[{ key: 'v', label: 'V', data: [100, 1, 0] }]}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ tooltip: { hitArea } }}
+                />
+            )
+            const bandCenterX = (i: number): number =>
+                dimensions.plotLeft + ((i + 0.5) * dimensions.plotWidth) / LABELS.length
+            const clientY = dimensions.plotTop + 4
+            // The first bar fills the plot, so this hover proves the chart is live.
+            await waitForHogChartTooltip(3000, () =>
+                fireEvent.mouseMove(chart.element, { clientX: bandCenterX(0), clientY })
+            )
+            fireEvent.mouseMove(chart.element, { clientX: bandCenterX(index), clientY })
+        }
+
+        it.each<[string, number, string]>([
+            ['a bar one unit tall', 1, 'Tue'],
+            ['an empty bucket', 2, 'Wed'],
+        ])('band hit-testing reaches %s', async (_name, index, expectedLabel) => {
+            await hoverBandCenter('band', index)
+            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toContain(expectedLabel))
+        })
+
+        it.each<[string, number]>([
+            ['a bar one unit tall', 1],
+            ['an empty bucket', 2],
+        ])('bar hit-testing leaves %s unreachable', async (_name, index) => {
+            await hoverBandCenter('bar', index)
+            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
+        })
+
         describe('sparse-stacked horizontal (overlap layout)', () => {
             // Mirrors `buildTrendsBarAggregatedSeries`: each series has one non-zero value at
             // its own dataIndex, every label is the same band. Smallest bar paints on top, so
@@ -411,7 +480,7 @@ describe('BarChart', () => {
                 ['mid slice (20 < x < 50)', 30, 'mid', 50],
                 ['big slice (50 < x < 100)', 75, 'big', 100],
             ])(
-                'tooltip narrows to the visible segment with its own value for cursor in the %s',
+                'tooltip surfaces the visible segment with its own value for cursor in the %s',
                 async (_name, valueAtCursor, key, expectedValue) => {
                     const { chart } = renderHogChart(
                         <BarChart
@@ -426,8 +495,11 @@ describe('BarChart', () => {
                         clientY: yMidBand,
                     })
                     const tooltip = await chart.waitForTooltip()
-                    expect(tooltip.seriesData[0].series.key).toBe(key)
-                    expect(tooltip.seriesData[0].value).toBe(expectedValue)
+                    // Rows stay in declaration order (visual ordering is handled by DefaultTooltip),
+                    // but the segment under the cursor is revalued to its own dataIndex value rather
+                    // than the zero of the band-collapsed cell.
+                    const visible = tooltip.seriesData.find((s) => s.series.key === key)
+                    expect(visible?.value).toBe(expectedValue)
                 }
             )
 
@@ -475,6 +547,7 @@ describe('BarChart', () => {
             })
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(['b'])
+            expect(tooltip.hoveredSeriesKey).toBe('b')
         })
 
         // Regression: grouped clicks always resolved to the first series, so a breakdown
@@ -619,7 +692,7 @@ describe('BarChart', () => {
             expect(container.querySelector('[data-attr="hog-chart-bar-legend"]')).toBeNull()
         })
 
-        it('toggles a series off and on when its legend row is clicked', () => {
+        it('isolates a series when its legend row is clicked, and restores all on the next click', () => {
             const { container, chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
             )
@@ -629,10 +702,61 @@ describe('BarChart', () => {
 
             fireEvent.click(buttons()[1])
             expect(getHogChart(container).seriesCount).toBe(1)
-            expect(buttons()[1].className).toContain('opacity-40')
+            expect(buttons()[0].className).toContain('opacity-40')
+            expect(buttons()[1].className).not.toContain('opacity-40')
 
             fireEvent.click(buttons()[1])
             expect(getHogChart(container).seriesCount).toBe(2)
+        })
+
+        it('toggles just one series off and on when its legend row is meta-clicked', () => {
+            const { container, chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
+            )
+            expect(chart.seriesCount).toBe(2)
+            const buttons = (): HTMLButtonElement[] =>
+                Array.from(container.querySelectorAll('[data-attr="hog-chart-bar-legend"] button'))
+
+            fireEvent.click(buttons()[1], { metaKey: true })
+            expect(getHogChart(container).seriesCount).toBe(1)
+            expect(buttons()[1].className).toContain('opacity-40')
+
+            fireEvent.click(buttons()[1], { metaKey: true })
+            expect(getHogChart(container).seriesCount).toBe(2)
+        })
+    })
+
+    describe('drag-to-zoom', () => {
+        const FIVE_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+        const FIVE_SERIES: Series[] = [{ key: 'a', label: 'A', data: [10, 20, 30, 40, 50] }]
+
+        it('fires onDateRangeZoom with the dragged label range on vertical bars', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart series={FIVE_SERIES} labels={FIVE_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).toHaveBeenCalledWith({
+                startLabel: 'Tue',
+                endLabel: 'Thu',
+                startIndex: 1,
+                endIndex: 3,
+            })
+        })
+
+        it('does not fire on horizontal bars, whose interaction axis is vertical', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={FIVE_SERIES}
+                    labels={FIVE_LABELS}
+                    theme={THEME}
+                    config={{ axisOrientation: 'horizontal' }}
+                    onDateRangeZoom={onDateRangeZoom}
+                />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
         })
     })
 })

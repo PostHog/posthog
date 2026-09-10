@@ -1,3 +1,5 @@
+from collections.abc import Collection
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -11,9 +13,12 @@ from posthog.hogql.database.database import _compute_system_table_access_decisio
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import hash_key_value
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 SAMPLE_QUERY = {"kind": "HogQLQuery", "query": "SELECT 1"}
@@ -180,10 +185,15 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
     def test_psak_run_uses_synthetic_user_access_control(self):
         token, _ = _make_psak(self.team, label="run-with-rbac")
 
-        captured: dict = {}
+        captured: dict[str, list[tuple[UserAccessControl | None, set[str]]]] = {}
 
-        def spy(team, user, user_access_control=None):
-            result = _compute_system_table_access_decision(team, user, user_access_control)
+        def spy(
+            team: Team,
+            user: User | SyntheticUser | SharedLinkUser | None,
+            user_access_control: UserAccessControl | None = None,
+            allowed_system_tables: Collection[str] | None = None,
+        ) -> tuple[UserAccessControl | None, set[str]]:
+            result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
             captured.setdefault("results", []).append(result)
             return result
 
@@ -289,10 +299,8 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("does not have access to the requested project", response.json().get("detail", ""))
 
-    def test_psak_does_not_authenticate_legacy_team_token_surfaces(self):
-        # remote_config is the remaining Django surface for the legacy per-team
-        # Team.secret_api_token (local_evaluation now lives in the Rust flags service).
-        # A PSAK is also phs_-prefixed but must not be accepted there.
+    def test_psak_without_feature_flag_read_scope_returns_403_on_remote_config(self):
+        # remote_config accepts PSAK but requires feature_flag:read — endpoint-scoped keys must not pass.
         token, _ = _make_psak(self.team, label="remote-config-key")
 
         response = self.client.get(
@@ -300,7 +308,8 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
             **self._auth_headers(token),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertIn("feature_flag:read", response.json().get("detail", ""))
 
     def test_session_auth_still_works_on_endpoint_viewset(self):
         # Regression: wiring PSAK into authentication_classes must not break session auth.
@@ -313,7 +322,7 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
 
 
 @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-@patch("products.endpoints.backend.rate_limit.EndpointBurstThrottle.rate", new="2/minute")
+@patch("products.endpoints.backend.presentation.throttles.EndpointBurstThrottle.rate", new="2/minute")
 class TestEndpointPSAKRateLimit(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -353,7 +362,10 @@ class TestEndpointPSAKRateLimit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(self._run(token_a).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(self._run(token_b).status_code, status.HTTP_200_OK)
 
-    @patch("products.endpoints.backend.rate_limit.EndpointProjectSecretApiKeyTeamBurstThrottle.rate", new="3/minute")
+    @patch(
+        "products.endpoints.backend.presentation.throttles.EndpointProjectSecretApiKeyTeamBurstThrottle.rate",
+        new="3/minute",
+    )
     def test_distinct_psak_keys_share_project_bucket(self, *_args):
         token_a, _a = _make_psak(self.team, label="team-key-a")
         token_b, _b = _make_psak(self.team, label="team-key-b")

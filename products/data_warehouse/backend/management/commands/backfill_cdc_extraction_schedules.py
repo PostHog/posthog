@@ -34,9 +34,9 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from products.data_warehouse.backend.data_load.service import bulk_sync_cdc_extraction_schedules, cdc_min_interval
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.logic.data_load.service import bulk_sync_cdc_extraction_schedules, cdc_min_interval
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaSyncType, ExternalDataSourceAccessMethod
 
 logger = structlog.get_logger(__name__)
 
@@ -74,12 +74,12 @@ class Command(BaseCommand):
         # otherwise resurrect the schedule for a deleted source. Mirrors `sync_cdc_extraction_schedule`.
         schema_qs = (
             ExternalDataSchema.objects.filter(
-                sync_type=ExternalDataSchema.SyncType.CDC,
+                sync_type=ExternalDataSchemaSyncType.CDC,
                 should_sync=True,
             )
             .exclude(deleted=True)
             .exclude(source__deleted=True)
-            .exclude(source__access_method=ExternalDataSource.AccessMethod.DIRECT)
+            .exclude(source__access_method=ExternalDataSourceAccessMethod.DIRECT)
             .select_related("source")
         )
         if source_type_filter is not None:

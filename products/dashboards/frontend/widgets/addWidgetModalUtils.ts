@@ -1,5 +1,3 @@
-import { isReadOnly } from 'lib/readOnlyGuard'
-
 import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
 
 export type AddWidgetPayload = {
@@ -17,9 +15,6 @@ export function getAddButtonLabel(selectedCount: number): string {
 export function getAddWidgetDisabledReason(loading: boolean | undefined, selectedCount: number): string | undefined {
     if (loading) {
         return 'Adding widgets…'
-    }
-    if (isReadOnly()) {
-        return 'Read-only mode is on — allow writes temporarily to add widgets'
     }
     if (selectedCount === 0) {
         return 'Select at least one widget type'

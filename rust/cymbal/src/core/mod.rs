@@ -10,5 +10,7 @@ pub mod ids;
 pub mod metric_consts;
 pub mod resolver;
 pub mod sanitize;
+pub mod shutdown;
 pub mod symbolication;
 pub mod types;
+pub(crate) mod write_attribution;

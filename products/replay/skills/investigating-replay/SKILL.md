@@ -39,11 +39,13 @@ Start with the recording to get metadata and the person's distinct ID:
 ```json
 posthog:session-recording-get
 {
-  "id": "<recording_id>"
+  "id": "<session_id>"
 }
 ```
 
-The response includes `distinct_id`, `person`, duration, interaction counts,
+The recording `id` and the event `$session_id` are the same value. It selects the
+recording here and the same-session events in Step 2. The response includes
+`distinct_id`, `person`, `start_time`, `end_time`, duration, interaction counts,
 console error counts, and viewing status. Use the `distinct_id` to fetch
 the full person profile:
 
@@ -56,7 +58,8 @@ posthog:persons-retrieve
 
 ### Step 2 — Query same-session events
 
-Get the timeline of what the user did during the session:
+Use the recording `id` from Step 1 as the `$session_id` value. Get the timeline
+of what the user did during the session:
 
 ```sql
 posthog:execute-sql
@@ -82,14 +85,42 @@ SELECT
     timestamp,
     event,
     properties.$current_url AS url,
-    if(event = '$exception', properties.$exception_message, null) AS exception_message,
-    if(event = '$exception', properties.$exception_type, null) AS exception_type
+    if(event = '$exception', properties.$exception_values[1], null) AS exception_message,
+    if(event = '$exception', properties.$exception_types[1], null) AS exception_type
 FROM events
 WHERE $session_id = '<session_id>'
     AND event IN ('$pageview', '$pageleave', '$autocapture', '$exception', '$rageclick')
 ORDER BY timestamp ASC
 LIMIT 100
 ```
+
+#### No rows? Recover the event session ID
+
+The recording `id` is the session ID. No rows means the session's events were
+ingested without it. Find candidates from the person's events in the recording
+window, padded by 100 seconds like the replay events query. `person_id` covers
+all of the person's distinct IDs:
+
+```sql
+posthog:execute-sql
+SELECT
+    properties.$session_id AS session_id,
+    count() AS event_count,
+    min(timestamp) AS first_seen,
+    max(timestamp) AS last_seen
+FROM events
+WHERE person_id = '<person_uuid>'
+    AND timestamp >= toDateTime('<start_time>') - INTERVAL 100 SECOND
+    AND timestamp <= toDateTime('<end_time>') + INTERVAL 100 SECOND
+    AND properties.$session_id IS NOT NULL
+GROUP BY session_id
+ORDER BY event_count DESC
+LIMIT 10
+```
+
+Continue only when one session ID clearly matches. Use it for the Step 2 and
+Step 3 queries only. The replay URL and all Replay Vision calls take the
+recording `id`.
 
 ### Step 3 — Check for linked error tracking issues
 
@@ -99,8 +130,8 @@ If the recording has console errors or exceptions, find related error tracking i
 posthog:execute-sql
 SELECT DISTINCT
     properties.$exception_fingerprint AS fingerprint,
-    properties.$exception_type AS type,
-    properties.$exception_message AS message,
+    properties.$exception_types[1] AS type,
+    properties.$exception_values[1] AS message,
     count() AS occurrences
 FROM events
 WHERE $session_id = '<session_id>'
@@ -234,3 +265,10 @@ with a throwaway scanner — but **ask the user's permission before creating any
   use this to frame the narrative.
 - If `person` is null on the recording, the user was anonymous.
   Person properties won't be available, but events still are.
+
+## Related skills
+
+- **`finding-sessions-to-watch`** — choose which sessions are worth investigating in the first place
+- **`finding-replay-for-issue`** — start from an error tracking issue and find its linked recordings
+- **`diagnosing-missing-recordings`** — when a recording that should exist doesn't
+- **`creating-replay-vision-scanners`** — automate this kind of watching as a scheduled scanner

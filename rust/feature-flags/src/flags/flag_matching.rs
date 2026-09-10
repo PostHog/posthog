@@ -1,10 +1,12 @@
 use crate::api::errors::FlagError;
 use crate::api::types::{FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMatch};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
-use crate::cohorts::cohort_models::{Cohort, CohortId};
-use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
+use crate::cohorts::cohort_models::{Cohort, CohortId, MembershipStampPolicy};
+use crate::cohorts::cohort_operations::{
+    apply_cohort_membership_logic, evaluate_dynamic_cohorts, record_stamp_policy_divergence,
+};
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
-use crate::database::PostgresRouter;
+use crate::database::{pool_names, PostgresRouter};
 use crate::flags::flag_group_type_mapping::{
     GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
 };
@@ -25,27 +27,28 @@ use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_BATCH_EVALUATION_COUNTER,
     FLAG_BATCH_EVALUATION_TIME, FLAG_BATCH_SIZE, FLAG_COHORT_SOURCE_COUNTER,
-    FLAG_DB_PROPERTIES_FETCH_TIME, FLAG_EVALUATE_ALL_CONDITIONS_TIME,
-    FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME, FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED,
-    FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME,
-    FLAG_GROUP_DB_FETCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    FLAG_CONDITION_SKIPPED_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
+    FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
+    FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED, FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER,
+    FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
+    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
     FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, FLAG_REALTIME_COHORT_QUERY_TIME,
     PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
-use crate::properties::property_matching::match_property;
+use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 use crate::properties::property_models::{PropertyFilter, PropertyType};
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
 use chrono_tz::Tz;
-use common_metrics::{histogram, inc, timing_guard};
+use common_metrics::{histogram, inc, timing_guard, timing_guard_high_precision};
 use common_types::collections::HashMapExt;
 use common_types::{PersonId, TeamId};
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{error, instrument, warn};
+use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
 
 const DEFAULT_PARALLEL_EVAL_THRESHOLD: usize = 100;
@@ -141,6 +144,32 @@ pub(crate) enum PersonPropertyState {
     Fetched(HashMap<String, Value>),
 }
 
+/// Outcome of the group type mapping lookup for a request.
+///
+/// The mapping resolves a group type index to the name the request keys its `groups` by, so
+/// without it there is no way to tell "the caller sent no group of this type" from "the lookup
+/// failed". Keeping the failure in the same value as the mapping stops those two from being
+/// answered independently — see `FeatureFlagMatcher::filter_needs_partial_props`.
+#[derive(Clone, Debug, Default)]
+enum GroupTypeMappingState {
+    /// The lookup has not run for this request (initial state)
+    #[default]
+    Uninitialized,
+    /// The lookup ran and returned a mapping, which may be empty for a team with no group types
+    Loaded(GroupTypeMapping),
+    /// The lookup ran and failed
+    Failed,
+}
+
+impl GroupTypeMappingState {
+    fn mapping(&self) -> Option<&GroupTypeMapping> {
+        match self {
+            Self::Loaded(mapping) => Some(mapping),
+            _ => None,
+        }
+    }
+}
+
 /// This struct maintains evaluation state by caching database-sourced data during feature flag evaluation.
 /// It stores person IDs, properties, group properties, and cohort matches that are fetched from the database,
 /// allowing them to be reused across multiple flag evaluations within the same request without additional DB lookups.
@@ -154,7 +183,12 @@ pub struct FlagEvaluationState {
     person_uuid: Option<Uuid>,
     /// Person property fetch state: pending, skipped, or fetched (with property data)
     person_property_state: PersonPropertyState,
-    /// Properties for each group type involved in flag evaluation
+    /// Properties for each group type whose properties DB prep ran for this evaluation.
+    ///
+    /// The key set carries the group-level analogue of `PersonPropertyState`: a missing index
+    /// means the fetch never ran, so nothing about that group type's properties is known. A
+    /// present index means the fetch ran and its map is authoritative, so an empty map means
+    /// the group genuinely has no properties (no `posthog_group` row).
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
     /// Cohorts for the current request, shared via `Arc` either from the
     /// preloaded hypercache slice or wrapped from a `CohortCacheManager`
@@ -178,6 +212,13 @@ impl FlagEvaluationState {
             PersonPropertyState::Fetched(props) => Some(props),
             _ => None,
         }
+    }
+
+    /// True when person-property DB prep never ran (neither fetched nor deliberately
+    /// skipped in favor of overrides). Distinct from `Skipped`, where overrides are
+    /// known to cover every property the batch needs — see `PersonPropertyState`.
+    pub(crate) fn person_properties_pending(&self) -> bool {
+        matches!(self.person_property_state, PersonPropertyState::Pending)
     }
 
     pub fn get_group_properties(&self) -> &HashMap<GroupTypeIndex, HashMap<String, Value>> {
@@ -220,6 +261,20 @@ impl FlagEvaluationState {
         self.group_properties.insert(group_type_index, properties);
     }
 
+    /// Record that group-property DB prep ran for this group type, without disturbing
+    /// properties already stored for it. Must be called for every requested index once the
+    /// fetch succeeds, including indexes the query returned no row for — an empty map there
+    /// is an authoritative "this group has no properties", not a missing fetch.
+    pub fn mark_group_properties_fetched(&mut self, group_type_index: GroupTypeIndex) {
+        self.group_properties.entry(group_type_index).or_default();
+    }
+
+    /// True when group-property DB prep never ran for this group type, so an absent
+    /// key in the resolved property map carries no information — see `group_properties`.
+    pub(crate) fn group_properties_pending(&self, group_type_index: GroupTypeIndex) -> bool {
+        !self.group_properties.contains_key(&group_type_index)
+    }
+
     pub fn set_cohort_matches(&mut self, matches: HashMap<CohortId, bool>) {
         self.cohort_matches = Some(matches);
     }
@@ -258,12 +313,16 @@ impl PropertyContext<'_> {
     /// an explicit type distinction.
     pub fn resolve_for_filter(&self, filter: &PropertyFilter) -> &HashMap<String, Value> {
         match filter.prop_type {
-            PropertyType::Person => self.person_properties.unwrap_or(&*EMPTY_PROPERTY_MAP),
-            PropertyType::Group => {
-                let gti = filter.group_type_index.or(self.aggregation);
-                gti.and_then(|idx| self.group_properties.get(&idx))
-                    .unwrap_or(&*EMPTY_PROPERTY_MAP)
+            // PersonMetadata fields (e.g. created_at) are injected into the same map as
+            // regular person properties; see the `result.person` block in
+            // `apply_person_cohort_to_state` (flag_matching_utils.rs).
+            PropertyType::Person | PropertyType::PersonMetadata => {
+                self.person_properties.unwrap_or(&*EMPTY_PROPERTY_MAP)
             }
+            PropertyType::Group => filter
+                .group_filter_index(self.aggregation)
+                .and_then(|idx| self.group_properties.get(&idx))
+                .unwrap_or(&*EMPTY_PROPERTY_MAP),
             PropertyType::Cohort | PropertyType::Flag => match self.aggregation {
                 Some(gti) => self
                     .group_properties
@@ -299,8 +358,9 @@ pub struct FeatureFlagMatcher {
     pub cohort_cache: Arc<CohortCacheManager>,
     /// Shared in-process cache for group type mappings
     group_type_cache: Arc<GroupTypeCacheManager>,
-    /// Lazily populated mapping for the current team (fetched via group_type_cache)
-    group_type_mapping: Option<GroupTypeMapping>,
+    /// Outcome of the group type mapping lookup for the current team, fetched once per
+    /// request via `group_type_cache`.
+    group_type_mapping: GroupTypeMappingState,
     /// State maintained during flag evaluation, including cached DB lookups
     pub(crate) flag_evaluation_state: FlagEvaluationState,
     /// Group key mappings for group-based flag evaluation
@@ -328,6 +388,8 @@ pub struct FeatureFlagMatcher {
     /// Whether to enable realtime cohort evaluation.
     /// When false, realtime cohorts are treated as non-members.
     enable_realtime_cohort_evaluation: bool,
+    use_explicit_exact_matching: bool,
+    membership_stamp_policy: MembershipStampPolicy,
     /// Cohort definitions preloaded from the flags hypercache.
     /// When present, scoped to only the cohorts referenced by flags (including transitive deps),
     /// so the matcher skips the CohortCacheManager PG query entirely.
@@ -396,7 +458,7 @@ impl FeatureFlagMatcher {
             router,
             cohort_cache,
             group_type_cache,
-            group_type_mapping: None,
+            group_type_mapping: GroupTypeMappingState::default(),
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
             cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
@@ -405,6 +467,8 @@ impl FeatureFlagMatcher {
             skip_writes: false,
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
+            use_explicit_exact_matching: false,
+            membership_stamp_policy: MembershipStampPolicy::default(),
             preloaded_cohorts: None,
             detailed_analysis: false,
             only_use_override_person_properties: false,
@@ -445,6 +509,16 @@ impl FeatureFlagMatcher {
 
     pub fn with_realtime_cohort_evaluation(mut self, enable: bool) -> Self {
         self.enable_realtime_cohort_evaluation = enable;
+        self
+    }
+
+    pub fn with_explicit_exact_matching(mut self, enable: bool) -> Self {
+        self.use_explicit_exact_matching = enable;
+        self
+    }
+
+    pub fn with_membership_stamp_policy(mut self, policy: MembershipStampPolicy) -> Self {
+        self.membership_stamp_policy = policy;
         self
     }
 
@@ -695,14 +769,22 @@ impl FeatureFlagMatcher {
         // When we're writing a hash_key_override, we query the main database (writer), not the replica (reader)
         // This is because we need to make sure the write is successful before we read it back
         // to avoid read-after-write consistency issues with database replication lag
-        let database_for_reading = if writing_hash_key_override {
-            self.router.get_persons_writer().clone()
+        let (database_for_reading, pool_name) = if writing_hash_key_override {
+            (
+                self.router.get_persons_writer().clone(),
+                pool_names::PERSONS_WRITER,
+            )
         } else {
-            self.router.get_persons_reader().clone()
+            (
+                self.router.get_persons_reader().clone(),
+                pool_names::PERSONS_READER,
+            )
         };
 
         match get_feature_flag_hash_key_overrides(
             database_for_reading,
+            pool_name,
+            self.router.get_persons_writer().clone(),
             self.team_id,
             target_distinct_ids,
         )
@@ -753,7 +835,7 @@ impl FeatureFlagMatcher {
                     target_properties,
                     &cohorts,
                     &current_matches,
-                    self.timezone,
+                    PropertyMatchingContext::new(self.timezone, self.use_explicit_exact_matching),
                 )?;
                 cohort_matches.insert(cohort_id, match_result);
             }
@@ -802,6 +884,7 @@ impl FeatureFlagMatcher {
             .prepare_evaluation_state_if_needed(
                 &flags,
                 &overrides.person_property_overrides,
+                &overrides.group_property_overrides,
                 &mut evaluated_flags_map,
             )
             .await;
@@ -846,6 +929,7 @@ impl FeatureFlagMatcher {
         &mut self,
         flags: &[&FeatureFlag],
         person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
     ) -> bool {
         let flags_requiring_db_preparation = flags_require_db_preparation(
@@ -854,6 +938,13 @@ impl FeatureFlagMatcher {
                 .as_ref()
                 .unwrap_or(&HashMap::new()),
             &self.filtered_out_flag_ids,
+            &|filter, effective_aggregation| {
+                self.group_filter_needs_db_prep(
+                    filter,
+                    effective_aggregation,
+                    group_property_overrides.as_ref(),
+                )
+            },
         );
 
         if flags_requiring_db_preparation.is_empty() || self.only_use_override_person_properties {
@@ -976,6 +1067,7 @@ impl FeatureFlagMatcher {
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
                         person_property_overrides,
+                        group_property_overrides,
                     );
                 });
             }
@@ -998,6 +1090,7 @@ impl FeatureFlagMatcher {
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
                         person_property_overrides,
+                        group_property_overrides,
                     );
                 }
             }
@@ -1026,6 +1119,7 @@ impl FeatureFlagMatcher {
         level_evaluated_flags_map: &mut HashMap<String, FlagDetails>,
         errors_while_computing_flags: &mut bool,
         person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
     ) {
         match result {
             Ok(flag_match) => {
@@ -1036,13 +1130,22 @@ impl FeatureFlagMatcher {
                     let merged_person_props = self
                         .get_person_properties(person_property_overrides.as_ref())
                         .ok();
+                    // Merged group properties (DB + overrides, including the injected
+                    // `$group_key`) keyed by group type index, so group-typed condition
+                    // filters resolve against the group rather than the person.
+                    let merged_group_props =
+                        self.merged_group_properties_for_flag(flag, group_property_overrides);
                     FlagDetails::create_with_analysis(
                         flag,
                         flag_match,
                         true,
                         merged_person_props.as_ref(),
+                        Some(&merged_group_props),
                         Some(&self.flag_evaluation_state.flag_evaluation_results),
-                        self.timezone,
+                        PropertyMatchingContext::new(
+                            self.timezone,
+                            self.use_explicit_exact_matching,
+                        ),
                     )
                 } else {
                     FlagDetails::create(flag, flag_match)
@@ -1084,11 +1187,48 @@ impl FeatureFlagMatcher {
         group_type_index: GroupTypeIndex,
         group_property_overrides: Option<&'a HashMap<String, HashMap<String, Value>>>,
     ) -> Option<&'a HashMap<String, Value>> {
-        let mapping = self.group_type_mapping.as_ref()?;
+        let mapping = self.group_type_mapping.mapping()?;
         let index_to_type_map = mapping.group_indexes_to_types();
         let group_type = index_to_type_map.get(&group_type_index)?;
         let group_overrides = group_property_overrides?;
         group_overrides.get(group_type)
+    }
+
+    /// Builds merged group properties (DB + overrides) keyed by group type index for
+    /// every group type the flag's conditions reference. Used by detailed condition
+    /// analysis so group-typed filters resolve against the group's properties (and the
+    /// `$group_key` injected into overrides) rather than the person's. Every referenced
+    /// group type index is included, backed by an empty map if no properties were found.
+    fn merged_group_properties_for_flag(
+        &self,
+        flag: &FeatureFlag,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+    ) -> HashMap<GroupTypeIndex, HashMap<String, Value>> {
+        let mut referenced_indexes: HashSet<GroupTypeIndex> = HashSet::new();
+        for group in &flag.filters.groups {
+            // Mirrors the aggregation the real matching path uses (line ~1371 below), so
+            // an explicit person aggregation (`Some(None)`) does not fall back to the
+            // flag-level group index here.
+            let condition_aggregation = group.effective_aggregation(flag.get_group_type_index());
+            if let Some(properties) = &group.properties {
+                for property in properties {
+                    if let Some(gti) = property.group_filter_index(condition_aggregation) {
+                        referenced_indexes.insert(gti);
+                    }
+                }
+            }
+        }
+
+        let mut merged = HashMap::new();
+        for gti in referenced_indexes {
+            let overrides = self.resolve_group_overrides(gti, group_property_overrides.as_ref());
+            merged.insert(
+                gti,
+                self.get_group_properties(gti, overrides)
+                    .unwrap_or_default(),
+            );
+        }
+        merged
     }
 
     /// Pushes CPU-bound flag evaluation onto the Rayon pool via [`RayonDispatcher`],
@@ -1206,7 +1346,7 @@ impl FeatureFlagMatcher {
                     evaluation_tags: None,
                     bucketing_identifier: None,
                 };
-                (stub, Err(FlagError::BatchEvaluationPanicked))
+                (stub, Err(FlagError::batch_evaluation_panicked()))
             })
             .collect()
     }
@@ -1262,6 +1402,7 @@ impl FeatureFlagMatcher {
         let mut highest_match = FeatureFlagMatchReason::NoGroupType;
         let mut highest_index = None;
         let mut had_skipped_group_conditions = false;
+        let mut had_unevaluable_cohort_conditions = false;
 
         // Lazily compute properties per aggregation type. Person and group properties are
         // cached separately so conditions with different aggregation modes can share them.
@@ -1276,7 +1417,7 @@ impl FeatureFlagMatcher {
             let person_properties = self.get_person_properties(person_property_overrides)?;
 
             if let Some(v) = person_properties.get(&enrollment_key) {
-                let is_match = v == "true" || v == &Value::Bool(true);
+                let is_match = FlagFilters::is_enrolled(v);
                 let payload = self.get_matching_payload(None, flag);
                 return Ok(FeatureFlagMatch {
                     matches: is_match,
@@ -1330,12 +1471,17 @@ impl FeatureFlagMatcher {
                         .as_ref()
                         .is_none_or(|device_id| device_id.is_empty())
                 {
+                    inc(
+                        FLAG_CONDITION_SKIPPED_COUNTER,
+                        &[("reason".to_string(), "missing_device_id".to_string())],
+                        1,
+                    );
                     with_canonical_log(|log| {
-                        tracing::warn!(
+                        tracing::debug!(
                             flag_key = %flag.key,
                             team_id = %flag.team_id,
                             condition_index = %index,
-                            lib = log.lib,
+                            lib = log.lib.as_deref(),
                             lib_version = log.lib_version.as_deref(),
                             "Person condition uses device_id bucketing but no device_id provided, skipping"
                         );
@@ -1361,18 +1507,13 @@ impl FeatureFlagMatcher {
             // This checks the group key directly rather than calling hashed_identifier,
             // which will be called again later in check_rollout/get_matching_variant.
             if let Some(group_type_index) = aggregation {
-                let has_group_key = self
-                    .group_type_mapping
-                    .as_ref()
-                    .and_then(|m| m.group_indexes_to_types().get(&group_type_index))
-                    .and_then(|name| self.groups.get(name))
-                    .is_some_and(|v| match v {
-                        Value::String(s) => !s.is_empty(),
-                        Value::Number(_) => true,
-                        _ => false,
-                    });
-                if !has_group_key {
-                    warn!(
+                if !self.has_group_key(group_type_index) {
+                    inc(
+                        FLAG_CONDITION_SKIPPED_COUNTER,
+                        &[("reason".to_string(), "missing_group_type".to_string())],
+                        1,
+                    );
+                    debug!(
                         flag_key = %flag.key,
                         team_id = %flag.team_id,
                         condition_index = %index,
@@ -1432,6 +1573,10 @@ impl FeatureFlagMatcher {
                 hash_key_overrides,
                 request_hash_key_override,
             )?;
+
+            if reason == FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated {
+                had_unevaluable_cohort_conditions = true;
+            }
 
             // OutOfRolloutBound means the condition's property filters (if any) already
             // matched and only the rollout check failed, so re-evaluating later groups
@@ -1507,9 +1652,14 @@ impl FeatureFlagMatcher {
         // the reason to carry a richer description. The API code still serializes as
         // "no_condition_match" for backward compatibility, but the description tells the
         // caller about the skipped group conditions.
-        if highest_match == FeatureFlagMatchReason::NoConditionMatch && had_skipped_group_conditions
-        {
-            highest_match = FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated;
+        // A cohort that can't be fully evaluated takes precedence over a skipped group
+        // condition, because it reaches real flag traffic.
+        if highest_match == FeatureFlagMatchReason::NoConditionMatch {
+            if had_unevaluable_cohort_conditions {
+                highest_match = FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated;
+            } else if had_skipped_group_conditions {
+                highest_match = FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated;
+            }
         }
 
         // Return with the highest_match reason and index even if no conditions matched
@@ -1588,7 +1738,32 @@ impl FeatureFlagMatcher {
                     cohort_filters.push(filter);
                 } else {
                     let props = property_context.resolve_for_filter(filter);
-                    if !match_property(filter, props, false, self.timezone).unwrap_or(false) {
+                    // Person properties that were never fetched (DB prep didn't run for this
+                    // evaluation) must not be treated as "person has no properties", because
+                    // an absent key would then make negative operators (is_not, not_icontains,
+                    // ...) and is_not_set match by accident. partial_props makes match_property
+                    // error on a missing key instead of matching it; the unwrap_or(false) below
+                    // turns that error into no-match, so the condition fails closed. Only
+                    // Pending gets this: Skipped and Fetched property maps are authoritative,
+                    // so an absent key there genuinely means the person lacks the property.
+                    // This is defense in depth: in the batch flow a prep failure errors those
+                    // flags out before evaluation, so the guard protects any path that reaches
+                    // evaluation with the state still Pending. Cohort filters get the same
+                    // treatment below, refusing to evaluate outright since cohort membership
+                    // is unknowable under Pending. Group filters get the equivalent guard
+                    // keyed on their own group type — see `filter_needs_partial_props`.
+                    let partial_props = self.filter_needs_partial_props(filter, property_context);
+                    if !match_property(
+                        filter,
+                        props,
+                        partial_props,
+                        PropertyMatchingContext::new(
+                            self.timezone,
+                            self.use_explicit_exact_matching,
+                        ),
+                    )
+                    .unwrap_or(false)
+                    {
                         return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                     }
                 }
@@ -1596,6 +1771,31 @@ impl FeatureFlagMatcher {
 
             // Evaluate cohort filters using person properties (cohorts are person-level).
             if !cohort_filters.is_empty() {
+                // Cohort evaluation reads the same person-property map as direct filters, and
+                // both the property-level `negation` inside a cohort definition and cohort-level
+                // NOT_IN would turn a missing key into a match. Membership is unknowable under
+                // Pending either way, so refuse to evaluate rather than guess. Today no prep path
+                // loads cohorts without fetching person properties, so this should be unreachable
+                // — hence the error log, which flags a broken invariant rather than normal traffic.
+                if self.flag_evaluation_state.person_properties_pending() {
+                    inc(
+                        PROPERTY_CACHE_MISSES_COUNTER,
+                        &[
+                            ("type".to_string(), "cohort_filters".to_string()),
+                            ("reason".to_string(), "db_prep_never_ran".to_string()),
+                        ],
+                        1,
+                    );
+                    with_canonical_log(|log| {
+                        log.eval.property_cache_misses += 1;
+                        log.eval.person_properties_not_cached = true;
+                    });
+                    tracing::error!(
+                        "Cohort filters not evaluated — DB prep never ran, so the condition fails closed"
+                    );
+                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                }
+
                 let cohorts = match &self.flag_evaluation_state.cohorts {
                     Some(cohorts) => cohorts.clone(),
                     None => return Ok((false, FeatureFlagMatchReason::NoConditionMatch)),
@@ -1603,8 +1803,22 @@ impl FeatureFlagMatcher {
                 let cohort_props = property_context
                     .person_properties
                     .unwrap_or(&*EMPTY_PROPERTY_MAP);
-                if !self.evaluate_cohort_filters(&cohort_filters, cohort_props, cohorts)? {
-                    return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+                if !self.evaluate_cohort_filters(&cohort_filters, cohort_props, cohorts.clone())? {
+                    // A non-match isn't trustworthy when a targeted cohort has a behavioral or
+                    // lifecycle leaf the dynamic path can't resolve, so flag it with a distinct reason.
+                    let cohort_membership_unresolved = cohort_filters.iter().any(|filter| {
+                        filter.get_cohort_id().is_some_and(|cohort_id| {
+                            cohorts
+                                .iter()
+                                .any(|c| c.id == cohort_id && c.has_behavioral_condition())
+                        })
+                    });
+                    let reason = if cohort_membership_unresolved {
+                        FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated
+                    } else {
+                        FeatureFlagMatchReason::NoConditionMatch
+                    };
+                    return Ok((false, reason));
                 }
             }
         }
@@ -1615,6 +1829,110 @@ impl FeatureFlagMatcher {
             hash_key_overrides,
             request_hash_key_override,
         )
+    }
+
+    /// Seeds the mapping that `initialize_group_type_mappings_if_needed` loads in production,
+    /// for tests that exercise matching without running DB prep.
+    #[cfg(test)]
+    pub(crate) fn set_group_type_mapping_for_test(&mut self, mapping: GroupTypeMapping) {
+        self.group_type_mapping = GroupTypeMappingState::Loaded(mapping);
+    }
+
+    /// Whether the request supplied a usable group key for this group type name. Without one
+    /// there is no group to load properties for, so group filters on that type have no
+    /// context at all — distinct from having a key whose properties weren't fetched.
+    fn has_usable_group_key(&self, group_type: &str) -> bool {
+        self.groups.get(group_type).is_some_and(|v| match v {
+            Value::String(s) => !s.is_empty(),
+            Value::Number(_) => true,
+            _ => false,
+        })
+    }
+
+    /// `has_usable_group_key` by group type index. False both when the request omitted the
+    /// group and when the mapping can't resolve the index, so callers that must tell those
+    /// apart resolve the name themselves — see `filter_needs_partial_props`.
+    fn has_group_key(&self, group_type_index: GroupTypeIndex) -> bool {
+        self.group_type_mapping
+            .mapping()
+            .and_then(|m| m.group_indexes_to_types().get(&group_type_index))
+            .is_some_and(|group_type| self.has_usable_group_key(group_type))
+    }
+
+    /// Whether DB preparation would load anything this group filter can use. Selecting a
+    /// filter pulls its whole flag into preparation, and with it the person-property query,
+    /// so a filter only counts when the fetch can serve it: the mapping resolves its index,
+    /// the request carries a usable key for that group type, and no group property override
+    /// already supplies the filtered key. In every other state the fetch would load nothing
+    /// for the filter, and matching handles those states itself — see
+    /// `filter_needs_partial_props`.
+    fn group_filter_needs_db_prep(
+        &self,
+        filter: &PropertyFilter,
+        effective_aggregation: Option<GroupTypeIndex>,
+        group_property_overrides: Option<&HashMap<String, HashMap<String, Value>>>,
+    ) -> bool {
+        let Some(gti) = filter.group_filter_index(effective_aggregation) else {
+            return false;
+        };
+        let Some(group_type) = self
+            .group_type_mapping
+            .mapping()
+            .and_then(|m| m.group_indexes_to_types().get(&gti))
+        else {
+            return false;
+        };
+        if !self.has_usable_group_key(group_type) {
+            return false;
+        }
+        !group_property_overrides
+            .and_then(|overrides| overrides.get(group_type))
+            .is_some_and(|group_overrides| group_overrides.contains_key(&filter.key))
+    }
+
+    /// Whether a filter must be matched with `partial_props`, i.e. treat an absent key as
+    /// "unknown" (an error, which the caller turns into no-match) rather than as
+    /// "the property is not set" (which would make negative operators match by accident).
+    ///
+    /// This is only true when the relevant property source was never fetched. Fetched and
+    /// deliberately-skipped property maps are authoritative, so an absent key there
+    /// genuinely means the property is unset.
+    fn filter_needs_partial_props(
+        &self,
+        filter: &PropertyFilter,
+        property_context: &PropertyContext,
+    ) -> bool {
+        if filter.prop_type != PropertyType::Group {
+            return self.flag_evaluation_state.person_properties_pending();
+        }
+
+        // A group filter with no resolvable group type index can't be routed to a group
+        // property map at all, so there is nothing to fail closed on.
+        let Some(gti) = filter.group_filter_index(property_context.aggregation) else {
+            return false;
+        };
+
+        // Without a resolved name for the index, nothing is known about the group: the
+        // lookup failed, or a loaded mapping predates the group type (a stale cache entry).
+        // The request may carry this very group under the name that can't be resolved, so
+        // this must not read as "no group context" — fail closed.
+        let Some(group_type) = self
+            .group_type_mapping
+            .mapping()
+            .and_then(|m| m.group_indexes_to_types().get(&gti))
+        else {
+            return true;
+        };
+
+        // No group key means no group context whatsoever — the request never claimed to be
+        // in a group of this type. Failing closed there would silently stop matching for
+        // every caller that doesn't send `groups`, which is a much broader behavior change
+        // than the fetch-miss this guard is for, so keep the existing semantics.
+        if !self.has_usable_group_key(group_type) {
+            return false;
+        }
+
+        self.flag_evaluation_state.group_properties_pending(gti)
     }
 
     /// Checks if a condition requires person/group properties to evaluate.
@@ -1647,9 +1965,9 @@ impl FeatureFlagMatcher {
                     continue;
                 }
                 match prop.prop_type {
-                    PropertyType::Person => needs_person = true,
+                    PropertyType::Person | PropertyType::PersonMetadata => needs_person = true,
                     PropertyType::Group => {
-                        if let Some(gti) = prop.group_type_index.or(effective_aggregation) {
+                        if let Some(gti) = prop.group_filter_index(effective_aggregation) {
                             group_types.insert(gti);
                         }
                     }
@@ -1710,7 +2028,14 @@ impl FeatureFlagMatcher {
                 .unwrap_or_default()
         };
 
-        // Merge in overrides (overrides take precedence)
+        // Merge in overrides (overrides take precedence).
+        //
+        // PersonMetadata fields are stored under sentinel-prefixed keys (see
+        // `lookup_key_for` in property_matching.rs). A caller could override the canonical
+        // persons-table value by setting that sentinel key in `person_property_overrides`.
+        // That's intentional for testing — no SDK has any reason to set such a key in
+        // production, and overrides are caller-trusted by design. If we ever need to lock
+        // metadata fields to the DB value, filter the prefixed keys out here.
         if let Some(overrides) = property_overrides {
             merged_properties.extend(overrides.iter_owned());
         }
@@ -1734,7 +2059,7 @@ impl FeatureFlagMatcher {
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
         if let Some(holdout) = &flag.filters.holdout {
-            let percentage = holdout.exclusion_percentage.clamp(0.0, 100.0);
+            let percentage = holdout.exclusion_percentage_clamped();
 
             if percentage < 100.0
                 && self.get_holdout_hash(flag, None, request_hash_key_override)?
@@ -1774,7 +2099,7 @@ impl FeatureFlagMatcher {
     ) -> Result<String, FlagError> {
         if let Some(group_type_index) = aggregation_group_type_index {
             // Group-based flag
-            let group_key = match self.group_type_mapping.as_ref().and_then(|m| {
+            let group_key = match self.group_type_mapping.mapping().and_then(|m| {
                 m.group_indexes_to_types()
                     .get(&group_type_index)
                     .and_then(|group_type_name| self.groups.get(group_type_name))
@@ -1804,16 +2129,20 @@ impl FeatureFlagMatcher {
                 }
             }
 
-            // Use hash key overrides for experience continuity
+            // Use hash key overrides for experience continuity. Only consult overrides
+            // when the flag *currently* has continuity enabled — a stored override row
+            // is never deleted when continuity is turned off, so a stale row must not
+            // steer a flag whose continuity is now off (which would keep every distinct_id
+            // of the person bucketing on the old key).
             // Priority: DB override > request's anon_distinct_id > distinct_id
-            if let Some(hash_key_override) = hash_key_overrides
-                .as_ref()
-                .and_then(|h| h.get(&feature_flag.key))
-            {
-                Ok(hash_key_override.clone())
-            } else if feature_flag.has_experience_continuity() {
-                // For EEC flags, use the request's anon_distinct_id as fallback when no DB override exists
-                if let Some(request_override) = request_hash_key_override {
+            if feature_flag.has_experience_continuity() {
+                if let Some(hash_key_override) = hash_key_overrides
+                    .as_ref()
+                    .and_then(|h| h.get(&feature_flag.key))
+                {
+                    Ok(hash_key_override.clone())
+                } else if let Some(request_override) = request_hash_key_override {
+                    // Use the request's anon_distinct_id as fallback when no DB override exists
                     Ok(request_override.clone())
                 } else {
                     Ok(self.distinct_id.clone())
@@ -1979,7 +2308,7 @@ impl FeatureFlagMatcher {
         debug_assert!(
             !cohorts
                 .iter()
-                .any(|c| c.is_static && c.uses_realtime_membership()),
+                .any(|c| c.is_static && self.membership_stamp_policy.uses_realtime_membership(c)),
             "Cohort cannot be both static and realtime"
         );
         let static_cohort_ids: Vec<CohortId> = cohorts
@@ -1991,7 +2320,7 @@ impl FeatureFlagMatcher {
         // Load group type mappings if needed. Errors are intentionally not propagated here:
         // in the batch path (evaluate_flags_with_overrides), a group type mapping failure
         // should not poison person-based flags in the same batch. prepare_group_data
-        // gracefully returns an empty map when self.group_type_mapping is None, so
+        // gracefully returns an empty map when the mapping was never loaded, so
         // group-based flags will fail individually rather than taking down the whole batch.
         if self.initialize_group_type_mappings_if_needed(flags).await {
             tracing::warn!("Failed to init group type mappings");
@@ -2035,7 +2364,8 @@ impl FeatureFlagMatcher {
         let realtime_cohort_ids: Vec<CohortId> = if self.enable_realtime_cohort_evaluation {
             cohorts
                 .iter()
-                .filter(|c| c.uses_realtime_membership())
+                .inspect(|c| record_stamp_policy_divergence(c, self.membership_stamp_policy))
+                .filter(|c| self.membership_stamp_policy.uses_realtime_membership(c))
                 .map(|c| c.id)
                 .collect()
         } else {
@@ -2055,7 +2385,10 @@ impl FeatureFlagMatcher {
                 self.flag_evaluation_state.get_person_uuid()
             {
                 let query_labels = [("team_id".to_string(), self.team_id.to_string())];
-                let realtime_timer = timing_guard(FLAG_REALTIME_COHORT_QUERY_TIME, &query_labels);
+                // High precision: cache hits complete in microseconds, and plain
+                // timing_guard truncates to integer ms, collapsing them all to 0.
+                let realtime_timer =
+                    timing_guard_high_precision(FLAG_REALTIME_COHORT_QUERY_TIME, &query_labels);
                 let realtime_start = std::time::Instant::now();
 
                 let result = self
@@ -2097,33 +2430,54 @@ impl FeatureFlagMatcher {
         Ok(())
     }
 
+    /// Every group type index a flag can read during evaluation: flag-level aggregation,
+    /// per-condition aggregation, and the explicit `group_type_index` on individual group
+    /// property filters. Indexes may repeat, so collect into a set where uniqueness matters.
+    ///
+    /// The filter-level indexes matter for mixed targeting, where a person-aggregated
+    /// condition still carries a group filter with its own index.
+    /// `PropertyContext::resolve_for_filter` resolves such a filter against exactly that
+    /// index, so omitting it from the fetch would silently resolve the filter against an
+    /// empty map instead of the group's real properties.
+    pub(crate) fn referenced_group_type_indexes(
+        flag: &FeatureFlag,
+    ) -> impl Iterator<Item = GroupTypeIndex> + '_ {
+        flag.get_group_type_index()
+            .into_iter()
+            .chain(flag.get_conditions().iter().flat_map(|condition| {
+                condition
+                    .aggregation_group_type_index
+                    .flatten()
+                    .into_iter()
+                    .chain(
+                        condition
+                            .properties
+                            .iter()
+                            .flatten()
+                            // No aggregation fallback here: the arms above already chain
+                            // every aggregation index, so only explicit indexes are added.
+                            .filter_map(|prop| prop.group_filter_index(None)),
+                    )
+            }))
+    }
+
     /// Builds a paired mapping from group type index to group key for flag
     /// evaluation, filtered to only the group types required by the given flags.
     fn prepare_group_data(
         &mut self,
         flags: &[&FeatureFlag],
     ) -> Result<HashMap<GroupTypeIndex, String>, FlagError> {
-        // Collect group type indexes from both flag-level and per-condition aggregation,
-        // so we fetch data for all group types referenced by any condition.
         let required_type_indexes: HashSet<GroupTypeIndex> = flags
             .iter()
-            .flat_map(|flag| {
-                let flag_level = flag.get_group_type_index();
-                let condition_level = flag
-                    .get_conditions()
-                    .iter()
-                    .filter_map(|c| c.aggregation_group_type_index.flatten());
-                flag_level.into_iter().chain(condition_level)
-            })
+            .flat_map(|flag| Self::referenced_group_type_indexes(flag))
             .collect();
 
         if required_type_indexes.is_empty() {
             return Ok(HashMap::new());
         }
 
-        let mapping = match &self.group_type_mapping {
-            Some(m) => m,
-            None => return Ok(HashMap::new()),
+        let Some(mapping) = self.group_type_mapping.mapping() else {
+            return Ok(HashMap::new());
         };
         let types_to_indexes = mapping.group_types_to_indexes();
 
@@ -2165,7 +2519,7 @@ impl FeatureFlagMatcher {
                 tracing::debug!(
                     "Person properties not in cache — DB prep was skipped (overrides cover all needed keys)"
                 );
-                Err(FlagError::PersonNotFound)
+                Err(FlagError::person_not_found())
             }
             PersonPropertyState::Pending => {
                 inc(
@@ -2181,7 +2535,7 @@ impl FeatureFlagMatcher {
                     log.eval.person_properties_not_cached = true;
                 });
                 tracing::error!("Person properties not found — DB prep never ran");
-                Err(FlagError::PersonNotFound)
+                Err(FlagError::person_not_found())
             }
         }
     }
@@ -2212,7 +2566,10 @@ impl FeatureFlagMatcher {
                 log.eval.property_cache_misses += 1;
                 log.eval.group_properties_not_cached = true;
             });
-            // Return empty HashMap instead of error - no properties is a valid state
+            // Return an empty HashMap instead of an error: a group with no `posthog_group`
+            // row genuinely has no properties. Whether the fetch actually ran is tracked
+            // separately by `FlagEvaluationState::group_properties_pending`, which
+            // `is_condition_match` consults so a fetch miss can't be read as "unset".
             Ok(HashMap::new())
         }
     }
@@ -2242,6 +2599,8 @@ impl FeatureFlagMatcher {
                     None => {
                         match get_feature_flag_hash_key_overrides(
                             self.router.get_persons_reader().clone(),
+                            pool_names::PERSONS_READER,
+                            self.router.get_persons_writer().clone(),
                             self.team_id,
                             vec![self.distinct_id.clone()],
                         )
@@ -2304,14 +2663,23 @@ impl FeatureFlagMatcher {
     /// This function checks if any of the feature flags have group type indices and initializes the group type mapping cache if needed.
     /// It returns a boolean indicating if there were any errors while initializing the group type mapping cache.
     async fn initialize_group_type_mappings_if_needed(&mut self, flags: &[&FeatureFlag]) -> bool {
-        // Check if we need to fetch group type mappings — any flag or condition uses group aggregation
+        // The lookup is request-scoped, and the batch path runs it before
+        // `prepare_flag_evaluation_state` runs it again. `GroupTypeCacheManager` does not cache
+        // failures, so without reusing the recorded outcome a single outage costs every affected
+        // request two waits on two failed queries.
+        match self.group_type_mapping {
+            GroupTypeMappingState::Loaded(_) => return false,
+            GroupTypeMappingState::Failed => return true,
+            GroupTypeMappingState::Uninitialized => {}
+        }
+
+        // Check if we need to fetch group type mappings — any flag references a group type,
+        // whether through aggregation or through an individual group property filter. The
+        // filter case must be included: without the mapping, `prepare_group_data` returns
+        // an empty map and those filters evaluate against no properties at all.
         let has_type_indexes = flags.iter().any(|flag| {
             !self.filtered_out_flag_ids.contains(&flag.id)
-                && (flag.get_group_type_index().is_some()
-                    || flag
-                        .get_conditions()
-                        .iter()
-                        .any(|c| matches!(c.aggregation_group_type_index, Some(Some(_)))))
+                && Self::referenced_group_type_indexes(flag).next().is_some()
         });
 
         if !has_type_indexes {
@@ -2322,17 +2690,19 @@ impl FeatureFlagMatcher {
         let mut errors_while_computing_flags = false;
 
         match self.group_type_cache.get_mappings(self.team_id).await {
-            Ok(mapping) if mapping.is_empty() => {
-                tracing::warn!("No group type mappings found for team {}", self.team_id);
-                // Empty mappings are not an error — the team simply has no group types configured.
-                // Group-based flags won't match, but person flags in the same batch should succeed
-                // without surfacing errorsWhileComputingFlags to the client.
-            }
             Ok(mapping) => {
-                self.group_type_mapping = Some(mapping);
+                if mapping.is_empty() {
+                    // Empty mappings are not an error — the team simply has no group types
+                    // configured. Group-based flags won't match, but person flags in the same
+                    // batch should succeed without surfacing errorsWhileComputingFlags to the
+                    // client.
+                    tracing::warn!("No group type mappings found for team {}", self.team_id);
+                }
+                self.group_type_mapping = GroupTypeMappingState::Loaded(mapping);
             }
             Err(_) => {
                 errors_while_computing_flags = true;
+                self.group_type_mapping = GroupTypeMappingState::Failed;
             }
         }
 
@@ -2424,19 +2794,37 @@ mod tests {
         assert_eq!(stub_a.key, "flag_a");
         assert_eq!(stub_a.id, 10);
         assert_eq!(stub_a.version, Some(3));
-        assert!(matches!(err_a, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_a,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         let (stub_b, err_b) = &results[1];
         assert_eq!(stub_b.key, "flag_b");
         assert_eq!(stub_b.id, 20);
         assert_eq!(stub_b.version, None);
-        assert!(matches!(err_b, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_b,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         let (stub_c, err_c) = &results[2];
         assert_eq!(stub_c.key, "flag_c");
         assert_eq!(stub_c.id, 30);
         assert_eq!(stub_c.version, Some(1));
-        assert!(matches!(err_c, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_c,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         for (stub, _) in &results {
             assert_eq!(stub.team_id, team_id);
@@ -2445,6 +2833,53 @@ mod tests {
             assert!(!stub.deleted);
             assert!(stub.filters.groups.is_empty());
         }
+    }
+
+    /// A stored hash-key override must only steer bucketing while the flag *currently*
+    /// has experience continuity enabled. When continuity is turned off, the row written
+    /// back while it was on is never deleted — so the matcher must fall back to the raw
+    /// distinct_id and ignore the stale override, otherwise every distinct_id of the
+    /// person keeps bucketing on the old key and resolves to the same stale value.
+    #[rstest::rstest]
+    #[case::continuity_off_ignores_stale_override(Some(false), "logged-in-username")]
+    #[case::continuity_unset_ignores_stale_override(None, "logged-in-username")]
+    #[case::continuity_on_applies_override(Some(true), "stale-anon-id")]
+    #[tokio::test]
+    async fn test_hashed_identifier_respects_current_continuity_for_stored_override(
+        #[case] ensure_experience_continuity: Option<bool>,
+        #[case] expected_identifier: &str,
+    ) {
+        use crate::utils::test_utils::{mock_group_type_cache, TestContext};
+
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let matcher = FeatureFlagMatcher::new(
+            "logged-in-username".to_string(),
+            None, // device_id
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::new()),
+            None,
+        );
+
+        // Override left behind from when this flag still had continuity enabled.
+        let overrides = HashMap::from([("my_flag".to_string(), "stale-anon-id".to_string())]);
+        let flag = FeatureFlag {
+            key: "my_flag".to_string(),
+            ensure_experience_continuity,
+            ..Default::default()
+        };
+
+        let identifier = matcher
+            .hashed_identifier(&flag, None, Some(&overrides), &None)
+            .unwrap();
+
+        assert_eq!(identifier, expected_identifier);
     }
 
     #[rstest::rstest]

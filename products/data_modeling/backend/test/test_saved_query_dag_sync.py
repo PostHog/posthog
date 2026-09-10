@@ -1,23 +1,27 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.hogql.errors import QueryError
+from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
-from products.data_modeling.backend.models import Edge, Node
-from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import ResolutionCycleError
-from products.data_modeling.backend.models.node import NodeType
-from products.data_modeling.backend.services.saved_query_dag_sync import (
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
+from products.data_modeling.backend.logic.saved_query_dag_sync import (
     HasDependentsError,
+    ManagedDAGError,
     delete_node_from_dag,
     get_dag_id,
     get_dependent_saved_queries,
     sync_saved_query_to_dag,
     update_node_type,
 )
+from products.data_modeling.backend.models import Edge, Node
+from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import ResolutionCycleError
+from products.data_modeling.backend.models.node import NodeType
 
 
 @pytest.mark.django_db
@@ -29,6 +33,32 @@ class TestGetDagId(BaseTest):
 
 @pytest.mark.django_db
 class TestSyncSavedQueryToDag(BaseTest):
+    def test_saved_query_resolution_requires_explicit_data_modeling_system_allowlist(self) -> None:
+        saved_query = DataWarehouseSavedQuery(
+            name="account_summary",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": """
+                    SELECT
+                        id,
+                        feature_requests.count,
+                        email_threads.count
+                    FROM system.accounts
+                """,
+            },
+        )
+
+        with self.assertRaises(TableAccessDeniedError):
+            _ = saved_query.s3_tables
+
+        data_modeling_database = Database.create_for(
+            team=self.team,
+            bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        )
+        assert saved_query.get_s3_tables(database=data_modeling_database) == []
+
     def test_sync_creates_dag_model(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
@@ -40,6 +70,32 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
         self.assertEqual(dag.name, DEFAULT_DAG_NAME)
+
+    def test_sync_rejects_managed_dag_for_user_initiated_call(self):
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="sneaky_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        with self.assertRaises(ManagedDAGError):
+            sync_saved_query_to_dag(saved_query, dag=managed_dag)
+
+        self.assertFalse(Node.objects.filter(team=self.team, dag=managed_dag).exists())
+
+    def test_sync_allows_managed_dag_for_internal_call(self):
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="managed_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        node = sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True)
+
+        assert node is not None
+        self.assertEqual(node.dag_id, managed_dag.id)
 
     def test_sync_reuses_existing_dag_model(self):
         existing_dag = DAG.objects.create(team=self.team, name=DEFAULT_DAG_NAME)
@@ -80,8 +136,11 @@ class TestSyncSavedQueryToDag(BaseTest):
             query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
         )
 
-        node = sync_saved_query_to_dag(saved_query)
+        database = Database.create_for(team=self.team, bypass_warehouse_access_control=True)
+        with mock.patch("posthog.hogql.database.database.Database.create_for") as mock_database_create:
+            node = sync_saved_query_to_dag(saved_query, database=database)
 
+        mock_database_create.assert_not_called()
         events_node = Node.objects.filter(
             team=self.team,
             dag__name=DEFAULT_DAG_NAME,
@@ -182,6 +241,48 @@ class TestSyncSavedQueryToDag(BaseTest):
         edge = Edge.objects.filter(source=upstream_node, target=downstream_node).first()
         self.assertIsNotNone(edge)
 
+    def test_sync_references_parent_in_managed_dag(self):
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        upstream_query = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream_query, dag=managed_dag, allow_managed=True)
+
+        downstream_query = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        downstream_node = sync_saved_query_to_dag(downstream_query)
+
+        default_dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
+        reference = Node.objects.get(team=self.team, dag=default_dag, name="upstream_view")
+        self.assertEqual(reference.type, NodeType.TABLE)
+        self.assertIsNone(reference.saved_query)
+        self.assertTrue(Edge.objects.filter(source=reference, target=downstream_node).exists())
+
+    def test_sync_does_not_reference_parent_in_non_managed_dag(self):
+        other_dag = DAG.objects.create(team=self.team, name="user_made_dag")
+        upstream_query = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream_query, dag=other_dag)
+
+        downstream_query = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        with self.assertRaises(Node.DoesNotExist):
+            sync_saved_query_to_dag(downstream_query)
+
+        default_dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
+        self.assertFalse(Node.objects.filter(team=self.team, dag=default_dag, name="upstream_view").exists())
+
     def test_sync_raises_on_cycle(self):
         query_a = DataWarehouseSavedQuery.objects.create(
             name="view_a",
@@ -203,8 +304,24 @@ class TestSyncSavedQueryToDag(BaseTest):
         with self.assertRaises(ResolutionCycleError):
             sync_saved_query_to_dag(query_a)
 
-        # node for query_a should be cleaned up
-        self.assertFalse(Node.objects.filter(saved_query=query_a).exists())
+        # query_a's node pre-existed this call and view_b still depends on it, so the failed
+        # sync must not delete it — doing so would also cascade-delete view_b's edge to it
+        node_a = Node.objects.filter(saved_query=query_a).first()
+        self.assertIsNotNone(node_a)
+        self.assertTrue(Edge.objects.filter(source=node_a).exists())
+
+    def test_sync_failure_deletes_node_it_just_created(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
+            team=self.team,
+            query={"query": "select * from nonexistent_table", "kind": "HogQLQuery"},
+        )
+
+        with pytest.raises(QueryError):
+            sync_saved_query_to_dag(saved_query)
+
+        # a node created for this call, with no dependents, is still cleaned up on failure
+        self.assertFalse(Node.objects.filter(saved_query=saved_query).exists())
 
     def test_sync_raises_for_empty_or_null_query(self):
         empty_query, _ = DataWarehouseSavedQuery.objects.get_or_create(
@@ -407,3 +524,37 @@ class TestUpdateNodeType(BaseTest):
         # shouldn't raise, exception is captured though
         update_node_type(saved_query, NodeType.MAT_VIEW)
         update_node_type(saved_query, NodeType.VIEW)
+
+
+@pytest.mark.django_db
+class TestGraphMutationTriggers(BaseTest):
+    def _saved_query(self, name: str = "trigger_view") -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            name=name, team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+
+    def test_each_graph_mutation_queues_a_reconcile(self):
+        # the tiered scheduler converges from the graph, so every mutation path must invoke
+        # the trigger hook — dropping one silently freezes that DAG's schedules
+        saved_query = self._saved_query()
+        module = "products.data_modeling.backend.logic.saved_query_dag_sync"
+
+        with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
+            sync_saved_query_to_dag(saved_query)
+        reconcile.assert_called_once()
+
+        with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
+            update_node_type(saved_query, NodeType.MAT_VIEW)
+        reconcile.assert_called_once()
+
+        with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
+            delete_node_from_dag(saved_query)
+        reconcile.assert_called_once()
+
+    def test_sync_can_defer_reconcile_for_batch_callers(self):
+        saved_query = self._saved_query("batched_view")
+        module = "products.data_modeling.backend.logic.saved_query_dag_sync"
+
+        with mock.patch(f"{module}.maybe_reconcile_dag") as reconcile:
+            sync_saved_query_to_dag(saved_query, reconcile=False)
+        reconcile.assert_not_called()

@@ -1,0 +1,103 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+_DOCS_URL = "https://docs.appdynamics.com/appd/24.x/latest/en/extend-appdynamics/appdynamics-apis/apm-apis"
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "applications": {
+        "description": "Business applications monitored by the AppDynamics controller.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier of the application within the controller.",
+            "name": "Name of the business application.",
+            "description": "Optional description of the application.",
+            "accountGuid": "GUID of the controller account the application belongs to.",
+        },
+    },
+    "business_transactions": {
+        "description": "Business transactions registered for each monitored application.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "application_id": "Identifier of the application the business transaction belongs to.",
+            "id": "Unique identifier of the business transaction within the controller.",
+            "name": "Name of the business transaction.",
+            "entryPointType": "Type of the transaction entry point (e.g. SERVLET, WEB_SERVICE).",
+            "internalName": "Internal name the agent registered the transaction under.",
+            "tierId": "Identifier of the tier the transaction's entry point belongs to.",
+            "tierName": "Name of the tier the transaction's entry point belongs to.",
+            "background": "Whether the transaction is a background task rather than a user-facing request.",
+        },
+    },
+    "tiers": {
+        "description": "Tiers (logical service groupings of nodes) for each monitored application.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "application_id": "Identifier of the application the tier belongs to.",
+            "id": "Unique identifier of the tier within the controller.",
+            "name": "Name of the tier.",
+            "type": "Tier type (e.g. Application Server).",
+            "agentType": "Type of app agent reporting for the tier (e.g. APP_AGENT, DOT_NET_APP_AGENT).",
+            "numberOfNodes": "Number of nodes currently registered in the tier.",
+            "description": "Optional description of the tier.",
+        },
+    },
+    "nodes": {
+        "description": "Nodes (individual monitored processes or JVMs/CLRs) for each monitored application.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "application_id": "Identifier of the application the node belongs to.",
+            "id": "Unique identifier of the node within the controller.",
+            "name": "Name of the node.",
+            "type": "Node type (e.g. Application Server).",
+            "tierId": "Identifier of the tier the node belongs to.",
+            "tierName": "Name of the tier the node belongs to.",
+            "machineId": "Identifier of the machine the node runs on.",
+            "machineName": "Hostname of the machine the node runs on.",
+            "machineOSType": "Operating system of the machine the node runs on.",
+            "appAgentVersion": "Version of the app agent running on the node.",
+            "agentType": "Type of agent reporting for the node.",
+            "ipAddresses": "IP addresses registered for the node.",
+        },
+    },
+    "health_rule_violations": {
+        "description": "Health rule violations (policy breaches such as slow response times or high error rates) per application, synced by their start time.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "application_id": "Identifier of the application the violation occurred in.",
+            "id": "Unique identifier of the health rule violation within the controller.",
+            "name": "Name of the health rule that was violated.",
+            "description": "Summary of the violation.",
+            "severity": "Severity of the violation (WARNING or CRITICAL).",
+            "status": "Current status of the violation (e.g. OPEN, RESOLVED, CANCELED).",
+            "incidentStatus": "Status of the incident associated with the violation.",
+            "startTimeInMillis": "Epoch-ms timestamp when the violation started.",
+            "endTimeInMillis": "Epoch-ms timestamp when the violation ended (0 while still open).",
+            "detectedTimeInMillis": "Epoch-ms timestamp when the controller detected the violation.",
+            "affectedEntityDefinition": "Entity (tier, node, business transaction) the violation affects.",
+            "triggeredEntityDefinition": "Entity whose metrics triggered the violation.",
+            "deepLinkUrl": "Link to the violation in the AppDynamics controller UI.",
+        },
+    },
+    "metric_data": {
+        "description": "Metric time series for the configured metric paths, flattened to one row per metric per interval.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "application_id": "Identifier of the application the metric belongs to.",
+            "metricId": "Unique identifier of the metric within the controller.",
+            "metricName": "Short name of the metric (e.g. BTM|Application Summary|Average Response Time (ms)).",
+            "metricPath": "Full metric browser path of the metric.",
+            "frequency": "Granularity of the data point (ONE_MIN, TEN_MIN, or SIXTY_MIN).",
+            "startTimeInMillis": "Epoch-ms timestamp of the start of the interval the value covers.",
+            "value": "Average value of the metric over the interval.",
+            "min": "Minimum observed value over the interval.",
+            "max": "Maximum observed value over the interval.",
+            "current": "Most recent observed value in the interval.",
+            "sum": "Sum of observed values over the interval.",
+            "count": "Number of observations aggregated into the interval.",
+            "occurrences": "Number of times the metric was reported in the interval.",
+            "standardDeviation": "Standard deviation of observed values over the interval.",
+            "useRange": "Whether min/max carry meaningful range information for this metric.",
+        },
+    },
+}

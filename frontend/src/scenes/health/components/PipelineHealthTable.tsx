@@ -2,14 +2,16 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import type { HealthIssue } from '../types'
-import { dismissActionColumn, severityColumn } from './healthTableColumns'
+import { issueActionsColumn, severityColumn } from './healthTableColumns'
 
 export function PipelineHealthTable({
     issues,
+    onSnooze,
     onDismiss,
     onUndismiss,
 }: {
     issues: HealthIssue[]
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
 }): JSX.Element {
@@ -51,7 +53,7 @@ export function PipelineHealthTable({
             },
             sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
         },
-        dismissActionColumn(onDismiss, onUndismiss),
+        issueActionsColumn(onSnooze, onDismiss, onUndismiss),
     ]
 
     return (

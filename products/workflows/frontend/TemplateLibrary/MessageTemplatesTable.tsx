@@ -3,9 +3,10 @@ import './MessageTemplatesGrid.scss'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
 import { IconTrash } from '@posthog/icons'
 
-import { ReadingHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -17,6 +18,8 @@ import { urls } from 'scenes/urls'
 
 import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplatesLogic } from './messageTemplatesLogic'
+
+const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 export function MessageTemplatesTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)
@@ -30,14 +33,13 @@ export function MessageTemplatesTable(): JSX.Element {
         <div className="templates-section" data-attr="message-templates-table">
             {showProductIntroduction && (
                 <ProductIntroduction
-                    productName="Message template"
                     thingName="message template"
                     description="Create and manage reusable message templates for your workflows."
                     docsURL="https://posthog.com/docs/workflows"
                     action={() => {
                         router.actions.push(urls.workflowsLibraryTemplateNew())
                     }}
-                    customHog={ReadingHog}
+                    customHog={HedgehogReadingIsMagic}
                     isEmpty
                 />
             )}

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
@@ -11,8 +11,10 @@ import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAu
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
 import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
+import { MaybePhaiOnboarding } from 'scenes/max/components/MaybePhaiOnboarding'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -21,26 +23,23 @@ import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
 import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
-import { promotedProductLogic } from '~/layout/panel-layout/ai-first/promotedProductLogic'
-
 import { ComposeTicketModal } from 'products/conversations/frontend/components/ComposeTicket'
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
 
 import { globalModalsLogic } from './globalModalsLogic'
 import { navigationLogic } from './navigation/navigationLogic'
 import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
-import { ConfigurePromotedProductModal } from './scenes/ConfigurePromotedProductModal'
 
 // The session player modal anchors the entire replay player graph; loading it only when a
 // recording is opened keeps that graph out of the chunk every logged-in page downloads.
-const SessionPlayerModal = lazy(() =>
+const SessionPlayerModal = lazyWithRetry(() =>
     import('scenes/session-recordings/player/modal/SessionPlayerModal').then((m) => ({
         default: m.SessionPlayerModal,
     }))
 )
 
 // Same trick for the logs viewer, whose sparkline anchors chart.js.
-const LogsViewerModal = lazy(() =>
+const LogsViewerModal = lazyWithRetry(() =>
     import('products/logs/frontend/components/LogsViewer/LogsViewerModal').then((m) => ({
         default: m.LogsViewerModal,
     }))
@@ -59,8 +58,6 @@ export function GlobalModals(): JSX.Element {
     const { superpowersEnabled } = useValues(superpowersLogic)
     const { isConfigureHomeModalOpen } = useValues(navigationLogic)
     const { hideConfigureHomeModal } = useActions(navigationLogic)
-    const { isConfigureModalOpen: isConfigurePromotedProductModalOpen } = useValues(promotedProductLogic)
-    const { hideConfigureModal: hideConfigurePromotedProductModal } = useActions(promotedProductLogic)
 
     return (
         <>
@@ -89,11 +86,8 @@ export function GlobalModals(): JSX.Element {
             <ItemSelectModal />
             {superpowersEnabled && <SuperpowersModal />}
             <ConfigureHomeModal isOpen={isConfigureHomeModalOpen} onClose={hideConfigureHomeModal} />
-            <ConfigurePromotedProductModal
-                isOpen={isConfigurePromotedProductModalOpen}
-                onClose={hideConfigurePromotedProductModal}
-            />
             <MaybeWelcomeDialog />
+            <MaybePhaiOnboarding />
             <ComposeTicketModal />
         </>
     )

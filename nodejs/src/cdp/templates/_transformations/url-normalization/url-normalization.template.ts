@@ -8,7 +8,7 @@ export const template: HogFunctionTemplate = {
     name: 'URL Normalization',
     description:
         'Normalizes URLs by replacing dynamic path segments (containing numbers or capital letters) with :id placeholders. This helps group similar URLs together for analysis.',
-    icon_url: '/static/hedgehog/reading-hog.png',
+    icon_url: 'https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/reading_hog_c9651e0b73.png',
     category: ['Custom'],
     code_language: 'hog',
     code: `

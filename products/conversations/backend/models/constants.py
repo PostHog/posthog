@@ -24,7 +24,7 @@ class ChannelDetail(models.TextChoices):
     GITHUB_ISSUE = "github_issue", "GitHub issue"
 
 
-class Status(models.TextChoices):
+class TicketStatus(models.TextChoices):
     NEW = "new", "New"
     OPEN = "open", "Open"
     PENDING = "pending", "Pending"
@@ -32,10 +32,21 @@ class Status(models.TextChoices):
     RESOLVED = "resolved", "Resolved"
 
 
+# The class name feeds the derived OpenAPI component name TicketStatusEnum.
+# Status is an alias for the many callers that import the short name.
+Status = TicketStatus
+
+
 class Priority(models.TextChoices):
     LOW = "low", "Low"
     MEDIUM = "medium", "Medium"
     HIGH = "high", "High"
+    CRITICAL = "critical", "Critical"
+
+
+class OrganizationIdSource(models.TextChoices):
+    PERSON = "person", "Requester identity"
+    SLACK_CHANNEL_ACCOUNT = "slack_channel_account", "Slack channel account"
 
 
 class RuleType(models.TextChoices):

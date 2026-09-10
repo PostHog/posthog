@@ -1,4 +1,5 @@
 import json
+import asyncio
 import datetime as dt
 import dataclasses
 
@@ -8,10 +9,11 @@ from azure.core.exceptions import HttpResponseError
 from azure.storage.blob import StorageErrorCode
 from azure.storage.blob.aio import BlobServiceClient, ContainerClient, ExponentialRetry
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import AzureBlobIntegration, Integration
+from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -23,10 +25,10 @@ from products.batch_exports.backend.service import (
     BatchExportModel,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     events_model_default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
@@ -41,7 +43,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     get_json_stream_transformer,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (
@@ -101,7 +103,7 @@ class MalformedConnectionStringError(Exception):
 
     def __init__(self):
         super().__init__(
-            "The provided connection string was rejected by Azure. Ensure the connection string is made up of key=value pairs separated only by a semicolon (;) with no additional characters in between. Example: AccountName=name;AccountKey=key;SomeKey=somevalue"
+            "The provided connection string is malformed or invalid. Ensure the connection string is made up of key=value pairs separated only by a semicolon (;) with no additional characters in between. Additionally, ensure any endpoints point to valid URLs you control. Example: AccountName=name;AccountKey=key;SomeKey=somevalue"
         )
 
 
@@ -111,17 +113,6 @@ def _is_authorization_failure_response_error(err: HttpResponseError) -> bool:
     'error_code' is monkey-patched dynamically so we must use 'getattr' for type checkers.
     """
     return getattr(err, "error_code", None) == StorageErrorCode.AUTHORIZATION_FAILURE
-
-
-def _strip_leading_whitespace(conn_str: str) -> str:
-    """Remove any leading whitespace from key=value pairs.
-
-    This is rejected by Azure SDK when parsing. In contrast, I like to help our users
-    get things right. I do not strip trailing whitespace as I cannot confirm whether
-    values can have trailing whitespace, in contrast to keys, which most definitely
-    don't.
-    """
-    return ";".join(value.lstrip() for value in conn_str.split(";"))
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -193,15 +184,19 @@ class AzureBlobConsumer(Consumer):
         # See: https://learn.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobserviceclient
 
         try:
+            await asyncio.to_thread(validate_azure_blob_connection_string, connection_string)
             blob_service_client = BlobServiceClient.from_connection_string(
-                conn_str=_strip_leading_whitespace(connection_string),
+                conn_str=connection_string,
                 max_single_put_size=64 * 1024 * 1024,  # 64 MiB
                 max_block_size=4 * 1024 * 1024,  # 4 MiB
                 # Increase the read timeout to 10 minutes to account for large uploads.
                 read_timeout=600,
                 # Azure SDK defaults but we set them explicitly for visibility.
                 retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
+                permit_redirects=False,
             )
+        except EndpointNotAllowedError:
+            raise
         except ValueError:
             raise MalformedConnectionStringError()
 
@@ -379,6 +374,7 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
             producer_task=producer_task,
             transformer=transformer,
             json_columns=json_columns,
+            records_total=inputs.records_total,
         )
 
 
@@ -395,16 +391,14 @@ class AzureBlobBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: AzureBlobBatchExportInputs):
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(
-            inputs.interval, inputs.data_interval_end, inputs.timezone
-        )
+        data_interval = get_data_interval(inputs.interval, inputs.data_interval_end, inputs.timezone)
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
@@ -421,8 +415,10 @@ class AzureBlobBatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         if inputs.integration_id is None:
             raise AzureBlobIntegrationNotFoundError(inputs.integration_id, inputs.team_id)
@@ -431,8 +427,8 @@ class AzureBlobBatchExportWorkflow(PostHogWorkflow):
             container_name=inputs.container_name,
             prefix=inputs.prefix,
             team_id=inputs.team_id,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             compression=inputs.compression,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,

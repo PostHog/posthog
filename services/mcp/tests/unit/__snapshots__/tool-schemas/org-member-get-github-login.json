@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "user__uuid": {
+            "description": "The PostHog user UUID of the organization member, as returned by org-members-list. Pass \"@me\" for the current user.",
+            "type": "string"
+        }
+    },
+    "required": ["user__uuid"],
+    "type": "object"
+}

@@ -7,10 +7,10 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import type { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import type { ErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
-import type { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
-import type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { GeoIPService } from '~/common/utils/geoip'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/logs/config'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
@@ -18,18 +18,12 @@ import type { AIObservabilityConfig } from './ai-observability/config'
 import type { CdpConfig } from './cdp/config'
 import type {
     KafkaWarehouseProducerEnvConfig,
-    KafkaWarpstreamCalculatedEventsProducerEnvConfig,
     KafkaWarpstreamCyclotronProducerEnvConfig,
     KafkaWarpstreamIngestionProducerEnvConfig,
 } from './cdp/outputs/producers'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
-import type { IngestionConsumerConfig } from './ingestion/config'
-import { PostgresRouter } from './utils/db/postgres'
-import { GeoIPService } from './utils/geoip'
-import { PubSub } from './utils/pubsub'
-import { TeamManager } from './utils/team-manager'
 
 export type { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
@@ -40,16 +34,7 @@ export type { CdpConfig } from './cdp/config'
 export type { AIObservabilityConfig } from './ai-observability/config'
 export { KafkaSaslMechanism, PluginServerMode, stringToPluginServerMode } from './common/config'
 export type { CommonConfig, LogLevel } from './common/config'
-export type {
-    IngestionConsumerConfig,
-    IngestionLane,
-    PersonBatchWritingDbWriteMode,
-    PersonBatchWritingMode,
-} from './ingestion/config'
-export type { ErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
 export type { LogsIngestionConsumerConfig } from '~/logs/config'
-export type { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
-export type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 
 interface HealthCheckResultResponse {
     service: string
@@ -116,16 +101,10 @@ export interface PluginsServerConfig
     extends CommonConfig,
         CdpConfig,
         AIObservabilityConfig,
-        IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
         TracesIngestionConsumerConfig,
-        ErrorTrackingConsumerConfig,
-        MetricsIngestionConsumerConfig,
-        SessionRecordingConfig,
-        SessionRecordingApiConfig,
         // Producer envs needed by the CDP producer registry the legacy big server builds.
         KafkaWarpstreamIngestionProducerEnvConfig,
-        KafkaWarpstreamCalculatedEventsProducerEnvConfig,
         KafkaWarpstreamCyclotronProducerEnvConfig,
         KafkaWarehouseProducerEnvConfig {}
 
@@ -133,14 +112,12 @@ export interface HubServices {
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     posthogRedisPool: GenericPool<Redis>
-    cookielessRedisPool: GenericPool<Redis>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     personRepository: PersonRepository
     geoipService: GeoIPService
     encryptedFields: EncryptedFields
-    cookielessManager: CookielessManager
     pubSub: PubSub
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting
@@ -163,12 +140,10 @@ export interface PluginServerCapabilities {
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
-    cdpBatchHogFlow?: boolean
+    cdpCyclotronWorkerBatchResolve?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
-    cdpCyclotronWorkerHogFlowLegacyPg?: boolean
     cdpCyclotronWorkerEmail?: boolean
-    cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -300,6 +275,7 @@ export interface Team {
     heatmaps_opt_in: boolean | null
     ingested_event: boolean
     person_display_name_properties: string[] | null
+    minimal_flag_called_events: boolean
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null
@@ -400,7 +376,12 @@ export interface ProcessedEvent {
     project_id: ProjectId
     distinct_id: string
     elements_chain: string
-    created_at: null
+    /**
+     * Stamped once when create-event assembles the event, so every table this
+     * event is written to agrees on it. Serializing twice would otherwise read
+     * the wall clock twice and stamp two different values.
+     */
+    created_at: DateTime
     captured_at: Date | null
     person_id: string
     person_properties: Record<string, unknown>
@@ -649,6 +630,10 @@ export enum PropertyOperator {
     IsNot = 'is_not',
     IContains = 'icontains',
     NotIContains = 'not_icontains',
+    StartsWith = 'starts_with',
+    NotStartsWith = 'not_starts_with',
+    EndsWith = 'ends_with',
+    NotEndsWith = 'not_ends_with',
     Regex = 'regex',
     NotRegex = 'not_regex',
     GreaterThan = 'gt',
@@ -890,6 +875,8 @@ export interface EventHeaders {
     force_disable_person_processing: boolean
     historical_migration: boolean
     skip_heatmap_processing: boolean
+    /** The Kafka partition key a redirect dropped, so the overflow lane can refresh its overflow flag. */
+    redirect_original_key?: string
 }
 
 export interface IncomingEvent {

@@ -12,23 +12,26 @@ from celery.canvas import chain
 from prometheus_client import Counter, Gauge
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.query_cache.freshness_index import clean_up_stale_insights, get_stale_insights
+from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -46,6 +49,10 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
 
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
+
+# ClickHouse capacity/concurrency errors that should retry with backoff rather than fail the task.
+# ClickHouseAtCapacity is included via CH_TRANSIENT_ERRORS (it's what codes 202/439 surface as).
+RETRIABLE_WARMING_ERRORS = (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded)
 
 
 def teams_enabled_for_cache_warming() -> list[int]:
@@ -93,10 +100,10 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD
     )
 
-    QueryCacheManagerBase.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
+    clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
     # get all insights currently in the cache for the team
-    combos = QueryCacheManagerBase.get_stale_insights(team_id=team.pk, limit=500)
+    combos = get_stale_insights(team_id=team.pk, limit=500)
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 
@@ -110,14 +117,16 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
             insight_ids_single.add(insight_id)
 
     if insight_ids_single:
-        single_insights = team.insight_set.filter(
+        single_insight_q_filter = Q(
+            team=team,
             insightviewed__last_viewed_at__gte=threshold,
             pk__in=insight_ids_single,
         )
         if shared_only:
-            single_insights = single_insights.filter(sharingconfiguration__enabled=True)
+            single_insight_q_filter &= Q(sharingconfiguration__enabled=True)
 
-        for single_insight_id in single_insights.distinct().values_list("id", flat=True):
+        single_insight_ids = Insight.objects.filter(single_insight_q_filter).distinct().values_list("id", flat=True)
+        for single_insight_id in single_insight_ids:
             yield single_insight_id, None
 
     if not dashboard_q_filter:
@@ -205,7 +214,7 @@ def schedule_warming_for_teams_task():
     queue=CeleryQueue.ANALYTICS_LIMITED.value,  # Important! Prevents Clickhouse from being overwhelmed
     ignore_result=True,
     expires=60 * 60,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    autoretry_for=RETRIABLE_WARMING_ERRORS,
     retry_backoff=2,
     retry_backoff_max=3,
     max_retries=3,
@@ -216,6 +225,10 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         insight = Insight.objects.select_related("team__organization").get(pk=insight_id)
     except Insight.DoesNotExist:
         logger.info(f"Warming insight cache failed 404 insight not found: {insight_id}")
+        return
+
+    if insight.query is None:
+        logger.info(f"Warming insight cache skipped, insight has no query: {insight_id}")
         return
 
     dashboard = None
@@ -230,7 +243,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         tag_queries(dashboard_id=dashboard_id)
         dashboard = insight.dashboards.filter(pk=dashboard_id).first()
 
-    with upgrade_query(insight):
+    with upgrade_insight(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:
@@ -243,6 +256,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 # - if insight + dashboard combinations have the same cache key, we prevent needless recalculations
                 limit_context=LimitContext.QUERY_ASYNC,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                user=insight.created_by,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
                 analytics_props={"source": EventSource.CACHE_WARMING},
@@ -270,7 +284,18 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                     },
                 )
 
-        except CHQueryErrorTooManySimultaneousQueries:
+        except RETRIABLE_WARMING_ERRORS:
             raise
         except Exception as e:
-            capture_exception(e)
+            # A revoked creator's access-denied error is a known limitation - report it as an event
+            # rather than surfacing it in error tracking.
+            if isinstance(e, TableAccessDeniedError) and creator_access_revoked(insight.created_by, insight.team):
+                report_creator_access_revoked(
+                    user=insight.created_by,
+                    team=insight.team,
+                    source="cache_warming",
+                    error=e,
+                    properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
+                )
+            else:
+                capture_exception(e)

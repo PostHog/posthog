@@ -39,6 +39,21 @@ tools:
             for any question about the team's own product, policies, domain knowledge, or internal docs. Set rerank=true
             for a listwise LLM rerank pass when top-result precision matters.
         feature_flag: product-business-knowledge
+    business-knowledge-gap-suggestions-accept-create:
+        operation: business_knowledge_gap_suggestions_accept_create
+        enabled: false
+    business-knowledge-gap-suggestions-accept-topic-create:
+        operation: business_knowledge_gap_suggestions_accept_topic_create
+        enabled: false
+    business-knowledge-gap-suggestions-dismiss-create:
+        operation: business_knowledge_gap_suggestions_dismiss_create
+        enabled: false
+    business-knowledge-gap-suggestions-dismiss-topic-create:
+        operation: business_knowledge_gap_suggestions_dismiss_topic_create
+        enabled: false
+    business-knowledge-gap-suggestions-list:
+        operation: business_knowledge_gap_suggestions_list
+        enabled: false
     business-knowledge-sources-destroy:
         operation: business_knowledge_sources_destroy
         enabled: false

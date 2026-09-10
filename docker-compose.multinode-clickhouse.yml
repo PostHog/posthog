@@ -1,7 +1,7 @@
 #
 # Multi-node ClickHouse smoke-test stack.
 #
-# Boots one ClickHouse server per logical cluster (data + ai_events + aux + ops + sessions)
+# Boots one ClickHouse server per logical cluster (data + ai_events + aux + ops + sessions + logs)
 # so migration runs can be verified against a topology that resembles production.
 # Opt-in only: not used by `bin/start` or any of the default dev/CI flows.
 # Driven by `tools/infra-scripts/clickhouse-multinode/multinode-migration-smoke`
@@ -36,6 +36,9 @@ services:
         extends:
             file: docker-compose.base.yml
             service: db
+        # Throwaway smoke database: durability off makes the full-migrate
+        # fallback several times faster.
+        command: postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off
         ports:
             - '5432:5432'
 
@@ -136,5 +139,68 @@ services:
             - '8127:8123'
             - '9400:9000'
 
+    clickhouse-logs:
+        <<: *clickhouse-multinode
+        hostname: clickhouse-logs
+        volumes:
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/config.d/multinode/logs_node.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+        ports:
+            - '8128:8123'
+            - '9500:9000'
+
+    clickhouse-ingestion-events:
+        <<: *clickhouse-multinode
+        hostname: clickhouse-ingestion-events
+        volumes:
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/config.d/multinode/ingestion_events_node.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+        ports:
+            - '8129:8123'
+            - '9600:9000'
+
+    clickhouse-ingestion-small:
+        <<: *clickhouse-multinode
+        hostname: clickhouse-ingestion-small
+        volumes:
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/config.d/multinode/ingestion_small_node.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+        ports:
+            - '8130:8123'
+            - '9700:9000'
+
+    clickhouse-ingestion-medium:
+        <<: *clickhouse-multinode
+        hostname: clickhouse-ingestion-medium
+        volumes:
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/config.d/multinode/ingestion_medium_node.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+        ports:
+            - '8131:8123'
+            - '9800:9000'
 volumes:
     redpanda-data:

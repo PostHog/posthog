@@ -15,8 +15,10 @@ import { CrewAIInstallation } from '@posthog/shared-onboarding/ai-observability/
 import { DedalusInstallation } from '@posthog/shared-onboarding/ai-observability/dedalus'
 import { DeepSeekInstallation } from '@posthog/shared-onboarding/ai-observability/deepseek'
 import { DSPyInstallation } from '@posthog/shared-onboarding/ai-observability/dspy'
+import { EveInstallation } from '@posthog/shared-onboarding/ai-observability/eve'
 import { FireworksAIInstallation } from '@posthog/shared-onboarding/ai-observability/fireworks-ai'
 import { GoogleInstallation } from '@posthog/shared-onboarding/ai-observability/google'
+import { GoogleADKInstallation } from '@posthog/shared-onboarding/ai-observability/google-adk'
 import { GroqInstallation } from '@posthog/shared-onboarding/ai-observability/groq'
 import { HeliconeInstallation } from '@posthog/shared-onboarding/ai-observability/helicone'
 import { HuggingFaceInstallation } from '@posthog/shared-onboarding/ai-observability/hugging-face'
@@ -79,6 +81,10 @@ const LLMGoogleInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: GoogleInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMGoogleADKInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: GoogleADKInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 const LLMOpenRouterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: OpenRouterInstallation,
     snippets: PROVIDER_SNIPPETS,
@@ -93,6 +99,10 @@ const LLMLiteLLMInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const LLMVercelAIInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: VercelAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMEveInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: EveInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
 const LLMVercelAIGatewayInstructionsWrapper = withOnboardingDocsWrapper({
@@ -233,7 +243,9 @@ export const AIObservabilitySDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANTHROPIC]: LLMAnthropicInstructionsWrapper,
     [SDKKey.AWS_BEDROCK]: LLMAWSBedrockInstructionsWrapper,
     [SDKKey.GOOGLE_GEMINI]: LLMGoogleInstructionsWrapper,
+    [SDKKey.GOOGLE_ADK]: LLMGoogleADKInstructionsWrapper,
     [SDKKey.VERCEL_AI]: LLMVercelAIInstructionsWrapper,
+    [SDKKey.EVE]: LLMEveInstructionsWrapper,
     [SDKKey.VERCEL_AI_GATEWAY]: LLMVercelAIGatewayInstructionsWrapper,
     [SDKKey.LANGCHAIN]: LLMLangChainInstructionsWrapper,
     [SDKKey.LITELLM]: LLMLiteLLMInstructionsWrapper,

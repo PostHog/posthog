@@ -212,6 +212,7 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
         from django_otp.plugins.otp_totp.models import TOTPDevice
 
         from posthog.api.two_factor_reset import TwoFactorResetVerifier
+        from posthog.session.activity import revoke_other_sessions_for_request
         from posthog.tasks.email import send_two_factor_auth_disabled_email
 
         token = request.data.get("token")
@@ -275,5 +276,9 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
 
         # Send notification email
         send_two_factor_auth_disabled_email.delay(link_user.pk)
+
+        # 2FA reset is an account-recovery action — revoke the user's other sessions, keeping the
+        # one driving the reset.
+        revoke_other_sessions_for_request(request, link_user)
 
         return Response({"success": True})

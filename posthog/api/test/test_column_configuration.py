@@ -1,8 +1,10 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.column_configuration import ColumnConfigurationSerializer
 from posthog.models import ColumnConfiguration, User
 
 
@@ -125,37 +127,75 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert len(data["results"]) == 1
         assert data["results"][0]["id"] == str(config.id)
 
-    def test_user_can_only_edit_their_views(self):
-        another_config = ColumnConfiguration.objects.create(
+    def test_team_member_can_edit_a_shared_view(self):
+        shared_view = ColumnConfiguration.objects.create(
             team=self.team,
             visibility=ColumnConfiguration.Visibility.SHARED,
-            context_key="context-key",
+            context_key="customer_analytics_accounts_columns",
             columns=["*", "person", "timestamp"],
             created_by=self.another_user,
         )
 
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/column_configurations/{str(another_config.id)}", {"name": "New name"}
+            f"/api/environments/{self.team.id}/column_configurations/{shared_view.id}/", {"name": "New name"}
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "You do not have permission to change this view"
+        assert response.status_code == status.HTTP_200_OK
+        shared_view.refresh_from_db()
+        assert shared_view.name == "New name"
 
-    def test_user_can_only_delete_their_views(self):
-        another_config = ColumnConfiguration.objects.create(
+    @parameterized.expand([("patch", {"name": "New name"}), ("delete", None)])
+    def test_team_member_cannot_change_another_shared_view_outside_accounts(
+        self, method: str, data: dict[str, str] | None
+    ) -> None:
+        shared_view = ColumnConfiguration.objects.create(
             team=self.team,
             visibility=ColumnConfiguration.Visibility.SHARED,
-            context_key="context-key",
+            context_key="events_table",
             columns=["*", "person", "timestamp"],
             created_by=self.another_user,
         )
 
-        response = self.client.delete(
-            f"/api/environments/{self.team.id}/column_configurations/{str(another_config.id)}"
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/column_configurations/{shared_view.id}/", data=data
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "You do not have permission to change this view"
+        assert ColumnConfiguration.objects.filter(id=shared_view.id).exists()
+
+    def test_team_member_can_delete_a_shared_view(self):
+        shared_view = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.SHARED,
+            context_key="customer_analytics_accounts_columns",
+            columns=["*", "person", "timestamp"],
+            created_by=self.another_user,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/column_configurations/{shared_view.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not ColumnConfiguration.objects.filter(id=shared_view.id).exists()
+
+    def test_shared_view_becomes_the_editors_private_view(self):
+        shared_view = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.SHARED,
+            context_key="customer_analytics_accounts_columns",
+            columns=["*", "person", "timestamp"],
+            created_by=self.another_user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/column_configurations/{shared_view.id}/",
+            {"visibility": ColumnConfiguration.Visibility.PRIVATE},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["visibility"] == ColumnConfiguration.Visibility.PRIVATE
+        assert response.json()["created_by"] == self.user.id
+        shared_view.refresh_from_db()
+        assert shared_view.created_by == self.user
 
     def test_list_without_context_key_excludes_others_private_views(self):
         ColumnConfiguration.objects.create(
@@ -191,6 +231,63 @@ class TestColumnConfigurationAPI(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/column_configurations/{str(another_config.id)}/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand([("patch", {"name": "New name"}), ("delete", None)])
+    def test_cannot_change_another_users_private_view(self, method: str, data: dict[str, str] | None):
+        private_view = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*"],
+            created_by=self.another_user,
+        )
+
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/column_configurations/{private_view.id}/", data=data
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert ColumnConfiguration.objects.filter(id=private_view.id).exists()
+
+    @parameterized.expand(
+        [
+            (
+                "private",
+                ColumnConfiguration.Visibility.PRIVATE,
+                "A private view with this name already exists",
+            ),
+            (
+                "shared",
+                ColumnConfiguration.Visibility.SHARED,
+                "A shared view with this name already exists",
+            ),
+        ]
+    )
+    def test_update_name_conflict(self, _name: str, target_visibility: str, expected_detail: str):
+        existing_view = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=target_visibility,
+            context_key="customer_analytics_accounts_columns",
+            name="Existing name",
+            columns=["*"],
+            created_by=self.user if target_visibility == ColumnConfiguration.Visibility.PRIVATE else self.another_user,
+        )
+        view_to_update = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.SHARED,
+            context_key="customer_analytics_accounts_columns",
+            name="Original name",
+            columns=["*"],
+            created_by=self.another_user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/column_configurations/{view_to_update.id}/",
+            {"name": existing_view.name, "visibility": target_visibility},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["detail"] == expected_detail
 
     def test_update_via_patch(self):
         create_response = self.client.post(
@@ -428,6 +525,58 @@ class TestColumnConfigurationAPI(APIBaseTest):
             "detail": "properties must be an object",
             "attr": "properties",
         }
+
+    def test_legacy_null_filters_serialize_as_empty_list(self):
+        # Rows predating the filters-as-list normalization can carry a SQL NULL in `filters`.
+        config = ColumnConfiguration.objects.create(
+            team=self.team, context_key="people-list", columns=["*"], filters=None
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/column_configurations/{config.id}/",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["filters"] == []
+
+    def test_unexpected_error_on_list_is_captured_with_context(self):
+        ColumnConfiguration.objects.create(
+            team=self.team, context_key="ck", columns=["*"], visibility=ColumnConfiguration.Visibility.SHARED
+        )
+
+        with patch("posthog.api.column_configuration.capture_exception") as mock_capture:
+            with patch.object(ColumnConfigurationSerializer, "to_representation", side_effect=ValueError("boom")):
+                # Depending on DEBUG the handler either renders a 500 or re-raises; either way
+                # capture runs first, so tolerate both to keep the test environment-independent.
+                try:
+                    self.client.get(f"/api/environments/{self.team.id}/column_configurations/", {"context_key": "ck"})
+                except ValueError:
+                    pass
+
+        mock_capture.assert_called_once()
+        properties = mock_capture.call_args.kwargs["additional_properties"]
+        assert properties["endpoint"] == "column_configurations"
+        assert properties["action"] == "list"
+        assert properties["team_id"] == self.team.id
+        assert properties["user_id"] == self.user.pk
+        assert properties["context_key"] == "ck"
+
+    def test_expected_api_errors_are_not_captured(self):
+        # A 404 for another user's private view must not be reported as a server fault,
+        # otherwise every permission/not-found response would flood error tracking.
+        another_config = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*"],
+            created_by=self.another_user,
+        )
+
+        with patch("posthog.api.column_configuration.capture_exception") as mock_capture:
+            response = self.client.get(f"/api/environments/{self.team.id}/column_configurations/{another_config.id}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_capture.assert_not_called()
 
     def test_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")

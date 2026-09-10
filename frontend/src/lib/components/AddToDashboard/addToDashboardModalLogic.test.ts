@@ -139,6 +139,8 @@ describe('addToDashboardModalLogic', () => {
             .toMatchValues({
                 _dashboardToNavigateTo: 99,
             })
+            // Let updateInsight settle before afterEach unmounts the logics it touches
+            .toFinishAllListeners()
     })
 
     it('orders dashboards: on insight first, then mine, then others pinned, then the rest', async () => {

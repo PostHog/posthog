@@ -1,5 +1,6 @@
 pub mod cache_builder;
 pub mod cache_invalidation;
+pub mod cache_shadow;
 pub mod cache_writer;
 pub mod feature_flag_list;
 pub mod flag_analytics;
@@ -16,6 +17,7 @@ pub mod flag_property_group;
 pub mod flag_request;
 pub mod flag_service;
 pub mod property_filter;
+pub mod warm_run_status;
 
 #[cfg(test)]
 mod test_flag_matching;

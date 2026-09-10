@@ -21,8 +21,12 @@ interface PropertyValueMathSelectorProps {
     showNumericalPropsOnly?: boolean
     /** Available schema fields for data warehouse property suggestions when the picker is scoped to a table. */
     schemaColumns: DatabaseSchemaField[]
-    /** Display name of the math aggregation, e.g. "average" */
+    /** Display name of the math aggregation, e.g. "average". When omitted (e.g. box plot, which has no
+     * math aggregation), the selected value renders without the explanatory tooltip. */
     mathDisplayName?: string
+    /** Shown when no property is selected yet, for contexts where the picker stands alone (e.g. box plot). */
+    placeholder?: string
+    dataAttr?: string
 }
 
 export function PropertyValueMathSelector({
@@ -35,6 +39,8 @@ export function PropertyValueMathSelector({
     showNumericalPropsOnly,
     schemaColumns,
     mathDisplayName,
+    placeholder,
+    dataAttr = 'math-property-select',
 }: PropertyValueMathSelectorProps): JSX.Element {
     return (
         <div className="flex-auto min-w-0">
@@ -53,36 +59,45 @@ export function PropertyValueMathSelector({
                 value={mathProperty}
                 onChange={(currentValue, groupType) => onMathPropertySelect(index, currentValue, groupType)}
                 eventNames={mathName ? [mathName] : []}
-                data-attr="math-property-select"
+                placeholder={placeholder}
+                data-attr={dataAttr}
                 showNumericalPropsOnly={showNumericalPropsOnly}
                 selectingKeyOnly
-                renderValue={(currentValue) => (
-                    <Tooltip
-                        title={
-                            currentValue === '$session_duration' ? (
-                                <>
-                                    Calculate {mathDisplayName} of the session duration. This is based on the{' '}
-                                    <code>$session_id</code> property associated with events. The duration is derived
-                                    from the time difference between the first and last event for each distinct{' '}
-                                    <code>$session_id</code>.
-                                </>
-                            ) : (
-                                <>
-                                    Calculate {mathDisplayName} from property <code>{currentValue}</code>. Note that
-                                    only {mathName} occurrences where <code>{currentValue}</code> is set with a numeric
-                                    value will be taken into account.
-                                </>
-                            )
-                        }
-                        placement="right"
-                    >
+                renderValue={(currentValue) => {
+                    const propertyKeyInfo = (
                         <PropertyKeyInfo
                             value={currentValue}
                             disablePopover
                             type={TaxonomicFilterGroupType.EventProperties}
                         />
-                    </Tooltip>
-                )}
+                    )
+                    if (!mathDisplayName) {
+                        return propertyKeyInfo
+                    }
+                    return (
+                        <Tooltip
+                            title={
+                                currentValue === '$session_duration' ? (
+                                    <>
+                                        Calculate {mathDisplayName} of the session duration. This is based on the{' '}
+                                        <code>$session_id</code> property associated with events. The duration is
+                                        derived from the time difference between the first and last event for each
+                                        distinct <code>$session_id</code>.
+                                    </>
+                                ) : (
+                                    <>
+                                        Calculate {mathDisplayName} from property <code>{currentValue}</code>. Note that
+                                        only {mathName} occurrences where <code>{currentValue}</code> is set with a
+                                        numeric value will be taken into account.
+                                    </>
+                                )
+                            }
+                            placement="right"
+                        >
+                            {propertyKeyInfo}
+                        </Tooltip>
+                    )
+                }}
             />
         </div>
     )

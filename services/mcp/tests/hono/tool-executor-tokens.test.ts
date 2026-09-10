@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockTrackToolCall } = vi.hoisted(() => ({ mockTrackToolCall: vi.fn() }))
+const { mockTrackToolCall, mockTrackExecuteSqlGeneration } = vi.hoisted(() => ({
+    mockTrackToolCall: vi.fn(),
+    mockTrackExecuteSqlGeneration: vi.fn(),
+}))
 
 vi.mock('@/hono/analytics', () => ({
     trackToolCall: mockTrackToolCall,
+    trackExecuteSqlGeneration: mockTrackExecuteSqlGeneration,
+    trackToolSpan: vi.fn(),
 }))
 
 vi.mock('@/resources/internals', () => ({
@@ -24,6 +29,8 @@ import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { estimateTokens } from '@/lib/estimate-tokens'
+
+import { toolFromPreBuilt } from '../shared/test-utils'
 
 function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
@@ -47,11 +54,16 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
+            isClaudeUiHost: vi.fn(() => false),
+            isInlineExecUiHost: vi.fn(() => false),
+            isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
@@ -61,26 +73,33 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        flagGatedTools: [],
+        gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
+        metadata: undefined,
+        metadataCompact: undefined,
+        groupTypes: undefined,
         ...overrides,
     }
+}
+
+type FakeToolBase = {
+    schema: z.ZodObject<Record<string, never>>
+    handler: ReturnType<typeof vi.fn>
+    _meta?: { ui?: { resourceUri?: string } }
 }
 
 function makeFakeTool(
     name: string,
     handler: () => Promise<unknown> = async () => 'ok',
     _meta?: { ui?: { resourceUri?: string } }
-): {
-    name: string
-    base: {
-        schema: z.ZodObject<Record<string, never>>
-        handler: ReturnType<typeof vi.fn>
-        _meta?: { ui?: { resourceUri?: string } }
-    }
-} {
+): { name: string; build: () => FakeToolBase; base: FakeToolBase } {
     return {
         name,
+        build() {
+            return this.base
+        },
         base: {
             schema: z.object({}),
             handler: vi.fn().mockImplementation(handler),
@@ -99,12 +118,45 @@ describe('ToolExecutor token estimates', () => {
 
     beforeEach(async () => {
         mockTrackToolCall.mockClear()
+        mockTrackExecuteSqlGeneration.mockClear()
         catalog = new ToolCatalog()
         await catalog.warmup()
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
 
     describe('direct tool calls', () => {
+        it('emits the execute-sql generation with the validated args', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                name: 'execute-sql',
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.object({ query: z.string() }),
+                    handler: vi.fn().mockResolvedValue('ok'),
+                },
+            } as any)
+
+            await executor.handleToolCall(
+                { name: 'execute-sql', arguments: { query: 'SELECT 1' } },
+                makeState([{ name: 'execute-sql' }])
+            )
+
+            expect(mockTrackExecuteSqlGeneration).toHaveBeenCalledTimes(1)
+            const [toolName, args, , meta] = mockTrackExecuteSqlGeneration.mock.calls[0]!
+            expect(toolName).toBe('execute-sql')
+            expect(args).toEqual({ query: 'SELECT 1' })
+            expect(meta.isError).toBe(false)
+        })
+
+        it('does not emit a generation for other tools', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(makeFakeTool('my-tool') as any)
+
+            await executor.handleToolCall({ name: 'my-tool', arguments: {} }, makeState([{ name: 'my-tool' }]))
+
+            expect(mockTrackExecuteSqlGeneration).not.toHaveBeenCalled()
+        })
+
         it('measures output tokens from the returned text, not the re-serialized payload', async () => {
             const handlerResult = {
                 rows: [
@@ -165,7 +217,10 @@ describe('ToolExecutor token estimates', () => {
             const [toolName, , isError, , extra] = mockTrackToolCall.mock.calls[0]!
             expect(toolName).toBe('fail-tool')
             expect(isError).toBe(true)
-            expect(extra).toBeUndefined()
+            // The error path carries the failure classification ($mcp_error_type) but
+            // never token estimates — those only make sense on a successful call.
+            expect(extra).not.toHaveProperty('input_tokens')
+            expect(extra).not.toHaveProperty('output_tokens')
         })
     })
 
@@ -185,6 +240,34 @@ describe('ToolExecutor token estimates', () => {
             expect(execCall[4].input_tokens).toBe(estimateTokens({ command: 'tools' }))
             expect(execCall[4].output_tokens).toBe(estimateTokens(joinedText(response)))
             expect(execCall[4].output_tokens).not.toBe(estimateTokens(response))
+        })
+
+        it('attributes the canonical event to the inner tool via the standard $mcp_tool_name', async () => {
+            // Full catalog tools (real names, so the instructions builder resolves them),
+            // with the target handler stubbed to keep dispatch offline + deterministic.
+            const tools = catalog
+                .getPreBuiltEntries()
+                .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
+            const target = tools.find((t) => t.name === 'docs-search')! as any
+            target.handler = vi.fn(async () => 'inner-ok')
+            const state = makeState(tools as any, { useSingleExec: true })
+
+            await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call docs-search {"query":"hi"}' } },
+                state
+            )
+
+            // The canonical event is attributed to the real inner tool — the same standard
+            // property the SDK emits for direct calls — never the `exec` dispatcher.
+            const innerCall = mockTrackToolCall.mock.calls.find((call) => call[0] === 'docs-search')!
+            expect(innerCall).toBeTruthy()
+            expect(innerCall[2]).toBe(false)
+            expect(mockTrackToolCall.mock.calls.some((call) => call[0] === 'exec')).toBe(false)
+
+            // Regression: the inner dispatch must not ALSO emit its own `mcp_tool_call`
+            // event — that would double-count the inner tool on the legacy event.
+            const trackEvent = state.reqCtx.trackEvent as ReturnType<typeof vi.fn>
+            expect(trackEvent.mock.calls.some((call) => call[0] === 'mcp_tool_call')).toBe(false)
         })
     })
 })

@@ -3,7 +3,6 @@ from typing import Any, cast
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Q
 
-from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -11,6 +10,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.inter_project_transferer import (
@@ -22,7 +22,8 @@ from posthog.models.resource_transfer.inter_project_transferer import (
 )
 from posthog.models.resource_transfer.types import ResourceTransferKey
 from posthog.models.resource_transfer.visitors import ResourceTransferVisitor
-from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
 
 
 class ResourceTransferRequestSerializer(serializers.Serializer):
@@ -169,7 +170,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         substituted_dest_ids = {sub["destination_resource_id"] for sub in data["substitutions"]}
         resource_kind = data["resource_kind"]
-        was_impersonated = is_impersonated_session(request)
+        was_impersonated = is_impersonated(request)
 
         _log_destination_activity(
             mutable_results,
@@ -229,8 +230,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         model = visitor.get_model()
 
-        # model_to_resource accepts both instances and classes at runtime via _meta
-        resource_type = model_to_resource(model)  # type: ignore[arg-type]
+        resource_type = model_to_resource(model)
         if resource_type is not None:
             ac = UserAccessControl(user=user, team=team)
             if not ac.check_access_level_for_resource(resource_type, required_level="viewer"):

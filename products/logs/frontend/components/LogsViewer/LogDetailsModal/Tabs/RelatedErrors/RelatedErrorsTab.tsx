@@ -3,9 +3,11 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { ErrorTrackingIssueCard } from 'scenes/max/messages/ErrorTrackingIssueCard'
+import { pluralize } from 'lib/utils/strings'
 
 import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-error-tracking'
+
+import { ErrorTrackingIssueCard } from 'products/posthog_ai/frontend/api/primitives'
 
 import { RelatedErrorsLogicProps, relatedErrorsLogic } from './relatedErrorsLogic'
 
@@ -87,10 +89,11 @@ interface RelatedIssuesListProps {
 }
 
 function RelatedIssuesList({ issues }: RelatedIssuesListProps): JSX.Element {
+    const totalOccurrences = issues.reduce((sum, issue) => sum + issue.occurrences, 0)
     return (
         <div className="flex flex-col">
             <p className="text-muted text-sm mb-2">
-                {issues.length} error{issues.length !== 1 ? 's' : ''} found in this session
+                {pluralize(issues.length, 'issue')} with {pluralize(totalOccurrences, 'occurrence')} in this session
             </p>
             {issues.map((issue) => (
                 <ErrorTrackingIssueCard key={issue.id} issue={issue} showUserCount={false} />

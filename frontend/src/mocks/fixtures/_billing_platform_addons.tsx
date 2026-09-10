@@ -115,6 +115,12 @@ const highFrequencyAlerts = feature(
     'Run insight alerts as frequently as every 15 minutes.',
     { entitlement_only: true }
 )
+const realTimeAlerts = feature(
+    'real_time_alerts',
+    'Real time alerts',
+    'Run insight alerts in real time as events are ingested.',
+    { entitlement_only: true }
+)
 const prioritySupport = (note: string = 'Target response time 24 hours'): AddonPlanFeature =>
     feature(
         'priority_support',
@@ -139,6 +145,11 @@ const roleBasedAccess = feature(
     'Set up custom access control rules for roles within your organization.'
 )
 const scim = feature('scim', 'SCIM', 'Automatically sync users and roles from your identity provider to PostHog.')
+const xaaAuthentication = feature(
+    AvailableFeature.XAA_AUTHENTICATION,
+    'Cross App Access (XAA)',
+    'Automate API and MCP access to PostHog.'
+)
 const dedicatedSupport = feature(
     'dedicated_support',
     'Dedicated account manager',
@@ -217,12 +228,14 @@ const SCALE_FEATURES: AddonPlanFeature[] = [
     organizationSecuritySettings,
     sessionReplayDataRetention(12),
     highFrequencyAlerts,
+    realTimeAlerts,
 ]
 
 const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
     dedicatedSupport,
     roleBasedAccess,
     scim,
+    xaaAuthentication,
     training,
     termsAndConditions,
     bespokePricing,
@@ -245,6 +258,7 @@ const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
     saml,
     approvals,
     highFrequencyAlerts,
+    realTimeAlerts,
 ]
 
 type AddonSpec = {

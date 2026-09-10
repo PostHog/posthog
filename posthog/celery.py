@@ -1,6 +1,7 @@
 import os
 import time
 import errno
+import threading
 
 from django.dispatch import receiver
 
@@ -21,6 +22,8 @@ from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram, start_http_server
+
+from posthog.celery_task_names import LIVENESS_ALERTED_TASK_NAMES
 
 # When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
 # prometheus_client uses file-backed storage so all prefork children's
@@ -53,7 +56,7 @@ CELERY_TASK_SUCCESS_COUNTER = Counter(
 
 CELERY_TASK_FAILURE_COUNTER = Counter(
     "posthog_celery_task_failure",
-    "task failure signal is dispatched when a task succeeds.",
+    "task failure signal is dispatched when a task fails.",
     labelnames=["task_name"],
 )
 
@@ -97,7 +100,30 @@ task_timings: dict[str, float] = {}
 
 
 def _initialize_worker_metrics() -> None:
-    """Initialize metrics that need to survive pod restarts."""
+    """Initialize metrics that need to survive pod restarts.
+
+    Each initializer runs unconditionally and carries its own worker-type gate, so
+    adding one here cannot be silently skipped by another's early return.
+    """
+    _initialize_liveness_alerted_task_series()
+    _initialize_cohort_backlog_metric()
+
+
+def _initialize_liveness_alerted_task_series() -> None:
+    # Counter series are created lazily on a task's first prerun/success/failure event,
+    # so a task that stops running vanishes from the metrics once its pods are replaced
+    # (vmalert reads an empty result as resolved) instead of freezing at zero, where the
+    # `increase(...) == 0` liveness alerts pinning these names can see it.
+    signal_counters = (CELERY_TASK_PRE_RUN_COUNTER, CELERY_TASK_SUCCESS_COUNTER, CELERY_TASK_FAILURE_COUNTER)
+    try:
+        for task_name in LIVENESS_ALERTED_TASK_NAMES:
+            for counter in signal_counters:
+                counter.labels(task_name=task_name)
+    except Exception:
+        logger.warning("failed_to_initialize_task_metric_series", exc_info=True)
+
+
+def _initialize_cohort_backlog_metric() -> None:
     # Only initialize cohort metrics on long-running workers that handle cohort calculations
     if not _is_longrunning_worker():
         return
@@ -219,6 +245,9 @@ def on_worker_start(**kwargs) -> None:
     _initialize_worker_metrics()
 
 
+_ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS = 5.0
+
+
 @worker_process_shutdown.connect
 def on_worker_process_shutdown(**kwargs) -> None:
     """Remove metric files for this child so recycled workers don't leak stale data."""
@@ -226,6 +255,33 @@ def on_worker_process_shutdown(**kwargs) -> None:
         from prometheus_client import multiprocess
 
         multiprocess.mark_process_dead(os.getpid())
+
+    # Flush the posthoganalytics SDK's final metrics window: `client.metrics`
+    # aggregates in memory and flushes on an interval, so a recycled child
+    # (--max-tasks-per-child) would otherwise drop up to one interval of samples.
+    # Inert on SDK versions without the metrics API and on untouched/disabled clients.
+    import posthoganalytics  # noqa: PLC0415 — keep the SDK off the celery import path
+
+    try:
+        client = posthoganalytics.default_client
+        metrics = getattr(client, "metrics", None) if client is not None else None
+        if metrics is not None:
+            # Bound the wait: an unreachable metrics endpoint must not hold a
+            # recycling child hostage (same hazard otel_instrumentation.py caps
+            # with a 5s force_flush). The daemon thread is abandoned on timeout.
+            def _flush() -> None:
+                try:
+                    metrics.flush()
+                except Exception:
+                    logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
+
+            flush_thread = threading.Thread(target=_flush, name="posthoganalytics-metrics-flush", daemon=True)
+            flush_thread.start()
+            flush_thread.join(timeout=_ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS)
+            if flush_thread.is_alive():
+                logger.warning("posthoganalytics_metrics_flush_timed_out")
+    except Exception:
+        logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
 
 
 # Set up clickhouse query instrumentation

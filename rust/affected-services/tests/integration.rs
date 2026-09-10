@@ -105,8 +105,17 @@ fn multi_file_is_union() {
 
 #[test]
 fn every_deployable_binary_has_an_image_entry() {
-    let non_deployable: HashSet<&str> =
-        ["affected-services", "debug_rule", "stl_dump", "hermes"].into();
+    let non_deployable: HashSet<&str> = [
+        "affected-services",
+        "debug_rule",
+        "stl_dump",
+        "run", // hogvm dev/diff CLI, not a service
+        "hermes",
+        "personhog-stateright",   // model-checker explorer CLI, not a service
+        "personhog-test-harness", // e2e load/correctness harness CLI, not a service
+        "reconcile_dispatch",     // operator-invoked cohort reconcile dispatcher CLI, not a service
+    ]
+    .into();
 
     let (graph, images) = load_test_fixtures();
     let bin_to_crate = build_binary_to_crate_map(&graph);
@@ -241,7 +250,10 @@ fn leaf_service_only_affects_itself_and_dependents() {
         compute_affected(&["rust/capture/src/main.rs".into()], None, &graph, &images).unwrap();
     assert!(!result.rebuild_all);
     assert_eq!(result.directly_changed, vec!["capture"]);
-    assert_eq!(result.images, vec!["capture", "capture-logs"]);
+    assert_eq!(
+        result.images,
+        vec!["capture", "capture-apm-metrics", "capture-logs"]
+    );
 }
 
 #[test]
@@ -360,16 +372,16 @@ fn old_graph_no_changed_files_produces_empty() {
 }
 
 #[test]
-fn two_graph_lockfile_triggers_rebuild_all() {
+fn two_graph_lockfile_alone_does_not_rebuild_all() {
     let (graph, images) = load_test_fixtures();
     let result =
         compute_affected(&["rust/Cargo.lock".into()], Some(&graph), &graph, &images).unwrap();
     assert!(
-        result.rebuild_all,
-        "Cargo.lock change should force rebuild-all even with two graphs (feature narrowing is invisible to the determinator)"
+        !result.rebuild_all,
+        "a lockfile change with an old graph to diff against must not force rebuild-all — the determinator's summary diff decides what is affected"
     );
-    let workspace_count = graph.workspace().iter().count();
-    assert_eq!(result.crates.len(), workspace_count);
+    assert!(result.crates.is_empty());
+    assert!(result.images.is_empty());
 }
 
 #[test]

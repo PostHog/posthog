@@ -10,3 +10,12 @@ export function githubWorkflowUrl(repoOwner: string, repoName: string, workflowN
 export function githubRunUrl(repoOwner: string, repoName: string, runId: number): string {
     return `https://github.com/${repoOwner}/${repoName}/actions/runs/${runId}`
 }
+
+export function githubCommitUrl(repoOwner: string, repoName: string, sha: string): string {
+    return `https://github.com/${repoOwner}/${repoName}/commit/${sha}`
+}
+
+/** `repository` is 'owner/name'. HEAD resolves the default branch, whatever it is named. */
+export function githubFileUrl(repository: string, file: string): string {
+    return `https://github.com/${repository}/blob/HEAD/${file}`
+}

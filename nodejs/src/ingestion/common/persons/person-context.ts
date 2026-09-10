@@ -1,16 +1,23 @@
 import { DateTime } from 'luxon'
 
-import { IngestionWarningsOutput } from '~/common/outputs'
-import { PersonDistinctIdsOutput, PersonsOutput } from '~/common/outputs'
+import {
+    IngestionWarningsOutput,
+    PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
+    PersonsOutput,
+} from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonMessage } from '~/common/persons/person-message'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Team } from '~/types'
 
+import type { MergeFoldPlan } from './person-merge-fold'
 import { MergeMode } from './person-merge-types'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
-export type PersonOutputs = IngestionOutputs<PersonsOutput | PersonDistinctIdsOutput | IngestionWarningsOutput>
+export type PersonOutputs = IngestionOutputs<
+    PersonsOutput | PersonDistinctIdsOutput | IngestionWarningsOutput | PersonMergeEventsOutput
+>
 
 /**
  * Lightweight data holder containing all the context needed for person processing.
@@ -31,7 +38,9 @@ export class PersonContext {
         public readonly measurePersonJsonbSize: number = 0,
         public readonly mergeMode: MergeMode,
         public readonly updateAllProperties: boolean = false, // When true, all property changes trigger person updates
-        public readonly shouldUpdateLastSeenAt: boolean = false
+        public readonly shouldUpdateLastSeenAt: boolean = false,
+        /** Fold plan shared by this event's consecutive $identify run; see person-merge-fold.ts. */
+        public readonly mergeFoldPlan?: MergeFoldPlan
     ) {
         this.eventProperties = event.properties!
     }

@@ -14,7 +14,6 @@ HEATMAPS_DATA_TABLE = lambda: "sharded_heatmaps"
 
 
 """
-We intend to send specific $heatmap events to build a heatmap instead of building from autocapture like the click map
 We'll be storing individual clicks per url/team/session
 And we'll be querying for those clicks at day level of granularity
 And we'll be querying by URL exact or wildcard match

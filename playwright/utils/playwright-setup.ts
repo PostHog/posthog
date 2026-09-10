@@ -10,7 +10,7 @@
  * - Team: Environment within project where data lives (e.g., "Production", "Staging")
  * - User: Configurable via LOGIN_USERNAME/LOGIN_PASSWORD env vars (defaults: test@posthog.com/12345678)
  */
-import { APIRequestContext, Page, request as playwrightRequest } from '@playwright/test'
+import { APIRequestContext, APIResponse, Page, request as playwrightRequest } from '@playwright/test'
 
 import { LOGIN_PASSWORD } from './playwright-test-core'
 
@@ -274,39 +274,28 @@ export class PlaywrightSetup {
     }
 
     async login(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
-        await page.goto(`${this.baseURL}/login`)
-        await page.waitForLoadState('networkidle')
-        await page.evaluate(
-            async ({ email, password }) => {
-                const maxAttempts = 3
-                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-                    try {
-                        const res = await fetch('/api/login/', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({ email, password }),
-                        })
-                        if (res.ok) {
-                            return
-                        }
-                        if (attempt === maxAttempts || res.status < 500) {
-                            throw new Error(`Login failed with status ${res.status}`)
-                        }
-                    } catch (e) {
-                        if (attempt === maxAttempts) {
-                            throw e
-                        }
-                    }
-                    await new Promise((r) => setTimeout(r, 500 * attempt))
+        const maxAttempts = 3
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            let response: APIResponse
+            try {
+                response = await page.request.post(`${this.baseURL}/api/login/`, {
+                    data: { email: workspace.user_email, password: LOGIN_PASSWORD },
+                })
+            } catch (e) {
+                if (attempt === maxAttempts) {
+                    throw e
                 }
-            },
-            {
-                email: workspace.user_email,
-                password: LOGIN_PASSWORD,
+                await new Promise((r) => setTimeout(r, 500 * attempt))
+                continue
             }
-        )
+            if (response.ok()) {
+                return
+            }
+            if (attempt === maxAttempts || response.status() < 500) {
+                throw new Error(`Login failed with status ${response.status()}`)
+            }
+            await new Promise((r) => setTimeout(r, 500 * attempt))
+        }
     }
 
     /**
@@ -319,6 +308,49 @@ export class PlaywrightSetup {
         await this.login(page, workspace)
 
         await page.goto(`${this.baseURL}/project/${workspace.team_id}`)
+    }
+
+    /**
+     * Seed events (and optional persons) directly into ClickHouse for a team created earlier in
+     * the same test. Use this when an event must reference an id minted after workspace setup
+     * (e.g. an evaluation created through the API) — `createWorkspace`'s own `events` option only
+     * seeds at workspace-creation time.
+     */
+    async seedEvents(
+        teamId: string,
+        events: PlaywrightSetupEvent[],
+        persons?: PlaywrightSetupPerson[]
+    ): Promise<{ team_id: string; events_created: number }> {
+        const result = await this.callSetupEndpoint('seed_events', {
+            data: { team_id: Number(teamId), events, persons },
+        })
+        if (!result.success) {
+            throw new Error(`Failed to seed events: ${result.error}`)
+        }
+        return result.result as { team_id: string; events_created: number }
+    }
+
+    /**
+     * Create an Evaluation with `output_config` stored exactly as given, bypassing the config
+     * normalization the model and the API both apply on every save. Use this to reproduce a
+     * config shaped like it predates a field (e.g. missing `true_is_failure` entirely).
+     */
+    async seedEvaluation(data: {
+        team_id: string
+        name: string
+        evaluation_type: string
+        evaluation_config: Record<string, any>
+        output_type: string
+        output_config: Record<string, any>
+        enabled?: boolean
+    }): Promise<{ evaluation_id: string }> {
+        const result = await this.callSetupEndpoint('seed_evaluation', {
+            data: { ...data, team_id: Number(data.team_id) },
+        })
+        if (!result.success) {
+            throw new Error(`Failed to seed evaluation: ${result.error}`)
+        }
+        return result.result as { evaluation_id: string }
     }
 
     /**

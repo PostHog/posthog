@@ -6,7 +6,7 @@ jest.mock('kea', () => ({
     useValues: () => ({ isDarkModeOn: false }),
 }))
 
-jest.mock('~/layout/navigation-3000/themeLogic', () => ({
+jest.mock('lib/logic/themeLogic', () => ({
     themeLogic: { values: {} },
 }))
 
@@ -44,6 +44,22 @@ describe('MermaidDiagram', () => {
         expect(container.innerHTML).toContain('rendered')
     })
 
+    it('promotes the inline max-width to a fixed width when naturalWidth is set', async () => {
+        renderMock.mockResolvedValue({ svg: '<svg style="max-width: 1200px;"><g/></svg>' })
+        render(<MermaidDiagram code="flowchart LR; A-->B" naturalWidth />)
+        const container = await screen.findByTestId('mermaid-rendered')
+        const svgElement = container.querySelector('svg')
+        expect(svgElement?.style.width).toBe('1200px')
+        expect(svgElement?.style.maxWidth).toBe('')
+    })
+
+    it('keeps mermaid sizing untouched without naturalWidth', async () => {
+        renderMock.mockResolvedValue({ svg: '<svg style="max-width: 1200px;"><g/></svg>' })
+        render(<MermaidDiagram code="flowchart LR; A-->B" />)
+        const container = await screen.findByTestId('mermaid-rendered')
+        expect(container.querySelector('svg')?.style.maxWidth).toBe('1200px')
+    })
+
     it('falls back to the source and an error message when mermaid throws', async () => {
         renderMock.mockRejectedValue(new Error('Parse error: bad syntax'))
         render(<MermaidDiagram code="not-a-real-diagram" />)
@@ -68,6 +84,17 @@ describe('MermaidDiagram', () => {
             }
         })
         expect(initializeMock.mock.calls.length).toBe(initCallsAfterFirst)
+    })
+
+    it('uses separate DOM ids for overlapping renders', async () => {
+        renderMock.mockReturnValue(new Promise(() => {}))
+        const { rerender } = render(<MermaidDiagram code="flowchart LR; A-->B" />)
+        await waitFor(() => expect(renderMock).toHaveBeenCalledTimes(1))
+
+        rerender(<MermaidDiagram code="flowchart LR; A-->" />)
+        await waitFor(() => expect(renderMock).toHaveBeenCalledTimes(2))
+
+        expect(renderMock.mock.calls[0][0]).not.toEqual(renderMock.mock.calls[1][0])
     })
 
     it('initializes mermaid at most once when multiple instances mount on the same theme', async () => {

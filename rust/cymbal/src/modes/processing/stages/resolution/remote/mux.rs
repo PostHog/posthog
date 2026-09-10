@@ -22,7 +22,7 @@ use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Channel;
 use tonic::{Code, Request, Status};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::metric_consts::{
     REMOTE_RESOLUTION_ENDPOINT_ADMISSION_REJECTIONS, REMOTE_RESOLUTION_ENDPOINT_MUX_IN_FLIGHT,
@@ -37,6 +37,9 @@ pub struct ResolveMux {
 
 struct ResolveMuxInner {
     addr: SocketAddr,
+    // Pre-built metric label for this endpoint — cloned into metric macros
+    // (an atomic refcount bump) instead of allocating a String per emission.
+    endpoint_label: Arc<str>,
     outbound: mpsc::Sender<ResolveItem>,
     waiters: Mutex<HashMap<u64, Waiter>>,
     task: Mutex<Option<JoinHandle<()>>>,
@@ -129,6 +132,7 @@ impl ResolveMux {
         let (outbound, inbound) = mpsc::channel(queue_capacity.max(1));
         let inner = Arc::new(ResolveMuxInner {
             addr,
+            endpoint_label: Arc::from(addr.to_string()),
             outbound,
             waiters: Mutex::new(HashMap::new()),
             task: Mutex::new(None),
@@ -252,7 +256,9 @@ impl ResolveMuxInner {
             waiter
         };
         let Some(waiter) = waiter else {
-            warn!(
+            // The caller usually gave up (deadline/cancel) before the outcome landed, so this
+            // scales with client-side timeouts under load — too hot for warn.
+            debug!(
                 endpoint = %self.addr,
                 stream_id = outcome.id,
                 "remote resolution outcome had no waiter"
@@ -286,7 +292,7 @@ impl ResolveMuxInner {
     fn record_waiter_count(&self, count: usize) {
         metrics::gauge!(
             REMOTE_RESOLUTION_ENDPOINT_MUX_IN_FLIGHT,
-            "endpoint" => self.addr.to_string(),
+            "endpoint" => self.endpoint_label.clone(),
         )
         .set(count as f64);
     }
@@ -294,7 +300,7 @@ impl ResolveMuxInner {
     fn record_admission_rejection(&self, reason: &'static str) {
         metrics::counter!(
             REMOTE_RESOLUTION_ENDPOINT_ADMISSION_REJECTIONS,
-            "endpoint" => self.addr.to_string(),
+            "endpoint" => self.endpoint_label.clone(),
             "reason" => reason,
         )
         .increment(1);
@@ -421,6 +427,7 @@ mod tests {
                         id: item.id,
                         result: Some(resolve_outcome::Result::Done(Done {
                             resolved_exception_json: item.exception_json,
+                            release_id: String::new(),
                         })),
                     };
                     tx.send(Ok(outcome)).await.expect("test receiver is alive");

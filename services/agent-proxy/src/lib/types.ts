@@ -62,9 +62,28 @@ export class EventIngestPayloadTooLarge extends Error {
     }
 }
 
+export class ClientDisconnected extends Error {
+    accepted = 0
+    duplicate = 0
+    lastAcceptedSeq = 0
+
+    constructor() {
+        super('Client disconnected during event ingest')
+        this.name = 'ClientDisconnected'
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Redis stream types
 // ---------------------------------------------------------------------------
+
+export interface TaskRunStreamWriteResult {
+    readonly accepted: boolean
+    readonly streamId: string | null
+}
+
+export const WRITE_RESULT_DUPLICATE: TaskRunStreamWriteResult = { accepted: false, streamId: null }
+export const WRITE_RESULT_SKIPPED: TaskRunStreamWriteResult = { accepted: true, streamId: null }
 
 // Returned by detectResumeGap when the client's Last-Event-ID has been trimmed.
 // S3 hydration is out of scope; callers log and continue from oldestAvailableId.
@@ -82,6 +101,9 @@ export interface StreamReadTokenPayload {
     runId: string
     taskId: string
     teamId: number
+    presenceGated: boolean
+    isTerminal: boolean
+    originProduct: string
 }
 
 // Claims extracted from a posthog:sandbox_event_ingest JWT (POST /v1/runs/:run/ingest leg)
@@ -89,13 +111,26 @@ export interface SandboxEventIngestTokenPayload {
     runId: string
     taskId: string
     teamId: number
+    presenceGated: boolean
+    thinTail: boolean
+    originProduct: string
 }
 
 // ---------------------------------------------------------------------------
 // SSE stream connection outcome (matches Python StreamConnectionOutcome values)
 // ---------------------------------------------------------------------------
 
-export type StreamConnectionOutcome = 'completed' | 'stream_error' | 'unavailable' | 'client_disconnect'
+export type StreamConnectionOutcome =
+    | 'completed'
+    | 'stream_error'
+    | 'unavailable'
+    | 'drained'
+    | 'client_disconnect'
+    | 'rotated'
+
+export type DisconnectClassification = 'run_over' | 'idle' | 'mid_turn'
+
+export type StreamWriteSkippedPath = 'ingest'
 
 // ---------------------------------------------------------------------------
 // Ingest HTTP response shape (200 OK body)
@@ -128,7 +163,7 @@ export type IngestLine = IngestEventLine | IngestCompleteLine
 // Side-effect callback kind (matches Python callback contract in docs/DESIGN.md)
 // ---------------------------------------------------------------------------
 
-export type SideEffectKind = 'heartbeat' | 'awaiting_input'
+export type SideEffectKind = 'heartbeat' | 'awaiting_input' | 'command_dispatched' | 'agent_activity'
 
 // ---------------------------------------------------------------------------
 // TaskRunRedisStream method interface

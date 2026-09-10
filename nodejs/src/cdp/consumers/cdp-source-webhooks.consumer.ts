@@ -1,17 +1,17 @@
 import { DateTime } from 'luxon'
 
-import type { ModifiedRequest } from '~/api/router'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import type { ModifiedRequest } from '~/common/api/router'
 import { instrumented } from '~/common/tracing/tracing-utils'
-import { HogFlow } from '~/schema/hogflow'
+import { logger } from '~/common/utils/logger'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
-import { logger } from '../../utils/logger'
-import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { UUID, UUIDT } from '../../utils/utils'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { HogWatcherFunctionState, HogWatcherState } from '../services/monitoring/hog-watcher.service'
+import { HogWatcherFunctionState, HogWatcherState, sameWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -22,6 +22,7 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { logEntry } from '../utils'
+import { dualRead, dualWrite } from '../utils/dual-store'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
@@ -106,11 +107,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         // Check for hog functions
         const hogFunction = await this.hogFunctionManager.getHogFunction(webhookId)
-        if (hogFunction?.type === 'source_webhook' && hogFunction?.enabled) {
+        if (hogFunction?.type === 'source_webhook' && hogFunction.enabled && !hogFunction.deleted) {
             return { hogFunction }
         }
 
-        if (hogFunction?.type === 'warehouse_source_webhook' && hogFunction?.enabled) {
+        if (hogFunction?.type === 'warehouse_source_webhook' && hogFunction.enabled && !hogFunction.deleted) {
             const templateId = hogFunction.template_id ?? 'template-warehouse-source-default'
             const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(templateId)
             if (template) {
@@ -233,7 +234,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
 
-            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+            const globalsWithInputs = await this.hogExecutorAsync.hogExecutor.buildInputsWithGlobals(
+                hogFunction,
+                globals
+            )
             const invocation = createInvocation(globalsWithInputs, hogFunction)
 
             // Slightly different handling for hog flows
@@ -295,13 +299,18 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     count: 1,
                 })
 
+                await this.hogflowQueue.queueInvocations([hogFlowInvocation])
+
                 addMetric({
                     metric_kind: 'billing',
                     metric_name: 'billable_invocation',
                     count: 1,
                 })
 
-                await this.hogflowQueue.queueInvocations([hogFlowInvocation])
+                this.cdpUsageReporter.reportBillableInvocation({
+                    teamId: invocation.teamId,
+                    recordId: `webhook:${invocationId}`,
+                })
             } else {
                 addMetric({
                     metric_kind: 'failure',
@@ -344,7 +353,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
-            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+            const globalsWithInputs = await this.hogExecutorAsync.hogExecutor.buildInputsWithGlobals(
+                hogFunction,
+                globals
+            )
             const invocation = createInvocation(globalsWithInputs, hogFunction)
 
             if (hogFunctionState?.state === HogWatcherState.degraded) {
@@ -376,7 +388,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 }
             } else {
                 // Run the initial step - this allows functions not using fetches to respond immediately
-                result = await this.hogExecutor.execute(invocation)
+                result = await this.hogExecutorAsync.execute(invocation)
 
                 // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
                 if (!result.finished) {
@@ -432,7 +444,12 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         const [webhook, hogFunctionState] = await Promise.all([
             this.getWebhook(webhookId),
-            this.hogWatcher.getCachedEffectiveState(webhookId),
+            dualRead(
+                'hog-watcher.getCachedEffectiveState',
+                () => this.hogWatcher.getCachedEffectiveState(webhookId),
+                () => this.hogWatcherMirror.getCachedEffectiveState(webhookId),
+                sameWatcherState
+            ),
         ])
 
         if (!webhook) {
@@ -461,7 +478,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         void this.promiseScheduler.schedule(
             this.invocationResultsService.flush(),
-            this.hogWatcher.observeResultsBuffered(result)
+            dualWrite(
+                'hog-watcher.observeResultsBuffered',
+                () => this.hogWatcher.observeResultsBuffered(result),
+                () => this.hogWatcherMirror.observeResultsBuffered(result)
+            )
         )
 
         return result

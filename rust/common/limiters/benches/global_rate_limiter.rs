@@ -80,10 +80,21 @@ fn bench_config() -> GlobalRateLimiterConfig {
         local_cache_idle_timeout: Duration::from_secs(600),
         local_cache_max_entries: 100_000,
         channel_capacity: 100_000,
-        custom_keys: HashMap::new(),
+        custom_keys: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(HashMap::new())),
+        custom_key_resolver: None,
+        custom_key_source: None,
+        custom_key_refresh_interval: Duration::from_secs(60),
         global_read_timeout: Duration::from_millis(50),
         global_write_timeout: Duration::from_millis(50),
         metrics_scope: "bench".to_string(),
+        // The benchmark measures the hot path against a fully-syncing limiter, so
+        // the floor and the per-tick bound are both left wide open.
+        min_sync_floor: 0,
+        max_sync_keys_per_tick: 100_000,
+        max_keys_per_command: 2_000,
+        max_concurrent_commands: 4,
+        max_write_batch_entries: 200_000,
+        max_pending_sync_entries: 200_000,
     }
 }
 
@@ -374,11 +385,13 @@ fn bench_custom_key_evaluation(c: &mut Criterion) {
     };
 
     // Config with some registered custom keys
-    let mut config = bench_config();
-    for i in 0..100 {
-        config
-            .custom_keys
-            .insert(format!("registered_key_{i}"), 50_000);
+    let config = bench_config();
+    {
+        let mut map = HashMap::new();
+        for i in 0..100 {
+            map.insert(format!("registered_key_{i}"), 50_000);
+        }
+        config.custom_keys.store(std::sync::Arc::new(map));
     }
 
     // Pre-prime Redis epoch keys for registered keys

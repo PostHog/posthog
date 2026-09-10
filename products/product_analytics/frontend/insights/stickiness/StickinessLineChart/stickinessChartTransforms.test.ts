@@ -2,14 +2,15 @@ import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
 import type { TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
 import { hexToRGBA } from 'lib/utils/colors'
+import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { ChartDisplayType } from '~/types'
 
 import {
-    buildStickinessLabels,
     buildStickinessLineTimeSeriesConfig,
     buildStickinessMainSeries,
     buildStickinessSeries,
+    buildStickinessTooltipTitle,
     stickinessPercentFormatter,
     toPercentData,
     type StickinessResultLike,
@@ -51,7 +52,7 @@ describe('stickinessChartTransforms', () => {
 
             expect(series).toMatchObject({
                 key: '0',
-                label: '$pageview',
+                label: 'Pageview',
                 data: [50, 30, 15, 5],
                 color: RED,
                 yAxisId: DEFAULT_Y_AXIS_ID,
@@ -59,6 +60,13 @@ describe('stickinessChartTransforms', () => {
             expect(series.stroke).toBeUndefined()
             expect(series.fill).toBeUndefined()
             expect(series.visibility).toBeUndefined()
+        })
+
+        it('humanizes built-in event labels, leaving custom events untouched', () => {
+            const core = buildStickinessMainSeries(makeResult({ label: '$pageview' }), 0, { getColor: () => RED })
+            const custom = buildStickinessMainSeries(makeResult({ label: 'Napped' }), 0, { getColor: () => RED })
+            expect(core.label).toBe('Pageview')
+            expect(custom.label).toBe('Napped')
         })
 
         it.each([
@@ -138,11 +146,16 @@ describe('stickinessChartTransforms', () => {
             expect(series.map((s) => s.key)).toEqual(['a', 'b'])
         })
 
-        it('assigns yAxisIds [left, y1, y2] across three results when showMultipleYAxes is true', () => {
-            const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        it('groups y-axes by the magnitude of the percent-converted values when showMultipleYAxes is true', () => {
+            // Same raw data, but b's much larger count makes its percentages ~2 orders smaller.
+            const results = [
+                makeResult({ id: 'a', count: 100 }),
+                makeResult({ id: 'b', count: 10000 }),
+                makeResult({ id: 'c', count: 100 }),
+            ]
             const series = buildStickinessSeries(results, { getColor: () => RED, showMultipleYAxes: true })
 
-            expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', 'y2'])
+            expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', DEFAULT_Y_AXIS_ID])
         })
 
         it('transforms each result independently using its own count', () => {
@@ -156,26 +169,6 @@ describe('stickinessChartTransforms', () => {
         })
     })
 
-    describe('buildStickinessLabels', () => {
-        it.each([
-            ['day', 3, ['Day 0', 'Day 1', 'Day 2']],
-            ['week', 2, ['Week 0', 'Week 1']],
-            ['hour', 2, ['Hour 0', 'Hour 1']],
-            ['month', 2, ['Month 0', 'Month 1']],
-        ] as const)('emits "%s"-prefixed labels by index', (interval, count, expected) => {
-            expect(buildStickinessLabels(count, interval)).toEqual(expected)
-        })
-
-        it('defaults to "Day" when interval is null/undefined', () => {
-            expect(buildStickinessLabels(2, null)).toEqual(['Day 0', 'Day 1'])
-            expect(buildStickinessLabels(2, undefined)).toEqual(['Day 0', 'Day 1'])
-        })
-
-        it('returns empty array when count is 0', () => {
-            expect(buildStickinessLabels(0, 'day')).toEqual([])
-        })
-    })
-
     describe('stickinessPercentFormatter', () => {
         it.each([
             [0, '0.0%'],
@@ -184,6 +177,28 @@ describe('stickinessChartTransforms', () => {
             [100, '100.0%'],
         ])('formats %s → %s', (value, expected) => {
             expect(stickinessPercentFormatter(value)).toBe(expected)
+        })
+    })
+
+    describe('buildStickinessTooltipTitle', () => {
+        const makeDatum = (date_label?: string): SeriesDatum => ({
+            id: 0,
+            dataIndex: 0,
+            datasetIndex: 0,
+            order: 0,
+            count: 0,
+            date_label,
+        })
+
+        it.each<[string, string | null | undefined, SeriesDatum[], string]>([
+            ['passes the integer day through for a day interval', 'day', [makeDatum('3')], 'Stickiness on day 3'],
+            ['uses the query interval when set', 'week', [makeDatum('2')], 'Stickiness on week 2'],
+            ['defaults the interval to "day" when null', null, [makeDatum('3')], 'Stickiness on day 3'],
+            ['defaults the interval to "day" when undefined', undefined, [makeDatum('3')], 'Stickiness on day 3'],
+            ['renders an empty day when date_label is missing', 'day', [makeDatum(undefined)], 'Stickiness on day '],
+            ['renders an empty day when seriesData is empty', 'day', [], 'Stickiness on day '],
+        ])('%s', (_, interval, seriesData, expected) => {
+            expect(buildStickinessTooltipTitle(interval)(seriesData)).toBe(expected)
         })
     })
 
@@ -207,7 +222,7 @@ describe('stickinessChartTransforms', () => {
             expect(yAxis.scale).toBe('log')
         })
 
-        it('omits an xAxis date config — labels are pre-formatted interval counts', () => {
+        it('omits an xAxis date config, since labels come from the API per bucket', () => {
             const config = buildStickinessLineTimeSeriesConfig({})
             expect(config.xAxis).toBeUndefined()
         })

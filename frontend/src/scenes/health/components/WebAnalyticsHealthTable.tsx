@@ -4,7 +4,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import type { HealthIssue } from '../types'
-import { dismissActionColumn, severityColumn } from './healthTableColumns'
+import { issueActionsColumn, severityColumn } from './healthTableColumns'
 
 interface CheckMeta {
     title: string
@@ -47,14 +47,23 @@ const CHECK_META: Record<string, CheckMeta> = {
             'Core Web Vitals (LCP, INP, CLS) measure real user experience. Google uses these metrics for search ranking.',
         docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
     },
+    path_cleaning_suggestions: {
+        title: 'Path cleaning',
+        description:
+            'AI-suggested path cleaning rules are ready to review. Applying them groups similar pages (like /users/123 and /users/456) in your breakdowns.',
+        docsUrl: urls.settings('environment-product-analytics', 'path-cleaning'),
+        linkLabel: 'Review suggestions',
+    },
 }
 
 export function WebAnalyticsHealthTable({
     issues,
+    onSnooze,
     onDismiss,
     onUndismiss,
 }: {
     issues: HealthIssue[]
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
 }): JSX.Element {
@@ -87,7 +96,7 @@ export function WebAnalyticsHealthTable({
             },
         },
         severityColumn(),
-        dismissActionColumn(onDismiss, onUndismiss),
+        issueActionsColumn(onSnooze, onDismiss, onUndismiss),
     ]
 
     return <LemonTable dataSource={issues} columns={columns} embedded size="small" rowClassName="group" />

@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -12,6 +14,7 @@ import { initKeaTests } from '~/test/init'
 import { ConversationDetail, SidePanelTab } from '~/types'
 
 import {
+    PENDING_MAX_CONTEXT_KEY,
     QUESTION_SUGGESTIONS_DATA,
     SIDE_PANEL_PANEL_ID,
     maxLogic,
@@ -24,10 +27,22 @@ import { MOCK_CONVERSATION, MOCK_CONVERSATION_ID, maxMocks } from './testUtils'
 describe('maxLogic', () => {
     let logic: ReturnType<typeof maxLogic.build>
     let threadLogic: ReturnType<typeof maxThreadLogic.build> | null = null
+    let actionsRequestCount: number
 
     beforeEach(() => {
         localStorage.clear()
-        useMocks(maxMocks)
+        sessionStorage.clear()
+        actionsRequestCount = 0
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/projects/:team/actions/': () => {
+                    actionsRequestCount++
+                    return [200, { results: [], count: 0 }]
+                },
+            },
+        })
         initKeaTests()
     })
 
@@ -50,6 +65,15 @@ describe('maxLogic', () => {
             panelId: 'notebook-inline-inline-chat-id',
             conversationId: 'chat-id',
         })
+    })
+
+    it('does not load actions when Max mounts', async () => {
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        expect(actionsRequestCount).toBe(0)
     })
 
     it('sets the question when URL has hash param #panel=max:Foo', async () => {
@@ -84,6 +108,83 @@ describe('maxLogic', () => {
         await expectLogic(logic).toMatchValues({
             autoRun: true,
             question: 'Foo',
+        })
+    })
+
+    it('does not set autoRun for #panel=max:!Foo when the new panel view is active', async () => {
+        // In the new view the prompt is consumed by phaiSidePanelComposerSeedLogic; autoRun here too
+        // would make the hidden legacy thread fire askMax on top of the new composer's submit.
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+
+        sidePanelStateLogic.mount()
+        await expectLogic(sidePanelStateLogic, () => {
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, '!Foo')
+        }).toDispatchActions(['openSidePanel'])
+
+        logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            autoRun: false,
+            question: 'Foo',
+        })
+
+        featureFlagLogic.unmount()
+    })
+
+    // The /ai?ask= deep link (e.g. "Start with AI") must not silently vanish when the org hasn't
+    // granted AI data-processing consent: askMax no-ops in that case, so the handler has to fall back
+    // to prefilling the composer. With consent it auto-sends via askMax instead.
+    describe('ask URL parameter', () => {
+        it('prefills the composer without auto-sending when AI consent is not granted', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            useMocks(maxMocks)
+            router.actions.push(urls.ai(undefined, 'Explore my traces'))
+
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ question: 'Explore my traces' })
+        })
+
+        it('clears any pending deep-link context even when consent is not granted', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            useMocks(maxMocks)
+            sessionStorage.setItem(
+                PENDING_MAX_CONTEXT_KEY,
+                JSON.stringify({ context: { dashboards: [] }, timestamp: Date.now() })
+            )
+            router.actions.push(urls.ai(undefined, 'Explore my traces'))
+
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ question: 'Explore my traces' })
+            expect(sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)).toBeNull()
+        })
+
+        it('auto-sends via askMax without prefilling when AI consent is granted', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            useMocks(maxMocks)
+            router.actions.push(urls.ai(undefined, 'Explore my traces'))
+
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions([
+                logic.actionCreators.askMax('Explore my traces', true, undefined),
+            ])
+            expect(logic.values.question).toBe('')
         })
     })
 
@@ -640,6 +741,66 @@ describe('maxLogic', () => {
                 is_sandbox: false,
                 pending_approvals: [],
             })
+        })
+    })
+
+    describe('suggestion typewriter', () => {
+        const SUGGESTION = { content: 'What is the retention in the last two weeks?' }
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            logic = maxLogic({ panelId: 'test' })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('holds the whole suggestion while the composer still shows a prefix', () => {
+            logic.actions.runSuggestion(SUGGESTION)
+
+            // The composer is mid-animation, so a send right now would carry this prefix. Keeping the
+            // whole suggestion is what lets the send substitute it.
+            expect(logic.values.question).toBe('W')
+            expect(logic.values.typingSuggestion).toBe(SUGGESTION.content)
+        })
+
+        it('sends the whole suggestion once the animation finishes', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.runSuggestion(SUGGESTION)
+                jest.advanceTimersByTime(60000)
+            }).toDispatchActions([
+                (action: any) =>
+                    action.type === logic.actionTypes.askMax && action.payload.prompt === SUGGESTION.content,
+            ])
+
+            expect(logic.values.typingSuggestion).toBeNull()
+        })
+
+        it('stops the animation when the user types over it', () => {
+            logic.actions.runSuggestion(SUGGESTION)
+            logic.actions.setQuestion('my own question')
+
+            // The user's input wins: no pending send, and the animation stops writing over them.
+            expect(logic.values.typingSuggestion).toBeNull()
+            jest.advanceTimersByTime(60000)
+            expect(logic.values.question).toBe('my own question')
+        })
+
+        it('leaves a fill-in suggestion for the user to complete instead of sending it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.runSuggestion({
+                    content: 'Tell me about feature flag',
+                    requiresUserInput: true,
+                    hint: 'insert feature flag name',
+                })
+                jest.advanceTimersByTime(60000)
+            }).toNotHaveDispatchedActions(['askMax'])
+
+            expect(logic.values.question).toBe('Tell me about feature flag ')
+            expect(logic.values.fillInHint).toBe('insert feature flag name')
+            expect(logic.values.typingSuggestion).toBeNull()
         })
     })
 })

@@ -2,42 +2,41 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.cache import cache, caches
 from django.db import DatabaseError
 from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.models.group_type_mapping import (
-    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
-    GroupTypeMapping,
-    GroupTypesUnavailable,
-)
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+from posthog.models.group_type_mapping import GROUP_TYPES_STALE_CACHE_KEY_PREFIX, GroupTypesUnavailable
 from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
+from posthog.personhog_client.fake_client import get_active_fake
+from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
-    FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
+    _build_flag_definitions_hypercache,
     _extract_cohort_ids_from_filters,
     _get_flags_response_for_local_evaluation,
     _get_flags_response_for_local_evaluation_batch,
-    _update_flag_definitions_with_cohorts,
-    _update_flag_definitions_without_cohorts,
+    _update_flag_definitions,
     clear_flag_definition_caches,
     flag_definitions_hypercache,
-    flag_definitions_without_cohorts_hypercache,
-    get_flags_response_for_local_evaluation,
     update_flag_caches,
     update_flag_definitions_cache,
     verify_team_flag_definitions,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 from products.surveys.backend.models import Survey
 
 
@@ -181,19 +180,13 @@ class TestLocalEvaluationCache(BaseTest):
         assert response.get("group_type_mapping", {}) == {"0": "organization"}
         assert len(response.get("cohorts", {})) == 2
 
-    def test_generates_correct_local_evaluation_response_with_cohorts(self):
-        response = get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+    def test_generates_correct_local_evaluation_response(self):
+        response = flag_definitions_hypercache.get_from_cache(self.team)
         assert response
         assert len(response.get("flags", [])) == 2
         assert response.get("group_type_mapping", {}) == {"0": "organization"}
         assert len(response.get("cohorts", {})) == 2
-
-    def test_generates_correct_local_evaluation_response_without_cohorts(self):
-        response = get_flags_response_for_local_evaluation(self.team, include_cohorts=False)
-        assert response
-        assert len(response.get("flags", [])) == 2
-        assert response.get("group_type_mapping", {}) == {"0": "organization"}
-        assert len(response.get("cohorts", {})) == 0
+        assert response.get("property_matching_version") == 1
 
     def test_get_flags_cache_hot(self):
         update_flag_caches(self.team)
@@ -251,6 +244,19 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
         response, _ = flag_definitions_hypercache.get_from_cache_with_source(self.team)
         return (response or {}).get("group_type_mapping", {})
 
+    @patch("posthog.storage.hypercache.HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER")
+    def test_unchanged_rebuild_skips_write(self, mock_skip_counter):
+        # The signal path opts into skip_if_unchanged=True. A second rebuild with no flag
+        # changes must skip the rewrite; dropping the kwarg silently reverts the
+        # optimization and only this assertion would catch it.
+        update_flag_caches(self.team)
+        mock_skip_counter.labels.assert_not_called()
+
+        update_flag_caches(self.team)
+
+        mock_skip_counter.labels.assert_called_once_with(namespace="feature_flags", value="flags_with_cohorts.json")
+        assert mock_skip_counter.labels.return_value.inc.call_count == 1
+
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_REBUILD_SKIPPED_COUNTER")
     def test_skips_write_on_group_types_unavailable(self, mock_skipped_counter):
         # Warm with the real fetch so a prior good entry exists
@@ -300,7 +306,7 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
             return_value={self.team.project_id: []},
         ):
             with patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set:
-                assert _update_flag_definitions_with_cohorts(self.team) is False
+                assert _update_flag_definitions(self.team) is False
                 mock_set.assert_not_called()
 
         mock_emptied_counter.labels.assert_called_once_with(namespace="feature_flags")
@@ -341,7 +347,9 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
     def test_writes_when_genuinely_empty(self, mock_emptied_counter):
         # A team that truly has no group types must still rebuild normally
-        GroupTypeMapping.objects.filter(team_id=self.team.id).delete()
+        fake = get_active_fake()
+        fake._group_type_mappings_by_project.pop(self.team.project_id, None)
+        fake._group_type_mappings_by_team.pop(self.team.id, None)
         self._clear_stale()
         clear_flag_definition_caches(self.team)
 
@@ -581,7 +589,7 @@ class TestSurveyFlagExclusion(BaseTest):
             **{flag_field: survey_flag},
         )
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flag_keys = [f["key"] for f in response["flags"]]
 
         assert regular_flag.key in flag_keys
@@ -602,7 +610,7 @@ class TestSurveyFlagExclusion(BaseTest):
             linked_flag=user_linked_flag,
         )
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flag_keys = [f["key"] for f in response["flags"]]
 
         assert user_linked_flag.key in flag_keys
@@ -622,12 +630,12 @@ class TestSurveyFlagExclusion(BaseTest):
             targeting_flag=survey_flag,
         )
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         assert survey_flag.key not in [f["key"] for f in response["flags"]]
 
         survey.delete()
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         assert survey_flag.key in [f["key"] for f in response["flags"]]
 
     def test_survey_flags_excluded_from_api_response(self):
@@ -651,7 +659,7 @@ class TestSurveyFlagExclusion(BaseTest):
             internal_targeting_flag=survey_flag,
         )
 
-        response = get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         assert response is not None
         flag_keys = [f["key"] for f in response["flags"]]
 
@@ -724,7 +732,7 @@ class TestSurveyFlagExclusion(BaseTest):
             targeting_flag=survey_flag,
         )
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         assert survey_flag.key not in [f["key"] for f in response["flags"]]
 
         # Archive the survey (not delete)
@@ -732,7 +740,7 @@ class TestSurveyFlagExclusion(BaseTest):
         survey.save()
 
         # Flag should still be excluded since the survey still exists
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         assert survey_flag.key not in [f["key"] for f in response["flags"]]
 
     def test_survey_flag_reassignment_updates_exclusions(self):
@@ -755,7 +763,7 @@ class TestSurveyFlagExclusion(BaseTest):
             targeting_flag=flag_a,
         )
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flag_keys = [f["key"] for f in response["flags"]]
         assert flag_a.key not in flag_keys
         assert flag_b.key in flag_keys
@@ -763,7 +771,7 @@ class TestSurveyFlagExclusion(BaseTest):
         survey.targeting_flag = flag_b
         survey.save()
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flag_keys = [f["key"] for f in response["flags"]]
         assert flag_a.key in flag_keys
         assert flag_b.key not in flag_keys
@@ -784,7 +792,7 @@ class TestSurveyFlagExclusion(BaseTest):
                 targeting_flag=shared_flag,
             )
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flag_keys = [f["key"] for f in response["flags"]]
 
         assert shared_flag.key not in flag_keys
@@ -816,7 +824,7 @@ class TestSurveyFlagExclusion(BaseTest):
             internal_response_sampling_flag=flag_b,
         )
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flag_keys = [f["key"] for f in response["flags"]]
 
         assert flag_a.key not in flag_keys
@@ -880,7 +888,7 @@ class TestLocalEvaluationBatch(BaseTest):
         return team
 
     def test_batch_empty_team_list(self):
-        result = _get_flags_response_for_local_evaluation_batch([], True)
+        result = _get_flags_response_for_local_evaluation_batch([])
         assert result == {}
 
     @parameterized.expand(
@@ -916,7 +924,7 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
-        results = _get_flags_response_for_local_evaluation_batch([team], True)
+        results = _get_flags_response_for_local_evaluation_batch([team])
         flag_keys = {f["key"] for f in results[team.id]["flags"]}
 
         if should_include:
@@ -939,7 +947,7 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 50}]},
         )
 
-        results = _get_flags_response_for_local_evaluation_batch([team_a, team_b], True)
+        results = _get_flags_response_for_local_evaluation_batch([team_a, team_b])
 
         assert team_a.id in results
         assert team_b.id in results
@@ -960,12 +968,45 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 100}]},
         )
 
-        results = _get_flags_response_for_local_evaluation_batch([team_with_flags, team_without_flags], True)
+        results = _get_flags_response_for_local_evaluation_batch([team_with_flags, team_without_flags])
 
         assert len(results[team_with_flags.id]["flags"]) == 1
         assert results[team_without_flags.id]["flags"] == []
         assert "group_type_mapping" in results[team_without_flags.id]
         assert "cohorts" in results[team_without_flags.id]
+
+    def test_batch_includes_team_rollout_settings(self):
+        # Local-eval SDKs never call /flags, so the blob is their only source of team rollout
+        # settings. This covers configured, default, and no-flags response paths.
+        gated_team = self._create_team_with_project("Gated")
+        gated_team_no_flags = self._create_team_with_project("Gated no flags")
+        ungated_team = self._create_team_with_project("Ungated")
+
+        TeamFeatureFlagsConfig.objects.update_or_create(
+            team=gated_team,
+            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+        )
+        TeamFeatureFlagsConfig.objects.update_or_create(
+            team=gated_team_no_flags,
+            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+        )
+        TeamFeatureFlagsConfig.objects.filter(team=ungated_team).delete()
+
+        FeatureFlag.objects.create(
+            team=gated_team,
+            key="gated-flag",
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([gated_team, gated_team_no_flags, ungated_team])
+
+        assert results[gated_team.id]["minimal_flag_called_events"] is True
+        assert results[gated_team.id]["property_matching_version"] == 2
+        assert results[gated_team_no_flags.id]["flags"] == []
+        assert results[gated_team_no_flags.id]["minimal_flag_called_events"] is True
+        assert results[gated_team_no_flags.id]["property_matching_version"] == 2
+        assert results[ungated_team.id]["minimal_flag_called_events"] is False
+        assert results[ungated_team.id]["property_matching_version"] == 1
 
     def test_batch_team_with_no_flags_includes_group_type_mapping(self):
         team = self._create_team_with_project("GTM Team")
@@ -974,7 +1015,7 @@ class TestLocalEvaluationBatch(BaseTest):
             team=team, project_id=team.project_id, group_type="company", group_type_index=0
         )
 
-        results = _get_flags_response_for_local_evaluation_batch([team], True)
+        results = _get_flags_response_for_local_evaluation_batch([team])
 
         assert results[team.id]["flags"] == []
         assert results[team.id]["group_type_mapping"] == {"0": "company"}
@@ -1015,7 +1056,7 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_b.pk}]}]},
         )
 
-        results = _get_flags_response_for_local_evaluation_batch([team_a, team_b], True)
+        results = _get_flags_response_for_local_evaluation_batch([team_a, team_b])
 
         cohort_ids_a = set(results[team_a.id]["cohorts"].keys())
         cohort_ids_b = set(results[team_b.id]["cohorts"].keys())
@@ -1057,7 +1098,7 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": referenced_cohort.pk}]}]},
         )
 
-        results = _get_flags_response_for_local_evaluation_batch([team], True)
+        results = _get_flags_response_for_local_evaluation_batch([team])
 
         assert str(referenced_cohort.pk) in results[team.id]["cohorts"]
         assert str(unreferenced_cohort.pk) not in results[team.id]["cohorts"]
@@ -1097,7 +1138,7 @@ class TestLocalEvaluationBatch(BaseTest):
             },
         )
 
-        results = _get_flags_response_for_local_evaluation_batch([team], True)
+        results = _get_flags_response_for_local_evaluation_batch([team])
 
         assert str(dynamic_cohort.pk) in results[team.id]["cohorts"]
         assert str(static_cohort.pk) not in results[team.id]["cohorts"]
@@ -1135,7 +1176,7 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": parent_cohort.pk}]}]},
         )
 
-        results = _get_flags_response_for_local_evaluation_batch([team], True)
+        results = _get_flags_response_for_local_evaluation_batch([team])
 
         assert str(parent_cohort.pk) in results[team.id]["cohorts"]
         assert str(leaf_cohort.pk) in results[team.id]["cohorts"]
@@ -1181,7 +1222,7 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": grandparent.pk}]}]},
         )
 
-        results = _get_flags_response_for_local_evaluation_batch([team], True)
+        results = _get_flags_response_for_local_evaluation_batch([team])
         cohort_ids = set(results[team.id]["cohorts"].keys())
 
         assert str(grandparent.pk) in cohort_ids
@@ -1228,7 +1269,7 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.pk}]}]},
         )
 
-        results = _get_flags_response_for_local_evaluation_batch([team], True)
+        results = _get_flags_response_for_local_evaluation_batch([team])
         cohort_ids = set(results[team.id]["cohorts"].keys())
 
         assert str(cohort_a.pk) in cohort_ids
@@ -1256,10 +1297,11 @@ class TestLocalEvaluationBatch(BaseTest):
         )
 
         with self.assertNumQueries(3):
-            # Expected queries: survey flag IDs, flags (with evaluation
-            # tags via ArrayAgg), and group type mappings. No cohort
-            # query should be issued.
-            results = _get_flags_response_for_local_evaluation_batch([team], True)
+            # Expected queries: the minimal_flag_called_events gate, survey flag
+            # IDs, and flags (with evaluation tags via ArrayAgg). Group type
+            # mappings are read from personhog, not SQL. No cohort query should
+            # be issued.
+            results = _get_flags_response_for_local_evaluation_batch([team])
 
         assert results[team.id]["cohorts"] == {}
         assert len(results[team.id]["flags"]) == 1
@@ -1289,7 +1331,7 @@ class TestLocalEvaluationBatch(BaseTest):
         cohort.deleted = True
         cohort.save()
 
-        results = _get_flags_response_for_local_evaluation_batch([team], True)
+        results = _get_flags_response_for_local_evaluation_batch([team])
 
         flag_keys = [f["key"] for f in results[team.id]["flags"]]
         assert "flag-ref-deleted-cohort" in flag_keys
@@ -1309,32 +1351,9 @@ class TestFlagDefinitionsCache(BaseTest):
         Changing the key format would orphan existing cached data,
         causing a cold cache on deploy.
         """
-        with_cohorts_key = flag_definitions_hypercache.get_cache_key(self.team)
-        without_cohorts_key = flag_definitions_without_cohorts_hypercache.get_cache_key(self.team)
+        key = flag_definitions_hypercache.get_cache_key(self.team)
 
-        assert with_cohorts_key == f"cache/teams/{self.team.id}/feature_flags/flags_with_cohorts.json"
-        assert without_cohorts_key == f"cache/teams/{self.team.id}/feature_flags/flags_without_cohorts.json"
-
-    def test_update_flag_definitions_cache_updates_both_variants(self):
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        result = update_flag_definitions_cache(self.team)
-        assert result is True
-
-        with_cohorts, source1 = flag_definitions_hypercache.get_from_cache_with_source(self.team)
-        without_cohorts, source2 = flag_definitions_without_cohorts_hypercache.get_from_cache_with_source(self.team)
-
-        assert source1 == "redis"
-        assert source2 == "redis"
-        assert with_cohorts is not None
-        assert without_cohorts is not None
-        assert len(with_cohorts["flags"]) == 1
-        assert len(without_cohorts["flags"]) == 1
+        assert key == f"cache/teams/{self.team.id}/feature_flags/flags_with_cohorts.json"
 
     def test_update_flag_definitions_cache_accepts_team_id(self):
         FeatureFlag.objects.create(
@@ -1356,7 +1375,18 @@ class TestFlagDefinitionsCache(BaseTest):
         result = update_flag_definitions_cache(999999)
         assert result is False
 
-    def test_clear_flag_definition_caches_clears_both_variants(self):
+    def test_cold_read_of_cross_region_sentinel_returns_none_without_querying_team(self):
+        # The EU mirror sentinel has no backing Team row, so a cold read must
+        # short-circuit in the load_fn instead of raising Team.DoesNotExist.
+        clear_flag_definition_caches(EU_CROSS_REGION_MIRROR_CACHE_KEY, kinds=["redis", "s3"])
+
+        with patch.object(Team.objects, "get") as mock_team_get:
+            result = flag_definitions_hypercache.get_from_cache(EU_CROSS_REGION_MIRROR_CACHE_KEY)
+
+        assert result is None
+        mock_team_get.assert_not_called()
+
+    def test_clear_flag_definition_caches(self):
         FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
@@ -1366,34 +1396,57 @@ class TestFlagDefinitionsCache(BaseTest):
 
         update_flag_definitions_cache(self.team)
 
-        _, source1 = flag_definitions_hypercache.get_from_cache_with_source(self.team)
-        _, source2 = flag_definitions_without_cohorts_hypercache.get_from_cache_with_source(self.team)
-        assert source1 == "redis"
-        assert source2 == "redis"
+        _, source = flag_definitions_hypercache.get_from_cache_with_source(self.team)
+        assert source == "redis"
 
         clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
 
-        _, source1 = flag_definitions_hypercache.get_from_cache_with_source(self.team)
-        _, source2 = flag_definitions_without_cohorts_hypercache.get_from_cache_with_source(self.team)
-        assert source1 == "db"
-        assert source2 == "db"
+        _, source = flag_definitions_hypercache.get_from_cache_with_source(self.team)
+        assert source == "db"
 
-    def test_hypercache_configs_are_properly_configured(self):
-        config1 = FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG
-        assert config1.cache_name == "flag_definitions"
-        assert config1.hypercache == flag_definitions_hypercache
-        assert config1.update_fn == _update_flag_definitions_with_cohorts
+    def test_hypercache_config_is_properly_configured(self):
+        config = FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG
+        assert config.cache_name == "flag_definitions"
+        assert config.hypercache == flag_definitions_hypercache
+        assert config.update_fn == _update_flag_definitions
         # Grace-period skip prevents the verifier from flagging caches whose
         # underlying flags were just updated and whose async rebuild is still in flight.
-        assert config1.get_team_ids_to_skip_fix_fn == get_team_ids_with_recently_updated_flags
+        assert config.get_team_ids_to_skip_fix_fn == get_team_ids_with_recently_updated_flags
 
-        config2 = FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG
-        assert config2.cache_name == "flag_definitions_no_cohorts"
-        assert config2.hypercache == flag_definitions_without_cohorts_hypercache
-        assert config2.update_fn == _update_flag_definitions_without_cohorts
-        assert config2.get_team_ids_to_skip_fix_fn == get_team_ids_with_recently_updated_flags
+    def test_hypercache_mirrors_writes_to_shared_cache_when_dedicated_alias_registered(self):
+        # HyperCache.__init__ reads CACHES[alias]["LOCATION"] for its writer URL;
+        # the in-memory backend ignores the stub value.
+        with override_settings(
+            CACHES={
+                "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+                FLAGS_DEDICATED_CACHE_ALIAS: {
+                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                    "LOCATION": "redis://stub:6379/",
+                },
+            }
+        ):
+            hypercache = _build_flag_definitions_hypercache()
+            assert hypercache.cache_client is caches[FLAGS_DEDICATED_CACHE_ALIAS]
+            assert hypercache.secondary_cache_client is caches["default"]
 
-    def test_update_flag_definitions_cache_returns_false_on_partial_failure(self):
+            hypercache.set_cache_value_redis_only(self.team.id, {"flags": [], "v": 1})
+
+            cache_key = hypercache.get_cache_key(self.team.id)
+            etag_key = hypercache.get_etag_key(self.team.id)
+            dedicated_value = caches[FLAGS_DEDICATED_CACHE_ALIAS].get(cache_key)
+            assert dedicated_value is not None
+            assert caches["default"].get(cache_key) == dedicated_value
+            dedicated_etag = caches[FLAGS_DEDICATED_CACHE_ALIAS].get(etag_key)
+            assert dedicated_etag is not None
+            assert caches["default"].get(etag_key) == dedicated_etag
+
+    def test_hypercache_uses_default_cache_without_mirror_when_alias_absent(self):
+        with override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}):
+            hypercache = _build_flag_definitions_hypercache()
+            assert hypercache.cache_client is cache
+            assert hypercache.secondary_cache_client is None
+
+    def test_update_flag_definitions_cache_returns_false_on_failure(self):
         FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
@@ -1406,10 +1459,6 @@ class TestFlagDefinitionsCache(BaseTest):
 
         assert result is False
 
-        # The second variant should still have been updated
-        _, source = flag_definitions_without_cohorts_hypercache.get_from_cache_with_source(self.team)
-        assert source == "redis"
-
     def test_update_flag_definitions_cache_passes_custom_ttl(self):
         FeatureFlag.objects.create(
             team=self.team,
@@ -1418,16 +1467,10 @@ class TestFlagDefinitionsCache(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
-        with (
-            patch.object(flag_definitions_hypercache, "update_cache", return_value=True) as mock_with,
-            patch.object(
-                flag_definitions_without_cohorts_hypercache, "update_cache", return_value=True
-            ) as mock_without,
-        ):
+        with patch.object(flag_definitions_hypercache, "update_cache", return_value=True) as mock_update:
             update_flag_definitions_cache(self.team, ttl=3600)
 
-        mock_with.assert_called_once_with(self.team, ttl=3600)
-        mock_without.assert_called_once_with(self.team, ttl=3600)
+        mock_update.assert_called_once_with(self.team, ttl=3600)
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -1446,7 +1489,7 @@ class TestVerifyFlagDefinitions(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
-        result = verify_team_flag_definitions(self.team, include_cohorts=True)
+        result = verify_team_flag_definitions(self.team)
 
         assert result["status"] == "miss"
         assert result["issue"] == "CACHE_MISS"
@@ -1461,10 +1504,37 @@ class TestVerifyFlagDefinitions(BaseTest):
 
         update_flag_definitions_cache(self.team)
 
-        result = verify_team_flag_definitions(self.team, include_cohorts=True)
+        result = verify_team_flag_definitions(self.team)
 
         assert result["status"] == "match"
         assert result["issue"] == ""
+
+    def test_verify_detects_stale_minimal_flag_called_events(self):
+        # A gated team whose blob was cached before the gate flipped must report drift
+        # so verify-and-fix rewrites it; otherwise local-eval SDKs keep the stale gate
+        # until TTL expiry if the staff endpoint's rebuild task was lost.
+        update_flag_definitions_cache(self.team)
+
+        TeamFeatureFlagsConfig.objects.update_or_create(team=self.team, defaults={"minimal_flag_called_events": True})
+
+        result = verify_team_flag_definitions(self.team)
+
+        assert result["status"] == "mismatch"
+        assert "minimal_flag_called_events mismatch" in result["details"]
+
+    def test_verify_treats_absent_gate_key_as_false(self):
+        # Pre-existing blobs written before the key existed must not report drift for
+        # ungated teams — absent and False both mean "full events" to SDKs. Guards
+        # against a fleet-wide rewrite storm on deploy.
+        update_flag_definitions_cache(self.team)
+        cached, _ = flag_definitions_hypercache.get_from_cache_with_source(self.team)
+        assert cached is not None
+        legacy_blob = {k: v for k, v in cached.items() if k != "minimal_flag_called_events"}
+        flag_definitions_hypercache.set_cache_value(self.team, legacy_blob)
+
+        result = verify_team_flag_definitions(self.team)
+
+        assert result["status"] == "match"
 
     def test_verify_returns_mismatch_when_flag_key_renamed(self):
         flag = FeatureFlag.objects.create(
@@ -1479,7 +1549,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         flag.key = "modified-flag"
         flag.save()
 
-        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+        result = verify_team_flag_definitions(self.team, verbose=True)
 
         assert result["status"] == "mismatch"
         assert result["issue"] == "DATA_MISMATCH"
@@ -1504,7 +1574,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         flag.filters = {"groups": [{"properties": [], "rollout_percentage": 50}]}
         flag.save()
 
-        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+        result = verify_team_flag_definitions(self.team, verbose=True)
 
         assert result["status"] == "mismatch"
         assert result["issue"] == "DATA_MISMATCH"
@@ -1550,7 +1620,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         mutate_cached_flag(cached_data["flags"][0])
         flag_definitions_hypercache.set_cache_value(self.team, cached_data)
 
-        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+        result = verify_team_flag_definitions(self.team, verbose=True)
 
         assert result["status"] == expected_status
         if expected_diff_field is not None:
@@ -1558,22 +1628,6 @@ class TestVerifyFlagDefinitions(BaseTest):
             assert len(field_mismatch_diffs) == 1
             assert field_mismatch_diffs[0]["flag_key"] == "test-flag"
             assert expected_diff_field in field_mismatch_diffs[0]["diff_fields"]
-
-    def test_verify_both_variants_independently(self):
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        update_flag_definitions_cache(self.team)
-
-        result_with = verify_team_flag_definitions(self.team, include_cohorts=True)
-        result_without = verify_team_flag_definitions(self.team, include_cohorts=False)
-
-        assert result_with["status"] == "match"
-        assert result_without["status"] == "match"
 
     def test_verify_returns_mismatch_when_cohort_changed(self):
         cohort = Cohort.objects.create(
@@ -1601,7 +1655,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         cohort.groups = [{"properties": [{"key": "email", "value": "changed@example.com", "type": "person"}]}]
         cohort.save()
 
-        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+        result = verify_team_flag_definitions(self.team, verbose=True)
 
         assert result["status"] == "mismatch"
         assert result["issue"] == "DATA_MISMATCH"
@@ -1611,7 +1665,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         assert len(cohorts_diff) == 1
 
     def test_verify_returns_mismatch_when_group_type_mapping_changed(self):
-        GroupTypeMapping.objects.create(
+        mapping = create_group_type_mapping(
             team=self.team,
             project_id=self.team.project_id,
             group_type="company",
@@ -1630,11 +1684,10 @@ class TestVerifyFlagDefinitions(BaseTest):
 
         update_flag_definitions_cache(self.team)
 
-        mapping = GroupTypeMapping.objects.get(team=self.team, group_type_index=0)
         mapping.group_type = "organization"
-        mapping.save()
+        _seed_group_type_mapping_into_fake(mapping)
 
-        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+        result = verify_team_flag_definitions(self.team, verbose=True)
 
         assert result["status"] == "mismatch"
         assert result["issue"] == "DATA_MISMATCH"
@@ -1661,7 +1714,7 @@ class TestFlagDefinitionsManagementCommands(BaseTest):
         super().setUp()
         clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
 
-    def test_verify_command_checks_both_variants(self):
+    def test_verify_command_reports_results(self):
         from io import StringIO
 
         from django.core.management import call_command
@@ -1677,11 +1730,9 @@ class TestFlagDefinitionsManagementCommands(BaseTest):
         call_command("verify_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
 
         output = out.getvalue()
-        assert "with cohorts" in output
-        assert "without cohorts" in output
-        assert output.count("Verification Results") == 2
+        assert output.count("Verification Results") == 1
 
-    def test_warm_command_processes_both_variants_by_default(self):
+    def test_warm_command_processes_teams(self):
         from io import StringIO
 
         from django.core.management import call_command
@@ -1697,33 +1748,7 @@ class TestFlagDefinitionsManagementCommands(BaseTest):
         call_command("warm_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
 
         output = out.getvalue()
-        assert "with cohorts" in output
-        assert "without cohorts" in output
         assert "Successful: 1" in output
-
-    def test_warm_command_with_variant_flag(self):
-        from io import StringIO
-
-        from django.core.management import call_command
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        out = StringIO()
-        call_command(
-            "warm_flag_definitions_cache",
-            f"--team-ids={self.team.id}",
-            "--variant=with-cohorts",
-            stdout=out,
-        )
-
-        output = out.getvalue()
-        assert "with cohorts" in output
-        assert "without cohorts" not in output
 
 
 @override_settings(FLAGS_REDIS_URL=None)
@@ -1803,7 +1828,7 @@ class TestFlagDependencyChainTransformation(BaseTest):
             },
         )
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flags = response["flags"]
 
         flag_c_data = self._find_flag(flags, "flag-c")
@@ -1863,7 +1888,7 @@ class TestFlagDependencyChainTransformation(BaseTest):
         }
         flag_a.save()
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flags = response["flags"]
         self.assertEqual(len(flags), 2)
 
@@ -1928,7 +1953,7 @@ class TestFlagDependencyChainTransformation(BaseTest):
             },
         )
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flags = response["flags"]
 
         flag_c_data = self._find_flag(flags, "flag-c")
@@ -1969,7 +1994,7 @@ class TestFlagDependencyChainTransformation(BaseTest):
             },
         )
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flags = response["flags"]
 
         self_flag_data = self._find_flag(flags, "self-flag")
@@ -2012,7 +2037,7 @@ class TestFlagDependencyChainTransformation(BaseTest):
             },
         )
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flags = response["flags"]
 
         flag_b_data = self._find_flag(flags, "flag-b")
@@ -2054,7 +2079,7 @@ class TestFlagDependencyChainTransformation(BaseTest):
             },
         )
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flags = response["flags"]
 
         flag_a_data = self._find_flag(flags, "flag-a")
@@ -2096,7 +2121,7 @@ class TestFlagDependencyChainTransformation(BaseTest):
             )
             dependent_flags.append(flag)
 
-        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        response = _get_flags_response_for_local_evaluation(self.team)
         flags = response["flags"]
 
         for i, _flag in enumerate(dependent_flags):

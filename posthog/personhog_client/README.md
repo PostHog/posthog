@@ -8,9 +8,21 @@ Personhog is an internal service that owns the source of truth for person-relate
 **All Django code must use this client (or the routed helpers built on it) instead of querying person/group tables via the ORM or raw SQL.**
 Direct ORM queries like `Person.objects.filter(...)` or `PersonDistinctId.objects.filter(...)` are not allowed for new code.
 
-Routed helpers that handle the gate check, gRPC call, ORM fallback, and metrics already exist in
+Routed helpers that handle the gRPC call and metrics already exist in
 `posthog/models/person/util.py` and `posthog/models/group_type_mapping.py` — use these when one fits your use case.
 When no existing helper covers your needs, follow the `_personhog_routed()` pattern in `posthog/models/person/util.py`.
+personhog is the sole read path — there is no ORM fallback.
+
+## Scope: identity questions only
+
+Personhog is for **identity resolution and point lookups**: resolving a distinct ID to a person, checking a person exists, fetching a single person (or a small known set) by id or UUID, and lifecycle writes (deletes, splits, cohort membership).
+
+It is **not** for property-shaped or bulk-shaped reads.
+Loading person properties, hydrating lists of persons, and searching or filtering persons all belong in ClickHouse (HogQL over the `persons` table, `ActorsQueryRunner`).
+Avoid reading the `properties` field from personhog where possible — the long-term direction is for the API to not surface it to users at all.
+Single-person point lookups that need properties are currently exempt where no ClickHouse primitive exists for them; do not extend that to bulk reads.
+
+See [docs/internal/person-data-access.md](/docs/internal/person-data-access.md) for the full guidelines and rationale.
 
 ## Database tables
 
@@ -28,26 +40,12 @@ Do not query them directly — use the routed helpers or client RPCs.
 | `posthog_pendingpersonoverride`      | `PendingPersonOverride`      | Pending person merge overrides     |
 | `posthog_flatpersonoverride`         | `FlatPersonOverride`         | Flattened person overrides         |
 | `posthog_featureflaghashkeyoverride` | `FeatureFlagHashKeyOverride` | Feature flag hash key overrides    |
-| `posthog_personlessdistinctid`       | `PersonlessDistinctId`       | Personless distinct IDs            |
 | `posthog_personoverridemapping`      | `PersonOverrideMapping`      | Person override mappings           |
 
 ## Client singleton
 
 `get_personhog_client()` returns a thread-safe singleton `PersonHogClient` instance, configured from Django settings.
 Returns `None` when `PERSONHOG_ADDR` is not set (e.g. in local dev without personhog running).
-
-## Rollout gate
-
-The `use_personhog()` function in `gate.py` controls whether gRPC or ORM is used, based on three settings:
-
-| Setting                        | Description                                               |
-| ------------------------------ | --------------------------------------------------------- |
-| `PERSONHOG_ENABLED`            | Master toggle — must be `True` for gRPC to be used        |
-| `PERSONHOG_ADDR`               | gRPC address (e.g. `localhost:50051`) — must be non-empty |
-| `PERSONHOG_ROLLOUT_PERCENTAGE` | `0`–`100` — percentage of calls routed to gRPC            |
-
-The `PersonHogGateMiddleware` (`middleware.py`) pins the gate decision for the lifetime of an HTTP request,
-ensuring all person/group reads within a single request consistently hit the same backend.
 
 ## Proto converters
 
@@ -111,17 +109,14 @@ def test_something(self):
         fake.assert_called("get_person_by_uuid", times=1)
 ```
 
-The `fake_personhog_client()` context manager also forces the gate ON by default.
-Pass `gate_enabled=False` to simulate the gate being off.
-
 ## Observability
 
 The client emits Prometheus metrics at multiple layers:
 
 **Routing metrics** (`metrics.py`):
 
-- `personhog_routing_total` — tracks which source (personhog vs django_orm) was used per operation
-- `personhog_routing_errors_total` — errors that triggered ORM fallback
+- `personhog_routing_total` — counts personhog reads per operation
+- `personhog_routing_errors_total` — personhog read errors per operation
 - `personhog_team_mismatch_total` — persons dropped because personhog returned a mismatched team_id
 
 **gRPC request metrics** (`interceptor.py`):
@@ -139,8 +134,6 @@ The client emits Prometheus metrics at multiple layers:
 ## Directory layout
 
 - `client.py` — `PersonHogClient` with typed methods for each RPC, plus `get_personhog_client()` singleton
-- `gate.py` — `use_personhog()` rollout gate
-- `middleware.py` — `PersonHogGateMiddleware` that pins the gate decision per HTTP request
 - `converters.py` — proto-to-Django conversion functions
 - `fake_client.py` — `FakePersonHogClient` for tests
 - `interceptor.py` — gRPC interceptors for client name headers and request metrics

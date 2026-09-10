@@ -1,4 +1,5 @@
 import importlib
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -6,13 +7,19 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.test import TestCase
+from django.utils import timezone
+
+from parameterized import parameterized
+from prometheus_client import REGISTRY
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.logic.services.sandbox_usage import SandboxCpuAttribution
+from products.tasks.backend.models import SandboxSession, Task, TaskRun
 
 _module = importlib.import_module("products.tasks.backend.temporal.process_task.activities.forward_pending_message")
 
@@ -20,9 +27,26 @@ forward_pending_user_message = _module.forward_pending_user_message
 
 
 def _command_result(**kwargs):
-    defaults = {"success": False, "status_code": 0, "error": None, "retryable": False, "data": None}
+    defaults = {
+        "success": False,
+        "status_code": 0,
+        "error": None,
+        "retryable": False,
+        "turn_in_flight": False,
+        "data": None,
+    }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
+
+
+def _delivery_failed_sample(retryable: str) -> float:
+    return (
+        REGISTRY.get_sample_value(
+            "posthog_tasks_followup_delivery_failed_total",
+            {"origin_product": "slack", "retryable": retryable},
+        )
+        or 0.0
+    )
 
 
 class TestForwardPendingUserMessage(TestCase):
@@ -66,9 +90,17 @@ class TestForwardPendingUserMessage(TestCase):
         run.refresh_from_db()
         assert run.state == {"mode": "background"}
 
+    def test_missing_run_raises_non_retryable(self):
+        # A run deleted mid-run (team deletion cascade) must fail the workflow at the
+        # first forward, not leave the agent session running headless.
+        with self.assertRaises(ApplicationError) as ctx:
+            forward_pending_user_message("550e8400-e29b-41d4-a716-446655440000")
+        assert ctx.exception.non_retryable is True
+
+    @patch("products.tasks.backend.logic.services.store_skills.refresh_store_skills_state")
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
-    def test_pending_message_delivered_successfully(self, mock_send, mock_token):
+    def test_pending_message_delivered_successfully(self, mock_send, mock_token, mock_refresh_store_skills):
         run = self._make_run(
             state={
                 "pending_user_message": "fix the tests",
@@ -79,10 +111,74 @@ class TestForwardPendingUserMessage(TestCase):
 
         forward_pending_user_message(str(run.id))
 
+        # Not a warm activation: the run's own boot already listed this user's skills.
+        mock_refresh_store_skills.assert_not_called()
         mock_send.assert_called_once()
         assert mock_send.call_args[0][1] == "fix the tests"
+        assert mock_send.call_args.kwargs["message_id"]
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
+        assert "pending_user_message_id" not in run.state
+
+    @patch("products.tasks.backend.logic.services.store_skills.refresh_store_skills_state")
+    @patch("products.tasks.backend.logic.services.sandbox_usage.measure_task_run_cpu_attribution")
+    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    def test_successful_delivery_attributes_sandbox_usage(
+        self, mock_send, mock_token, mock_measure, mock_refresh_store_skills
+    ):
+        run = self._make_run(
+            state={
+                "await_user_message": True,
+                "pending_user_message": "fix the tests",
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+        SandboxSession.objects.unscoped().create(
+            team=self.team,
+            task_run=run,
+            sandbox_id="sb-fwd",
+            cpu_cores=4.0,
+            memory_gb=16.0,
+            vm_runtime=True,
+            ttl_seconds=3600,
+            ttl_expires_at=timezone.now() + timedelta(seconds=3600),
+        )
+        measured_at = timezone.now()
+        calls = []
+
+        def measure(*args):
+            calls.append("measure")
+            return {
+                "sb-fwd": SandboxCpuAttribution(
+                    cpu_usage_usec=1_234_567,
+                    billed_cpu_usage_usec=1_500_000,
+                    measured_at=measured_at,
+                )
+            }
+
+        def send(*args, **kwargs):
+            calls.append("send")
+            return _command_result(success=True, status_code=200)
+
+        def refresh_store_skills(*args, **kwargs):
+            calls.append("refresh_store_skills")
+
+        mock_measure.side_effect = measure
+        mock_send.side_effect = send
+        mock_refresh_store_skills.side_effect = refresh_store_skills
+
+        forward_pending_user_message(str(run.id))
+
+        session = SandboxSession.objects.unscoped().get(sandbox_id="sb-fwd")
+        assert session.user_attributed_at is not None
+        assert session.last_user_activity_at is not None
+        assert session.provider_cpu_usage_attribution_usec == 1_234_567
+        assert session.provider_billed_cpu_usage_attribution_usec == 1_500_000
+        assert session.provider_cpu_usage_attribution_measured_at == measured_at
+        # The agent re-reads the run on this message, so the activating user's skills go in first.
+        assert calls == ["refresh_store_skills", "measure", "send"]
+        mock_refresh_store_skills.assert_called_once_with(run, self.user, reason="warm_activation")
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.temporal.observability.posthoganalytics.capture")
@@ -96,14 +192,41 @@ class TestForwardPendingUserMessage(TestCase):
         )
         mock_send.return_value = _command_result(success=False, status_code=504, error="timeout", retryable=True)
 
-        forward_pending_user_message(str(run.id))
+        with self.assertRaises(ApplicationError) as error_context:
+            forward_pending_user_message(str(run.id))
 
+        assert error_context.exception.non_retryable is True
         mock_send.assert_called_once()
         captured_events = [call.kwargs["event"] for call in mock_capture.call_args_list]
         assert "process_task_activity_failed" in captured_events
         assert "process_task_activity_completed" not in captured_events
         run.refresh_from_db()
         assert run.state.get("pending_user_message") == "fix the tests"
+        assert run.state.get("pending_user_message_id")
+
+    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    def test_read_timeout_keeps_running_turn_alive(self, mock_send, mock_token):
+        run = self._make_run(
+            state={
+                "pending_user_message": "fix the tests",
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+        mock_send.return_value = _command_result(
+            success=False,
+            status_code=504,
+            error="Sandbox request timed out",
+            retryable=True,
+            turn_in_flight=True,
+        )
+
+        forward_pending_user_message(str(run.id))
+
+        mock_send.assert_called_once()
+        run.refresh_from_db()
+        assert "pending_user_message" not in run.state
+        assert "pending_user_message_id" not in run.state
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
@@ -117,12 +240,20 @@ class TestForwardPendingUserMessage(TestCase):
         mock_send.return_value = _command_result(
             success=False, status_code=502, error="connection failed", retryable=True
         )
+        before = _delivery_failed_sample("true")
 
-        forward_pending_user_message(str(run.id))
+        with self.assertRaises(ApplicationError) as error_context:
+            forward_pending_user_message(str(run.id))
 
+        assert error_context.exception.non_retryable is True
         assert mock_send.call_count == 2
+        message_ids = [call.kwargs["message_id"] for call in mock_send.call_args_list]
+        assert message_ids[0]
+        assert message_ids[0] == message_ids[1]
+        assert _delivery_failed_sample("true") == before + 1
         run.refresh_from_db()
         assert run.state.get("pending_user_message") == "fix the tests"
+        assert run.state.get("pending_user_message_id") == message_ids[0]
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
@@ -134,12 +265,15 @@ class TestForwardPendingUserMessage(TestCase):
             }
         )
         mock_send.return_value = _command_result(success=False, status_code=401, error="Unauthorized", retryable=False)
+        before = _delivery_failed_sample("false")
 
         forward_pending_user_message(str(run.id))
 
         mock_send.assert_called_once()
+        assert _delivery_failed_sample("false") == before + 1
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
+        assert "pending_user_message_id" not in run.state
 
     @patch(
         "products.tasks.backend.logic.services.staged_artifacts.get_task_run_artifacts_by_id",
@@ -175,6 +309,7 @@ class TestForwardPendingUserMessage(TestCase):
                 "pending_user_message": "fix the tests",
                 "pending_user_message_ts": "1234.5",
                 "interaction_origin": "slack",
+                "slack_actor_user_id": self.user.id,
                 "sandbox_url": "https://sandbox.example.com/rpc",
             }
         )
@@ -193,15 +328,22 @@ class TestForwardPendingUserMessage(TestCase):
         mock_send.return_value = _command_result(
             success=True,
             status_code=200,
-            data={"result": {"assistant_message": "Which license should I use?"}},
+            data={
+                "result": {
+                    "assistant_message": "Which license should I use?",
+                    "trace_id": "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
+                }
+            },
         )
 
         forward_pending_user_message(str(run.id))
 
+        # The trace id exists only in the agent's answer, so dropping it here loses it.
         mock_enqueue_relay.assert_called_once_with(
             run_id=str(run.id),
             text="Which license should I use?",
             user_message_ts="1234.5",
+            trace_id="f960aead-b2af-4ee0-b0eb-630109a1b2a0",
         )
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
@@ -221,6 +363,7 @@ class TestForwardPendingUserMessage(TestCase):
                 "pending_user_message": "fix the tests",
                 "pending_user_message_ts": "1234.5",
                 "interaction_origin": "slack",
+                "slack_actor_user_id": self.user.id,
                 "sandbox_url": "https://sandbox.example.com/rpc",
             }
         )
@@ -260,6 +403,7 @@ class TestForwardPendingUserMessage(TestCase):
                 "pending_user_message": "fix the tests",
                 "pending_user_message_ts": "1234.5",
                 "interaction_origin": "slack",
+                "slack_actor_user_id": self.user.id,
                 "sandbox_url": "https://sandbox.example.com/rpc",
             }
         )
@@ -274,3 +418,72 @@ class TestForwardPendingUserMessage(TestCase):
 
         mock_enqueue_relay.assert_called_once()
         assert "couldn't fetch the reply text" in mock_enqueue_relay.call_args.kwargs["text"]
+
+
+_extract_text_from_message_payload = _module._extract_text_from_message_payload
+
+
+class TestExtractTextFromMessagePayload(TestCase):
+    """Guards the ``text-after-last-tool_use`` rule that keeps interim narrative
+    ("Let me pull DAU…") out of the Slack reply while preserving the final answer."""
+
+    @parameterized.expand(
+        [
+            (
+                "string_content_returned_as_is",
+                {"content": "final answer"},
+                "final answer",
+            ),
+            (
+                "no_tool_use_joins_every_text_part",
+                {
+                    "content": [
+                        {"type": "text", "text": "part one"},
+                        {"type": "text", "text": "part two"},
+                    ]
+                },
+                "part one\npart two",
+            ),
+            (
+                "drops_text_before_the_only_tool_use",
+                {
+                    "content": [
+                        {"type": "text", "text": "I'll pull DAU."},
+                        {"type": "tool_use", "name": "hogql_query"},
+                        {"type": "text", "text": "Here's your answer."},
+                    ]
+                },
+                "Here's your answer.",
+            ),
+            (
+                "keeps_only_text_after_the_last_of_many_tool_uses",
+                {
+                    "content": [
+                        {"type": "text", "text": "step 1 setup"},
+                        {"type": "tool_use", "name": "a"},
+                        {"type": "text", "text": "step 2 setup"},
+                        {"type": "tool_use", "name": "b"},
+                        {"type": "text", "text": "final answer"},
+                    ]
+                },
+                "final answer",
+            ),
+            (
+                "no_text_after_last_tool_use_returns_none",
+                {
+                    "content": [
+                        {"type": "text", "text": "I'll do stuff"},
+                        {"type": "tool_use", "name": "x"},
+                    ]
+                },
+                None,
+            ),
+            (
+                "falls_back_to_top_level_text_when_content_absent",
+                {"text": "hello"},
+                "hello",
+            ),
+        ]
+    )
+    def test_extract(self, _name: str, message: dict, expected: str | None) -> None:
+        assert _extract_text_from_message_payload(message) == expected

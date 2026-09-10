@@ -1,6 +1,10 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import BaseTest
 
-from posthog.schema import AssistantTrendsQuery, Compare
+from parameterized import parameterized
+
+from posthog.schema import AssistantDateRange, AssistantTrendsQuery, Compare, IntervalType
 
 from .. import TrendsResultsFormatter
 
@@ -119,6 +123,92 @@ class TestTrendsResultsFormatter(BaseTest):
         series.pop("action")
         self.assertEqual(formatter._extract_series_label(series), "$pageview breakdown for the value `0`")
 
+    def test_trends_marks_partial_current_and_future_buckets(self):
+        # now is midday on the 25th (UTC), so the 25th's bucket is still collecting and the 26th is
+        # in the future — both must be flagged so daily automation doesn't treat them as complete.
+        results = [
+            {
+                "data": [242, 46, 0],
+                "days": ["2025-01-24", "2025-01-25", "2025-01-26"],
+                "count": 288,
+                "label": "$pageview",
+            }
+        ]
+        self.assertEqual(
+            TrendsResultsFormatter(
+                AssistantTrendsQuery(series=[]),
+                results,
+                self.team,
+                datetime(2025, 1, 25, 12, 0, 0, tzinfo=UTC),
+            ).format(),
+            "Date|$pageview\n2025-01-24|242\n2025-01-25 (partial)|46\n2025-01-26 (partial)|0\n\n"
+            'Note: rows marked "(partial)" cover an interval that is still in progress as of the query time, '
+            "so their values are incomplete. Timezone: UTC.",
+        )
+
+    def test_trends_does_not_mark_complete_buckets(self):
+        # Every bucket ends before now, so nothing is partial and no note is appended.
+        results = [
+            {
+                "data": [242, 46, 0],
+                "days": ["2025-01-23", "2025-01-24", "2025-01-25"],
+                "count": 288,
+                "label": "$pageview",
+            }
+        ]
+        self.assertEqual(
+            TrendsResultsFormatter(
+                AssistantTrendsQuery(
+                    series=[], dateRange=AssistantDateRange(date_from="2025-01-23", date_to="2025-01-25")
+                ),
+                results,
+                self.team,
+                datetime(2025, 2, 1, 12, 0, 0, tzinfo=UTC),
+            ).format(),
+            "Date|$pageview\n2025-01-23|242\n2025-01-24|46\n2025-01-25|0",
+        )
+
+    def test_trends_marks_partial_hourly_bucket(self):
+        # Hourly granularity: only the in-progress hour (and later) is partial.
+        results = [
+            {
+                "data": [5, 9, 0],
+                "days": ["2025-01-25 10:00:00", "2025-01-25 11:00:00", "2025-01-25 12:00:00"],
+                "count": 14,
+                "label": "$pageview",
+            }
+        ]
+        self.assertEqual(
+            TrendsResultsFormatter(
+                AssistantTrendsQuery(series=[], interval=IntervalType.HOUR),
+                results,
+                self.team,
+                datetime(2025, 1, 25, 12, 30, 0, tzinfo=UTC),
+            ).format(),
+            "Date|$pageview\n2025-01-25 10:00|5\n2025-01-25 11:00|9\n2025-01-25 12:00 (partial)|0\n\n"
+            'Note: rows marked "(partial)" cover an interval that is still in progress as of the query time, '
+            "so their values are incomplete. Timezone: UTC.",
+        )
+
+    def test_trends_labelless_series(self):
+        # A series with no label, custom_name, or breakdown_value used to crash the formatter with
+        # `AttributeError: 'NoneType' object has no attribute 'replace'`. It should render as an
+        # empty label instead.
+        results = [
+            {
+                "data": [242, 46, 0],
+                "labels": ["23-Jan-2025", "24-Jan-2025", "25-Jan-2025"],
+                "days": ["2025-01-23", "2025-01-24", "2025-01-25"],
+                "count": 288,
+                "label": None,
+            }
+        ]
+
+        self.assertEqual(
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
+            "Date|\n2025-01-23|242\n2025-01-24|46\n2025-01-25|0",
+        )
+
     def test_trends_aggregated_value(self):
         results = [
             {
@@ -163,6 +253,58 @@ class TestTrendsResultsFormatter(BaseTest):
         self.assertEqual(
             TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
             "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|1000",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "aggregated_series_first",
+                [
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "aggregated_value": 993,
+                        "label": "$pageview",
+                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
+                    },
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "label": "$pageleave",
+                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
+                    },
+                ],
+                "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|N/A",
+            ),
+            (
+                "aggregated_series_second",
+                [
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "label": "$pageleave",
+                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
+                    },
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "aggregated_value": 993,
+                        "label": "$pageview",
+                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
+                    },
+                ],
+                "Date range|Aggregated value for $pageleave|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|N/A|993",
+            ),
+        ]
+    )
+    def test_trends_aggregated_values_with_mixed_series(self, _name, results, expected):
+        self.assertEqual(
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
+            expected,
         )
 
     def test_trends_aggregated_value_with_null_action(self):

@@ -1,7 +1,7 @@
+import { EventIngestionRestrictionManager, RestrictionType } from '~/common/utils/event-ingestion-restrictions'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, PipelineEvent, Team } from '~/types'
-import { EventIngestionRestrictionManager, RestrictionType } from '~/utils/event-ingestion-restrictions'
 
 function applyPersonProcessingRestrictions(
     event: PipelineEvent,

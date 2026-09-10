@@ -1,6 +1,7 @@
 import {
     getRelativeNextPath,
     isExternalLink,
+    isHttpsUrl,
     isURL,
     parseNumericArrayFilter,
     parseTagsFilter,
@@ -29,6 +30,14 @@ describe('url utils', () => {
         it('can explode arrays to individual parameters', () => {
             const actual = toParams({ include: ['a', 'b'] }, true)
             expect(actual).toEqual('include=a&include=b')
+        })
+
+        it('does not throw when a nested object value is a bigint', () => {
+            // Property filter values may be bigints (see PropertyFilterBaseValue), which crashed
+            // toParams with "Do not know how to serialize a BigInt" via JSON.stringify
+            const filters = { properties: [{ key: 'user_id', value: BigInt('9007199254740993') }] }
+            expect(() => toParams({ filters })).not.toThrow()
+            expect(toParams({ filters })).toContain('9007199254740993')
         })
     })
 
@@ -149,6 +158,20 @@ describe('url utils', () => {
 
         it('returns relative path for encoded root-relative path', () => {
             expect(getRelativeNextPath('%2Ftest%2Ffoo%3Fbar%3Dbaz%23hash', location)).toBe('/test/foo?bar=baz#hash')
+        })
+
+        it('preserves percent-encoded characters in nested query params', () => {
+            // e.g. docs "Run in PostHog" links: ?next=/sql?open_query=SELECT%0A... — decoding
+            // again would turn %0A into a raw newline that new URL() strips, corrupting the SQL
+            expect(getRelativeNextPath('/sql?open_query=SELECT%0A++properties.%24mcp+AS+tool', location)).toBe(
+                '/sql?open_query=SELECT%0A++properties.%24mcp+AS+tool'
+            )
+        })
+
+        it('preserves percent-encoded query params in same-origin absolute URL', () => {
+            expect(getRelativeNextPath('https://us.posthog.com/sql?open_query=SELECT%0A%2A', location)).toBe(
+                '/sql?open_query=SELECT%0A%2A'
+            )
         })
 
         it('returns null for encoded protocol-relative URL', () => {
@@ -341,6 +364,19 @@ describe('url utils', () => {
         it('returns undefined for null and undefined', () => {
             expect(parseNumericArrayFilter(null)).toBeUndefined()
             expect(parseNumericArrayFilter(undefined)).toBeUndefined()
+        })
+    })
+    describe('isHttpsUrl', () => {
+        it.each([
+            ['https://example.com/webhook', true],
+            ['https://example.com:444/webhook', true],
+            ['  https://example.com/webhook  ', true],
+            ['http://example.com/webhook', false],
+            ['not a URL', false],
+            ['   ', false],
+            ['', false],
+        ])('returns %s -> %s', (value, expected) => {
+            expect(isHttpsUrl(value)).toBe(expected)
         })
     })
 })

@@ -1,17 +1,18 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
@@ -21,6 +22,8 @@ import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { SnapshotApi } from '../generated/api.schemas'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 export const scene: SceneExport = {
     component: VisualReviewRunScene,
@@ -93,13 +96,13 @@ function SnapshotThumbnail({
                     </span>
                 </>
             )}
-            <div className="w-[125px] h-[86px] rounded-sm overflow-hidden bg-bg-3000 relative">
+            <div className="w-[84px] h-[58px] rounded-sm overflow-hidden bg-bg-3000 relative">
                 {imgSrc ? (
                     <img
                         src={imgSrc}
                         alt=""
-                        width={125}
-                        height={86}
+                        width={84}
+                        height={58}
                         loading="lazy"
                         decoding="async"
                         className={`w-full h-full object-contain ${isQuarantined ? 'grayscale opacity-40' : ''}`}
@@ -116,7 +119,7 @@ function SnapshotThumbnail({
                     </span>
                 )}
             </div>
-            <div className="flex items-center gap-1 max-w-[130px] w-full">
+            <div className="flex items-center gap-1 max-w-[87px] w-full">
                 {hasDiff ? (
                     <SnapshotChangeBadge snapshot={snapshot} size="small" />
                 ) : (
@@ -199,7 +202,7 @@ function RunInProgressEmptyState({
                     )}
                 </LemonBanner>
             ) : null}
-            <DetectiveHog className="w-32 h-32" />
+            <HedgehogMagnifyingGlass className="w-32 h-32" />
             <h2 className="m-0">{title}</h2>
             <p className="max-w-md text-tertiary m-0">
                 {copy}

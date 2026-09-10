@@ -48,9 +48,13 @@ def is_api_key_access_method(access_method: AccessMethod | str | None) -> bool:
 
 class Product(StrEnum):
     API = "api"
+    AUTORESEARCH = "autoresearch"
     BATCH_EXPORT = "batch_export"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
+    CUSTOMER_ANALYTICS = "customer_analytics"
+    DATA_CATALOG = "data_catalog"
+    DATA_QUALITY = "data_quality"
     ENDPOINTS = "endpoints"
     ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -58,6 +62,7 @@ class Product(StrEnum):
     FEATURE_FLAGS = "feature_flags"
     GROUP_ANALYTICS = "group_analytics"
     GROWTH = "growth"  # growth-team activation/lifecycle jobs (e.g. production-event detection)
+    HEATMAPS = "heatmaps"
     INGESTION = "ingestion"
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
@@ -68,6 +73,7 @@ class Product(StrEnum):
     MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
+    NOTEBOOKS = "notebooks"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
     POSTHOG_CODE = "posthog_code"
@@ -78,7 +84,9 @@ class Product(StrEnum):
     SDK_HEALTH = "sdk_health"
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
+    SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
+    TRACING = "tracing"
     USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
@@ -89,6 +97,7 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
+    ACCOUNTS = "accounts"
     ALERTING = "alerting"
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
@@ -102,8 +111,10 @@ class Feature(StrEnum):
     DATA_MODELING = "data_modeling"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
+    INGESTION_WARNINGS = "ingestion_warnings"
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
+    DATA_QUALITY_CHECK = "data_quality_check"  # one data quality check assertion against its subject
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"
@@ -117,6 +128,7 @@ class Feature(StrEnum):
     # would be misleading; tagging by endpoint name keeps the signal honest.
     EVENTS_VALUES_API = "events_values_api"
     USAGE_REPORT = "usage_report"
+    DATA_FRESHNESS = "data_freshness"  # "when did this project last receive data" probes
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
     MIGRATION = "migration"
@@ -128,6 +140,9 @@ class Feature(StrEnum):
     POSTHOG_AI = "posthog_ai"
     MCP = "mcp"
     SEMANTIC_SEARCH = "semantic_search"
+    # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
+    # load is worth attributing separately from the tab queries it sits alongside.
+    INSTRUMENTATION_CHECKLIST = "instrumentation_checklist"
 
 
 class FallbackTags(TypedDict):
@@ -143,10 +158,13 @@ class FallbackTags(TypedDict):
 # fallback. The `None` rows double as breadcrumbs so the absence of a common scene is loud.
 SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "Cohort": {"product": Product.COHORTS, "feature": Feature.COHORT},
+    "CustomerAnalytics": {"product": Product.CUSTOMER_ANALYTICS, "feature": Feature.QUERY},
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
+    "EngineeringAnalytics": {"product": Product.ENGINEERING_ANALYTICS, "feature": Feature.QUERY},
     "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
     "Metrics": {"product": Product.METRICS, "feature": Feature.QUERY},
+    "RealTimeUsage": {"product": Product.BILLING, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitionEdit": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitions": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
@@ -176,6 +194,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.FUNNELS_QUERY
             | NodeKind.RETENTION_QUERY
             | NodeKind.PATHS_QUERY
+            | NodeKind.PATHS_V2_QUERY
             | NodeKind.STICKINESS_QUERY
             | NodeKind.LIFECYCLE_QUERY
             | NodeKind.EVENTS_QUERY
@@ -190,6 +209,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.WEB_STATS_TABLE_QUERY
             | NodeKind.WEB_GOALS_QUERY
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
+            | NodeKind.WEB_BOTS_TABLE_QUERY
+            | NodeKind.WEB_AGENT_ANALYTICS_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY
             | NodeKind.WEB_VITALS_PATH_BREAKDOWN_QUERY
@@ -202,11 +223,17 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.ERROR_TRACKING_QUERY
             | NodeKind.ERROR_TRACKING_ISSUE_CORRELATION_QUERY
             | NodeKind.ERROR_TRACKING_SIMILAR_ISSUES_QUERY
+            | NodeKind.ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY
             | NodeKind.ERROR_TRACKING_BREAKDOWNS_QUERY
+            | NodeKind.ERROR_TRACKING_RELEASES_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
+        case NodeKind.METRICS_QUERY:
+            return {"product": Product.METRICS}
+        case NodeKind.ACCOUNTS_TABLE_QUERY:
+            return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
         case (
@@ -229,6 +256,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         case (
             NodeKind.TRACE_QUERY
             | NodeKind.TRACES_QUERY
+            | NodeKind.SESSION_QUERY
             | NodeKind.TRACE_NEIGHBORS_QUERY
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
@@ -247,22 +275,32 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         ):
             return {"product": Product.MAX_AI}
         case (
-            NodeKind.REVENUE_ANALYTICS_GROSS_REVENUE_QUERY
-            | NodeKind.REVENUE_ANALYTICS_MRR_QUERY
-            | NodeKind.REVENUE_ANALYTICS_METRICS_QUERY
-            | NodeKind.REVENUE_ANALYTICS_OVERVIEW_QUERY
-            | NodeKind.REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY
-            | NodeKind.REVENUE_EXAMPLE_EVENTS_QUERY
-            | NodeKind.REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY
-        ):
-            return {"product": Product.REVENUE_ANALYTICS}
-        case (
             NodeKind.MARKETING_ANALYTICS_TABLE_QUERY
             | NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY
-            | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
+            | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY
+            | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
+            | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
-        case NodeKind.MCP_HARNESS_BREAKDOWN_QUERY:
+        case (
+            NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            | NodeKind.MCP_TOOL_CALL_BREAKDOWN_QUERY
+            | NodeKind.MCP_TOOL_CALLS_AND_ERRORS_QUERY
+            | NodeKind.MCP_TOOL_TOP_USERS_QUERY
+            | NodeKind.MCP_TOOL_FAILURES_QUERY
+            | NodeKind.MCP_TOOL_FAILURE_OCCURRENCES_QUERY
+            | NodeKind.MCP_TOOL_STATS_QUERY
+            | NodeKind.MCP_TOOL_DAILY_STATS_QUERY
+            | NodeKind.MCP_TOOL_QUALITY_ROWS_QUERY
+            | NodeKind.MCP_TOOL_QUALITY_DAILY_STATS_QUERY
+            | NodeKind.MCP_TOOL_CATEGORY_COUNTS_QUERY
+            | NodeKind.MCP_TOOL_CATEGORIES_QUERY
+            | NodeKind.MCP_TOOL_CATEGORY_MAP_QUERY
+            | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
+            | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
+            | NodeKind.MCP_TOOL_NEIGHBORS_QUERY
+            | NodeKind.MCP_MISSING_CAPABILITIES_QUERY
+        ):
             return {"product": Product.MCP_ANALYTICS}
         case (
             # not attributable on their own
@@ -282,6 +320,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.FUNNELS_ACTORS_QUERY
             | NodeKind.FUNNEL_CORRELATION_QUERY
             | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
+            | NodeKind.PATHS_V2_ACTORS_QUERY
             # data-source nodes, not full queries
             | NodeKind.EVENTS_NODE
             | NodeKind.GROUP_NODE
@@ -376,6 +415,7 @@ class QueryTags(BaseModel):
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
+    scanner_id: Optional[str] = None  # replay-vision scanner, for per-scanner read metering
     exported_asset_id: Optional[int] = None
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
@@ -394,12 +434,28 @@ class QueryTags(BaseModel):
     scene: Optional[str] = None
 
     alert_config_id: Optional[uuid.UUID] = None
+    # Cadence and query shape of the alert that triggered this run, tagged at evaluation
+    # so query_log cost can be grouped by frequency (real_time / every_15_minutes / ...)
+    # and by config type (TrendsAlertConfig vs HogQLAlertConfig) without joining to Postgres.
+    alert_calculation_interval: Optional[str] = None
+    alert_config_type: Optional[str] = None
     batch_export_id: Optional[uuid.UUID] = None
     cache_key: Optional[str] = None
     celery_task_id: Optional[uuid.UUID] = None
     clickhouse_exception_type: Optional[str] = None
     client_query_id: Optional[str] = None
     cohort_id: Optional[int] = None
+    # lazy-computation / preaggregation builds: the time window a single build INSERT covers (ISO).
+    # Generic across products (experiments, marketing, web analytics) since they share the executor.
+    precompute_window_start: Optional[str] = None
+    precompute_window_end: Optional[str] = None
+    # True on precompute READ queries served from expired-within-grace jobs (serve-stale path),
+    # so query_log can compare stale-served vs fresh reads without joining Prometheus.
+    precompute_stale: Optional[bool] = None
+    # Why a web analytics read skipped precompute: the `LazyPrecomputeIneligible` subclass name its
+    # gate refused it with. A live read is otherwise indistinguishable from a precompute miss.
+    # Web-only, so it carries the product prefix the shared fields above do not need.
+    web_analytics_precompute_ineligible_reason: Optional[str] = None
     entity_math: Optional[list[str]] = None
 
     # replays
@@ -418,12 +474,29 @@ class QueryTags(BaseModel):
     experiment_metric_uuid: Optional[str] = None
     experiment_metric_name: Optional[str] = None
     experiment_metric_type: Optional[str] = None  # "mean", "funnel", "ratio", "retention"
+    experiment_funnel_order_type: Optional[str] = None  # funnel metrics only: "ordered", "unordered", "strict"
     # DEPRECATED: alias of experiment_exposures_path, kept so external tooling keeps working.
     experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
     experiment_exposures_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    # Set on a recordings-list read that narrows the exposed population to sessions carrying
+    # in-session exposure evidence, which adds a live events scan and a GLOBAL IN set on top of the
+    # population read. Separates that heavier read from a plain exposure listing in the query log.
+    experiment_exposures_in_session: Optional[bool] = None
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
+    # Why precompute was not used (set on the metric read). One of "override_direct", "team_disabled",
+    # "min_runtime", "data_warehouse"; None/absent when precompute was attempted (so a direct path then
+    # means the build failed or wasn't ready — derivable from the precompute_build sub-queries).
+    experiment_precompute_skip_reason: Optional[str] = None
+    # Analysis window of the read (ISO), for the query-performance UI. The build sub-queries carry their
+    # own per-chunk window in the generic precompute_window_start/end fields above.
+    experiment_scan_date_from: Optional[str] = None
+    experiment_scan_date_to: Optional[str] = None
+    # Shared id linking a top-level query to its precompute-build sub-queries. Generated once per
+    # top-level evaluation; sub-queries inherit it through the tag context. Lets the query-performance
+    # UI group the (synchronous) build INSERTs under the read that triggered them.
+    experiment_query_group_id: Optional[uuid.UUID] = None
     experiment_actors_query_step: Optional[int] = None  # funnel step for actors query
     experiment_actors_query_variant: Optional[str] = None  # variant filter for actors query
     experiment_actors_query_includes_recordings: Optional[bool] = None  # whether recordings are included
@@ -432,6 +505,12 @@ class QueryTags(BaseModel):
     filter: Optional[object] = None
     filter_by_type: Optional[list[str]] = None
     breakdown_by: Optional[list[str]] = None
+
+    # data quality
+    data_quality_check_id: Optional[str] = None
+    data_quality_check_type: Optional[str] = None  # not_null, unique, freshness, custom_sql, ...
+    data_quality_subject_type: Optional[str] = None  # table or view
+    data_quality_subject_id: Optional[str] = None
 
     # data warehouse
     trend_volume_display: Optional[str] = None
@@ -539,9 +618,16 @@ def get_query_tag_value(key: str) -> Optional[Any]:
         return None
 
 
+# Tag snapshots are isolated copy-on-write: every mutation goes through a top-level attribute
+# assignment on a fresh shallow copy (see update/with_temporal/with_dagster), and nested tag
+# objects are only ever replaced, never mutated in place. That makes shallow model_copy()
+# sufficient for isolation — deep copies here were the dominant cost of tag_queries, which runs
+# on every request and every ClickHouse query. Keep that invariant when adding new tag helpers.
+
+
 def update_tags(new_query_tags: QueryTags):
     current_tags = get_query_tags()
-    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags = current_tags.model_copy()
     updated_tags.update(**new_query_tags.model_dump(exclude_none=True))
     query_tags.set(updated_tags)
 
@@ -551,10 +637,14 @@ def tag_queries(**kwargs) -> None:
     The purpose of tag_queries is to pass additional context for ClickHouse executed queries. The tags
     are serialized into ClickHouse' system.query_log.log_comment column.
 
+    Tags are last-write-wins, and HogQLQueryExecutor calls tag_queries(query_type=...) itself
+    immediately before execution. So a query_type set here before execute_hogql_query() never
+    reaches query_log; pass query_type= to execute_hogql_query() instead.
+
     :param kwargs: Key->value pairs of tags to be set.
     """
     current_tags = get_query_tags()
-    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags = current_tags.model_copy()
     updated_tags.update(**kwargs)
     query_tags.set(updated_tags)
 
@@ -605,7 +695,7 @@ def get_team_query_tags(team: "Team") -> dict[str, Any]:
 def clear_tag(key):
     with suppress(LookupError):
         current_tags = query_tags.get()
-        updated_tags = current_tags.model_copy(deep=True)
+        updated_tags = current_tags.model_copy()
         setattr(updated_tags, key, None)
         query_tags.set(updated_tags)
 
@@ -630,6 +720,7 @@ _EVENT_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
     (frozenset({"$exception"}), {"product": Product.ERROR_TRACKING}),
     (frozenset({"$web_vitals"}), {"product": Product.WEB_ANALYTICS}),
     (frozenset({"$feature_flag_called"}), {"product": Product.FEATURE_FLAGS}),
+    (frozenset({"$experiment_exposure"}), {"product": Product.EXPERIMENTS}),
 )
 
 # Union of every event the fallback can match — exposed so HogQLFeatureExtractor can use it as
@@ -712,6 +803,10 @@ def add_fallback_query_tags(tags: QueryTags) -> None:
 
     from posthog.event_usage import EventSource
 
+    # Stays a bare MCP comparison rather than MCP_TRANSPORT_EVENT_SOURCES: this tag's source is
+    # set by the request middleware, which runs before DRF authentication, so the surfaces that
+    # resolve from the OAuth grant (desktop, Slack) can never reach here — MCP traffic always
+    # arrives as plain `mcp`.
     if tags.product is None and tags.source == EventSource.MCP:
         tags.product = Product.MCP
 
@@ -766,7 +861,7 @@ def tags_context(**tags_to_set: Any) -> Generator[None]:
     """
     tags_copy: Optional[QueryTags] = None
     try:
-        tags_copy = get_query_tags().model_copy(deep=True)
+        tags_copy = get_query_tags().model_copy()
         if tags_to_set:
             tag_queries(**tags_to_set)
         yield

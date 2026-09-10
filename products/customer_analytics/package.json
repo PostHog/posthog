@@ -5,10 +5,12 @@
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
         "kea-test-utils": "catalog:",
         "posthog-js": "catalog:"
     },
@@ -17,11 +19,13 @@
         "@dnd-kit/modifiers": "*",
         "@dnd-kit/sortable": "*",
         "@dnd-kit/utilities": "*",
-        "@posthog/icons": "*",
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
         "@testing-library/dom": "*",
         "@testing-library/react": "*",
         "@testing-library/user-event": "*",
+        "@tiptap/core": "*",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

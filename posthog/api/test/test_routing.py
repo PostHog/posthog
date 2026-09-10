@@ -7,7 +7,6 @@ from datetime import timedelta
 import pytest
 from posthog.test.base import APIBaseTest
 
-from django.apps import apps
 from django.test import override_settings
 from django.urls import include, path
 from django.utils import timezone
@@ -23,10 +22,13 @@ from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOr
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.scoping import get_current_team_id
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.permissions import APIScopePermission
+from posthog.products import product_app_names
 
 from products.annotations.backend.api.annotation import AnnotationSerializer
 from products.annotations.backend.models.annotation import Annotation
@@ -50,8 +52,12 @@ class ScopedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 test_router = DefaultRouterPlusPlus()
 
-test_environments_router = test_router.register(r"environments", FooViewSet, "environments")
-test_environments_router.register(r"foos", FooViewSet, "environment_foos", ["team_id"])
+# A team_id-nested parent (distinct from the project_id-nested one below) so the mixin's
+# team_id vs project_id filtering can be exercised. Deliberately NOT named `environments`:
+# EnvironmentsRewriteMiddleware rewrites any `/api/environments/*` path onto `/api/projects/*`,
+# which would mask the team_id-lookup behavior these tests cover.
+test_team_nested_router = test_router.register(r"team_nested", FooViewSet, "team_nested")
+test_team_nested_router.register(r"foos", FooViewSet, "team_nested_foos", ["team_id"])
 
 test_projects_router = test_router.register(r"projects", FooViewSet, "projects")
 test_projects_router.register(r"foos", FooViewSet, "project_foos", ["project_id"])
@@ -96,7 +102,7 @@ class TestTeamAndOrgViewSetMixinSpanTagging(APIBaseTest):
     def test_team_view_tags_request_span_with_team_id(self):
         tracer, exporter = self._recording_tracer()
         with tracer.start_as_current_span("test-request-root"):
-            response = self.client.get(f"/api/environments/{self.team.id}/foos/")
+            response = self.client.get(f"/api/team_nested/{self.team.id}/foos/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self._root_span(exporter).attributes["team_id"], self.team.id)
 
@@ -127,8 +133,8 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         self.other_team_annotation = Annotation.objects.create(team=other_team, organization=self.organization)
         self.current_team_annotation = Annotation.objects.create(team=self.team, organization=self.organization)
 
-    def test_environment_nested_filtering(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/foos/")
+    def test_team_nested_filtering(self):
+        response = self.client.get(f"/api/team_nested/{self.team.id}/foos/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)  # Just current_team_annotation
 
@@ -158,7 +164,7 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         # restored the pre-request value, not unconditionally None.
         pre_request_scope = get_current_team_id()
 
-        response = self.client.get(f"/api/environments/{other_team.id}/foos/current_scope/")
+        response = self.client.get(f"/api/team_nested/{other_team.id}/foos/current_scope/")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["team_id"], other_team.id)
@@ -213,6 +219,79 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         assert (
             str(e.value) == "Method get_object is protected and should not be overridden. Use safely_get_object instead"
         )
+
+
+@override_settings(ROOT_URLCONF=__name__)
+class TestDeactivatedOrganizationBlocksTokens(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key",
+            user=self.user,
+            secure_value=hash_key_value(self.key_value),
+            scopes=["*"],
+        )
+        Annotation.objects.create(team=self.team, organization=self.organization)
+
+    def _get_with_key(self):
+        return self.client.get(
+            f"/api/scoped_environments/{self.team.id}/scoped_foos/",
+            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
+        )
+
+    def _deactivate(self, reason=None):
+        self.organization.is_active = False
+        self.organization.is_not_active_reason = reason
+        self.organization.save(update_fields=["is_active", "is_not_active_reason"])
+
+    def test_personal_api_key_is_refused_once_the_organization_is_deactivated(self):
+        self.assertEqual(self._get_with_key().status_code, 200)
+
+        self._deactivate(reason="Access revoked due to unpaid balance.")
+
+        response = self._get_with_key()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "organization_deactivated")
+        self.assertIn("Access revoked due to unpaid balance.", response.json()["detail"])
+
+    def test_session_auth_still_reaches_a_deactivated_organization(self):
+        self._deactivate()
+
+        response = self.client.get(f"/api/scoped_environments/{self.team.id}/scoped_foos/")
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_a_key_still_reaches_an_active_organization_of_the_same_user(self):
+        self._deactivate()
+        _, _, other_team = Organization.objects.bootstrap(user=self.user)
+        # bootstrap makes the new organization current, which would let a check that reads
+        # current_organization pass for the wrong reason. Put the deactivated one back.
+        self.user.current_organization = self.organization
+        self.user.save()
+
+        response = self.client.get(
+            f"/api/scoped_environments/{other_team.id}/scoped_foos/",
+            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_a_root_write_is_refused_for_a_deactivated_current_organization(self):
+        # A 400 here would mean the request reached the serializer, which is the bypass this guards.
+        self._deactivate()
+
+        response = self.client.post("/api/scoped_projects/", {}, HTTP_AUTHORIZATION=f"Bearer {self.key_value}")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "organization_deactivated")
+
+    def test_a_root_read_still_works_so_a_member_can_switch_organization(self):
+        self._deactivate()
+
+        response = self.client.get("/api/scoped_projects/", HTTP_AUTHORIZATION=f"Bearer {self.key_value}")
+
+        self.assertEqual(response.status_code, 200)
 
 
 @override_settings(ROOT_URLCONF=__name__)
@@ -343,38 +422,6 @@ def test_router_registry_get_unknown_name_lists_known():
         registry.get("missing")
 
 
-def _registry_with_parents():
-    registry = RouterRegistry()
-    root = DefaultRouterPlusPlus()
-    registry.set_root(root)
-    registry.add("projects", root.register(r"projects", FooViewSet, "projects"))
-    registry.add("environments", root.register(r"environments", FooViewSet, "environments"))
-    return registry
-
-
-def test_register_legacy_dual_route_registers_both_surfaces():
-    registry = _registry_with_parents()
-    project_item, environment_item = registry.register_legacy_dual_route(
-        r"things", FooViewSet, "project_things", ["team_id"]
-    )
-    assert project_item is not None
-    assert environment_item is not None
-
-
-@pytest.mark.parametrize(
-    "basename,lookups,match",
-    [
-        ("project_things", [], "non-empty"),
-        ("project_things", ["project_id"], "team_id"),
-        ("things", ["team_id"], "must start with"),
-    ],
-)
-def test_register_legacy_dual_route_rejects_bad_input(basename, lookups, match):
-    registry = _registry_with_parents()
-    with pytest.raises(ValueError, match=match):
-        registry.register_legacy_dual_route(r"things", FooViewSet, basename, lookups)
-
-
 # --- Product route auto-discovery -----------------------------------------------------
 # Mirrors the discovery loop in posthog/api/__init__.py so the tests exercise the same
 # filter (products.* app whose `.routes` module exists).
@@ -382,10 +429,8 @@ def test_register_legacy_dual_route_rejects_bad_input(basename, lookups, match):
 
 def _discover_product_route_modules():
     modules = []
-    for app_config in apps.get_app_configs():
-        if not app_config.name.startswith("products."):
-            continue
-        module_name = f"{app_config.name}.routes"
+    for app_name in product_app_names():
+        module_name = f"{app_name}.routes"
         if importlib.util.find_spec(module_name) is None:
             continue
         modules.append(importlib.import_module(module_name))
@@ -397,7 +442,6 @@ def _build_product_routes(modules):
     registry = RouterRegistry()
     registry.set_root(router)
     registry.add("projects", router.register(r"projects", FooViewSet, "projects"))
-    registry.add("environments", router.register(r"environments", FooViewSet, "environments"))
     registry.add("organizations", router.register(r"organizations", FooViewSet, "organizations"))
     for module in modules:
         module.register_routes(registry)

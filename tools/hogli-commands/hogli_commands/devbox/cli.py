@@ -10,6 +10,7 @@ import sys
 import errno
 import shutil
 import socket
+import tempfile
 import functools
 import subprocess
 import urllib.parse
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from hogli import telemetry
 from hogli.manifest import get_manifest
 
 from . import mutagen
@@ -28,13 +30,16 @@ from .coder import (
     DEFAULT_REGION,
     DEFAULT_TEMPLATE,
     DOTFILES_URI_PARAMETER,
+    EXPECTED_TAILNET,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
     REGIONS,
     _diagnose_unreachable_coder,
     _fail,
+    _ssh_host_alias,
     _start_app_param,
+    clone_workspace,
     coder_authenticated,
     coder_installed,
     coder_reachable,
@@ -56,7 +61,10 @@ from .coder import (
     get_default_git_identity,
     get_shared_users,
     get_sharing_status,
+    get_source_instance_id,
+    get_username,
     get_workspace,
+    get_workspace_disk_size,
     get_workspace_name,
     get_workspace_region,
     get_workspace_status,
@@ -81,7 +89,7 @@ from .coder import (
     ssh_replace,
     start_workspace,
     stop_workspace,
-    tailscale_connected,
+    tailscale_state,
     unshare_workspace,
     update_workspace,
     update_workspace_parameters,
@@ -108,7 +116,9 @@ _POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering
 # fails at the reachability check.
 _TAILNET_POLICY_URL = "https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson"
 _TAILNET_ACCESS_PREREQ = (
-    "Devbox access needs your email in `group:engineering` in "
+    f"Devbox access needs you on the `{EXPECTED_TAILNET}` tailnet (not dev / "
+    "prod-us / prod-eu / internal — those are for CI runners and subnet "
+    "routers), with your email in `group:engineering` in "
     "posthog-cloud-infra/tailnet-policy.hujson.\n"
     f"    Not granted yet? Add yourself via PR: {_TAILNET_POLICY_URL}"
 )
@@ -484,16 +494,51 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     click.echo(f"Saved Git identity for new workspaces: {git_name} <{git_email}>")
 
 
+def _ssh_config_without_coder_block() -> str | None:
+    """Return ``~/.ssh/config`` with coder's managed block cut out, or ``None`` when there is nothing to cut.
+
+    The deployment hostname matches the ``Host coder.*`` block that
+    ``coder config-ssh`` writes, so resolving ``IdentityAgent`` against it
+    reads back whatever the previous run wrote. An engineer who started
+    without one therefore never acquires one, however many times they
+    re-run setup.
+    """
+    try:
+        content = (Path.home() / ".ssh" / "config").read_text()
+    except OSError:
+        return None
+    lines = content.splitlines(keepends=True)
+    start = next((i for i, line in enumerate(lines) if "START-CODER" in line), None)
+    end = next((i for i, line in enumerate(lines) if "END-CODER" in line), None)
+    if start is None or end is None or end < start:
+        return None
+    return "".join(lines[:start] + lines[end + 1 :])
+
+
 def _resolve_local_identity_agent_for_coder() -> str | None:
     """Return the IdentityAgent ssh would use to connect to Coder workspaces, or ``None``.
 
     Resolves against the deployment hostname so the engineer's existing
-    ``Host *`` / ``Host *.posthog.dev`` / specific blocks all flow through.
+    ``Host *`` / ``Host *.posthog.dev`` / specific blocks all flow through,
+    reading their config with coder's block removed so a value coder wrote
+    on an earlier run cannot outrank the one they have set today.
+
+    Falls back to the plain lookup, which sees coder's block, so a machine
+    whose only ``IdentityAgent`` is the one coder wrote keeps it.
     """
     coder_host = urllib.parse.urlparse(get_coder_url()).hostname
     if not coder_host:
         return None
-    return _resolve_local_identity_agent(coder_host)
+    stripped = _ssh_config_without_coder_block()
+    if stripped is None:
+        return _resolve_local_identity_agent(coder_host)
+    with tempfile.NamedTemporaryFile("w", suffix="-ssh-config", delete=False) as probe:
+        probe.write(stripped)
+    try:
+        own = _resolve_local_identity_agent(coder_host, config_path=probe.name)
+    finally:
+        os.unlink(probe.name)
+    return own or _resolve_local_identity_agent(coder_host)
 
 
 def _resolve_local_signing_key() -> str | None:
@@ -524,23 +569,99 @@ def _resolve_local_signing_key() -> str | None:
         return None
 
 
-def _resolve_local_identity_agent(host: str) -> str | None:
+def _read_identity_agent(host: str, *, config_path: str | None = None) -> str | None:
+    """Return the raw ``identityagent`` value ``ssh -G <host>`` resolves, or ``None`` when ssh fails.
+
+    The raw value carries three meanings the normalized form collapses:
+    a socket path, ``none`` (use no agent at all), and the placeholder
+    ``SSH_AUTH_SOCK`` (fall back to the env var).
+    """
+    args = ["ssh", "-G", host] if config_path is None else ["ssh", "-F", config_path, "-G", host]
+    result = subprocess.run(args, capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        if line.startswith("identityagent "):
+            return line[len("identityagent ") :].strip()
+    return None
+
+
+def _resolve_local_identity_agent(host: str, *, config_path: str | None = None) -> str | None:
     """Return the SSH agent socket ``ssh -G <host>`` would use to authenticate, or ``None`` when no specific agent is configured.
 
     Treats ``none`` (signaling "no agent") and the literal placeholder
     ``SSH_AUTH_SOCK`` (signaling "fall back to the env var") as "no specific
     agent" so callers can decide their own fallback.
     """
-    result = subprocess.run(["ssh", "-G", host], capture_output=True, text=True)
+    value = _read_identity_agent(host, config_path=config_path)
+    if value and value.lower() not in ("none", "ssh_auth_sock"):
+        return value
+    return None
+
+
+@dataclass(frozen=True)
+class SigningAgentStatus:
+    """Whether the agent ssh forwards into devboxes can sign commits, and why not when it can't."""
+
+    ok: bool
+    detail: str
+
+
+def _key_fingerprint(public_key: str) -> str | None:
+    """Return the ``SHA256:...`` fingerprint of an SSH public key, or ``None`` when it will not parse."""
+    result = subprocess.run(["ssh-keygen", "-lf", "-"], input=public_key, capture_output=True, text=True)
     if result.returncode != 0:
         return None
-    for line in result.stdout.splitlines():
-        if line.startswith("identityagent "):
-            value = line[len("identityagent ") :].strip()
-            if value and value.lower() not in ("none", "ssh_auth_sock"):
-                return value
-            return None
-    return None
+    fields = result.stdout.split()
+    return next((field for field in fields if field.startswith("SHA256:")), None)
+
+
+def _forwarded_agent_socket() -> str | None:
+    """Return the agent socket ssh forwards to devboxes, or ``None`` when it forwards nothing.
+
+    Mirrors what ``ssh`` itself does: ``IdentityAgent`` wins over the
+    environment, ``none`` means no agent at all, and everything else falls
+    back to ``$SSH_AUTH_SOCK``.
+    """
+    value = _read_identity_agent(_ssh_host_alias("probe"))
+    if value and value.lower() != "ssh_auth_sock":
+        return None if value.lower() == "none" else value
+    return os.environ.get("SSH_AUTH_SOCK") or None
+
+
+def _diagnose_signing_agent() -> SigningAgentStatus:
+    """Report whether the agent reaching Coder hosts holds the commit-signing key.
+
+    Devbox signing is ``ssh-keygen -Y sign`` against a forwarded agent.
+    Forwarding a socket that holds nothing -- or forwarding none at all --
+    is not an ssh error, so the only symptom is a commit that fails to sign
+    inside the workspace, hours later and far from the cause.
+    """
+    public_key = _resolve_local_signing_key()
+    if not public_key:
+        return SigningAgentStatus(False, "`git config --global user.signingkey` is empty")
+
+    fingerprint = _key_fingerprint(public_key)
+    if not fingerprint:
+        return SigningAgentStatus(False, "`git config --global user.signingkey` is not a readable public key")
+
+    socket_path = _forwarded_agent_socket()
+    if not socket_path:
+        return SigningAgentStatus(
+            False, "ssh forwards no agent to Coder hosts (IdentityAgent none, or $SSH_AUTH_SOCK unset)"
+        )
+
+    listed = subprocess.run(
+        ["ssh-add", "-l"],
+        env={**os.environ, "SSH_AUTH_SOCK": socket_path},
+        capture_output=True,
+        text=True,
+    )
+    if listed.returncode != 0:
+        return SigningAgentStatus(False, f"no agent responding at {socket_path}")
+    if fingerprint not in listed.stdout:
+        return SigningAgentStatus(False, f"agent at {socket_path} does not hold {fingerprint}")
+    return SigningAgentStatus(True, f"{fingerprint} via {socket_path}")
 
 
 def maybe_configure_git_signing(
@@ -590,12 +711,12 @@ def maybe_configure_git_signing(
     click.echo()
     click.echo(click.style("Git commit signing", bold=True))
     click.echo(f"  Pushed signing key from `git config user.signingkey`: {public_key}")
-    agent_socket = _resolve_local_identity_agent_for_coder()
-    if agent_socket:
-        click.echo(f"  IdentityAgent for Coder hosts (from your ssh config): {agent_socket}")
+    signing_agent = _diagnose_signing_agent()
+    if signing_agent.ok:
+        click.echo(f"  Agent forwarded to Coder hosts holds the key: {signing_agent.detail}")
     else:
-        click.echo("  No IdentityAgent detected for Coder hosts -- SSH agent forwarding will use")
-        click.echo(f"  whatever `$SSH_AUTH_SOCK` points to. Configure per: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
+        click.echo(click.style(f"  Commits will not sign inside devboxes: {signing_agent.detail}", fg="yellow"))
+        click.echo(f"  Configure per: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
     click.echo()
     click.echo(click.style("If you haven't already:", bold=True))
     click.echo("  1. Open https://github.com/settings/ssh/new")
@@ -729,13 +850,22 @@ def devbox_doctor() -> None:
     click.echo(f"  Coder URL: {get_coder_url()}")
     click.echo()
 
-    _doctor_check("Tailscale connected", tailscale_connected())
+    connected, tailnet = tailscale_state()
+    _doctor_check("Tailscale connected", connected)
+
+    # Being on a per-environment tailnet looks identical to "connected" but
+    # routes nowhere near a devbox, and nothing prompts you about it after the
+    # first sign-in — so name the active tailnet on its own line.
+    _doctor_check(f"Tailnet: {tailnet or 'unknown'} (need {EXPECTED_TAILNET})", tailnet == EXPECTED_TAILNET)
 
     reachable = coder_reachable()
     _doctor_check("Coder control plane reachable", reachable)
 
     if not reachable:
         diagnosis = _diagnose_unreachable_coder()
+        # doctor exits 0 while reporting a broken tailnet, so a failure count
+        # off this property has to filter on command or exit_code.
+        telemetry.add_command_properties(devbox_failure_cause=diagnosis.code)
         click.echo()
         click.echo(click.style(f"  Cause: {diagnosis.cause}", fg="yellow"))
         click.echo(f"  Next:  {diagnosis.next_step}")
@@ -754,6 +884,9 @@ def devbox_doctor() -> None:
     # The Host coder.* block is a wildcard, so any name probes whether
     # `coder config-ssh` has run -- the prerequisite for devbox:ssh/exec.
     _doctor_check("SSH access configured (devbox:ssh/exec)", coder_ssh_alias_configured("probe"))
+
+    signing_agent = _diagnose_signing_agent()
+    _doctor_check(f"Commit signing agent: {signing_agent.detail}", signing_agent.ok)
 
     if not authenticated:
         _doctor_footer()
@@ -1306,7 +1439,7 @@ def _maybe_hint_region_mismatch(name: str) -> None:
 @workspace_argument
 @click.option(
     "--disk",
-    type=click.Choice(["60", "80", "100"]),
+    type=click.Choice(["100", "200"]),
     default="100",
     help="Disk size in GiB (default: 100)",
 )
@@ -1392,6 +1525,88 @@ def devbox_start(
     )
     click.echo("Created.")
     _print_connection_info(name)
+
+
+@click.command(
+    name="devbox:clone",
+    help="Clone a running devbox into a new one, carrying its full disk state",
+)
+@workspace_argument
+@click.option(
+    "--as",
+    "new_label",
+    default="clone",
+    show_default=True,
+    help="Label for the new devbox (becomes devbox-<you>-<label>)",
+)
+@click.option("-y", "--yes", is_flag=True, help="Skip the confirmation prompt")
+@click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
+def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool) -> None:
+    """Duplicate a running devbox, disk and all.
+
+    Captures the source box's root volume into a private, short-lived AMI and
+    boots a new devbox from it, so the clone comes up with the source's full
+    disk state -- uncommitted work, local databases, installed tooling -- not
+    just the settings that dotfiles and user secrets already carry. The source
+    must be running; quiesce its dev stack first for an application-consistent
+    copy. The capture image is private to you and auto-expires.
+    """
+    ensure_runtime_ready()
+    source_name, workspaces = resolve_workspace_name(workspace)
+    ws = _get_workspace_or_fail(source_name, workspaces)
+
+    owner = get_username()
+    if str(ws.get("owner_name") or "").lower() not in ("", owner):
+        _fail("You can only clone your own devbox.")
+
+    template = ws.get("template_name") or DEFAULT_TEMPLATE
+    if template != DEFAULT_TEMPLATE:
+        _fail(f"Clone supports the '{DEFAULT_TEMPLATE}' template only (this devbox uses '{template}').")
+
+    # The clone lands in the source's region -- a per-clone AMI is region-scoped,
+    # so the template images and boots within that same region.
+    region = region_from_workspace_name(source_name)
+
+    status = get_workspace_status(ws)
+    if status != "running":
+        suffix = _workspace_arg_suffix(source_name)
+        _fail(
+            f"The source devbox must be running to clone it (status: {status}). Start it: `hogli devbox:start{suffix}`."
+        )
+
+    target_name = get_workspace_name(new_label, region=region)
+    if get_workspace(target_name, workspaces) is not None:
+        _fail(f"A devbox named '{target_name}' already exists. Pass `--as <label>` to pick another name.")
+
+    if not yes:
+        click.echo(f"Clone '{source_name}' -> '{target_name}'.")
+        click.echo(
+            "This images the source box's entire disk (including any on-disk secrets) into a\n"
+            "private AMI and boots the new box from it. The image auto-expires after a few days."
+        )
+        if not click.confirm("Proceed?"):
+            click.echo("Cancelled.")
+            return
+
+    disk_size = get_workspace_disk_size(ws)
+    if disk_size is None:
+        _fail("Could not determine the source devbox's disk size. Rebuild it on the latest template and retry.")
+
+    source_instance_id = get_source_instance_id(source_name)
+    click.echo(
+        f"Cloning '{source_name}' ({source_instance_id}) -> '{target_name}'. "
+        "The template captures its disk into a private image (a few minutes) and boots the clone from it."
+    )
+    clone_workspace(
+        target_name,
+        source_instance_id=source_instance_id,
+        disk_size=disk_size,
+        region=region,
+        template=template,
+        verbose=verbose,
+    )
+    click.echo("Cloned.")
+    _print_connection_info(target_name)
 
 
 @click.command(name="devbox:stop", help="Stop your devbox (preserves disk, stops billing)")
@@ -1832,6 +2047,7 @@ def _rm_dir(label: str, path: Path) -> None:
 
 
 @click.command(name="devbox:cleanup:disk", help="Free disk space by cleaning caches and build artifacts")
+@workspace_argument
 @click.option("--docker", "prune_docker", is_flag=True, help="Also prune stopped Docker containers")
 @click.option(
     "--cargo",
@@ -1839,14 +2055,37 @@ def _rm_dir(label: str, path: Path) -> None:
     is_flag=True,
     help="Also remove Cargo build artifacts (forces full Rust recompile on next build)",
 )
-def devbox_cleanup_disk(prune_docker: bool, prune_cargo: bool) -> None:
+def devbox_cleanup_disk(workspace: str | None, prune_docker: bool, prune_cargo: bool) -> None:
     """Free disk space by removing caches and build artifacts that are safe to delete.
 
     The default run is safe: it only removes orphaned packages, download caches,
     and old Nix generations — none of which force a full rebuild on next use.
     Use --cargo to also remove Cargo build artifacts (forces full Rust recompile).
     Use --docker to also prune stopped containers.
+
+    Runs locally by default. Pass a WORKSPACE (or --name/-n) to run it remotely
+    on that devbox over ssh instead.
     """
+    if workspace:
+        ensure_runtime_ready()
+        # Cleanup is destructive (removes caches and build artifacts), so refuse
+        # to run it against someone else's shared `@user[/label]` devbox.
+        if workspace.startswith("@"):
+            _fail("devbox:cleanup:disk only runs against your own devboxes, not a shared '@user' workspace.")
+        name, workspaces = resolve_workspace_name(workspace)
+        _get_workspace_or_fail(name, workspaces)
+        if not coder_ssh_alias_configured(name):
+            _fail(
+                "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
+            )
+        remote_cmd = ["hogli", "devbox:cleanup:disk"]
+        if prune_docker:
+            remote_cmd.append("--docker")
+        if prune_cargo:
+            remote_cmd.append("--cargo")
+        exec_replace(name, remote_cmd)
+        return  # unreachable; exec_replace replaces the process
+
     home = Path.home()
     # Watch distinct filesystems: home covers uv/sccache/cargo; /nix covers Nix store
     # (may be a separate volume); / covers Docker storage and anything else.

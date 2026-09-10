@@ -165,6 +165,20 @@ The lint command validates:
 > [!NOTE]
 > To migrate a product to full isolation (facade + contracts + selective testing), use the `isolating-product-facade-contracts` skill. See [products/architecture.md](architecture.md) for the target architecture.
 
+### New products must be isolated
+
+`products/isolation_baseline.txt` lists every product that is not isolated, and `hogli product:lint --all` fails when the tree and that file disagree in either direction.
+A new product not on the list must be isolated; a product that seals drops off it.
+
+`hogli product:bootstrap` scaffolds a product that is already sealed — real facade, contracts, tach `[[interfaces]]`, `backend:contract-check`, narrowed `turbo.json` — so a new product should never need a line.
+Adding one exempts the product from isolation and keeps the full Django backend suite running on every change it makes, which is why the file is owned by DevEx in `.github/CODEOWNERS`.
+
+Regenerate after sealing a product:
+
+```bash
+bin/hogli product:lint --regenerate-baseline
+```
+
 ### Manual setup
 
 - Create a new folder `products/your_product_name`, keep it underscore-cased.
@@ -192,6 +206,7 @@ The lint command validates:
 - Create or move your backend models under the product's `backend/` folder.
 - Use direct imports from the product location (e.g., `from products.experiments.backend.models import Experiment`)
 - Use string-based foreign key references to avoid circular imports (e.g., `models.ForeignKey("posthog.Team", on_delete=models.CASCADE)`)
+  - A `ForeignKey` **targeting a hot table** (`posthog.Team`, `posthog.User`, `posthog.Organization`, `posthog.Project`, including `settings.AUTH_USER_MODEL`) is unsafe even within the same database, and even for a brand-new `CreateModel`: building the FK constraint takes a `SHARE ROW EXCLUSIVE` lock on the _referenced parent_ table, which can stall a deploy under write traffic. `HotTableAlterPolicy` blocks this in CI. Either declare the FK with `db_constraint=False` (no parent lock at all, app-level enforcement only) or add it as a real constraint with the two-phase `AddForeignKeyNotValid` / `ValidateForeignKey` helpers. See [Foreign Keys to Hot Tables](https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/safe-django-migrations.md#foreign-keys-to-hot-tables). (This is a different problem from the cross-database FK limitation below — that one is about FKs _across separate product databases_.)
 - Create a `products/your_product_name/backend/migrations` folder.
 - Run `python manage.py makemigrations your_product_name -n initial_migration`
 - If this is a brand-new model, you're done.

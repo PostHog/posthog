@@ -1,8 +1,8 @@
 import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { logger } from '~/common/utils/logger'
 import { ConsoleLogLevel } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { ClickHouseTimestamp } from '~/types'
-import { logger } from '~/utils/logger'
 
 import { SessionBatchMetrics } from './metrics'
 
@@ -22,16 +22,19 @@ export class SessionConsoleLogStore {
     private pendingMessages: ConsoleLogEntry[] = []
     private readonly messageLimit: number
 
+    private readonly enabled: boolean
+
     constructor(
         private readonly outputs: IngestionOutputs<LogEntriesOutput>,
-        options: { messageLimit: number }
+        options: { messageLimit: number; enabled?: boolean }
     ) {
         this.messageLimit = options.messageLimit
+        this.enabled = options.enabled ?? true
         logger.debug('session_console_log_store_created')
     }
 
     public async storeSessionConsoleLogs(logs: ConsoleLogEntry[]): Promise<void> {
-        if (logs.length === 0) {
+        if (!this.enabled || logs.length === 0) {
             return
         }
 

@@ -23,9 +23,10 @@ use crate::{
 use axum::extract::{Extension, MatchedPath, Query, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::{debug_handler, Json};
+use axum::Json;
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
+use governor::clock;
 use serde_json;
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -254,10 +255,10 @@ fn get_versioned_response(
 
 /// Feature flag evaluation endpoint.
 /// Only supports a specific shape of data, and rejects any malformed data.
-#[debug_handler]
 #[allow(clippy::too_many_arguments)]
-pub async fn flags(
+pub async fn flags<C>(
     state: State<router::State>,
+    Extension(rate_limiters): Extension<router::FlagsEndpointRateLimiters<C>>,
     InsecureClientIp(direct_ip): InsecureClientIp,
     Query(query_params): Query<FlagsQueryParams>,
     // Populated by the `record_concurrency_wait` middleware after
@@ -273,7 +274,10 @@ pub async fn flags(
     method: Method,
     path: MatchedPath,
     body: Bytes,
-) -> Result<Response, FlagError> {
+) -> Result<Response, FlagError>
+where
+    C: clock::Clock + Clone + Send + Sync + 'static,
+{
     let request_id = extract_request_id(&headers);
 
     // Extract client IP, checking X-Forwarded-For header first
@@ -377,9 +381,9 @@ pub async fn flags(
         request_id,
         ip: ip_string.clone(),
         user_agent: user_agent.map(|s| s.to_string()),
-        lib: ua_info.lib_for_logging(),
-        // Browser SDK sends ver= query param, server SDKs send version in User-Agent
-        lib_version: query_params.lib_version.clone().or(ua_info.sdk_version),
+        lib: ua_info.lib_for_logging().map(str::to_string),
+        // The decoded body can override this later. Until then, prefer SDK User-Agent over legacy query params.
+        lib_version: initial_lib_version(&ua_info, &query_params),
         api_version: query_params.version.clone(),
         queue_time_ms,
         concurrency_limit_wait_ms,
@@ -394,7 +398,7 @@ pub async fn flags(
     let ip_rl_result = {
         let _t = common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
             .label("kind", "ip");
-        state.ip_rate_limiter.allow_request(&ip_string)
+        rate_limiters.ip.allow_request(&ip_string)
     };
     match ip_rl_result {
         RateLimitResult::Blocked => {
@@ -502,7 +506,7 @@ pub async fn flags(
             let _t =
                 common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
                     .label("kind", "token");
-            state.flags_rate_limiter.allow_request(&rate_limit_key)
+            rate_limiters.token.allow_request(&rate_limit_key)
         };
         match token_rl_result {
             RateLimitResult::Blocked => {
@@ -577,6 +581,14 @@ pub async fn flags(
             Err(e)
         }
     }
+}
+
+fn initial_lib_version(ua_info: &UserAgentInfo, query_params: &FlagsQueryParams) -> Option<String> {
+    // Server SDKs report versions in User-Agent, while browser SDKs use the legacy query parameter.
+    ua_info
+        .sdk_version
+        .clone()
+        .or_else(|| query_params.lib_version.clone())
 }
 
 fn create_request_span(
@@ -726,6 +738,34 @@ mod tests {
             .unwrap();
 
         assert!(matches!(params.compression, Some(Compression::Unsupported)));
+    }
+
+    #[test]
+    fn test_initial_lib_version_prefers_user_agent_over_query_param() {
+        let query_params = FlagsQueryParams {
+            lib_version: Some("query-1.0".to_string()),
+            ..Default::default()
+        };
+        let ua_info = UserAgentInfo::parse(Some("posthog-node/2.0"));
+
+        assert_eq!(
+            initial_lib_version(&ua_info, &query_params).as_deref(),
+            Some("2.0")
+        );
+    }
+
+    #[test]
+    fn test_initial_lib_version_falls_back_to_query_param() {
+        let query_params = FlagsQueryParams {
+            lib_version: Some("query-1.0".to_string()),
+            ..Default::default()
+        };
+        let ua_info = UserAgentInfo::parse(Some("Mozilla/5.0"));
+
+        assert_eq!(
+            initial_lib_version(&ua_info, &query_params).as_deref(),
+            Some("query-1.0")
+        );
     }
 
     #[test]

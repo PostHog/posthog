@@ -1,3 +1,4 @@
+import { decode } from 'he'
 import { useValues } from 'kea'
 
 import { IconCopy } from '@posthog/icons'
@@ -45,7 +46,7 @@ export function OAuthApps(): JSX.Element {
                     key: 'name',
                     render: (_, app: OrganizationOAuthApplicationApi) => (
                         <div className="flex items-center gap-2">
-                            <span className="font-semibold">{app.name}</span>
+                            <span className="font-semibold">{decode(app.name ?? '')}</span>
                             {app.is_verified && (
                                 <LemonTag type="success" size="small">
                                     Verified

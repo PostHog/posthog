@@ -8,6 +8,8 @@ from typing import Any
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from django.conf import settings
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -46,7 +48,13 @@ class TestDmatIntegration(BaseTest):
             "clickhouse",
         )
 
-        # Should use dmat column
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events_json" in query, query
+            assert "events.properties.revenue" in query, query
+            assert "dmat_string_3" not in query, query
+            assert "JSONExtractRaw" not in query, query
+            return
+
         assert "dmat_string_3" in query, f"Expected dmat_string_3 in query but got: {query}"
         assert "JSONExtractRaw" not in query
         assert "accurateCastOrNull(events.dmat_string_3" in query, (
@@ -186,37 +194,46 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
         )
         json_results = result_json.results[0]
 
-        # ============================================================
-        # PHASE 2: Insert event with pre-filled dmat columns
-        # ============================================================
-        # Build INSERT statement with dmat columns computed via extraction SQL
-        extraction_sql = _generate_property_extraction_sql()
-        dmat_columns = [f"dmat_string_{slot_indexes[tc.name]}" for tc in TEST_CASES]
-        dmat_values = [extraction_sql.replace("%(property_name)s", f"'{tc.name}'") for tc in TEST_CASES]
-
-        sync_execute(
-            f"""
-            INSERT INTO sharded_events (
-                uuid, team_id, event, distinct_id, timestamp, properties,
-                {", ".join(dmat_columns)}
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            _create_event(
+                team=self.team,
+                distinct_id="user1",
+                event="dmat_event",
+                properties=event_properties,
             )
-            SELECT
-                %(uuid)s,
-                %(team_id)s,
-                'dmat_event',
-                'user1',
-                now(),
-                %(properties)s,
-                {", ".join(dmat_values)}
-            FROM (SELECT %(properties)s as properties)
-        """,
-            {
-                "team_id": self.team.pk,
-                "properties": json.dumps(event_properties),
-                "uuid": str(uuid.uuid4()),
-            },
-            flush=False,
-        )
+            flush_persons_and_events()
+        else:
+            # ============================================================
+            # PHASE 2: Insert event with pre-filled dmat columns
+            # ============================================================
+            # Build INSERT statement with dmat columns computed via extraction SQL
+            extraction_sql = _generate_property_extraction_sql()
+            dmat_columns = [f"dmat_string_{slot_indexes[tc.name]}" for tc in TEST_CASES]
+            dmat_values = [extraction_sql.replace("%(property_name)s", f"'{tc.name}'") for tc in TEST_CASES]
+
+            sync_execute(
+                f"""
+                INSERT INTO sharded_events (
+                    uuid, team_id, event, distinct_id, timestamp, properties,
+                    {", ".join(dmat_columns)}
+                )
+                SELECT
+                    %(uuid)s,
+                    %(team_id)s,
+                    'dmat_event',
+                    'user1',
+                    now(),
+                    %(properties)s,
+                    {", ".join(dmat_values)}
+                FROM (SELECT %(properties)s as properties)
+            """,
+                {
+                    "team_id": self.team.pk,
+                    "properties": json.dumps(event_properties),
+                    "uuid": str(uuid.uuid4()),
+                },
+                flush=False,
+            )
 
         # ============================================================
         # PHASE 3: Create slots and query with dmat columns
@@ -235,10 +252,14 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        # Verify dmat columns ARE used
-        assert result_dmat.clickhouse is not None and "dmat_" in result_dmat.clickhouse, (
-            f"Should use dmat columns. SQL: {result_dmat.clickhouse}"
-        )
+        assert result_dmat.clickhouse is not None
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events_json" in result_dmat.clickhouse, result_dmat.clickhouse
+            assert "dmat_" not in result_dmat.clickhouse, (
+                f"New events schema should use JSON subcolumns, not dmat columns. SQL: {result_dmat.clickhouse}"
+            )
+        else:
+            assert "dmat_" in result_dmat.clickhouse, f"Should use dmat columns. SQL: {result_dmat.clickhouse}"
         dmat_results = result_dmat.results[0]
 
         # ============================================================

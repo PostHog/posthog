@@ -10,7 +10,7 @@ use crate::{
 use axum::http::{header::CONTENT_TYPE, header::USER_AGENT, HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
-use common_compression;
+use common_compression::{self, has_gzip_magic_header};
 use common_metrics::inc;
 use percent_encoding::percent_decode;
 
@@ -117,7 +117,7 @@ pub(crate) fn decode_body(
 
     // Fallback: Auto-detect gzip by checking magic bytes (0x1f, 0x8b)
     // This handles cases where clients send gzipped data without proper headers
-    if body.len() >= 2 && body[0] == 0x1f && body[1] == 0x8b {
+    if has_gzip_magic_header(&body) {
         tracing::debug!("Auto-detected gzip compression from magic bytes");
         inc(
             FLAG_REQUEST_KLUDGE_COUNTER,
@@ -567,16 +567,25 @@ mod tests {
         #[case(Some("posthog-ios/3.0.0"), "posthog-ios")]
         #[case(Some("posthog-react-native/2.5.0"), "posthog-react-native")]
         #[case(Some("posthog-flutter/4.0.0"), "posthog-flutter")]
+        #[case(Some("posthog-kmp/0.6.0"), "posthog-kmp")]
+        #[case(Some("posthog-unity/4.5.0"), "posthog-unity")]
         #[case(Some("posthog-python/1.4.0"), "posthog-python")]
+        #[case(Some("posthog-python-mcp/0.1.0"), "posthog-python-mcp")]
         #[case(Some("posthog-ruby/2.0.0"), "posthog-ruby")]
+        #[case(Some("posthog-rails/3.18.0"), "posthog-rails")]
         #[case(Some("posthog-ruby2.0.0"), "posthog-ruby")]
         #[case(Some("posthog-php/3.0.0"), "posthog-php")]
         #[case(Some("posthog-java/1.0.0"), "posthog-java")]
         #[case(Some("posthog-go/0.1.0"), "posthog-go")]
         #[case(Some("posthog-node/2.2.0"), "posthog-node")]
+        #[case(Some("posthog-node-mcp/0.7.0"), "posthog-node-mcp")]
+        #[case(Some("posthog-edge/2.2.0"), "posthog-edge")]
+        #[case(Some("posthog-convex/0.2.0"), "posthog-convex")]
         #[case(Some("posthog-dotnet/1.0.0"), "posthog-dotnet")]
+        #[case(Some("posthog-aspnetcore/1.0.0"), "posthog-aspnetcore")]
         #[case(Some("posthog-elixir/0.2.0"), "posthog-elixir")]
         #[case(Some("posthog-rs/0.10.0"), "posthog-rs")]
+        #[case(Some("posthog-server/1.0.0"), "posthog-server")]
         #[case(
             Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
             "browser"

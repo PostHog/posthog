@@ -1,6 +1,7 @@
+import { parseJSON } from '~/common/utils/json-parse'
+import { aiOtelUnknownPartTypeCounter } from '~/ingestion/pipelines/ai/metrics'
 import { extractToolCallNames } from '~/ingestion/pipelines/ai/tools/extract-tool-calls'
 import { PluginEvent } from '~/plugin-scaffold'
-import { parseJSON } from '~/utils/json-parse'
 
 import { mapOtelAttributes } from './attribute-mapping'
 import { convertOtelEvent } from './index'
@@ -54,6 +55,55 @@ describe('mapOtelAttributes', () => {
         })
         mapOtelAttributes(event)
         expect(event.properties!.$ai_input).toBe('not valid json')
+    })
+
+    it('JSON-parses gen_ai.tool.definitions into $ai_tools', () => {
+        const tools = [{ type: 'function', name: 'get_weather', parameters: { type: 'object' } }]
+        const event = createEvent('$ai_generation', {
+            'gen_ai.tool.definitions': JSON.stringify(tools),
+        })
+        mapOtelAttributes(event)
+        expect(event.properties!.$ai_tools).toEqual(tools)
+        expect(event.properties!['gen_ai.tool.definitions']).toBeUndefined()
+    })
+
+    describe('unknown message part types', () => {
+        beforeEach(() => {
+            aiOtelUnknownPartTypeCounter.reset()
+        })
+
+        const partCount = async (partType: string): Promise<number> => {
+            const data = await aiOtelUnknownPartTypeCounter.get()
+            return data.values.find((v) => v.labels.part_type === partType)?.value ?? 0
+        }
+
+        it('counts parts no renderer handles, bucketing producer-controlled labels into a fixed set', async () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.input.messages': JSON.stringify([
+                    {
+                        role: 'user',
+                        parts: [
+                            { type: 'text', content: 'hi' },
+                            { type: 'tool_approval_response', approved: true },
+                            { type: 'made-up-type-1', x: 1 },
+                            { type: 'made-up-type-2', x: 2 },
+                            { content: 'no type at all' },
+                        ],
+                    },
+                ]),
+                'gen_ai.output.messages': JSON.stringify([
+                    { role: 'assistant', parts: [{ type: 'reasoning', content: 'hmm' }] },
+                ]),
+            })
+            mapOtelAttributes(event)
+
+            expect(await partCount('tool_approval_response')).toBe(1)
+            expect(await partCount('other')).toBe(2)
+            expect(await partCount('invalid')).toBe(1)
+            expect(await partCount('made-up-type-1')).toBe(0)
+            expect(await partCount('text')).toBe(0)
+            expect(await partCount('reasoning')).toBe(0)
+        })
     })
 
     it('does not JSON-parse already-parsed objects', () => {
@@ -274,6 +324,37 @@ describe('mapOtelAttributes', () => {
                 { role: 'assistant', content: 'Montreal is a city in Canada.' },
             ])
             expect(event.properties!.events).toBeUndefined()
+        })
+
+        it('carries the choice-level finish_reason onto the flat output message', () => {
+            const events = [
+                {
+                    index: 0,
+                    finish_reason: 'length',
+                    message: { role: 'assistant', content: 'wrapped' },
+                    'event.name': 'gen_ai.choice',
+                },
+                {
+                    role: 'assistant',
+                    content: 'bare',
+                    finish_reason: 'stop',
+                    'event.name': 'gen_ai.choice',
+                },
+                {
+                    role: 'assistant',
+                    content: 'oversized',
+                    finish_reason: 'x'.repeat(129),
+                    'event.name': 'gen_ai.choice',
+                },
+            ]
+            const event = createEvent('$ai_generation', { events: JSON.stringify(events) })
+            mapOtelAttributes(event)
+
+            expect(event.properties!.$ai_output_choices).toEqual([
+                { role: 'assistant', content: 'wrapped', finish_reason: 'length' },
+                { role: 'assistant', content: 'bare', finish_reason: 'stop' },
+                { role: 'assistant', content: 'oversized' },
+            ])
         })
 
         it('orders $ai_input by gen_ai.message.index when all entries have one', () => {
@@ -683,6 +764,12 @@ describe('mapOtelAttributes', () => {
 
         it('does nothing when $groups is absent', () => {
             const event = createEvent('$ai_generation', { 'gen_ai.response.model': 'gpt-4' })
+            mapOtelAttributes(event)
+            expect(event.properties!.$groups).toBeUndefined()
+        })
+
+        it('drops an oversized string $groups instead of parsing it', () => {
+            const event = createEvent('$ai_generation', { $groups: `{"organization":"${'x'.repeat(10_001)}"}` })
             mapOtelAttributes(event)
             expect(event.properties!.$groups).toBeUndefined()
         })

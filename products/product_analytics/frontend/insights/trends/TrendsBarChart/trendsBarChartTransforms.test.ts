@@ -1,3 +1,5 @@
+import type { Series } from '@posthog/quill-charts'
+
 import { hexToRGBA } from 'lib/utils/colors'
 
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
@@ -7,6 +9,7 @@ import {
     buildTrendsBarChartModel,
     buildTrendsBarTimeSeries,
     buildTrendsBarTimeSeriesConfig,
+    pickAggregatedTooltipSeriesData,
     type TrendsBarResultLike,
 } from './trendsBarChartTransforms'
 
@@ -76,9 +79,13 @@ describe('buildTrendsBarTimeSeries', () => {
 
     it.each([
         { showMultipleYAxes: undefined, expected: ['left', 'left', 'left'] },
-        { showMultipleYAxes: true, expected: ['left', 'y1', 'y2'] },
-    ])('assigns yAxisId per series (showMultipleYAxes=$showMultipleYAxes)', ({ showMultipleYAxes, expected }) => {
-        const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        { showMultipleYAxes: true, expected: ['left', 'y1', 'left'] },
+    ])('groups yAxisIds by magnitude (showMultipleYAxes=$showMultipleYAxes)', ({ showMultipleYAxes, expected }) => {
+        const results = [
+            makeResult({ id: 'a', data: [1, 2, 3] }),
+            makeResult({ id: 'b', data: [1000, 2000, 3000] }),
+            makeResult({ id: 'c', data: [2, 4, 6] }),
+        ]
         const series = buildTrendsBarTimeSeries(results, { getColor: () => RED, showMultipleYAxes })
         expect(series.map((s) => s.yAxisId)).toEqual(expected)
     })
@@ -266,6 +273,28 @@ describe('buildTrendsBarAggregatedSeries', () => {
     })
 })
 
+describe('pickAggregatedTooltipSeriesData', () => {
+    const entry = (key: string, value: number): { series: Series; value: number; color: string } => ({
+        series: { key, label: key, data: [value] },
+        value,
+        color: RED,
+    })
+    const seriesData = [entry('0', 11), entry('1', 4), entry('2', 2)]
+
+    it.each([
+        { name: 'resolves the hovered segment by key, not the first entry', hoveredSeriesKey: '1', expected: ['1'] },
+        { name: 'falls back to the first entry without a hovered key', hoveredSeriesKey: undefined, expected: ['0'] },
+        { name: 'falls back to the first entry for an unknown key', hoveredSeriesKey: 'missing', expected: ['0'] },
+    ])('$name', ({ hoveredSeriesKey, expected }) => {
+        const picked = pickAggregatedTooltipSeriesData({ hoveredSeriesKey, seriesData })
+        expect(picked.map((e) => e.series.key)).toEqual(expected)
+    })
+
+    it('returns no entries for empty seriesData', () => {
+        expect(pickAggregatedTooltipSeriesData({ hoveredSeriesKey: undefined, seriesData: [] })).toEqual([])
+    })
+})
+
 describe('buildTrendsBarTimeSeriesConfig', () => {
     it.each([
         { isPercentStackView: false, isGrouped: false, expected: 'stacked', expectedDiverging: true },
@@ -384,21 +413,6 @@ describe('buildTrendsBarChartModel', () => {
         expect(model.series[0].data).toEqual([1, 2, 3])
         expect(model.series[0].color).toBe(RED)
         expect(model.config.barLayout).toBe('stacked')
-    })
-
-    it.each([
-        { isGrouped: false, isPercentStackView: false, expected: 'stacked' },
-        { isGrouped: true, isPercentStackView: false, expected: 'grouped' },
-        { isGrouped: false, isPercentStackView: true, expected: 'percent' },
-        { isGrouped: true, isPercentStackView: true, expected: 'percent' },
-    ])('maps layout flags to barLayout=$expected', ({ isGrouped, isPercentStackView, expected }) => {
-        const model = buildTrendsBarChartModel(results, {
-            getColor: () => RED,
-            labels: [],
-            isGrouped,
-            isPercentStackView,
-        })
-        expect(model.config.barLayout).toBe(expected)
     })
 
     it('forwards an x-axis tick formatter into the config', () => {

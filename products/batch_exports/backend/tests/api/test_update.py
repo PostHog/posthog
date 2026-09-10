@@ -48,15 +48,14 @@ def bigquery_integration(team, user):
     )
 
 
-def test_can_put_config(client: HttpClient, temporal, encryption_codec, organization, team, user):
+def test_can_put_config(client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration):
     destination_data: dict[str, t.Any] = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -90,7 +89,6 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
     # We should be able to update if we specify all fields
     new_destination_data = {**destination_data}
     new_destination_data["config"]["bucket_name"] = "my-new-production-s3-bucket"
-    new_destination_data["config"]["aws_secret_access_key"] = "new-secret"
     new_batch_export_data_2: dict[str, t.Any] = {
         "name": "my-production-s3-bucket-destination",
         "destination": new_destination_data,
@@ -118,22 +116,25 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
     decoded_payload = async_to_sync(encryption_codec.decode)(new_schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
     assert args["bucket_name"] == "my-new-production-s3-bucket"
-    assert args["aws_secret_access_key"] == "new-secret"
+    # Credentials are resolved from the integration at run time, never carried in the schedule.
+    assert args["integration_id"] == aws_s3_integration.id
+    assert args.get("aws_secret_access_key") is None
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"])
-def test_can_patch_config(client: HttpClient, interval, temporal, encryption_codec, organization, team, user):
+def test_can_patch_config(
+    client: HttpClient, interval, temporal, encryption_codec, organization, team, user, aws_s3_integration
+):
     timezone = "Europe/Berlin"
     # use offset of 1 hour for daily exports and None for hourly exports (these don't support offsets)
     offset_hour = None if interval == "hour" else 1
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -163,6 +164,7 @@ def test_can_patch_config(client: HttpClient, interval, temporal, encryption_cod
     # credentials. The existing values should be preserved.
     new_destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-new-production-s3-bucket",
             "region": "us-east-1",
@@ -378,6 +380,28 @@ def test_can_patch_config(client: HttpClient, interval, temporal, encryption_cod
             None,
             "offset_hour is not applicable for non-daily/weekly intervals",
         ),
+        pytest.param(
+            {
+                "interval": "hour",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {
+                "interval": "every 5 minutes",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            {
+                "interval": "hour",
+                "timezone": "UTC",
+                "offset_day": None,
+                "offset_hour": None,
+            },
+            "Higher frequency batch exports are not enabled for this team.",
+            id="Cannot update to high frequency batch exports without feature flag",
+        ),
     ],
 )
 def test_can_patch_schedule_configuration(
@@ -386,6 +410,7 @@ def test_can_patch_schedule_configuration(
     organization,
     team,
     user,
+    aws_s3_integration,
     initial_state,
     patch_data,
     expected_state,
@@ -399,12 +424,11 @@ def test_can_patch_schedule_configuration(
     """
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 
@@ -439,7 +463,7 @@ def test_can_patch_schedule_configuration(
 
     response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     if expected_error:
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_400_BAD_REQUEST or response.status_code == status.HTTP_403_FORBIDDEN
         assert expected_error in response.json()["detail"]
         return
     assert response.status_code == status.HTTP_200_OK, response.json()
@@ -477,16 +501,15 @@ def test_can_patch_schedule_configuration(
 @pytest.mark.django_db
 @pytest.mark.parametrize("interval", ["hour", "day"])
 def test_can_patch_config_with_invalid_old_values(
-    client: HttpClient, encryption_codec, interval, temporal, organization, team, user
+    client: HttpClient, encryption_codec, interval, temporal, organization, team, user, aws_s3_integration
 ):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
+        "integration": aws_s3_integration,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
             "invalid_key": "invalid_value",
         },
     }
@@ -511,7 +534,8 @@ def test_can_patch_config_with_invalid_old_values(
     # We should be able to update the destination config, even if there is an invalid config
     # in the existing keys.
     new_destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-new-production-s3-bucket",
             "region": "us-east-1",
@@ -547,28 +571,12 @@ def test_patch_rejects_destination_type_change(
     organization,
     team,
     user,
+    s3_batch_export_data,
     bigquery_integration,
 ):
     """Assert PATCH cannot change the destination type — callers must delete and recreate."""
-    destination_data = {
-        "type": "AwsS3",
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
 
     new_destination_data = {
         "type": "BigQuery",
@@ -599,27 +607,11 @@ def test_put_rejects_destination_type_change(
     organization,
     team,
     user,
+    s3_batch_export_data,
 ):
     """Assert PUT cannot change the destination type either — same restriction as PATCH."""
-    destination_data = {
-        "type": "AwsS3",
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
 
     new_batch_export_data = {
         "name": "my-production-s3-bucket-destination",
@@ -643,31 +635,16 @@ def test_put_rejects_destination_type_change(
     assert refreshed["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
 
 
-def test_can_patch_hogql_query(client: HttpClient, temporal, encryption_codec, organization, team, user):
+def test_can_patch_hogql_query(
+    client: HttpClient, temporal, encryption_codec, organization, team, user, s3_batch_export_data
+):
     """Test we can patch a schema with a HogQL query."""
-    destination_data = {
-        "type": "AwsS3",
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
 
     batch_export = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
     old_schedule = describe_schedule(temporal, batch_export["id"])
 
@@ -729,18 +706,20 @@ def test_can_patch_hogql_query(client: HttpClient, temporal, encryption_codec, o
             "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
             "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
         },
+        "hogql_query": None,
     }
 
 
-def test_patch_returns_error_on_unsupported_hogql_query(client: HttpClient, temporal, organization, team, user):
+def test_patch_returns_error_on_unsupported_hogql_query(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
         },
     }
 

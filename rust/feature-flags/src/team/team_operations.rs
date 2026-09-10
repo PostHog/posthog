@@ -43,7 +43,15 @@ const TEAM_COLUMNS: &str = "
     session_recording_url_blocklist_config,
     session_recording_event_trigger_config,
     session_recording_trigger_match_type_config,
-    recording_domains
+    recording_domains,
+    COALESCE(
+        (SELECT minimal_flag_called_events FROM feature_flags_teamfeatureflagsconfig WHERE team_id = posthog_team.id),
+        false
+    ) AS minimal_flag_called_events,
+    COALESCE(
+        (SELECT property_matching_version FROM feature_flags_teamfeatureflagsconfig WHERE team_id = posthog_team.id),
+        1
+    )::smallint AS property_matching_version
 ";
 
 impl Team {
@@ -107,6 +115,7 @@ impl Team {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::team::team_models::PropertyMatchingVersion;
     use crate::utils::test_utils::{
         insert_new_team_in_redis, setup_redis_client, setup_team_hypercache_reader, TestContext,
     };
@@ -297,5 +306,61 @@ mod tests {
         let config = team_from_pg.extra_settings.unwrap();
         let recorder_script = config.get("recorder_script").and_then(|v| v.as_str());
         assert_eq!(recorder_script, Some(""));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_defaults_feature_flags_config_without_config_row() {
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
+            .await
+            .expect("Failed to fetch team from pg");
+
+        assert!(!team_from_pg.minimal_flag_called_events);
+        assert_eq!(
+            team_from_pg.property_matching_version,
+            PropertyMatchingVersion::LEGACY
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_reflects_feature_flags_config() {
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_insert_team_feature_flags_config",
+        )
+        .await
+        .expect("Failed to get connection");
+
+        sqlx::query(
+            "INSERT INTO feature_flags_teamfeatureflagsconfig \
+             (team_id, minimal_flag_called_events, property_matching_version) \
+             VALUES ($1, true, 2)",
+        )
+        .bind(team.id)
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to insert TeamFeatureFlagsConfig row");
+
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
+            .await
+            .expect("Failed to fetch team from pg");
+
+        assert!(team_from_pg.minimal_flag_called_events);
+        assert_eq!(
+            team_from_pg.property_matching_version,
+            PropertyMatchingVersion::EXPLICIT
+        );
     }
 }

@@ -2,10 +2,11 @@ import random
 from typing import Any
 
 from django.core.management.base import BaseCommand
-from django.db import router, transaction
 
-from posthog.models import Person, PersonDistinctId, Team
+from posthog.models import Team
 from posthog.models.utils import UUIDT
+from posthog.persons_db import persons_db_connection
+from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person
 
 
 class Command(BaseCommand):
@@ -62,28 +63,20 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"Generating {count} persons for team: {team.name}"))
 
-        # Generate persons
-        # Use the correct database for Person writes (handles persons_db_writer routing in production)
-        db_alias = router.db_for_write(Person) or "default"
+        # Generate persons through a direct persons-DB connection (off the Django ORM).
+        # The connection commits when the block exits, before the ClickHouse sync reads them back.
         persons_created = 0
-        with transaction.atomic(using=db_alias):
+        with persons_db_connection(writer=True) as conn:
             for i in range(count):
                 person_data = self._generate_person_data(i, identified_ratio)
 
-                # Create person in Django only
-                person = Person.objects.create(  # nosemgrep: no-direct-persons-db-orm
-                    team=team,
+                person_id = insert_seed_person(
+                    conn,
+                    team_id=team.id,
                     properties=person_data["properties"],
                     is_identified=person_data["is_identified"],
                 )
-
-                # Create distinct ID
-                distinct_id = str(UUIDT())
-                PersonDistinctId.objects.create(  # nosemgrep: no-direct-persons-db-orm
-                    team=team,
-                    person=person,
-                    distinct_id=distinct_id,
-                )
+                insert_seed_distinct_id(conn, team_id=team.id, person_id=person_id, distinct_id=str(UUIDT()))
 
                 persons_created += 1
 
@@ -856,14 +849,16 @@ class Command(BaseCommand):
         event_types = ["pageview", "click", "form_submit", "signup", "purchase", "download"]
         pages = ["/", "/pricing", "/features", "/about", "/contact", "/blog", "/docs"]
 
+        # Attach demo events to a random sample of the team's distinct_ids.
+        with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT distinct_id FROM posthog_persondistinctid WHERE team_id = %s ORDER BY random() LIMIT %s",
+                (team.id, min(person_count, 50)),
+            )
+            distinct_ids = [row[0] for row in cursor.fetchall()]
+
         events_created = 0
-        for _i in range(min(person_count, 50)):  # Limit events to avoid overwhelming
-            person = Person.objects.filter(team=team).order_by("?").first()  # nosemgrep: no-direct-persons-db-orm
-            if not person:
-                continue
-
-            distinct_id = person.distinct_ids[0] if person.distinct_ids else str(UUIDT())
-
+        for distinct_id in distinct_ids:
             # Generate 1-5 events per person
             for _j in range(random.randint(1, 5)):
                 event_type = random.choice(event_types)

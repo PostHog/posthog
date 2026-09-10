@@ -19,12 +19,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from .base import BaseTest
 
-util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
-
-STARTER_DASHBOARD_V2_VARIANT = mock.patch(
-    "posthog.helpers.signup_dashboard_experiment.get_starter_dashboard_variant",
-    return_value="test",
-)
+util.can_enable_actor_on_events = True
 
 
 class TestModelCache(TestCase):
@@ -80,15 +75,24 @@ class TestTeam(BaseTest):
         self.assertEqual(team.autocapture_web_vitals_allowed_metrics, None)
         self.assertEqual(team.autocapture_exceptions_errors_to_ignore, None)
 
-    def test_create_team_with_test_account_filters(self):
-        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+    @parameterized.expand(
+        [
+            ("plain_domain", "person@posthog.com", "@posthog.com"),
+            ("hyphenated_domain", "person@my-company.com", "@my-company.com"),
+        ]
+    )
+    def test_create_team_with_test_account_filters(self, _name, signup_email, expected_domain_value):
+        user = User.objects.create(email=signup_email)
+        organization = Organization.objects.create()
+        organization.members.set([user])
+        team = Team.objects.create_with_data(initiating_user=user, organization=organization)
 
         # An internal/test users cohort should be created
         test_users_cohort = Cohort.objects.get(team=team, name=INTERNAL_TEST_USERS_COHORT_NAME)
 
         self.assertEqual(test_users_cohort.kind, CohortKind.INTERNAL_TEST_USERS)
 
-        # Cohort should have $internal_or_test_user filter AND email domain filter (posthog.com is not generic)
+        # Cohort should have $internal_or_test_user filter AND email domain filter (neither domain is generic)
         self.assertEqual(
             test_users_cohort.filters,
             {
@@ -112,8 +116,8 @@ class TestTeam(BaseTest):
                                 {
                                     "key": "email",
                                     "type": "person",
-                                    "value": "@posthog.com",
-                                    "operator": "icontains",
+                                    "value": expected_domain_value,
+                                    "operator": "ends_with",
                                 }
                             ],
                         },
@@ -165,38 +169,14 @@ class TestTeam(BaseTest):
             [{"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}],
         )
 
-    def test_create_team_sets_primary_dashboard_control_by_default(self):
-        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-        assert team.primary_dashboard is not None
-        assert team.extra_settings is not None
-        self.assertEqual(team.primary_dashboard.name, "My App Dashboard")
-        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 6)
-        self.assertEqual(team.extra_settings.get("starter_dashboard_variant"), "control")
-
-    @STARTER_DASHBOARD_V2_VARIANT
-    def test_create_team_sets_primary_dashboard(self, _mock_variant):
+    def test_create_team_sets_primary_dashboard(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
         self.assertIsInstance(team.primary_dashboard, Dashboard)
+        assert team.primary_dashboard is not None
+        self.assertEqual(team.primary_dashboard.name, "Your starter dashboard")
 
         # Ensure insights are created and linked (8 insight tiles + 5 text tiles + 3 button tiles)
         self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 16)
-        assert team.extra_settings is not None
-        self.assertEqual(team.extra_settings.get("starter_dashboard_variant"), "test")
-
-    @mock.patch("posthog.helpers.signup_dashboard_experiment.posthoganalytics.get_feature_flag", return_value="test")
-    @mock.patch("posthog.event_usage.report_team_action")
-    def test_starter_dashboard_experiment_evaluates_feature_flag_per_project(
-        self, mock_report_team_action, mock_get_feature_flag
-    ):
-        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-        mock_get_feature_flag.assert_called_once_with(
-            "starter-dashboard-v2",
-            str(team.uuid),
-            groups={"organization": str(team.organization_id)},
-        )
-        mock_report_team_action.assert_called_once()
-        self.assertEqual(mock_report_team_action.call_args.args[1], "$feature_flag_called")
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):
@@ -211,6 +191,7 @@ class TestTeam(BaseTest):
                     "persons-on-events-v2-reads-enabled",
                     str(team.uuid),
                     groups={"organization": str(self.organization.id)},
+                    person_properties=None,
                     group_properties={
                         "organization": {
                             "id": str(self.organization.id),
@@ -219,6 +200,8 @@ class TestTeam(BaseTest):
                     },
                     only_evaluate_locally=True,
                     send_feature_flag_events=False,
+                    disable_geoip=None,
+                    device_id=None,
                 )
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)
@@ -247,7 +230,8 @@ class TestTeam(BaseTest):
         project = Project.objects.filter(id=team.id).first()
 
         assert project is not None
-        self.assertEqual(project.name, "Default project")
+        # The fixture project already holds the plain default name, so this one gets a suffix
+        self.assertEqual(project.name, "Default project 2")
 
     def test_each_team_gets_project_with_custom_name_and_same_id(self):
         # Can be removed once environments are fully rolled out
@@ -288,8 +272,7 @@ class TestTeam(BaseTest):
         team = Team.objects.create_with_data(
             initiating_user=self.user, organization=self.organization, extra_settings=input_extra_settings
         )
-        # create_with_data also records the starter-dashboard experiment arm in extra_settings
-        self.assertEqual(team.extra_settings, {**expected_extra_settings, "starter_dashboard_variant": "control"})
+        self.assertEqual(team.extra_settings, expected_extra_settings)
 
     @parameterized.expand(
         [
@@ -309,11 +292,7 @@ class TestTeam(BaseTest):
             ("Weekly active users (WAUs)",),
         ]
     )
-    @mock.patch(
-        "posthog.helpers.signup_dashboard_experiment.get_starter_dashboard_variant",
-        return_value="test",
-    )
-    def test_default_dashboard_dau_wau_tiles_use_group_node(self, tile_name, _mock_variant):
+    def test_default_dashboard_dau_wau_tiles_use_group_node(self, tile_name):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
         tile = DashboardTile.objects.get(
             dashboard=team.primary_dashboard,
@@ -336,11 +315,7 @@ class TestTeam(BaseTest):
             ("Retention", "RetentionQuery"),
         ]
     )
-    @mock.patch(
-        "posthog.helpers.signup_dashboard_experiment.get_starter_dashboard_variant",
-        return_value="test",
-    )
-    def test_default_dashboard_pageview_only_tiles(self, tile_name, expected_kind, _mock_variant):
+    def test_default_dashboard_pageview_only_tiles(self, tile_name, expected_kind):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
         tile = DashboardTile.objects.get(
             dashboard=team.primary_dashboard,
@@ -353,8 +328,7 @@ class TestTeam(BaseTest):
         assert "GroupNode" not in str(source)
         assert "$pageview" in str(source)
 
-    @STARTER_DASHBOARD_V2_VARIANT
-    def test_default_dashboard_funnel_tile_steps_through_pageview_to_autocapture(self, _mock_variant):
+    def test_default_dashboard_funnel_tile_steps_through_pageview_to_autocapture(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
         tile = DashboardTile.objects.get(
             dashboard=team.primary_dashboard,
@@ -366,8 +340,7 @@ class TestTeam(BaseTest):
         assert source["kind"] == "FunnelsQuery"
         assert [step["event"] for step in source["series"]] == ["$pageview", "$autocapture"]
 
-    @STARTER_DASHBOARD_V2_VARIANT
-    def test_default_dashboard_button_tiles_link_to_related_products(self, _mock_variant):
+    def test_default_dashboard_button_tiles_link_to_related_products(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
         button_tiles = DashboardTile.objects.filter(
             dashboard=team.primary_dashboard,

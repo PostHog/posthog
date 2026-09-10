@@ -5,39 +5,28 @@ import { VirtualizedTableColumn } from 'products/logs/frontend/components/Virtua
 // Layout constants for log rows
 export const DEFAULT_ATTRIBUTE_COLUMN_WIDTH = 150
 export const MIN_ATTRIBUTE_COLUMN_WIDTH = 80
+// Upper bound on a resizable column, mirrored by the saved-view serializer's `width` max_value
+// so a legitimate drag can't persist a width the backend would reject.
+export const MAX_ATTRIBUTE_COLUMN_WIDTH = 2000
 export const RESIZER_HANDLE_WIDTH = 16
 
 // Fixed column widths
 export const SEVERITY_WIDTH = 8
 export const CHECKBOX_WIDTH = 28
 export const EXPAND_WIDTH = 28
+export const SESSION_ERRORS_WIDTH = 24
 export const TIMESTAMP_WIDTH = 180
+// A pattern is a whole message line with its variable parts masked, so it starts much wider
+// than an attribute value.
+export const PATTERN_WIDTH = 400
+// A person link shows a display name or a distinct id; a session cell shows a full session
+// UUID. Both start wider than a plain attribute value.
+export const PERSON_WIDTH = 200
+export const SESSION_WIDTH = 280
 export const MESSAGE_MIN_WIDTH = 300
 export const LOG_ROW_FAB_WIDTH = 150
 export const ROW_GAP = 8
 export const LOG_ROW_HEADER_HEIGHT = 32
-
-const FIXED_COLUMNS_TOTAL_WIDTH = SEVERITY_WIDTH + CHECKBOX_WIDTH + EXPAND_WIDTH + TIMESTAMP_WIDTH
-
-export const getAttributeColumnWidth = (attributeKey: string, attributeColumnWidths: Record<string, number>): number =>
-    attributeColumnWidths[attributeKey] ?? DEFAULT_ATTRIBUTE_COLUMN_WIDTH
-
-export const getFixedColumnsWidth = (
-    attributeColumns: string[] = [],
-    attributeColumnWidths: Record<string, number> = {}
-): number => {
-    const attrWidths = attributeColumns.reduce(
-        (sum, key) => sum + getAttributeColumnWidth(key, attributeColumnWidths),
-        0
-    )
-    const gaps = (3 + attributeColumns.length) * ROW_GAP
-    return FIXED_COLUMNS_TOTAL_WIDTH + attrWidths + gaps
-}
-
-export const getMinRowWidth = (
-    attributeColumns: string[] = [],
-    attributeColumnWidths: Record<string, number> = {}
-): number => getFixedColumnsWidth(attributeColumns, attributeColumnWidths) + MESSAGE_MIN_WIDTH
 
 export const getMessageStyle = (flexWidth?: number): CSSProperties => ({
     flexGrow: 1,

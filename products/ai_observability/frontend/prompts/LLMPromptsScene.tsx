@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
@@ -14,28 +14,32 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
-import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { llmPromptsEmptyState } from '../emptyState/llmPromptsEmptyState'
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
-import { openArchivePromptDialog } from './utils'
+import { PromptLabelChip } from './PromptLabelChip'
+import { LLMPrompt } from './types'
+import { openArchivePromptDialog, openDuplicatePromptDialog, stripPromptSceneSearchParams } from './utils'
 
 export const scene: SceneExport = {
     component: LLMPromptsScene,
     logic: llmPromptsLogic,
     productKey: ProductKey.AI_OBSERVABILITY,
+    emptyState: llmPromptsEmptyState,
 }
 
 export function LLMPromptsScene(): JSX.Element {
-    const { setFilters, deletePrompt, duplicatePrompt } = useActions(llmPromptsLogic)
+    const { setFilters, deletePrompt } = useActions(llmPromptsLogic)
+    const { duplicatePrompt } = useAsyncActions(llmPromptsLogic)
     const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel } = useValues(llmPromptsLogic)
     const { searchParams } = useValues(router)
-    const promptUrl = (name: string): string => combineUrl(urls.aiObservabilityPrompt(name), searchParams).url
+    const promptUrl = (name: string): string =>
+        combineUrl(urls.aiObservabilityPrompt(name), stripPromptSceneSearchParams(searchParams)).url
 
     const columns: LemonTableColumns<LLMPrompt> = [
         {
@@ -85,6 +89,22 @@ export function LLMPromptsScene(): JSX.Element {
                 return <span className="text-muted-alt">{prompt.version_count}</span>
             },
         },
+        {
+            title: 'Labels',
+            key: 'labels',
+            render: function renderLabels(_, prompt) {
+                if (!prompt.all_labels?.length) {
+                    return <span className="text-muted-alt">–</span>
+                }
+                return (
+                    <div className="flex flex-wrap gap-1">
+                        {prompt.all_labels.map((label) => (
+                            <PromptLabelChip key={label.name} label={`${label.name}: v${label.version}`} />
+                        ))}
+                    </div>
+                )
+            },
+        },
         atColumn('created_at', 'Latest version created') as LemonTableColumn<LLMPrompt, keyof LLMPrompt | undefined>,
         {
             width: 0,
@@ -106,34 +126,11 @@ export function LLMPromptsScene(): JSX.Element {
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
-                                        onClick={() => {
-                                            LemonDialog.openForm({
-                                                title: 'Duplicate prompt',
-                                                initialValues: {
-                                                    newName: `${prompt.name}-copy`,
-                                                },
-                                                content: (
-                                                    <LemonField name="newName" label="New prompt name">
-                                                        <LemonInput
-                                                            data-attr="llma-prompt-duplicate-name"
-                                                            placeholder="my-prompt-copy"
-                                                            autoFocus
-                                                        />
-                                                    </LemonField>
-                                                ),
-                                                errors: {
-                                                    newName: (name: string) =>
-                                                        !name
-                                                            ? 'You must enter a name'
-                                                            : !/^[a-zA-Z0-9_-]+$/.test(name)
-                                                              ? 'Only letters, numbers, hyphens, and underscores allowed'
-                                                              : undefined,
-                                                },
-                                                onSubmit: async ({ newName }) => {
-                                                    duplicatePrompt(prompt.name, newName)
-                                                },
-                                            })
-                                        }}
+                                        onClick={() =>
+                                            openDuplicatePromptDialog(prompt.name, (newName) =>
+                                                duplicatePrompt(prompt.name, newName)
+                                            )
+                                        }
                                         data-attr="llma-prompt-dropdown-duplicate"
                                         fullWidth
                                     >

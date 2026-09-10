@@ -78,6 +78,15 @@ class ErrorTrackingAssignmentRuleCreateRequestSerializer(serializers.Serializer)
     assignee = ErrorTrackingAssignmentRuleAssigneeRequestSerializer(
         help_text="User or role to assign matching issues to."
     )
+    order_key = serializers.IntegerField(
+        required=False,
+        default=0,
+        help_text=(
+            "Evaluation priority among rules; lower is evaluated first and the first matching rule wins. "
+            "Defaults to 0. Pass distinct ascending values when creating several rules at once to give them a "
+            "deterministic order."
+        ),
+    )
 
 
 class ErrorTrackingAssignmentRuleUpdateRequestSerializer(serializers.Serializer):
@@ -120,6 +129,7 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.Serializer):
 
 class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "reorder"]
     serializer_class = ErrorTrackingAssignmentRuleSerializer
 
     def list(self, request, *args, **kwargs) -> Response:
@@ -149,6 +159,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
             raise NotFound()
         posthoganalytics.capture(
             "error_tracking_assignment_rule_edited",
+            distinct_id=request.user.pk,
             groups=groups(self.team.organization, self.team),
         )
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
@@ -172,6 +183,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
             raise NotFound()
         posthoganalytics.capture(
             "error_tracking_assignment_rule_deleted",
+            distinct_id=request.user.pk,
             groups=groups(self.team.organization, self.team),
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -186,11 +198,13 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
                 self.team.id,
                 filters=request.validated_data["filters"],
                 assignee=request.validated_data["assignee"],
+                order_key=request.validated_data.get("order_key", 0),
             )
         except error_tracking_api.InvalidBytecodeError as err:
             raise ValidationError(str(err)) from err
         posthoganalytics.capture(
             "error_tracking_assignment_rule_created",
+            distinct_id=request.user.pk,
             groups=groups(self.team.organization, self.team),
         )
         return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)

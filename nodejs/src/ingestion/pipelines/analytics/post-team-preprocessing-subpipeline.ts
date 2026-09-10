@@ -1,32 +1,34 @@
 import { Message } from 'node-rdkafka'
 
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
+import { FeatureFlagCalledDedupService } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
+import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { createApplyEventFiltersStep } from '~/ingestion/common/steps/event-filters-steps'
 import {
     createApplyCookielessProcessingStep,
     createApplyPersonProcessingRestrictionsStep,
     createDedupeFeatureFlagCalledStep,
-    createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
-import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
-import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
+import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
+import { prefetchEventSchemasStep } from '~/ingestion/pipelines/analytics/steps/prefetchEventSchemasStep'
+import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'
+import { prefetchHogFunctionsStep } from '~/ingestion/pipelines/analytics/steps/prefetchHogFunctionsStep'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
-import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep'
-import { FeatureFlagCalledDedupService } from '~/ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
-import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
 
 export interface PostTeamPreprocessingSubpipelineInput {
     message: Message
@@ -35,6 +37,7 @@ export interface PostTeamPreprocessingSubpipelineInput {
     team: Team
     eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics
     personsStoreForBatch: PersonsStoreForBatch
+    groupStoreForBatch: GroupStoreForBatch
 }
 
 export interface PostTeamPreprocessingSubpipelineConfig {
@@ -43,18 +46,24 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     eventSchemaEnforcementEnabled: boolean
     cookielessManager: CookielessManager
-    preservePartitionLocality: boolean
-    overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     personsPrefetchEnabled: boolean
-    flagCalledPersonlessDefaultTeams: string
+    groupsPrefetchEnabled: boolean
+    eventSchemasPrefetchEnabled: boolean
+    hogFunctionsPrefetchEnabled: boolean
+    groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformer
-    cdpHogWatcherSampleRate: number
 }
 
-export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPreprocessingSubpipelineInput, TContext>(
-    builder: BatchPipelineBuilder<TInput, TInput, TContext, TContext>,
+export function createPostTeamPreprocessingSubpipeline<
+    TStart,
+    TInput extends PostTeamPreprocessingSubpipelineInput,
+    TContext,
+    R extends string = never,
+    D = unknown,
+>(
+    builder: ChunkPipelineBuilder<TStart, TInput, TContext, TContext, R, D>,
     config: PostTeamPreprocessingSubpipelineConfig
 ) {
     const {
@@ -63,64 +72,61 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
         cookielessManager,
-        preservePartitionLocality,
-        overflowRedirectService,
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
-        flagCalledPersonlessDefaultTeams,
+        groupsPrefetchEnabled,
+        eventSchemasPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
+        groupTypeManager,
         hogTransformer,
-        cdpHogWatcherSampleRate,
     } = config
 
     return (
         builder
+            // Warm the schema cache with one batched load per chunk before the sequential chain
+            // below reads it one event at a time. The prefetch shares the enforcement flag,
+            // matching when the validation step reads the cache.
+            .pipeChunk(
+                prefetchEventSchemasStep(
+                    eventSchemaEnforcementManager,
+                    eventSchemasPrefetchEnabled && eventSchemaEnforcementEnabled
+                )
+            )
             // These validation steps are synchronous, so we can process events sequentially.
-            .sequentially((b) => {
-                const validated = b.pipe(createValidateEventMetadataStep()).pipe(createValidateEventPropertiesStep())
-
-                const schemaChecked = eventSchemaEnforcementEnabled
-                    ? validated.pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
-                    : validated
-
-                return schemaChecked
+            .sequentially((b) =>
+                b
+                    .pipe(createValidateEventMetadataStep())
+                    .pipe(createValidateEventPropertiesStep())
+                    // Schema enforcement is opt-in; the step passes events through when disabled.
+                    .pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager, eventSchemaEnforcementEnabled))
                     .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
                     .pipe(createDropOldEventsStep())
                     .pipe(createApplyEventFiltersStep(eventFilterManager))
-            })
+            )
             // We want to call cookieless with the whole batch at once.
             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
             // are captured with $posthog_cookieless distinct ID and rewritten here).
             // Any steps that depend on the final distinct ID must run after this step.
             .gather()
-            .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
-            // Rate-limit only cookieless events using the hashed distinct_id assigned by the
-            // cookieless step. Non-cookieless events were rate-limited pre-parse in the joined
-            // pipeline via createSkipCookielessRateLimitToOverflowStep.
-            .pipeBatch(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
-            .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
+            .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Drop redundant $feature_flag_called events (keep-first Redis claim).
             // Must run after cookieless (keys on the final distinct_id) and before
             // person prefetch so duplicates skip person processing and the CH write.
-            .pipeBatch(createDedupeFeatureFlagCalledStep(featureFlagCalledDedupService))
+            .pipeChunk(createDedupeFeatureFlagCalledStep(featureFlagCalledDedupService))
             // Prefetch must run after cookieless, as cookieless changes distinct IDs.
             // Prefetch is fire-and-forget (best-effort cache warming), so retry here would be a
             // no-op — transient persons-Postgres failures are swallowed inside prefetchPersons so
             // they can't surface as an unhandled rejection and crash the worker.
-            .pipeBatch(prefetchPersonsStep(personsPrefetchEnabled))
-            // Batch insert personless distinct IDs after prefetch (uses prefetch cache).
-            // This step awaits its DB write, so retry transient persons-Postgres failures
-            // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
-            .pipeBatchWithRetry(
-                processPersonlessDistinctIdsBatchStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
-                {
-                    tries: 5,
-                    sleepMs: 100,
-                    name: 'personless_distinct_ids',
-                }
-            )
-            // Prefetch hog functions for all teams in the batch
-            .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
+            .pipeChunk(prefetchPersonsStep(personsPrefetchEnabled))
+            // Same best-effort, fire-and-forget cache warming for groups: one
+            // batched fetch for the chunk's $groupidentify group keys.
+            .pipeChunk(prefetchGroupsStep(groupTypeManager, groupsPrefetchEnabled))
+            // Warm the transformation hog-function cache last, after the drop steps above, so
+            // only teams with surviving events are loaded. The transformer runs much later in
+            // the event subpipeline, so the load still lands well ahead of its reads.
+            .pipeChunk(prefetchHogFunctionsStep(hogTransformer, hogFunctionsPrefetchEnabled))
     )
 }

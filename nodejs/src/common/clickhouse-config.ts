@@ -1,4 +1,4 @@
-import { isTestEnv } from '../utils/env-utils'
+import { isTestEnv } from '~/common/utils/env-utils'
 
 /**
  * Shared ClickHouse connection config. Service configs that need to talk to

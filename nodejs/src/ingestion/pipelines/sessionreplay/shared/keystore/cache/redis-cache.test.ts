@@ -2,6 +2,12 @@ import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared
 
 import { RedisCachedKeyStore } from './redis-cache'
 
+jest.mock('~/ingestion/pipelines/sessionreplay/sessions/metrics', () => ({
+    SessionBatchMetrics: {
+        observeKeystoreRedisLatency: jest.fn(),
+    },
+}))
+
 describe('RedisCachedKeyStore', () => {
     let mockDelegate: jest.Mocked<KeyStore>
     let mockRedisClient: any
@@ -58,9 +64,9 @@ describe('RedisCachedKeyStore', () => {
 
     describe('generateKey', () => {
         it('should call delegate and cache in Redis', async () => {
-            const result = await cachedKeyStore.generateKey('session-123', 1)
+            const result = await cachedKeyStore.generateKey('session-123', 1, 30)
 
-            expect(mockDelegate.generateKey).toHaveBeenCalledWith('session-123', 1)
+            expect(mockDelegate.generateKey).toHaveBeenCalledWith('session-123', 1, 30)
             expect(mockRedisPool.acquire).toHaveBeenCalled()
             expect(mockRedisClient.setex).toHaveBeenCalledWith(
                 '@posthog/replay/recording-key:1:session-123',
@@ -74,13 +80,13 @@ describe('RedisCachedKeyStore', () => {
         it('should propagate delegate generateKey error', async () => {
             mockDelegate.generateKey.mockRejectedValue(new Error('Generate failed'))
 
-            await expect(cachedKeyStore.generateKey('session-123', 1)).rejects.toThrow('Generate failed')
+            await expect(cachedKeyStore.generateKey('session-123', 1, 30)).rejects.toThrow('Generate failed')
         })
 
         it('should release Redis client even if setex fails', async () => {
             mockRedisClient.setex.mockRejectedValue(new Error('Redis setex failed'))
 
-            await expect(cachedKeyStore.generateKey('session-123', 1)).rejects.toThrow('Redis setex failed')
+            await expect(cachedKeyStore.generateKey('session-123', 1, 30)).rejects.toThrow('Redis setex failed')
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedisClient)
         })
     })
@@ -213,7 +219,7 @@ describe('RedisCachedKeyStore', () => {
         it('should use custom TTL when provided', async () => {
             const customTtlCachedKeyStore = new RedisCachedKeyStore(mockDelegate, mockRedisPool, 3600)
 
-            await customTtlCachedKeyStore.generateKey('session-123', 1)
+            await customTtlCachedKeyStore.generateKey('session-123', 1, 30)
 
             expect(mockRedisClient.setex).toHaveBeenCalledWith(
                 '@posthog/replay/recording-key:1:session-123',

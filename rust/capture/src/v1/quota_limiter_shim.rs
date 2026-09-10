@@ -55,6 +55,11 @@ pub async fn apply_quota_limits(
             if ev.result != EventResult::Ok {
                 continue;
             }
+            // Gateway-verified events are wallet-billed, not AIO-billed, so they
+            // must not be dropped by the llm_events quota.
+            if *resource == QuotaResource::LLMEvents && ev.is_gateway_verified {
+                continue;
+            }
             let info = EventInfo {
                 name: ev.event_name(),
                 has_product_tour_id: ev.has_property("product_tour_id"),
@@ -108,7 +113,7 @@ mod tests {
     use crate::config::EnvelopeCompression;
 
     use crate::config::{CaptureMode, Config, KafkaConfig};
-    use crate::v1::analytics::types::{Event, Options};
+    use crate::v1::analytics::types::{Event, Options, RawOptions};
 
     fn test_config() -> Config {
         Config {
@@ -126,6 +131,16 @@ mod tests {
             global_rate_limit_token_distinctid_threshold: 10_000,
             global_rate_limit_token_distinctid_overrides_csv: None,
             global_rate_limit_token_distinctid_local_cache_max_entries: 300_000,
+            global_rate_limit_min_sync_floor: 0,
+            global_rate_limit_max_sync_keys_per_tick: 20_000,
+            global_rate_limit_max_keys_per_command: 2_000,
+            global_rate_limit_max_concurrent_commands: 4,
+            global_rate_limit_max_write_batch_entries: 200_000,
+            global_rate_limit_max_pending_sync_entries: 200_000,
+            global_rate_limit_local_cache_ttl_secs: 600,
+            global_rate_limit_local_cache_idle_timeout_secs: 300,
+            global_rate_limit_read_timeout_ms: 250,
+            global_rate_limit_write_timeout_ms: 250,
             global_rate_limit_token_threshold: 300_000,
             global_rate_limit_token_overrides_csv: None,
             global_rate_limit_token_local_cache_max_entries: 300_000,
@@ -133,6 +148,8 @@ mod tests {
             global_rate_limit_redis_reader_url: None,
             global_rate_limit_redis_response_timeout_ms: None,
             global_rate_limit_redis_connection_timeout_ms: None,
+            global_rate_limit_custom_threshold_key: None,
+            global_rate_limit_custom_threshold_refresh_secs: 60,
             event_restrictions_enabled: false,
             event_restrictions_redis_url: None,
             event_restrictions_refresh_interval_secs: 30,
@@ -164,6 +181,9 @@ mod tests {
                 kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
                 kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
                 kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+                outputs_completeness_check_enabled: true,
+                capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
+                capture_analytics_ai_events_overflow_topic: None,
                 kafka_traces_topic: "ingestion_traces".to_string(),
                 kafka_metrics_topic: "ingestion_metrics".to_string(),
                 kafka_tls: false,
@@ -222,25 +242,27 @@ mod tests {
             s3_fallback_endpoint: None,
             s3_fallback_prefix: String::new(),
             ai_max_sum_of_parts_bytes: 26_214_400,
-            ai_s3_bucket: None,
-            ai_s3_prefix: "llma/".to_string(),
-            ai_s3_endpoint: None,
-            ai_s3_region: "us-east-1".to_string(),
-            ai_s3_access_key_id: None,
-            ai_s3_secret_access_key: None,
+            ai_max_event_bytes: 8_388_608,
+            ai_gateway_signing_secret: None,
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,
-            continuous_profiling: ContinuousProfilingConfig {
-                continuous_profiling_enabled: false,
-                pyroscope_server_address: String::new(),
-                pyroscope_application_name: String::new(),
-                pyroscope_sample_rate: 100,
-            },
+            continuous_profiling: ContinuousProfilingConfig::default(),
             capture_v1_sinks: String::new(),
             capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
             capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
             capture_v1_scatter_gather_min_batch: 8,
+            capture_ingestion_warnings_enabled: false,
+            capture_ingestion_warnings_kafka_queue_mib: 16,
+            capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
+            capture_ingestion_warnings_kafka_topic: String::new(),
+            capture_ingestion_warnings_kafka_hosts: String::new(),
+            capture_ingestion_warnings_kafka_tls: false,
+            ai_byte_limit_per_second: 0,
+            ai_byte_limit_overrides_csv: None,
+            ai_byte_limit_dry_run: false,
+            ai_byte_limit_window_interval_secs: None,
+            ai_byte_limit_local_cache_max_entries: 300_000,
         }
     }
 
@@ -294,15 +316,19 @@ mod tests {
                 timestamp: "2026-03-26T12:00:00.000Z".to_string(),
                 session_id: None,
                 window_id: None,
-                options: Options {
-                    cookieless_mode: None,
-                    disable_skew_correction: None,
-                    product_tour_id: product_tour_id.map(String::from),
-                    process_person_profile: None,
+                options: match product_tour_id {
+                    Some(id) => RawOptions(serde_json::json!({"product_tour_id": id})),
+                    None => RawOptions::default(),
                 },
                 properties: RawValue::from_string("{}".to_owned()).unwrap(),
             },
             uuid,
+            options: Options {
+                cookieless_mode: None,
+                disable_skew_correction: None,
+                product_tour_id: product_tour_id.map(String::from),
+                process_person_profile: None,
+            },
             adjusted_timestamp: Some(
                 DateTime::parse_from_rfc3339("2026-03-26T12:00:00Z")
                     .unwrap()
@@ -312,7 +338,15 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
+            is_gateway_verified: false,
         }
+    }
+
+    fn make_verified_event(name: &str) -> WrappedEvent {
+        let mut ev = make_event(name, None);
+        ev.is_gateway_verified = true;
+        ev
     }
 
     fn ok_event_names(events: &[WrappedEvent]) -> Vec<&str> {
@@ -554,6 +588,23 @@ mod tests {
         let mut ok = ok_event_names(&events);
         ok.sort();
         assert_eq!(ok, vec!["$ainotcounted", "ai_generation"]);
+        assert_eq!(quota_dropped_event_names(&events), vec!["$ai_generation"]);
+    }
+
+    #[tokio::test]
+    async fn llm_limit_exempts_gateway_verified_events() {
+        let limiter = build_limiter("tok", false, &[QuotaResource::LLMEvents]).await;
+        let verified = make_verified_event("$ai_generation");
+        let verified_uuid = verified.uuid;
+        let mut events = vec![verified, make_event("$ai_generation", None)];
+
+        let result = apply_quota_limits(&limiter, "tok", &mut events).await;
+        assert!(result.is_ok());
+
+        // Gateway-verified event survives (wallet-billed); the plain $ai_ one drops.
+        let verified = events.iter().find(|e| e.uuid == verified_uuid).unwrap();
+        assert_eq!(verified.result, EventResult::Ok);
+        assert_eq!(verified.details, None);
         assert_eq!(quota_dropped_event_names(&events), vec!["$ai_generation"]);
     }
 

@@ -6,7 +6,8 @@ import {
     putRegionSelection,
     resolveMappingRewrite,
 } from '@/lib/kv'
-import { proxyPostWithClientId, tryBothRegions } from '@/lib/proxy'
+import { preferClientError, proxyPostWithClientId, tryBothRegions } from '@/lib/proxy'
+import { errorResponse } from '@/lib/validation'
 
 /**
  * OAuth Token Exchange — proxy to the correct region.
@@ -29,9 +30,9 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
             clientId = (json.client_id as string) || null
             grantType = (json.grant_type as string) || null
         } catch {
-            return new Response(
-                JSON.stringify({ error: 'invalid_request', error_description: 'Malformed JSON body' }),
-                { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+            return errorResponse(
+                { error: 'invalid_request', error_description: 'Malformed JSON body' },
+                { 'Cache-Control': 'no-store' }
             )
         }
     } else {
@@ -116,6 +117,8 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
     if (clientId) {
         const mapping = await getClientMapping(kv, clientId)
         if (mapping) {
+            let bestFailure: Response | null = null
+
             for (const candidateRegion of ['us', 'eu'] as Region[]) {
                 const rewrite = resolveMappingRewrite(mapping, candidateRegion)
                 if (!rewrite) {
@@ -158,15 +161,32 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
                     )
                     return response
                 }
+
+                bestFailure = bestFailure ? preferClientError(bestFailure, response) : response
             }
 
-            console.info(
+            if (bestFailure) {
+                console.error(
+                    JSON.stringify({
+                        handler: 'token',
+                        grant_type: grantType,
+                        client_id_prefix: clientIdPrefix,
+                        region_source: 'mapping_try_both',
+                        resolved_region: 'none',
+                        status: bestFailure.status,
+                    })
+                )
+                return bestFailure
+            }
+
+            console.error(
                 JSON.stringify({
                     handler: 'token',
                     grant_type: grantType,
                     client_id_prefix: clientIdPrefix,
                     region_source: 'mapping_try_both',
                     resolved_region: 'none',
+                    error: 'no_region_candidates',
                 })
             )
             return new Response(
@@ -190,16 +210,19 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
         })
     )
     const { response, region } = await tryBothRegions(rebuild(), '/oauth/token/')
-    console.info(
-        JSON.stringify({
-            handler: 'token',
-            grant_type: grantType,
-            client_id_prefix: clientIdPrefix,
-            region_source: 'try_both',
-            resolved_region: region,
-            status: response.status,
-        })
-    )
+    const summary = JSON.stringify({
+        handler: 'token',
+        grant_type: grantType,
+        client_id_prefix: clientIdPrefix,
+        region_source: 'try_both',
+        resolved_region: region,
+        status: response.status,
+    })
+    if (region) {
+        console.info(summary)
+    } else {
+        console.error(summary)
+    }
     return response
 }
 

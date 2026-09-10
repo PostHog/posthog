@@ -10,17 +10,29 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 
-from products.web_analytics.backend.achievements.definitions import TRACKS, TrackKey, serialize_definitions
+from products.web_analytics.backend.achievements.definitions import (
+    STREAK_ARM_CONTROL,
+    TRACKS,
+    AchievementScope,
+    TrackKey,
+    serialize_definitions,
+)
+from products.web_analytics.backend.achievements.evaluators import EvalContext
 from products.web_analytics.backend.achievements.tasks import (
     enqueue_recompute_web_analytics_achievements_debounced,
+    get_or_create_progress,
+    is_due,
+    recompute_web_analytics_achievements_sync,
     streak_arm_for_user,
     team_local_today,
 )
 from products.web_analytics.backend.models import (
     WebAnalyticsAchievementProgress,
     WebAnalyticsInteraction,
+    WebAnalyticsUserConfig,
     WebAnalyticsVisit,
 )
 
@@ -54,6 +66,10 @@ class AchievementProgressSerializer(serializers.Serializer):
     progress_value = serializers.IntegerField(help_text="Most recently computed progress value for the track.")
     last_computed_at = serializers.DateTimeField(
         allow_null=True, help_text="When the track was last recomputed, or null if it never has been."
+    )
+    unlocked_at = serializers.DictField(
+        child=serializers.DateTimeField(),
+        help_text="Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked.",
     )
 
 
@@ -102,12 +118,22 @@ class RecordInteractionResponseSerializer(serializers.Serializer):
     recorded = serializers.BooleanField(help_text="True once the interaction has been counted for the user.")
 
 
+class WebAnalyticsUserPreferencesSerializer(serializers.Serializer):
+    achievements_opt_out = serializers.BooleanField(
+        help_text=(
+            "When true, the requesting user has hidden the Web analytics achievements gamification UI and "
+            "suppressed achievement-unlocked notifications for this project. Scoped per (project, user)."
+        )
+    )
+
+
 def _serialize_progress(progress: WebAnalyticsAchievementProgress) -> dict[str, object]:
     return {
         "track_key": progress.track_key,
         "current_stage": progress.current_stage,
         "progress_value": progress.progress_value,
         "last_computed_at": progress.last_computed_at,
+        "unlocked_at": (progress.state or {}).get("unlocked_stages", {}),
     }
 
 
@@ -158,8 +184,21 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         user = cast(User, request.user)
         arm = streak_arm_for_user(user)
         canonical_team_id = self.team.parent_team_id or self.team.id
+        today = team_local_today(self.team)
+        team_ctx = EvalContext(team=self.team, user=None, today=today, arm=None)
+        is_control = arm == STREAK_ARM_CONTROL
+
+        if not is_control:
+            for track in TRACKS.values():
+                if track.scope == AchievementScope.TEAM:
+                    get_or_create_progress(team_ctx, track)
+
         user_rows = list(WebAnalyticsAchievementProgress.objects.filter(team_id=canonical_team_id, user=user))
         team_rows = list(WebAnalyticsAchievementProgress.objects.filter(team_id=canonical_team_id, user__isnull=True))
+
+        if not is_control and any(is_due(team_ctx, row) for row in team_rows):
+            enqueue_recompute_web_analytics_achievements_debounced(canonical_team_id, None, today)
+
         payload = {
             "definitions": serialize_definitions(arm),
             "user_progress": [_serialize_progress(row) for row in user_rows],
@@ -188,7 +227,11 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
             user_id=user.id,
             visit_date=today,
         )
-        enqueue_recompute_web_analytics_achievements_debounced(canonical_team_id, user.id, today)
+        try:
+            recompute_web_analytics_achievements_sync(canonical_team_id, user_id=user.id, cheap_only=True)
+        except Exception as e:
+            capture_exception(e)
+        enqueue_recompute_web_analytics_achievements_debounced(canonical_team_id, None, today)
         return Response({"recorded": True})
 
     @extend_schema(
@@ -266,4 +309,41 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         )
         # Atomic increment — no read-modify-write, so concurrent interactions can't lose a count.
         WebAnalyticsInteraction.objects.filter(pk=interaction.pk).update(count=F("count") + 1)
+        try:
+            recompute_web_analytics_achievements_sync(canonical_team_id, user_id=user.id, cheap_only=True)
+        except Exception as e:
+            capture_exception(e)
         return Response({"recorded": True})
+
+    @extend_schema(
+        methods=["GET"],
+        operation_id="web_analytics_achievements_preferences",
+        summary="Get Web analytics achievements preferences",
+        description="Returns the requesting user's per-project Web analytics achievements preferences.",
+        responses={200: WebAnalyticsUserPreferencesSerializer},
+    )
+    @extend_schema(
+        methods=["POST"],
+        operation_id="web_analytics_achievements_update_preferences",
+        summary="Update Web analytics achievements preferences",
+        description="Sets the requesting user's per-project Web analytics achievements preferences.",
+        request=WebAnalyticsUserPreferencesSerializer,
+        responses={200: WebAnalyticsUserPreferencesSerializer},
+    )
+    @action(detail=False, methods=["get", "post"], url_path="preferences")
+    def preferences(self, request: Request, **kwargs: object) -> Response:
+        user = cast(User, request.user)
+        canonical_team_id = self.team.parent_team_id or self.team.id
+        if request.method == "POST":
+            request_serializer = WebAnalyticsUserPreferencesSerializer(data=request.data)
+            request_serializer.is_valid(raise_exception=True)
+            opted_out = request_serializer.validated_data["achievements_opt_out"]
+            WebAnalyticsUserConfig.objects.update_or_create(
+                team_id=canonical_team_id,
+                user_id=user.id,
+                defaults={"achievements_opt_out": opted_out},
+            )
+        else:
+            config = WebAnalyticsUserConfig.objects.filter(team_id=canonical_team_id, user_id=user.id).first()
+            opted_out = config.achievements_opt_out if config else False
+        return Response(WebAnalyticsUserPreferencesSerializer({"achievements_opt_out": opted_out}).data)

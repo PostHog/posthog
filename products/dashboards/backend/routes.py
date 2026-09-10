@@ -2,7 +2,7 @@ from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 from posthog.settings import EE_AVAILABLE
 
-from products.dashboards.backend.api import dashboard, dashboard_templates
+from products.dashboards.backend.api import dashboard, dashboard_saved_view, dashboard_templates
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -16,20 +16,20 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_dashboard_templates",
         ["project_id"],
     )
+    routers.projects.register(
+        r"dashboard_saved_views",
+        dashboard_saved_view.DashboardSavedViewViewSet,
+        "project_dashboard_saved_views",
+        ["team_id"],
+    )
 
-    legacy_project_dashboards_router, environment_dashboards_router = routers.register_legacy_dual_route(
-        r"dashboards", dashboard.DashboardsViewSet, "environment_dashboards", ["team_id"]
+    dashboards_router = routers.projects.register(
+        r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
     )
 
     # SharingConfigurationViewSet is shared (core), but the route lives under
     # dashboards/<id>/sharing — the dashboards product owns the sub-route.
-    environment_dashboards_router.register(
-        r"sharing",
-        sharing.SharingConfigurationViewSet,
-        "environment_dashboard_sharing",
-        ["team_id", "dashboard_id"],
-    )
-    legacy_project_dashboards_router.register(
+    dashboards_router.register(
         r"sharing",
         sharing.SharingConfigurationViewSet,
         "project_dashboard_sharing",
@@ -42,13 +42,7 @@ def register_routes(routers: RouterRegistry) -> None:
     if EE_AVAILABLE:
         from ee.api import dashboard_collaborator
 
-        environment_dashboards_router.register(
-            r"collaborators",
-            dashboard_collaborator.DashboardCollaboratorViewSet,
-            "environment_dashboard_collaborators",
-            ["project_id", "dashboard_id"],
-        )
-        legacy_project_dashboards_router.register(
+        dashboards_router.register(
             r"collaborators",
             dashboard_collaborator.DashboardCollaboratorViewSet,
             "project_dashboard_collaborators",

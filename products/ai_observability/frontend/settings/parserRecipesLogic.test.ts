@@ -1,8 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -23,8 +20,6 @@ const mockList = llmAnalyticsParserRecipesList as jest.MockedFunction<typeof llm
 const mockCreate = llmAnalyticsParserRecipesCreate as jest.MockedFunction<typeof llmAnalyticsParserRecipesCreate>
 const mockDestroy = llmAnalyticsParserRecipesDestroy as jest.MockedFunction<typeof llmAnalyticsParserRecipesDestroy>
 
-const FLAG = FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS
-
 describe('parserRecipesLogic', () => {
     let logic: ReturnType<typeof parserRecipesLogic.build>
 
@@ -32,25 +27,13 @@ describe('parserRecipesLogic', () => {
         jest.clearAllMocks()
         mockList.mockResolvedValue({ results: [] } as any)
         initKeaTests()
-        featureFlagLogic.mount()
     })
 
     afterEach(() => {
         logic?.unmount()
     })
 
-    const enableFlag = (): void => featureFlagLogic.actions.setFeatureFlags([FLAG], { [FLAG]: true })
-
-    it('does not fetch recipes while the feature flag is off', async () => {
-        logic = parserRecipesLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(mockList).not.toHaveBeenCalled()
-        expect(logic.values.storedRecipes).toEqual([])
-    })
-
-    it('fetches recipes when the flag is on and maps them for the list and the merge', async () => {
-        enableFlag()
+    it('fetches recipes on mount and maps them for the list and the merge', async () => {
         mockList.mockResolvedValue({ results: [{ id: 'r1', name: 'First', source: 'rules: []\n' }] } as any)
         logic = parserRecipesLogic()
         logic.mount()
@@ -61,7 +44,6 @@ describe('parserRecipesLogic', () => {
     })
 
     it('bumps recipesVersion every time loaded recipes are applied to the normalizer', async () => {
-        enableFlag()
         logic = parserRecipesLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadRecipesSuccess', 'recipesApplied'])

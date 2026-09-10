@@ -12,6 +12,7 @@ from posthog.temporal.ai_observability.eval_reports.emit_signal import (
     EvalReportSignalSummary,
     _build_eval_report_signal_prompt,
     emit_eval_report_signal_activity,
+    summarize_report_for_signal,
 )
 
 from products.signals.backend.models import SignalSourceConfig
@@ -104,23 +105,12 @@ async def _setup_no_source_config(ateam):
     del ateam
 
 
-async def _setup_evaluation_not_in_allowlist(ateam):
-    await sync_to_async(SignalSourceConfig.objects.create)(
-        team=ateam,
-        source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
-        source_type=SignalSourceConfig.SourceType.EVALUATION,
-        enabled=True,
-        config={"evaluation_ids": ["other-eval"]},
-    )
-
-
 async def _setup_config_disabled(ateam):
     await sync_to_async(SignalSourceConfig.objects.create)(
         team=ateam,
         source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
-        source_type=SignalSourceConfig.SourceType.EVALUATION,
+        source_type=SignalSourceConfig.SourceType.EVALUATION_REPORT,
         enabled=False,
-        config={"evaluation_ids": ["eval-123"]},
     )
 
 
@@ -131,10 +121,26 @@ async def _setup_org_not_ai_approved(ateam):
     await sync_to_async(SignalSourceConfig.objects.create)(
         team=ateam,
         source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
-        source_type=SignalSourceConfig.SourceType.EVALUATION,
+        source_type=SignalSourceConfig.SourceType.EVALUATION_REPORT,
         enabled=True,
-        config={"evaluation_ids": ["eval-123"]},
     )
+
+
+# `ai_product` is the Go-gateway opt-in. Dropping it reverts this site to the Python gateway
+# and unattributes its spend, with no call failing to show it.
+@pytest.mark.asyncio
+async def test_eval_report_summary_opts_in_as_aio_eval_reports_for_signals():
+    summary = EvalReportSignalSummary(title="Pass rate dropped", description="d", significance=0.5)
+    with patch(
+        "posthog.temporal.ai_observability.eval_reports.emit_signal.call_llm",
+        new=AsyncMock(return_value=summary),
+    ) as summary_call:
+        result = await summarize_report_for_signal(_make_inputs(team_id=1), _make_content())
+
+    assert result is summary
+    kwargs = summary_call.call_args.kwargs
+    assert kwargs["ai_product"] == "aio_eval_reports_for_signals"
+    assert kwargs["stage"] == "eval_report_signal_summary"
 
 
 @pytest.mark.asyncio
@@ -144,11 +150,10 @@ class TestEmitEvalReportSignalActivity:
         "setup_fn",
         [
             _setup_no_source_config,
-            _setup_evaluation_not_in_allowlist,
             _setup_config_disabled,
             _setup_org_not_ai_approved,
         ],
-        ids=["no_source_config", "evaluation_not_in_allowlist", "config_disabled", "org_not_ai_approved"],
+        ids=["no_source_config", "config_disabled", "org_not_ai_approved"],
     )
     async def test_skips_when_gate_fails(self, ateam, setup_fn):
         await setup_fn(ateam)
@@ -167,9 +172,8 @@ class TestEmitEvalReportSignalActivity:
         await sync_to_async(SignalSourceConfig.objects.create)(
             team=ateam,
             source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
-            source_type=SignalSourceConfig.SourceType.EVALUATION,
+            source_type=SignalSourceConfig.SourceType.EVALUATION_REPORT,
             enabled=True,
-            config={"evaluation_ids": ["eval-123"]},
         )
         inputs = _make_inputs(team_id=ateam.id, evaluation_id="eval-123")
         summary = EvalReportSignalSummary(
@@ -212,9 +216,8 @@ class TestEmitEvalReportSignalActivity:
         await sync_to_async(SignalSourceConfig.objects.create)(
             team=ateam,
             source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
-            source_type=SignalSourceConfig.SourceType.EVALUATION,
+            source_type=SignalSourceConfig.SourceType.EVALUATION_REPORT,
             enabled=True,
-            config={"evaluation_ids": ["eval-123"]},
         )
         inputs = _make_inputs(team_id=ateam.id, evaluation_id="eval-123")
         summary = EvalReportSignalSummary(
@@ -243,14 +246,14 @@ class TestEvalReportSignalSchemaContract:
 
     Mocking emit_signal in activity tests hides schema mismatches — the original review
     cycle caught one only because the bots ran static checks. This exercises the same
-    dispatch path emit_signal uses (`_SIGNAL_VARIANT_LOOKUP`) so any drift between the
+    dispatch path emit_signal uses (`SIGNAL_VARIANT_LOOKUP`) so any drift between the
     schema source and the activity's payload shape will fail in unit tests.
     """
 
     def test_evaluation_report_variant_is_registered(self):
-        from products.signals.backend.facade.api import _SIGNAL_VARIANT_LOOKUP
+        from products.signals.backend.facade.api import SIGNAL_VARIANT_LOOKUP
 
-        variant = _SIGNAL_VARIANT_LOOKUP.get(("llm_analytics", "evaluation_report"))
+        variant = SIGNAL_VARIANT_LOOKUP.get(("llm_analytics", "evaluation_report"))
         assert variant is not None, (
             "No SignalInput variant for (llm_analytics, evaluation_report). "
             "Did the schema source drift? Re-run `pnpm run schema:build`."
@@ -258,9 +261,9 @@ class TestEvalReportSignalSchemaContract:
 
     def test_activity_payload_validates_against_variant(self):
         """Construct the exact emit_signal kwargs the activity sends and validate them."""
-        from products.signals.backend.facade.api import _SIGNAL_VARIANT_LOOKUP
+        from products.signals.backend.facade.api import SIGNAL_VARIANT_LOOKUP
 
-        variant = _SIGNAL_VARIANT_LOOKUP[("llm_analytics", "evaluation_report")]
+        variant = SIGNAL_VARIANT_LOOKUP[("llm_analytics", "evaluation_report")]
         payload = {
             "source_product": "llm_analytics",
             "source_type": "evaluation_report",

@@ -1,7 +1,8 @@
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
-import { parseJSON } from '../../utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { RerunJobManager } from './rerun-job.manager'
 import { RERUN_QUEUE_NAME, RerunJobState } from './rerun-job.types'
 

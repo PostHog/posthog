@@ -1,12 +1,17 @@
 import type { SourceFieldConfig } from '~/queries/schema/schema-general'
-import type { ExternalDataSourceSchema } from '~/types'
+import type { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+
+import { clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
 import {
-    clampFrequencyForSchema,
+    buildBulkEnablePayloads,
+    clonePayloadPreservingFiles,
+    effectiveLookbackDays,
     isSensitiveCredentialField,
     removeEmptySensitiveValues,
     runBulkSchemaAction,
     schemasEligibleForSync,
+    schemasNeedingLookbackResync,
 } from './sourceSettingsLogic'
 
 function makeSchema(overrides: Partial<ExternalDataSourceSchema>): ExternalDataSourceSchema {
@@ -191,6 +196,25 @@ describe('removeEmptySensitiveValues', () => {
     })
 })
 
+describe('clonePayloadPreservingFiles', () => {
+    it('preserves File instances in nested payloads', () => {
+        const keyFile = new File(['{"project_id":"my-project"}'], 'service-account.json', {
+            type: 'application/json',
+        })
+        const payload = {
+            key_file: [keyFile],
+            config: { use_custom_region: { enabled: true, region: 'us-east1' } },
+        }
+
+        const cloned = clonePayloadPreservingFiles(payload) as Record<string, any>
+
+        expect(cloned).not.toBe(payload)
+        expect(cloned.config).not.toBe(payload.config)
+        expect(cloned.key_file[0]).toBeInstanceOf(File)
+        expect(cloned.key_file[0]).toBe(keyFile)
+    })
+})
+
 describe('schemasEligibleForSync', () => {
     it('keeps only schemas that are enabled with a sync method', () => {
         const schemas = [
@@ -207,18 +231,74 @@ describe('schemasEligibleForSync', () => {
     })
 })
 
-describe('clampFrequencyForSchema', () => {
-    it('floors non-CDC schemas at 5 minutes', () => {
-        const incremental = makeSchema({ sync_type: 'incremental' })
-        expect(clampFrequencyForSchema('1min', incremental)).toBe('5min')
-        expect(clampFrequencyForSchema('5min', incremental)).toBe('5min')
-        expect(clampFrequencyForSchema('1hour', incremental)).toBe('1hour')
+describe('schemasNeedingLookbackResync', () => {
+    it('keeps only enabled incremental tables so a raised lookback resyncs stats tables, not entity tables', () => {
+        const source = {
+            schemas: [
+                makeSchema({ id: 'stats-on', should_sync: true, incremental: true }),
+                makeSchema({ id: 'stats-off', should_sync: false, incremental: true }),
+                makeSchema({ id: 'entity-on', should_sync: true, incremental: false }),
+            ],
+        } as ExternalDataSource
+
+        expect(schemasNeedingLookbackResync(source).map((s) => s.id)).toEqual(['stats-on'])
     })
 
-    it('lets CDC schemas go down to 1 minute', () => {
-        const cdc = makeSchema({ sync_type: 'cdc' })
-        expect(clampFrequencyForSchema('1min', cdc)).toBe('1min')
-        expect(clampFrequencyForSchema('6hour', cdc)).toBe('6hour')
+    it('returns an empty list when the source is missing', () => {
+        expect(schemasNeedingLookbackResync(null)).toEqual([])
+    })
+})
+
+describe('effectiveLookbackDays', () => {
+    // Blank, absent, and sub-1 values all mean the backend's 90-day default, so the resync prompt
+    // must compare against 90 rather than 0/null — otherwise it misfires on both raises and lowers.
+    it.each([
+        ['an absent value', undefined, 90],
+        ['a null value', null, 90],
+        ['a blank string', '', 90],
+        ['zero', 0, 90],
+        ['a negative value', -5, 90],
+        ['a set value', 120, 120],
+        ['a numeric string', '30', 30],
+        ['a value above the max', 10_000, 3 * 365],
+    ])('normalizes %s', (_label, input, expected) => {
+        expect(effectiveLookbackDays(input)).toBe(expected)
+    })
+
+    it('does not prompt when narrowing a blank (effective-90) window to 30', () => {
+        expect(effectiveLookbackDays('30') > effectiveLookbackDays('')).toBe(false)
+    })
+
+    it('prompts when raising from an absent value to 120', () => {
+        expect(effectiveLookbackDays(120) > effectiveLookbackDays(undefined)).toBe(true)
+    })
+
+    it('does not prompt when raising past a max that is already reached', () => {
+        expect(effectiveLookbackDays(10_000) > effectiveLookbackDays(3 * 365)).toBe(false)
+    })
+})
+
+describe('clampSyncFrequency', () => {
+    it('floors every schema at 5 minutes, CDC included', () => {
+        expect(clampSyncFrequency('1min')).toBe('5min')
+        expect(clampSyncFrequency('5min')).toBe('5min')
+        expect(clampSyncFrequency('1hour')).toBe('1hour')
+    })
+})
+
+describe('buildBulkEnablePayloads', () => {
+    it('skips already-enabled schemas and requests sync defaults only where no sync method is set', () => {
+        const payloads = buildBulkEnablePayloads([
+            makeSchema({ id: 'enabled', should_sync: true, sync_type: 'incremental' }),
+            makeSchema({ id: 'configured', should_sync: false, sync_type: 'full_refresh' }),
+            makeSchema({ id: 'unconfigured', should_sync: false, sync_type: null }),
+        ])
+        // Sending an unconfigured schema without `apply_sync_defaults` would 400 on the backend
+        // ("Sync type must be set up first"); sending it for configured ones is a pointless probe.
+        expect(payloads).toEqual([
+            { id: 'configured', should_sync: true },
+            { id: 'unconfigured', should_sync: true, apply_sync_defaults: true },
+        ])
     })
 })
 

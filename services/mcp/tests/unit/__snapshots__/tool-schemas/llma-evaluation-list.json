@@ -1,9 +1,22 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "directory_id": {
+            "description": "Filter evaluations by directory UUID.",
+            "type": "string"
+        },
+        "directory_id__isnull": {
+            "description": "Filter evaluations by whether they are at the top level.",
+            "type": "boolean"
+        },
         "enabled": {
             "description": "Filter by enabled status",
             "type": "boolean"
+        },
+        "evaluation_type": {
+            "description": "Filter by evaluation type\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis",
+            "enum": ["hog", "llm_judge", "sentiment"],
+            "type": "string"
         },
         "id__in": {
             "description": "Multiple values may be separated by commas.",

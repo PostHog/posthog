@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
+import { Group } from 'kea-forms'
 
 import { IconPhone, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconMonitor } from 'lib/lemon-ui/icons'
+import { QuestionBranchingInput } from 'scenes/surveys/components/question-branching/QuestionBranchingInput'
 import { SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { isThumbQuestion } from 'scenes/surveys/utils'
+import { canQuestionSkipSubmitButton, isThumbQuestion } from 'scenes/surveys/utils'
 
 import {
     type MultipleSurveyQuestion,
@@ -190,6 +192,28 @@ export function HostedSurveySettingsPanel({
                             }}
                         />
                     )}
+
+                    {canQuestionSkipSubmitButton(question) && (
+                        <LemonCheckbox
+                            label="Automatically submit on selection"
+                            info="If enabled, the survey submits immediately after the user makes a selection (for rating or single-choice questions without an open-ended option), and the submit button is hidden. Requires at least version 1.244.0 of posthog-js. Not available for the mobile SDKs at the moment."
+                            checked={!!question.skipSubmitButton}
+                            onChange={(checked) => updateQuestionField('skipSubmitButton', checked)}
+                        />
+                    )}
+
+                    {/* Keep this block inside the `!isConfirmation && question` guard: the Group
+                        binds to `questions.${activePageIndex}`, which is only a valid question
+                        index for real questions, never the confirmation page. */}
+                    <div className="border-t pt-3">
+                        <SettingsSection
+                            title="Branching"
+                            subtitle="Send people to a different question based on their answer."
+                        />
+                        <Group name={`questions.${activePageIndex}`}>
+                            <QuestionBranchingInput questionIndex={activePageIndex} question={question} />
+                        </Group>
+                    </div>
                 </>
             ) : null}
 

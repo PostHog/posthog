@@ -1,12 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonBadge, LemonBanner, LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonTab, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconFeedback } from 'lib/lemon-ui/icons'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -14,15 +16,15 @@ import { Settings } from 'scenes/settings/Settings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { CyclotronJobFiltersType } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, CyclotronJobFiltersType } from '~/types'
 
 import { IntegrationsMovedBanner } from '../../components/IntegrationsMovedBanner'
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
-import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
-import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
+import { errorTrackingEmptyState } from '../../emptyState/errorTrackingEmptyState'
 import { ERROR_TRACKING_LOGIC_KEY } from '../../utils'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,
@@ -30,7 +32,6 @@ import {
     errorTrackingSceneLogic,
 } from './errorTrackingSceneLogic'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
-import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
@@ -45,14 +46,19 @@ const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFiltersType[] = [
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
     logic: errorTrackingSceneLogic,
+    productKey: ProductKey.ERROR_TRACKING,
+    emptyState: errorTrackingEmptyState,
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
-    const hasSourceMapsBanner = useFeatureFlag('ERROR_TRACKING_SOURCE_MAPS_BANNER')
+    // Same gate as the settings section: configuration endpoints require error tracking viewer access.
+    const configurationAccessDeniedReason = getAccessControlDisabledReason(
+        AccessControlResourceType.ErrorTracking,
+        AccessControlLevel.Viewer
+    )
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -75,15 +81,13 @@ export function ErrorTrackingScene(): JSX.Element {
             key: 'issues',
             label: 'Issues',
             content: (
-                <ErrorTrackingSetupPrompt>
-                    <ErrorTrackingIssueFilteringTool />
-                    {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                    {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
-                    <div className="border rounded bg-surface-primary p-2">
-                        <IssuesFilters />
-                    </div>
+                <>
+                    <SourceMapsBanner />
                     <IssuesList />
-                </ErrorTrackingSetupPrompt>
+                    {/* Renders a hidden div — keep it after IssuesList so the sticky bar's
+                        first:-mt-4 can detect whether a banner renders above it */}
+                    <ErrorTrackingIssueFilteringTool />
+                </>
             ),
         },
         {
@@ -103,7 +107,12 @@ export function ErrorTrackingScene(): JSX.Element {
         {
             key: 'configuration',
             label: 'Configuration',
-            content: (
+            disabledReason: configurationAccessDeniedReason ?? undefined,
+            content: configurationAccessDeniedReason ? (
+                // Deep links can activate the tab even though it's disabled, so the
+                // content must deny too — not just the tab button.
+                <AccessDenied reason={configurationAccessDeniedReason} />
+            ) : (
                 <>
                     <IntegrationsMovedBanner />
                     <Settings
@@ -231,22 +240,5 @@ const Header = (): JSX.Element => {
                 }
             />
         </>
-    )
-}
-
-const IngestionStatusCheck = (): JSX.Element | null => {
-    return (
-        <LemonBanner type="warning" className="my-2">
-            <p>
-                <strong>No Exception events have been detected!</strong>
-            </p>
-            <p>
-                To use the Error tracking product, please{' '}
-                <Link to="https://posthog.com/docs/error-tracking/installation">
-                    enable exception capture within the PostHog SDK
-                </Link>{' '}
-                (otherwise it'll be a little empty!)
-            </p>
-        </LemonBanner>
     )
 }

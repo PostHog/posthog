@@ -1,8 +1,7 @@
-"""Tests for the migrated `fetch_trace` in the trace-summarization Temporal pipeline.
+"""Tests for `fetch_trace` in the trace-summarization Temporal pipeline.
 
-Covers the strip-migration contract: heavy columns must come back populated on
-the dedicated path (post-strip rows are only readable there) and the function
-must hand back a fully-formed LLMTrace, not raise.
+Heavy columns must come back populated on the dedicated `ai_events` path (they live
+only there), and the function must hand back a fully-formed LLMTrace, not raise.
 """
 
 import pytest
@@ -61,7 +60,7 @@ class TestFetchTrace:
             result = fetch_trace(team, "missing-trace", "2026-04-27T07:00:00+00:00", "2026-04-27T08:00:00+00:00")
             assert result is None
 
-    def test_runner_handles_post_strip_heavy_columns(self, team):
+    def test_runner_handles_heavy_columns(self, team):
         """Smoke-checks the contract that the runner's response surfaces heavy
         props on the events under `properties.$ai_input`. Real merge logic is
         tested in `test_trace_query_runner.py`; here we just assert this

@@ -3,265 +3,189 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 20 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
-export const ListQueryParams = /* @__PURE__ */ zod.object({
+export const ListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const RetrieveParams = /* @__PURE__ */ zod.object({
+export const RetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this organization.'),
 })
 
-export const MembersListParams = /* @__PURE__ */ zod.object({
+export const PartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this organization.'),
+})
+
+export const partialUpdateBodyNameMax = 64
+
+export const PartialUpdateBody = () => zod.object({
+    name: zod.string().max(partialUpdateBodyNameMax).optional(),
+    logo_media_id: zod.string().nullish(),
+    enforce_2fa: zod.boolean().nullish(),
+    enforce_verified_domains: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.'
+        ),
+    members_can_invite: zod.boolean().nullish(),
+    members_can_create_projects: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
+        ),
+    members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When False, members (below admin) only see themselves in the members list and only project members in access control.'
+        ),
+    allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
+    is_ai_data_processing_approved: zod.boolean().nullish(),
+    is_ai_training_opted_in: zod
+        .boolean()
+        .nullish()
+        .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
+    default_experiment_stats_method: zod
+        .union([
+            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
+        ),
+    default_anonymize_ips: zod
+        .boolean()
+        .optional()
+        .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
+    default_role_id: zod
+        .string()
+        .nullish()
+        .describe('ID of the role to automatically assign to new members joining the organization'),
+})
+
+export const MembersListParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
-export const MembersListQueryParams = /* @__PURE__ */ zod.object({
+export const MembersListQueryParams = () => zod.object({
+    email_domain: zod
+        .string()
+        .optional()
+        .describe('Only return members whose email address is on this domain (case-insensitive).'),
+    levels: zod
+        .string()
+        .optional()
+        .describe('Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod.string().optional().describe('Sort order. Defaults to `-joined_at`.'),
+    outside_verified_domains: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement."
+        ),
     search: zod
         .string()
         .optional()
         .describe(
-            "Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters."
+            "Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters."
         ),
 })
 
-export const RolesListParams = /* @__PURE__ */ zod.object({
+export const MembersGithubLoginRetrieveParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+    user__uuid: zod.string(),
+})
+
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
+export const RolesListParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
-export const RolesListQueryParams = /* @__PURE__ */ zod.object({
+export const RolesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const RolesRetrieveParams = /* @__PURE__ */ zod.object({
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
+export const RolesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this role.'),
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
 })
 
-export const RolesRoleMembershipsListParams = /* @__PURE__ */ zod.object({
+/**
+ * Role endpoints disclose member records, so they scope them the same way the members list
+ * does when the org restricts member list visibility.
+ */
+export const RolesRoleMembershipsListParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
     role_id: zod.string(),
 })
 
-export const RolesRoleMembershipsListQueryParams = /* @__PURE__ */ zod.object({
+export const RolesRoleMembershipsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const ActivityLogListParams = /* @__PURE__ */ zod.object({
+export const AdvancedActivityLogsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const activityLogListQueryPageSizeDefault = 100
-export const activityLogListQueryPageSizeMax = 1000
-
-export const ActivityLogListQueryParams = /* @__PURE__ */ zod.object({
-    item_id: zod.string().min(1).optional().describe('Filter by the ID of the affected resource.'),
-    page: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe(
-            'Page number for pagination. When provided, uses page-based pagination ordered by most recent first.'
-        ),
-    page_size: zod
-        .number()
-        .min(1)
-        .max(activityLogListQueryPageSizeMax)
-        .default(activityLogListQueryPageSizeDefault)
-        .describe('Number of results per page (default: 100, max: 1000). Only used with page-based pagination.'),
-    scope: zod
-        .enum([
-            'Cohort',
-            'FeatureFlag',
-            'Person',
-            'Group',
-            'Insight',
-            'Plugin',
-            'PluginConfig',
-            'HogFunction',
-            'HogFlow',
-            'DataManagement',
-            'EventDefinition',
-            'PropertyDefinition',
-            'Notebook',
-            'Endpoint',
-            'EndpointVersion',
-            'Dashboard',
-            'Replay',
-            'Experiment',
-            'ExperimentHoldout',
-            'ExperimentSavedMetric',
-            'Survey',
-            'EarlyAccessFeature',
-            'SessionRecordingPlaylist',
-            'Comment',
-            'Team',
-            'Project',
-            'ErrorTrackingIssue',
-            'DataWarehouseSavedQuery',
-            'LegalDocument',
-            'Organization',
-            'OrganizationDomain',
-            'OrganizationMembership',
-            'Role',
-            'UserGroup',
-            'BatchExport',
-            'BatchImport',
-            'ExportedAsset',
-            'Integration',
-            'Annotation',
-            'Tag',
-            'TaggedItem',
-            'Subscription',
-            'PersonalAPIKey',
-            'ProjectSecretAPIKey',
-            'OAuthApplication',
-            'User',
-            'Action',
-            'AlertConfiguration',
-            'Threshold',
-            'AlertSubscription',
-            'ExternalDataSource',
-            'ExternalDataSchema',
-            'Evaluation',
-            'LLMTrace',
-            'WebAnalyticsFilterPreset',
-            'CustomerProfileConfig',
-            'Log',
-            'LogsAlertConfiguration',
-            'LogsExclusionRule',
-            'DashboardWidget',
-            'ProductTour',
-            'Ticket',
-            'InstanceSetting',
-            'SignalScoutConfig',
-        ])
-        .optional()
-        .describe(
-            'Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".\n\n* `Cohort` - Cohort\n* `FeatureFlag` - FeatureFlag\n* `Person` - Person\n* `Group` - Group\n* `Insight` - Insight\n* `Plugin` - Plugin\n* `PluginConfig` - PluginConfig\n* `HogFunction` - HogFunction\n* `HogFlow` - HogFlow\n* `DataManagement` - DataManagement\n* `EventDefinition` - EventDefinition\n* `PropertyDefinition` - PropertyDefinition\n* `Notebook` - Notebook\n* `Endpoint` - Endpoint\n* `EndpointVersion` - EndpointVersion\n* `Dashboard` - Dashboard\n* `Replay` - Replay\n* `Experiment` - Experiment\n* `ExperimentHoldout` - ExperimentHoldout\n* `ExperimentSavedMetric` - ExperimentSavedMetric\n* `Survey` - Survey\n* `EarlyAccessFeature` - EarlyAccessFeature\n* `SessionRecordingPlaylist` - SessionRecordingPlaylist\n* `Comment` - Comment\n* `Team` - Team\n* `Project` - Project\n* `ErrorTrackingIssue` - ErrorTrackingIssue\n* `DataWarehouseSavedQuery` - DataWarehouseSavedQuery\n* `LegalDocument` - LegalDocument\n* `Organization` - Organization\n* `OrganizationDomain` - OrganizationDomain\n* `OrganizationMembership` - OrganizationMembership\n* `Role` - Role\n* `UserGroup` - UserGroup\n* `BatchExport` - BatchExport\n* `BatchImport` - BatchImport\n* `ExportedAsset` - ExportedAsset\n* `Integration` - Integration\n* `Annotation` - Annotation\n* `Tag` - Tag\n* `TaggedItem` - TaggedItem\n* `Subscription` - Subscription\n* `PersonalAPIKey` - PersonalAPIKey\n* `ProjectSecretAPIKey` - ProjectSecretAPIKey\n* `OAuthApplication` - OAuthApplication\n* `User` - User\n* `Action` - Action\n* `AlertConfiguration` - AlertConfiguration\n* `Threshold` - Threshold\n* `AlertSubscription` - AlertSubscription\n* `ExternalDataSource` - ExternalDataSource\n* `ExternalDataSchema` - ExternalDataSchema\n* `Evaluation` - Evaluation\n* `LLMTrace` - LLMTrace\n* `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset\n* `CustomerProfileConfig` - CustomerProfileConfig\n* `Log` - Log\n* `LogsAlertConfiguration` - LogsAlertConfiguration\n* `LogsExclusionRule` - LogsExclusionRule\n* `DashboardWidget` - DashboardWidget\n* `ProductTour` - ProductTour\n* `Ticket` - Ticket\n* `InstanceSetting` - InstanceSetting\n* `SignalScoutConfig` - SignalScoutConfig'
-        ),
-    scopes: zod
-        .array(
-            zod
-                .enum([
-                    'Cohort',
-                    'FeatureFlag',
-                    'Person',
-                    'Group',
-                    'Insight',
-                    'Plugin',
-                    'PluginConfig',
-                    'HogFunction',
-                    'HogFlow',
-                    'DataManagement',
-                    'EventDefinition',
-                    'PropertyDefinition',
-                    'Notebook',
-                    'Endpoint',
-                    'EndpointVersion',
-                    'Dashboard',
-                    'Replay',
-                    'Experiment',
-                    'ExperimentHoldout',
-                    'ExperimentSavedMetric',
-                    'Survey',
-                    'EarlyAccessFeature',
-                    'SessionRecordingPlaylist',
-                    'Comment',
-                    'Team',
-                    'Project',
-                    'ErrorTrackingIssue',
-                    'DataWarehouseSavedQuery',
-                    'LegalDocument',
-                    'Organization',
-                    'OrganizationDomain',
-                    'OrganizationMembership',
-                    'Role',
-                    'UserGroup',
-                    'BatchExport',
-                    'BatchImport',
-                    'ExportedAsset',
-                    'Integration',
-                    'Annotation',
-                    'Tag',
-                    'TaggedItem',
-                    'Subscription',
-                    'PersonalAPIKey',
-                    'ProjectSecretAPIKey',
-                    'OAuthApplication',
-                    'User',
-                    'Action',
-                    'AlertConfiguration',
-                    'Threshold',
-                    'AlertSubscription',
-                    'ExternalDataSource',
-                    'ExternalDataSchema',
-                    'Evaluation',
-                    'LLMTrace',
-                    'WebAnalyticsFilterPreset',
-                    'CustomerProfileConfig',
-                    'Log',
-                    'LogsAlertConfiguration',
-                    'LogsExclusionRule',
-                    'DashboardWidget',
-                    'ProductTour',
-                    'Ticket',
-                    'InstanceSetting',
-                    'SignalScoutConfig',
-                ])
-                .describe(
-                    '* `Cohort` - Cohort\n* `FeatureFlag` - FeatureFlag\n* `Person` - Person\n* `Group` - Group\n* `Insight` - Insight\n* `Plugin` - Plugin\n* `PluginConfig` - PluginConfig\n* `HogFunction` - HogFunction\n* `HogFlow` - HogFlow\n* `DataManagement` - DataManagement\n* `EventDefinition` - EventDefinition\n* `PropertyDefinition` - PropertyDefinition\n* `Notebook` - Notebook\n* `Endpoint` - Endpoint\n* `EndpointVersion` - EndpointVersion\n* `Dashboard` - Dashboard\n* `Replay` - Replay\n* `Experiment` - Experiment\n* `ExperimentHoldout` - ExperimentHoldout\n* `ExperimentSavedMetric` - ExperimentSavedMetric\n* `Survey` - Survey\n* `EarlyAccessFeature` - EarlyAccessFeature\n* `SessionRecordingPlaylist` - SessionRecordingPlaylist\n* `Comment` - Comment\n* `Team` - Team\n* `Project` - Project\n* `ErrorTrackingIssue` - ErrorTrackingIssue\n* `DataWarehouseSavedQuery` - DataWarehouseSavedQuery\n* `LegalDocument` - LegalDocument\n* `Organization` - Organization\n* `OrganizationDomain` - OrganizationDomain\n* `OrganizationMembership` - OrganizationMembership\n* `Role` - Role\n* `UserGroup` - UserGroup\n* `BatchExport` - BatchExport\n* `BatchImport` - BatchImport\n* `ExportedAsset` - ExportedAsset\n* `Integration` - Integration\n* `Annotation` - Annotation\n* `Tag` - Tag\n* `TaggedItem` - TaggedItem\n* `Subscription` - Subscription\n* `PersonalAPIKey` - PersonalAPIKey\n* `ProjectSecretAPIKey` - ProjectSecretAPIKey\n* `OAuthApplication` - OAuthApplication\n* `User` - User\n* `Action` - Action\n* `AlertConfiguration` - AlertConfiguration\n* `Threshold` - Threshold\n* `AlertSubscription` - AlertSubscription\n* `ExternalDataSource` - ExternalDataSource\n* `ExternalDataSchema` - ExternalDataSchema\n* `Evaluation` - Evaluation\n* `LLMTrace` - LLMTrace\n* `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset\n* `CustomerProfileConfig` - CustomerProfileConfig\n* `Log` - Log\n* `LogsAlertConfiguration` - LogsAlertConfiguration\n* `LogsExclusionRule` - LogsExclusionRule\n* `DashboardWidget` - DashboardWidget\n* `ProductTour` - ProductTour\n* `Ticket` - Ticket\n* `InstanceSetting` - InstanceSetting\n* `SignalScoutConfig` - SignalScoutConfig'
-                )
-        )
-        .optional()
-        .describe(
-            'Filter by multiple activity scopes, comma-separated. Values must be valid ActivityScope enum values. E.g. "FeatureFlag,Insight".'
-        ),
-    user: zod.string().optional().describe('Filter by user UUID who performed the action.'),
-})
-
-export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const advancedActivityLogsListQueryActivitiesDefault = []
 export const advancedActivityLogsListQueryClientsDefault = []
+export const advancedActivityLogsListQueryFollowDefault = false
+export const advancedActivityLogsListQueryIncludeValuesDefault = false
 export const advancedActivityLogsListQueryIpAddressesDefault = []
 export const advancedActivityLogsListQueryItemIdsDefault = []
+export const advancedActivityLogsListQueryOrderingDefault = `-created_at`
+
 export const advancedActivityLogsListQueryPageSizeDefault = 100
 export const advancedActivityLogsListQueryPageSizeMax = 1000
 
@@ -269,11 +193,11 @@ export const advancedActivityLogsListQueryScopesDefault = []
 export const advancedActivityLogsListQueryTeamIdsDefault = []
 export const advancedActivityLogsListQueryUsersDefault = []
 
-export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
+export const AdvancedActivityLogsListQueryParams = () => zod.object({
     activities: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryActivitiesDefault)
-        .describe('Filter by activity types (e.g. "created", "updated", "deleted").'),
+        .describe('Filter by activity types (e.g. \"created\", \"updated\", \"deleted\").'),
     clients: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryClientsDefault)
@@ -288,18 +212,37 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('Upper bound on `created_at` (inclusive), ISO-8601.'),
+    follow: zod
+        .boolean()
+        .default(advancedActivityLogsListQueryFollowDefault)
+        .describe(
+            'Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.'
+        ),
     hogql_filter: zod.string().optional().describe('Reserved for future HogQL-based filtering.'),
+    include_values: zod
+        .boolean()
+        .default(advancedActivityLogsListQueryIncludeValuesDefault)
+        .describe(
+            'Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool.'
+        ),
     ip_addresses: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryIpAddressesDefault)
         .describe(
-            'Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.'
+            'Filter by client IP addresses. Accepts exact IPv4\/IPv6 values or wildcard patterns using `\*` (e.g. `203.0.113.\*`). Multiple entries are OR-combined.'
         ),
     is_system: zod.boolean().nullish().describe('When set, filters rows authored by the system (no user).'),
     item_ids: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryItemIdsDefault)
         .describe('Filter by the `item_id` of the affected resource(s).'),
+    ordering: zod
+        .string()
+        .min(1)
+        .default(advancedActivityLogsListQueryOrderingDefault)
+        .describe(
+            'Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.\n\n\* `-created_at` - -created_at\n\* `created_at` - created_at'
+        ),
     page: zod
         .number()
         .min(1)
@@ -312,11 +255,17 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .max(advancedActivityLogsListQueryPageSizeMax)
         .default(advancedActivityLogsListQueryPageSizeDefault)
-        .describe('Number of results per page (default: 100, max: 1000). Only used with page-based pagination.'),
+        .describe('Number of results per page (default: 100, max: 1000).'),
+    schema: zod
+        .enum(['ocsf'])
+        .optional()
+        .describe(
+            'Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for ingestion into a security tool. Omit for the default PostHog format.\n\n\* `ocsf` - ocsf'
+        ),
     scopes: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryScopesDefault)
-        .describe('Filter by activity scopes (e.g. "FeatureFlag", "Insight").'),
+        .describe('Filter by activity scopes (e.g. \"FeatureFlag\", \"Insight\").'),
     search_text: zod.string().optional().describe('Free-text search across the `detail` JSON column.'),
     start_date: zod.iso
         .datetime({ offset: true })
@@ -338,45 +287,45 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .describe('When set, filters rows where the actor was impersonating another user.'),
 })
 
-export const AdvancedActivityLogsAvailableFiltersRetrieveParams = /* @__PURE__ */ zod.object({
+export const AdvancedActivityLogsAvailableFiltersRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const ApprovalPoliciesListParams = /* @__PURE__ */ zod.object({
+export const ApprovalPoliciesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const ApprovalPoliciesListQueryParams = /* @__PURE__ */ zod.object({
+export const ApprovalPoliciesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const ApprovalPoliciesRetrieveParams = /* @__PURE__ */ zod.object({
+export const ApprovalPoliciesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this approval policy.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const ChangeRequestsListParams = /* @__PURE__ */ zod.object({
+export const ChangeRequestsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const ChangeRequestsListQueryParams = /* @__PURE__ */ zod.object({
+export const ChangeRequestsListQueryParams = () => zod.object({
     action_key: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -386,100 +335,173 @@ export const ChangeRequestsListQueryParams = /* @__PURE__ */ zod.object({
     state: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
 })
 
-export const ChangeRequestsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ChangeRequestsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this change request.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const CommentsListParams = /* @__PURE__ */ zod.object({
+/**
+ * Approve a change request.
+ * If quorum is reached, automatically applies the change immediately.
+ */
+export const ChangeRequestsApproveCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this change request.'),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
+export const ChangeRequestsApproveCreateBody = () => zod.object({
+    reason: zod.string().optional().describe('Optional note recorded with the approval vote explaining the decision.'),
+})
+
+/**
+ * Reject a change request.
+ */
+export const ChangeRequestsRejectCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this change request.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ChangeRequestsRejectCreateBody = () => zod.object({
+    reason: zod
+        .string()
+        .describe(
+            'Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester.'
+        ),
+})
+
+export const CommentsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CommentsListQueryParams = () => zod.object({
     completed: zod
         .enum(['any', 'open', 'completed'])
         .optional()
         .describe(
-            "When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).\n\n* `any` - any\n* `open` - open\n* `completed` - completed"
+            "When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).\n\n\* `any` - any\n\* `open` - open\n\* `completed` - completed"
         ),
+    created_by: zod.number().optional().describe('Filter by the numeric ID of the user who wrote the comment.'),
     cursor: zod.string().optional().describe('The pagination cursor value.'),
     item_id: zod.string().min(1).optional().describe('Filter by the ID of the resource being commented on.'),
     kind: zod
         .enum(['any', 'comment', 'task'])
         .optional()
         .describe(
-            "Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).\n\n* `any` - any\n* `comment` - comment\n* `task` - task"
+            "Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).\n\n\* `any` - any\n\* `comment` - comment\n\* `task` - task"
         ),
     scope: zod
         .string()
         .min(1)
         .optional()
-        .describe('Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).'),
+        .describe(
+            'Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access.'
+        ),
     search: zod.string().min(1).optional().describe('Full-text search within comment content.'),
     source_comment: zod.string().min(1).optional().describe('Filter replies to a specific parent comment.'),
-})
-
-export const CommentsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this comment.'),
-    project_id: zod
+    task_id: zod
         .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const CommentsThreadRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this comment.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const CommentsCountRetrieveParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
+        .optional()
+        .describe('Owning task for task, task_artifact, and desktop_canvas comment scopes.'),
 })
 
 /**
- * Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` record (the one carrying the `onboarding product selected - primary` context) — not from the `user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no primary onboarding product intent has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
+ * Create a comment.
+ *
+ * Support messages are deduplicated: an identical message from the same author on the same
+ * ticket within a short window returns the original comment with a 200 instead of creating a
+ * second one, and a 409 while a concurrent request is still creating it.
  */
-export const EnvironmentsPromotedProductIntentRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this environment (aka team).'),
+export const CommentsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const commentsCreateBodyScopeMax = 79
+
+export const commentsCreateBodyIsTaskDefault = false
+export const commentsCreateBodyItemIdMax = 72
+
+export const CommentsCreateBody = () => zod.object({
+    scope: zod.string().max(commentsCreateBodyScopeMax).optional(),
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
+    deleted: zod.boolean().nullish(),
+    mentions: zod.array(zod.number()).optional(),
+    slug: zod.string().optional(),
+    is_task: zod
+        .boolean()
+        .default(commentsCreateBodyIsTaskDefault)
+        .describe(
+            'Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation.'
+        ),
+    content: zod.string().nullish(),
+    rich_content: zod.unknown().optional(),
+    item_id: zod.string().max(commentsCreateBodyItemIdMax).nullish(),
+    source_comment: zod.string().nullish(),
+})
+
+export const CommentsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this comment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CommentsThreadRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this comment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CommentsCountRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
  * Get the authenticated user's pinned sidebar tabs and configured homepage for the current team. Pass `@me` as the UUID.
  */
-export const UserHomeSettingsRetrieveParams = /* @__PURE__ */ zod.object({
+export const UserHomeSettingsRetrieveParams = () => zod.object({
     uuid: zod.string(),
 })
 
 /**
  * Update the authenticated user's pinned sidebar tabs and/or homepage for the current team. Pass `@me` as the UUID. Send `tabs` to replace the pinned tab list, `homepage` to set the home destination (any PostHog URL — dashboard, insight, search results, scene). Either field may be omitted to leave it unchanged; sending `homepage: null` or `{}` clears the homepage.
  */
-export const UserHomeSettingsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const UserHomeSettingsPartialUpdateParams = () => zod.object({
     uuid: zod.string(),
 })
 
-export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const UserHomeSettingsPartialUpdateBody = () => zod.object({
     tabs: zod
         .array(
             zod.object({
@@ -491,7 +513,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .optional()
                     .describe(
-                        'URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination.'
+                        'URL pathname the tab points at — for example `\/project\/123\/dashboard\/45` or `\/project\/123\/insights`. Combined with `search` and `hash` to reconstruct the destination.'
                     ),
                 search: zod
                     .string()
@@ -525,7 +547,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .nullish()
                     .describe(
-                        'Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.'
+                        'Scene identifier resolved from the pathname when known — used by the frontend for icon\/title hints.'
                     ),
                 sceneKey: zod
                     .string()
@@ -560,7 +582,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .optional()
                     .describe(
-                        'URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination.'
+                        'URL pathname the tab points at — for example `\/project\/123\/dashboard\/45` or `\/project\/123\/insights`. Combined with `search` and `hash` to reconstruct the destination.'
                     ),
                 search: zod
                     .string()
@@ -594,7 +616,7 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .nullish()
                     .describe(
-                        'Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.'
+                        'Scene identifier resolved from the pathname when known — used by the frontend for icon\/title hints.'
                     ),
                 sceneKey: zod
                     .string()
@@ -617,6 +639,6 @@ export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default."
+            "Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `\/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default."
         ),
 })

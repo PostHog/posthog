@@ -23,6 +23,11 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# --workers-kill-timeout bounds the reload. Granian defaults it to disabled, which means it joins
+# the old worker with no timeout and only escalates to a hard kill when the flag is set. An open SSE
+# stream (an agent run log held by a browser tab) never finishes on its own, so without this the
+# worker never exits, the replacement is never spawned, and port 8000 stays dead until it is killed
+# by hand. A worker with nothing in flight still exits immediately, so normal reloads are unaffected.
 python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m granian \
     --interface asgi \
     posthog.asgi:application \
@@ -31,7 +36,7 @@ python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m granian \
     --reload-paths ./ee \
     --reload-paths ./products \
     --reload-paths ./frontend/src/products.json \
-    --reload-ignore-paths "$REPO_ROOT/products/agent_platform/services" \
     --host $HOST_BIND \
     --log-level debug \
-    --workers 1
+    --workers 1 \
+    --workers-kill-timeout 5

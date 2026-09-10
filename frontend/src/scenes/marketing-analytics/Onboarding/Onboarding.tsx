@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import * as moneyPng from '@posthog/brand/hoggies/png/money'
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
-import { FilmCameraHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -19,6 +20,8 @@ import { marketingAnalyticsSettingsLogic } from '../../web-analytics/tabs/market
 import { AddSourceStep } from './AddSourceStep'
 import { MarketingOnboardingStep, marketingOnboardingLogic } from './marketingOnboardingLogic'
 import { MarketingWizardStepper } from './MarketingWizardStepper'
+
+const HedgehogMoney = pngHoggie(moneyPng)
 
 interface OnboardingProps {
     completeOnboarding: () => void
@@ -92,8 +95,6 @@ export function Onboarding({ completeOnboarding }: OnboardingProps): JSX.Element
 function WelcomeStep({ onContinue }: { onContinue: () => void }): JSX.Element {
     return (
         <ProductIntroduction
-            productName="Marketing analytics"
-            productKey={ProductKey.MARKETING_ANALYTICS}
             thingName="marketing integration"
             titleOverride="Welcome to Marketing analytics"
             description="Track your marketing campaigns performance across all your ad platforms. Connect your data sources to see spend, conversions, and ROI in one place."
@@ -105,7 +106,7 @@ function WelcomeStep({ onContinue }: { onContinue: () => void }): JSX.Element {
             }
             isEmpty={true}
             docsURL="https://posthog.com/docs/web-analytics/marketing-analytics"
-            customHog={FilmCameraHog}
+            customHog={HedgehogMoney}
         />
     )
 }

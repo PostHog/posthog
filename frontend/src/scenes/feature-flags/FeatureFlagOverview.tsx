@@ -3,7 +3,7 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 
 import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconServer } from '@posthog/icons'
-import { LemonCollapse, LemonDialog, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -65,23 +65,6 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
     const multivariateEnabled = !!featureFlag.filters?.multivariate
     const variants = featureFlag.filters?.multivariate?.variants || []
     const hasPayload = !!featureFlag.filters?.payloads?.['true']
-
-    const handleToggleClick = (): void => {
-        LemonDialog.open({
-            title: featureFlag.active ? 'Disable feature flag?' : 'Enable feature flag?',
-            description: featureFlag.active
-                ? 'This will immediately disable the flag for all users. Are you sure?'
-                : 'This will immediately enable the flag according to its release conditions. Are you sure?',
-            primaryButton: {
-                children: featureFlag.active ? 'Disable' : 'Enable',
-                status: featureFlag.active ? 'danger' : 'default',
-                onClick: () => toggleFeatureFlagActive(!featureFlag.active),
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-        })
-    }
 
     const getFlagTypeDisplay = (): { icon: JSX.Element; label: string; description: string } => {
         if (featureFlag.is_remote_configuration) {
@@ -165,7 +148,7 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                             >
                                 <LemonSwitch
                                     checked={featureFlag.active}
-                                    onChange={handleToggleClick}
+                                    onChange={toggleFeatureFlagActive}
                                     loading={featureFlagActiveUpdateLoading}
                                     disabledReason={
                                         !featureFlag.can_edit
