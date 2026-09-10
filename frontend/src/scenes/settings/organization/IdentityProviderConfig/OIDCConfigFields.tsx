@@ -60,18 +60,24 @@ export function OIDCConfigFields({
                     <code>profile</code>, and <code>email</code> scopes. PostHog requests these scopes when a user signs
                     in.
                 </p>
-                <p>The ID token must include these claims:</p>
+                <p>
+                    PostHog reads the user's identity from the <code>userinfo</code> endpoint of your identity provider.
+                    The response must include these claims:
+                </p>
                 <ul className="list-disc pl-4">
                     <li>
-                        <code>sub</code>: a stable identifier for the user
+                        <code>sub</code>: a stable identifier for the user. It must match the <code>sub</code> claim in
+                        the ID token.
                     </li>
                     <li>
                         <code>email</code>: the user's email address
                     </li>
+                    <li>
+                        <code>email_verified</code>: must be <code>true</code>. Sign-in fails if your identity provider
+                        omits this claim, or sends <code>false</code> or the string <code>"true"</code>.
+                    </li>
                 </ul>
-                <p>
-                    The email address in the <code>email</code> claim must use a domain verified in this configuration.
-                </p>
+                <p>The email address must use a domain verified in this configuration.</p>
             </LemonBanner>
         </div>
     )
