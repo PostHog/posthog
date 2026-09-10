@@ -253,6 +253,9 @@ async fn run_hash_corpus(db: &TestContext, team_id: i32) -> HashSet<String> {
         covered.insert(id.to_string());
     }
 
+    // Parity rows pin that the v1 input and the converted v2 input hash identically.
+    // `identical_outcome` and `divergence` describe version 2 semantics, which nothing in
+    // this crate implements yet, so they are not asserted here.
     for parity in corpus["seed_parity"].as_array().unwrap() {
         let id = str_field(parity, "id");
         let Some(v2) = parity.get("v2") else {
