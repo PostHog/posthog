@@ -731,7 +731,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["state"] == "snoozed"
         assert response.json()["snooze_until"] is not None
-        assert response.json()["next_check_at"] == snooze_time
+        assert datetime.fromisoformat(response.json()["next_check_at"]) == datetime.fromisoformat(snooze_time)
 
     def test_unsnooze_sets_not_firing_state(self):
         created = self._create_via_api()
