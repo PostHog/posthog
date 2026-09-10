@@ -43,6 +43,11 @@ REQUEST_TIMEOUT_SECONDS = 120
 REPORT_FILE_TIMEOUT_SECONDS = 600
 # Yield parsed CSV rows in chunks rather than one list per file.
 REPORT_CHUNK_SIZE = 5000
+# Individual rows whose width the file's own header cannot explain (e.g. an unquoted
+# embedded delimiter) are skipped with a warning, but only up to this share of a
+# file's data rows. Past it the file's layout is not being parsed correctly, and
+# silently under-loading financial data is worse than failing the sync.
+MAX_SKIPPED_ROW_RATIO = 0.1
 # Guard against a pagination loop (a next link that never advances) and bound how much
 # a single listing walks. 1000 pages is ~100k reports, centuries of daily reports; a
 # sync that hits it fails loudly rather than syncing a partial listing (see
@@ -89,6 +94,15 @@ class CheckoutComReportsListingError(Exception):
     Raised before any rows are yielded: yielding a partial listing would advance the
     incremental watermark past the reports that were never listed, permanently
     excluding them from later syncs.
+    """
+
+
+class CheckoutComReportParseError(Exception):
+    """A listed report file's data rows could not be parsed.
+
+    Raised rather than warning-and-continuing: a file that yields no rows (or drops
+    more than MAX_SKIPPED_ROW_RATIO of them) under-loads the table while the sync
+    still reports success, which silently loses recoverable financial history.
     """
 
 
@@ -285,9 +299,16 @@ def _parse_report_file_rows(
     reader = csv.reader(lines)
     headers: Optional[list[str]] = None
     row_index = 0
+    data_row_count = 0
+    skipped_row_count = 0
     for row in reader:
         if headers is None:
             headers = [_normalize_header(header) for header in row]
+            # A trailing delimiter on the header line reads as one unnamed final
+            # column; drop unnamed trailing cells so the header width means "named
+            # columns" when data-row widths are checked against it.
+            while headers and not headers[-1]:
+                headers.pop()
             if required_column and required_column not in headers:
                 raise CheckoutComReportKeyError(
                     f"Checkout.com report file {metadata.get('file_id')} has no "
@@ -296,9 +317,22 @@ def _parse_report_file_rows(
             continue
         if not any(cell.strip() for cell in row):
             continue
-        # zip would silently truncate a short row and misalign columns, corrupting the
-        # data; skip the malformed line instead so the failure is visible.
+        data_row_count += 1
+        # The file's own header row describes its data rows, but some report
+        # generators make the widths disagree without changing what a row means: a
+        # trailing delimiter adds an empty overflow cell to every row, and ragged
+        # writers omit trailing empty fields. Normalize both to the header's width;
+        # treating these layout variants as malformed once dropped whole report files
+        # to zero rows.
+        if len(row) > len(headers) and not any(cell.strip() for cell in row[len(headers) :]):
+            row = row[: len(headers)]
+        elif len(row) < len(headers):
+            row = [*row, *[""] * (len(headers) - len(row))]
+        # Extra cells that carry values (e.g. an unquoted embedded delimiter) cannot
+        # be assigned to columns without corrupting the data; skip the malformed line
+        # visibly instead.
         if len(row) != len(headers):
+            skipped_row_count += 1
             logger.warning(
                 "Checkout.com report row length mismatch; skipping row",
                 expected=len(headers),
@@ -314,6 +348,21 @@ def _parse_report_file_rows(
         parsed["file_row_index"] = row_index
         row_index += 1
         yield parsed
+    if data_row_count == 0:
+        # Header-only (or empty) files occur by design when a report covers a period
+        # with no activity; raising on them would wedge the sync permanently.
+        return
+    if row_index == 0:
+        raise CheckoutComReportParseError(
+            f"Checkout.com report file {metadata.get('file_id')} has {data_row_count} "
+            "data rows but none parsed; refusing to load a listed report file as empty"
+        )
+    if skipped_row_count / data_row_count > MAX_SKIPPED_ROW_RATIO:
+        raise CheckoutComReportParseError(
+            f"Checkout.com report file {metadata.get('file_id')} skipped {skipped_row_count} "
+            f"of {data_row_count} data rows (threshold {MAX_SKIPPED_ROW_RATIO:.0%}); "
+            "refusing to load a partially parsed report file"
+        )
 
 
 def _report_metadata_rows(reports: list[dict[str, Any]]) -> Iterator[list[dict[str, Any]]]:

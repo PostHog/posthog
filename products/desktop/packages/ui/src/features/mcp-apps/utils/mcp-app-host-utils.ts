@@ -7,6 +7,7 @@
 
 import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { omitNullCallToolResultFields } from "@posthog/shared";
 
 export const INLINE_MAX_HEIGHT = 600;
 export const FULLSCREEN_HEADER_HEIGHT = 48;
@@ -40,13 +41,16 @@ export function parseMcpToolKey(mcpToolName: string): {
  * where `mcpMeta` may contain `structuredContent` and `_meta`.
  *
  * This function ensures `content` is always an array while preserving all
- * other fields (structuredContent, _meta, isError) from the raw result.
+ * other fields (structuredContent, _meta, isError) from the raw result. It is
+ * the boundary that owns app validity: every result an MCP App receives
+ * crosses it, whatever source produced it, so the app-side zod schema never
+ * sees an explicit null it would reject (see `omitNullCallToolResultFields`).
  */
 export function toCallToolResult(raw: unknown): CallToolResult {
   if (raw != null && typeof raw === "object" && "content" in raw) {
     const obj = raw as { content: unknown };
     if (Array.isArray(obj.content)) {
-      return raw as CallToolResult;
+      return omitNullCallToolResultFields(raw as CallToolResult);
     }
     // content exists but isn't an array — normalize to text block array
     // while preserving structuredContent, _meta, isError, etc.
@@ -54,10 +58,10 @@ export function toCallToolResult(raw: unknown): CallToolResult {
       typeof obj.content === "string"
         ? obj.content
         : JSON.stringify(obj.content);
-    return {
+    return omitNullCallToolResultFields({
       ...(raw as CallToolResult),
       content: [{ type: "text", text }],
-    };
+    });
   }
 
   // Wrap primitives (e.g. a bare string) into the expected shape

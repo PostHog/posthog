@@ -22,7 +22,20 @@ from celery import shared_task
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
 
-from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.activity_logging import (
+    DISABLED_FIELDS,
+    installation_webhook_trigger,
+    log_repo_configs_created,
+    log_repo_configs_disabled_by_webhook,
+    suppress_created_activity,
+)
+from products.stamphog.backend.facade.enums import (
+    TERMINAL_STATUSES,
+    ReviewMode,
+    ReviewRunStatus,
+    ReviewTrigger,
+    ReviewVerdict,
+)
 from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_reviewer_resolver
 from products.stamphog.backend.logic.approval_retention import (
     MAX_RETAINED_HEADS,
@@ -33,6 +46,7 @@ from products.stamphog.backend.logic.approval_retention import (
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.review_trigger import derive_review_trigger
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 from products.tasks.backend.facade.api import find_signal_implementation_run
@@ -799,7 +813,7 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
         # landed and its ownership names the teams whose code moved. The digest has neither.
         pr_obj.summary_line = approving_run.change_summary
         update_fields.append("summary_line")
-        audiences = resolve_audiences(repo_config, pr, approving_run.gate_result)
+        audiences = resolve_audiences(repo_config, approving_run.gate_result)
     else:
         audiences = []
     if not audiences:
@@ -842,7 +856,9 @@ def _resolve_installation_team_ids(installation_id: str) -> list[int]:
     )
 
 
-def _add_installation_repos(team_id: int, installation_id: str, repos: list[dict[str, Any]]) -> None:
+def _add_installation_repos(
+    team_id: int, installation_id: str, repos: list[dict[str, Any]], *, delivery_id: str
+) -> None:
     """Create a disabled config row per newly installed repo, skipping any that already exist.
 
     Rows start disabled so a repo added on GitHub merely appears in the toggle list — enabling reviews
@@ -865,30 +881,47 @@ def _add_installation_repos(team_id: int, installation_id: str, repos: list[dict
         .values_list("connected_by_user_id", flat=True)
         .first()
     )
-    for repo in repos:
-        full_name = (repo or {}).get("full_name") or ""
-        if not full_name:
-            continue
-        exists = (
-            StamphogRepoConfig.objects.unscoped()
-            .filter(provider="github", installation_id=installation_id, repository=full_name)
-            .exists()
-        )
-        if exists:
-            continue
-        try:
-            with transaction.atomic(using=write_db):
-                StamphogRepoConfig.objects.for_team(team_id).create(
-                    team_id=team_id,
-                    provider="github",
-                    repository=full_name,
-                    installation_id=installation_id,
-                    enabled=False,
-                    digest_enabled=False,
-                    connected_by_user_id=connected_by_user_id,
+    created_rows: list[dict[str, Any]] = []
+    # One delivery can add many repos, so the rows are logged as one batch instead of one receiver
+    # call each. The batch runs in a finally: a row that is already committed when the loop dies
+    # would otherwise never be logged, and a retry skips it as existing, losing its creation.
+    try:
+        with suppress_created_activity():
+            for repo in repos:
+                full_name = (repo or {}).get("full_name") or ""
+                if not full_name:
+                    continue
+                exists = (
+                    StamphogRepoConfig.objects.unscoped()
+                    .filter(provider="github", installation_id=installation_id, repository=full_name)
+                    .exists()
                 )
-        except IntegrityError:
-            logger.info("stamphog_installation_repo_add_conflict", repository=full_name, team_id=team_id)
+                if exists:
+                    continue
+                try:
+                    with transaction.atomic(using=write_db):
+                        config = StamphogRepoConfig.objects.for_team(team_id).create(
+                            team_id=team_id,
+                            provider="github",
+                            repository=full_name,
+                            installation_id=installation_id,
+                            enabled=False,
+                            digest_enabled=False,
+                            connected_by_user_id=connected_by_user_id,
+                        )
+                except IntegrityError:
+                    logger.info("stamphog_installation_repo_add_conflict", repository=full_name, team_id=team_id)
+                    continue
+                created_rows.append({"id": config.id, "repository": config.repository})
+    finally:
+        # A webhook carries no PostHog user, so these are system rows; the trigger names the delivery.
+        log_repo_configs_created(
+            team_id,
+            created_rows,
+            trigger=installation_webhook_trigger(
+                delivery_id=delivery_id, action="added", installation_id=installation_id
+            ),
+        )
 
 
 def _supersede_runs_for_configs(team_id: int, config_ids: list[Any]) -> None:
@@ -910,27 +943,54 @@ def _supersede_runs_for_configs(team_id: int, config_ids: list[Any]) -> None:
         logger.info("stamphog_repo_removal_superseded_runs", team_id=team_id, superseded=superseded)
 
 
-def _disable_installation_repos(team_id: int, installation_id: str, repos: list[dict[str, Any]]) -> None:
-    """Tombstone configs for repos removed from the installation: disable, keep the rows and history."""
-    names = [name for repo in repos if (name := (repo or {}).get("full_name"))]
-    if not names:
+def _disable_installation_repos(
+    team_id: int,
+    installation_id: str,
+    *,
+    action: str,
+    delivery_id: str,
+    repository_names: list[str] | None = None,
+) -> None:
+    """Tombstone configs for repos that left the installation: disable, keep the rows and history.
+
+    `repository_names` names the repos that were removed. `None` means every repo of the
+    installation, which is what an uninstall takes away.
+    """
+    if repository_names is not None and not repository_names:
         return
-    # Writer pin: this lookup gates the disable + supersede side effects; a lagged reader missing a
-    # just-restamped row would leave the removed repo's config live and its runs posting.
-    config_ids = list(
-        StamphogRepoConfig.objects.for_team(team_id)
-        .using(router.db_for_write(StamphogRepoConfig))
-        .filter(provider="github", installation_id=installation_id, repository__in=names)
-        .values_list("id", flat=True)
+    write_db = router.db_for_write(StamphogRepoConfig)
+    # One transaction over the snapshot, the disable and the supersede, with the rows locked: a
+    # concurrent API write between the read and the update would otherwise be logged as this
+    # webhook's change, or lost. Writer pin: a lagged reader missing a just-restamped row would
+    # leave the removed repo's config live and its runs posting. The full rows, not just the ids:
+    # they are the before-state the activity log needs.
+    with transaction.atomic(using=write_db):
+        configs = (
+            StamphogRepoConfig.objects.for_team(team_id)
+            .using(write_db)
+            .select_for_update()
+            .filter(provider="github", installation_id=installation_id)
+        )
+        if repository_names is not None:
+            configs = configs.filter(repository__in=repository_names)
+        before_rows = list(configs.values("id", "repository", *DISABLED_FIELDS))
+        config_ids = [row["id"] for row in before_rows]
+        # updated_at explicitly: auto_now doesn't fire on queryset update().
+        disabled = (
+            StamphogRepoConfig.objects.for_team(team_id)
+            .filter(id__in=config_ids)
+            .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
+        )
+        # Supersede first: an in-flight run must stop before anything that can fail, or a retry
+        # finds it terminal and the approval it posted meanwhile stands.
+        _supersede_runs_for_configs(team_id, config_ids)
+        log_repo_configs_disabled_by_webhook(
+            team_id, before_rows, delivery_id=delivery_id, action=action, installation_id=installation_id
+        )
+    event = (
+        "stamphog_installation_repos_removed" if repository_names is not None else "stamphog_installation_uninstalled"
     )
-    # updated_at explicitly: auto_now doesn't fire on queryset update().
-    disabled = (
-        StamphogRepoConfig.objects.for_team(team_id)
-        .filter(id__in=config_ids)
-        .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
-    )
-    _supersede_runs_for_configs(team_id, config_ids)
-    logger.info("stamphog_installation_repos_removed", installation_id=installation_id, disabled=disabled)
+    logger.info(event, installation_id=installation_id, team_id=team_id, disabled=disabled)
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -980,7 +1040,7 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
             added = payload.get("repositories_added") or []
             if added:
                 if len(team_ids) == 1:
-                    _add_installation_repos(team_ids[0], installation_id, added)
+                    _add_installation_repos(team_ids[0], installation_id, added, delivery_id=delivery_id)
                 else:
                     # Ambiguous ownership: skip the auto-add, defer to the authenticated sync flow.
                     logger.info(
@@ -989,28 +1049,14 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
                         team_count=len(team_ids),
                     )
             removed = payload.get("repositories_removed") or []
+            names = [name for repo in removed if (name := (repo or {}).get("full_name"))]
             for team_id in team_ids:
-                _disable_installation_repos(team_id, installation_id, removed)
+                _disable_installation_repos(
+                    team_id, installation_id, action="removed", delivery_id=delivery_id, repository_names=names
+                )
         elif action == "deleted":
             for team_id in team_ids:
-                uninstalled_ids = list(
-                    StamphogRepoConfig.objects.for_team(team_id)
-                    .using(router.db_for_write(StamphogRepoConfig))
-                    .filter(provider="github", installation_id=installation_id)
-                    .values_list("id", flat=True)
-                )
-                disabled = (
-                    StamphogRepoConfig.objects.for_team(team_id)
-                    .filter(id__in=uninstalled_ids)
-                    .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
-                )
-                _supersede_runs_for_configs(team_id, uninstalled_ids)
-                logger.info(
-                    "stamphog_installation_uninstalled",
-                    installation_id=installation_id,
-                    team_id=team_id,
-                    disabled=disabled,
-                )
+                _disable_installation_repos(team_id, installation_id, action=action, delivery_id=delivery_id)
         else:
             logger.info("stamphog_installation_event_ignored", action=action)
     except Exception as e:
@@ -1304,7 +1350,15 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 status=ReviewRunStatus.QUEUED,
                 # Inbox provenance for a carved-out re-review. The engine turns on its self-driving
                 # behavior from this, and it attributes the run in the UI and analytics.
-                output={"inbox_review": inbox_review} if inbox_review is not None else {},
+                # review_trigger is stamped now, not derived when the sandbox runs: the reviewer is
+                # told this as fact in its trusted block, and re-deriving it later would read a
+                # review_mode an admin may have changed since this delivery was admitted.
+                output={
+                    **({"inbox_review": inbox_review} if inbox_review is not None else {}),
+                    "review_trigger": derive_review_trigger(
+                        has_inbox_review=inbox_review is not None, review_mode=repo_config.review_mode
+                    ).value,
+                },
             )
             # Only start the workflow once the row is durably committed — an aborted
             # transaction must not leave a workflow chasing a run that never existed.
@@ -1514,7 +1568,8 @@ def process_inbox_pr_review(
                 head_sha=head_sha,
                 delivery_id=None,
                 status=ReviewRunStatus.QUEUED,
-                output={"inbox_review": inbox_review},
+                # Always self-driving on this leg: it exists only for inbox-linked PRs.
+                output={"inbox_review": inbox_review, "review_trigger": ReviewTrigger.SELF_DRIVING.value},
             )
             review_run_id = str(review_run.id)
             # A post-commit start failure propagates into the retry below; the retry re-enters

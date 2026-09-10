@@ -71,6 +71,12 @@ Size ceiling (hard gate)
     (limits derived from 90 days of denial outcomes: the friction cluster of
     denied-yet-merged-unchanged PRs sits at 500-750 substantive lines, and past
     ~800 the merged-unchanged rate collapses, so escalation is genuinely right)
+  - A folder's AGENT_APPROVALS.md can raise either ceiling for its own files,
+    within the `overrides` contract in policy.yml (see .stamphog/README.md)
+  - The whole PR still has to fit the most generous ceiling in play, so
+    per-scope budgets never sum. With no folder grant that roof is the global
+    ceiling above, so the gate keeps measuring the PR size these limits were
+    derived from
   - Docs (.md/.txt/.rst anywhere; artifact-extension files under docs/),
     snapshots (.snap/.ambr, __snapshots__/), images,
     `.lock`-extension files (e.g. `yarn.lock`), tests (test dirs and
@@ -234,7 +240,7 @@ PostHog's auth system or its billing.
 
 The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe). The check is published by `analyze_migration_risk` in `ci-backend.yml` and is the same signal humans see in the PR's Checks tab. See `migration_risk.py` for how stamphog reads it.
 
-If the check hasn't reported yet when stamphog runs, the hosted runtime returns `WAIT` rather than a verdict: the deny-list only matched because the engine could not tell a safe migration from a risky one, and a refusal would hand the PR to ReviewHog and strip the trigger label over a race with CI. The label is kept and the next push reviews against the now-classified head commit.
+If the check hasn't reported yet when stamphog runs, the hosted runtime returns `WAIT` rather than a verdict: the deny-list only matched because the engine could not tell a safe migration from a risky one, and a refusal would cost a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over a race with CI. The label is kept and the next push reviews against the now-classified head commit.
 
 ### Ownership
 

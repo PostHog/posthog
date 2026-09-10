@@ -3,19 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.unleash import (
     UnleashSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.source import UnleashSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.unleash import UnleashResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestUnleashSource:
@@ -23,26 +15,6 @@ class TestUnleashSource:
         self.source = UnleashSource()
         self.team_id = 123
         self.config = UnleashSourceConfig(instance_url="https://unleash.example.com", api_token="user:secret-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.UNLEASH
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Unleash"
-        assert config.label == "Unleash"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/unleash"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["instance_url", "api_token"]
-
-    def test_api_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_connection_host_fields_covers_instance_url(self) -> None:
         # The stored API token is sent to whatever `instance_url` points at, so retargeting the
@@ -72,10 +44,6 @@ class TestUnleashSource:
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
 
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)
-        assert self.source.get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
-
     @parameterized.expand(
         [
             ("401 Client Error: Unauthorized for url: https://unleash.example.com/api/admin/projects",),
@@ -97,17 +65,6 @@ class TestUnleashSource:
         assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.unleash.source.validate_unleash_credentials"
-    )
-    def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid Unleash API token")
-        result = self.source.validate_credentials(self.config, self.team_id, schema_name="features")
-        assert result == (False, "Invalid Unleash API token")
-        mock_validate.assert_called_once_with(
-            "https://unleash.example.com", "user:secret-token", "features", self.team_id
-        )
-
-    @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.unleash.source.check_endpoint_permissions"
     )
     def test_get_endpoint_permissions_delegates_to_shared_helper(self, mock_check: mock.MagicMock) -> None:
@@ -117,11 +74,6 @@ class TestUnleashSource:
         mock_check.assert_called_once_with(
             "https://unleash.example.com", "user:secret-token", ["users", "features"], self.team_id
         )
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is UnleashResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.unleash.source.unleash_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

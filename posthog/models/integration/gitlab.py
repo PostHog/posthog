@@ -115,7 +115,11 @@ class GitLabIntegration:
         if not allowed:
             raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
 
-        params: dict[str, str | int] = {"search": query, "per_page": limit, "in": "title"}
+        # A blank query lists the project's recent issues instead of filtering.
+        params: dict[str, str | int] = {"per_page": limit, "order_by": "updated_at"}
+        if query.strip():
+            params["search"] = query
+            params["in"] = "title"
         response = requests.get(
             url,
             headers={"PRIVATE-TOKEN": access_token},

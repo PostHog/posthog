@@ -1,6 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
     IconBolt,
@@ -49,7 +49,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { PropertyFilterType } from '~/types'
 
 import { accountsColumnConfigLogic } from 'products/customer_analytics/frontend/components/Accounts/accountsColumnConfigLogic'
-import { ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST } from 'products/customer_analytics/frontend/components/Accounts/accountsCustomPropertyFilters'
+import { ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST } from 'products/customer_analytics/frontend/components/Accounts/accountsPropertyFilters'
 // Side-effect imports: register product-specific trigger types
 import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
@@ -57,7 +57,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
 import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
-import { batchTriggerLogic, getAudienceDedupeKey } from './batchTriggerLogic'
+import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
@@ -83,9 +83,9 @@ type TriggerOptionItem = {
 }
 
 function getTriggerDisplayType(type: string, config: any): string {
-    if (type !== 'event') {
-        return type
-    }
+    // Several tiles can share one config type (`event`, `internal-event`), so the tile is whichever
+    // one claims this config, not the type itself. Types owned by a single tile fall through to the
+    // type, which is that tile's value.
     const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(config))
     return match ? match.value : type
 }
@@ -380,6 +380,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             ) : node.data.config.type === 'tracking_pixel' ? (
                 <StepTriggerConfigurationTrackingPixel action={node.data} config={node.data.config} />
             ) : null}
+            <SendingRateLimitSection />
         </div>
     )
 }
@@ -519,7 +520,7 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
     const isAccountAudience = filters?.audience_type === 'accounts'
     // Account audiences carry no person, so email dedup never applies to them.
     const dedupeKey = isAccountAudience ? undefined : getAudienceDedupeKey(workflow)
-    const logic = batchTriggerLogic({ id: actionId, filters, dedupeKey })
+    const logic = batchTriggerLogic({ id: actionId, filters, dedupeKey, sendsEmail: hogFlowSendsEmail(workflow) })
     const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
 
     if (blastRadiusLoading) {
@@ -560,9 +561,11 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
                 </div>
                 {exceeded && limit != null && (
                     <div className="text-danger text-xs">
-                        Batch size exceeds the limit of {humanFriendlyNumber(limit)}{' '}
-                        {isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow your audience. This limit will
-                        be loosened in the future.
+                        Your audience is above this project's batch limit of {humanFriendlyNumber(limit)}{' '}
+                        {isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow it.
+                        {hogFlowSendsEmail(workflow)
+                            ? ' The limit rises as the project builds a clean sending history.'
+                            : ''}
                     </div>
                 )}
             </div>
@@ -976,6 +979,97 @@ function ConversionGoalSection(): JSX.Element {
                 </div>
             </div>
         </div>
+    )
+}
+
+function SendingRateLimitSection(): JSX.Element | null {
+    const { setWorkflowValue } = useActions(workflowLogic)
+    const { workflow } = useValues(workflowLogic)
+
+    const rateLimit = workflow.email_sending_rate_limit ?? null
+    // Mirror the count locally so clearing the field doesn't snap back to the committed value
+    // mid-edit; reconcile when the stored value changes externally (toggle, another editor).
+    const [displayCount, setDisplayCount] = useState<number | undefined>(rateLimit?.count)
+    useEffect(() => {
+        setDisplayCount(rateLimit?.count)
+    }, [rateLimit?.count])
+
+    const hasEmailAction = workflow.actions.some((action) => action.type === 'function_email')
+    // Stay visible while a limit is set even without an email step, so it can still be removed.
+    if (!hasEmailAction && !rateLimit) {
+        return null
+    }
+
+    return (
+        <>
+            <LemonDivider />
+            <div className="flex flex-col w-full py-2 gap-2">
+                <span className="flex gap-1 items-center">
+                    <IconClock className="text-lg" />
+                    <span className="text-md font-semibold">Email sending rate limit (optional)</span>
+                    <Tooltip title="Sending a large volume too quickly can hurt deliverability. Emails over the limit are delayed until capacity frees up, not dropped.">
+                        <IconInfo className="text-secondary" />
+                    </Tooltip>
+                </span>
+                <p className="mb-0">Spread this workflow's emails out over time instead of sending all at once.</p>
+                <LemonCheckbox
+                    checked={!!rateLimit}
+                    onChange={(checked) =>
+                        setWorkflowValue('email_sending_rate_limit', checked ? { count: 100, period: 'minute' } : null)
+                    }
+                    label="Limit sending rate"
+                    data-attr="workflow-email-rate-limit-toggle"
+                />
+                {rateLimit ? (
+                    <div className="flex items-center gap-2">
+                        <span>Send at most</span>
+                        <LemonInput
+                            type="number"
+                            size="small"
+                            className="w-24"
+                            min={1}
+                            // Mirror the API's accepted range (min_value=1, max_value=1_000_000) so an
+                            // out-of-range entry is clamped here instead of failing the workflow save.
+                            max={1_000_000}
+                            aria-label="Maximum emails per period"
+                            value={displayCount ?? NaN}
+                            onChange={(count) => {
+                                if (count == null || !Number.isFinite(count)) {
+                                    setDisplayCount(undefined)
+                                    return
+                                }
+                                const next = Math.min(1_000_000, Math.max(1, Math.floor(count)))
+                                setDisplayCount(next)
+                                setWorkflowValue('email_sending_rate_limit', { ...rateLimit, count: next })
+                            }}
+                            onBlur={() =>
+                                displayCount === undefined
+                                    ? setDisplayCount(rateLimit.count)
+                                    : setWorkflowValue('email_sending_rate_limit', {
+                                          ...rateLimit,
+                                          count: displayCount,
+                                      })
+                            }
+                            data-attr="workflow-email-rate-limit-count"
+                        />
+                        <span>emails per</span>
+                        <LemonSelect
+                            size="small"
+                            aria-label="Rate limit period"
+                            value={rateLimit.period}
+                            options={[
+                                { value: 'minute' as const, label: 'minute' },
+                                { value: 'hour' as const, label: 'hour' },
+                            ]}
+                            onChange={(period) =>
+                                setWorkflowValue('email_sending_rate_limit', { ...rateLimit, period })
+                            }
+                            data-attr="workflow-email-rate-limit-period"
+                        />
+                    </div>
+                ) : null}
+            </div>
+        </>
     )
 }
 

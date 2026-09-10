@@ -30,6 +30,7 @@ function select(
   {
     now = NOW,
     appVersion = APP_VERSION as string | null,
+    isDevBuild = false,
     dismissedIds = new Set<string>(),
     handledThisSession = false,
   } = {},
@@ -38,6 +39,7 @@ function select(
     payload,
     now,
     appVersion,
+    isDevBuild,
     dismissedIds,
     handledThisSession,
   });
@@ -48,6 +50,14 @@ describe("selectAnnouncement", () => {
     const result = select(
       { announcements: [announcement(), requiredUpdate()] },
       { appVersion: null },
+    );
+    expect(result.active).toBeNull();
+  });
+
+  it("selects nothing in a development build", () => {
+    const result = select(
+      { announcements: [announcement(), requiredUpdate()] },
+      { isDevBuild: true },
     );
     expect(result.active).toBeNull();
   });

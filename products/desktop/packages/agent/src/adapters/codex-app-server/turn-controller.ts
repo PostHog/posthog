@@ -30,6 +30,10 @@ export class TurnController {
     return this.turnId;
   }
 
+  get currentGeneration(): number {
+    return this.generation;
+  }
+
   get isPending(): boolean {
     return this.pending !== undefined;
   }

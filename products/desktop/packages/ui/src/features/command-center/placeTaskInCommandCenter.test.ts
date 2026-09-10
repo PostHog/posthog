@@ -1,13 +1,44 @@
+import { makeCanvasCellValue } from "@posthog/core/command-center/grid";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   COMMAND_CENTER_INITIAL_STATE,
   useCommandCenterStore,
 } from "./commandCenterStore";
-import { placeTasksInCommandCenterCell } from "./placeTaskInCommandCenter";
+import {
+  expandCanvasInCommandCenterInto,
+  placeCanvasInCommandCenter,
+  placeCanvasInCommandCenterCell,
+  placeTasksInCommandCenter,
+  placeTasksInCommandCenterCell,
+} from "./placeTaskInCommandCenter";
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToCommandCenter: vi.fn(),
 }));
+
+describe("canvas placement", () => {
+  beforeEach(() => {
+    useCommandCenterStore.setState(COMMAND_CENTER_INITIAL_STATE);
+  });
+
+  it("opens the tile picker for a canvas", () => {
+    placeCanvasInCommandCenter("canvas-1", "Activation overview");
+
+    expect(useCommandCenterStore.getState().pendingPlacement).toEqual({
+      kind: "canvas",
+      id: "canvas-1",
+      title: "Activation overview",
+    });
+  });
+
+  it("places a canvas in the selected cell", () => {
+    placeCanvasInCommandCenterCell("canvas-1", 1);
+
+    expect(useCommandCenterStore.getState().cells[1]).toBe(
+      makeCanvasCellValue("canvas-1"),
+    );
+  });
+});
 
 describe("placeTasksInCommandCenterCell", () => {
   beforeEach(() => {
@@ -45,4 +76,35 @@ describe("placeTasksInCommandCenterCell", () => {
       ]);
     },
   );
+});
+
+describe("placement while composing", () => {
+  beforeEach(() => {
+    useCommandCenterStore.setState(COMMAND_CENTER_INITIAL_STATE);
+    useCommandCenterStore.getState().startCreating(1, "session-1");
+  });
+
+  it("rejects bulk placement instead of overwriting the reserved tile", () => {
+    const result = placeTasksInCommandCenter(
+      ["task-1", "task-2"],
+      new Set(["task-1", "task-2"]),
+    );
+
+    expect(result).toEqual({ placed: 0, overflow: 2, alreadyPresent: 0 });
+    expect(useCommandCenterStore.getState().cells).toEqual([
+      null,
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it("keeps expansion and assignment atomic", () => {
+    expandCanvasInCommandCenterInto("horizontal", 0, "canvas-1");
+
+    const state = useCommandCenterStore.getState();
+    expect(state.layout).toBe("2x2");
+    expect(state.cells).toEqual([null, null, null, null]);
+    expect(state.composer?.sessionId).toBe("session-1");
+  });
 });

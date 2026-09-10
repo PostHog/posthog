@@ -1,18 +1,23 @@
 {% extends "admin/base_site.html" %}
 {% load i18n %}
-
 {% block content %}
-<p><strong>Deprovision the managed warehouse for organization <code>{{ server.organization_id }}</code>?</strong></p>
-<p>This makes a real control-plane <code>/deprovision</code> call for server <code>{{ server.host }}</code>
-and tears down the org's managed warehouse. <strong>This cannot be undone.</strong> The
-control-plane team rows are removed. The local <code>DuckgresServer</code> connection record is
-left in place for the record; delete it separately if needed.</p>
-
-<form method="post">
-    {% csrf_token %}
-    <div style="margin-top: 20px;">
-        <input type="submit" class="default" value="Yes, deprovision" style="padding: 10px 20px; background: #ba2121;" />
-        <a href="{% url 'admin:managed_warehouse_duckgresserver_change' server.pk %}" style="margin-left: 10px;">Cancel</a>
-    </div>
-</form>
+    <p><strong>Deprovision the managed warehouse for organization <code>{{ server.organization_id }}</code>?</strong></p>
+    <p>
+        This makes a real control-plane <code>/deprovision</code> call for server <code>{{ server.host }}</code>
+        and tears down the org's managed warehouse. <strong>This cannot be undone.</strong> The
+        control-plane team rows are removed. The local <code>DuckgresServer</code> connection record is
+        left in place for the record; delete it separately if needed.
+    </p>
+    <form method="post">
+        {% csrf_token %}
+        <div style="margin-top: 20px;">
+            <input type="submit"
+                   class="default"
+                   value="Yes, deprovision"
+                   style="padding: 10px 20px;
+                          background: #ba2121" />
+            <a href="{% url 'admin:managed_warehouse_duckgresserver_change' server.pk %}"
+               style="margin-left: 10px">Cancel</a>
+        </div>
+    </form>
 {% endblock %}

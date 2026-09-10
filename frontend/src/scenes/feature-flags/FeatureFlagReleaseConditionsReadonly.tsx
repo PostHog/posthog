@@ -22,6 +22,7 @@ import { FractionalRolloutWarning } from 'products/feature_flags/frontend/Fracti
 
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
+import { FeatureFlagNoConditionsWarning } from './FeatureFlagNoConditionsWarning'
 import {
     featureFlagReleaseConditionsLogic,
     isDistinctIdFilter,
@@ -139,7 +140,7 @@ export function FeatureFlagReleaseConditionsReadonly({
                 <LemonLabel>Release conditions</LemonLabel>
                 {isDisabled && (
                     <LemonTag type="muted" size="small">
-                        Flag disabled – returns false regardless of conditions
+                        Flag disabled: SDKs receive no value
                     </LemonTag>
                 )}
             </div>
@@ -172,9 +173,7 @@ export function FeatureFlagReleaseConditionsReadonly({
                     </div>
                 ))}
 
-                {filterGroups.length === 0 && (
-                    <div className="text-sm text-muted">No release conditions configured</div>
-                )}
+                <FeatureFlagNoConditionsWarning conditionSetCount={filterGroups.length} />
             </div>
         </div>
     )

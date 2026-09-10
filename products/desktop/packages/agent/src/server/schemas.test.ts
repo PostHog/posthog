@@ -27,6 +27,21 @@ describe("mcpServersSchema", () => {
     ]);
   });
 
+  it("keeps a server description so pi can surface it in tool search", () => {
+    const result = mcpServersSchema.safeParse([
+      {
+        type: "http",
+        name: "Linear",
+        url: "https://mcp.linear.app/mcp",
+        description: "Manage Linear issues, projects, and workflows.",
+      },
+    ]);
+    expect(result.success).toBe(true);
+    expect(result.data?.[0].description).toBe(
+      "Manage Linear issues, projects, and workflows.",
+    );
+  });
+
   it("accepts a valid SSE server", () => {
     const result = mcpServersSchema.safeParse([
       {
@@ -162,6 +177,24 @@ describe("validateCommandParams", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  // A command reaches executeCommand only if it has a schema registered here,
+  // so a missing entry rejects it as "Unknown method" however the dispatch
+  // switch is written.
+  it.each(["side_question", "posthog/side_question"])(
+    "accepts a valid %s",
+    (method) => {
+      const result = validateCommandParams(method, {
+        question: "what does this repo do?",
+      });
+
+      expect(result.success).toBe(true);
+    },
+  );
+
+  it("rejects side_question without a question", () => {
+    expect(validateCommandParams("side_question", {}).success).toBe(false);
   });
 
   it("accepts valid permission_response", () => {
@@ -309,6 +342,69 @@ describe("validateCommandParams", () => {
         payload: { ok: true },
       }).success,
     ).toBe(false);
+  });
+
+  it.each([
+    "credential_response",
+    "posthog/credential_response",
+    "_posthog/credential_response",
+  ])("accepts a valid %s carrying only a token", (method) => {
+    const result = validateCommandParams(method, {
+      requestId: "req-1",
+      credential: "claude_subscription_token",
+      token: "sk-ant-oat01-fake-test-token",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a credential_response carrying only an error", () => {
+    const result = validateCommandParams("credential_response", {
+      requestId: "req-1",
+      credential: "claude_subscription_token",
+      error: "no_token",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a credential_response without requestId", () => {
+    const result = validateCommandParams("credential_response", {
+      credential: "claude_subscription_token",
+      token: "sk-ant-oat01-fake-test-token",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a credential_response with both token and error", () => {
+    const result = validateCommandParams("credential_response", {
+      requestId: "req-1",
+      credential: "claude_subscription_token",
+      token: "sk-ant-oat01-fake-test-token",
+      error: "no_token",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a credential_response with neither token nor error", () => {
+    const result = validateCommandParams("credential_response", {
+      requestId: "req-1",
+      credential: "claude_subscription_token",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a credential_response naming a different credential", () => {
+    const result = validateCommandParams("credential_response", {
+      requestId: "req-1",
+      credential: "something_else",
+      token: "sk-ant-oat01-fake-test-token",
+    });
+
+    expect(result.success).toBe(false);
   });
 });
 

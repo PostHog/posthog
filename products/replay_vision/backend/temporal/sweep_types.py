@@ -48,6 +48,9 @@ class FindScannerCandidatesOutput(BaseModel, frozen=True):
     deep_keyset_session_id: str = ""
     # Horizon the deep pass covered; None when it didn't run.
     deep_swept_through: dt.datetime | None = None
+    # One-off priming pass for a never-swept scanner; dispatch-only, never drives any watermark.
+    # The default keeps pre-deploy histories replaying deterministically.
+    priming_candidates: list[CandidateSessionPayload] = Field(default_factory=list)
     # Last row of the fetched batch, before negative-filter exclusion dropped any of it. Dropping rows
     # must not regress or stall the keyset. None on pre-deploy histories and on empty batches, where
     # the workflow falls back to deriving the position from `candidates`/`swept_through`.

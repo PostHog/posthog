@@ -1,8 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonSkeleton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
+import {
+    LemonButton,
+    LemonCard,
+    LemonSkeleton,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
-import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 
@@ -15,12 +24,14 @@ import type {
 
 import { accountEmailThreadsLogic, MESSAGE_PAGE_SIZE, NOT_LOADED, PAGE_SIZE } from './accountEmailThreadsLogic'
 
+const HedgehogBusiness = pngHoggie(businessEvolutionPng)
+
 const COLLAPSED_PARTICIPANT_COUNT = 3
 
 function EmailThreadsEmptyState({ title, detail }: { title: string; detail: string }): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
-            <BigLeaguesHog className="w-24 h-24" />
+            <HedgehogBusiness className="w-24 h-24" />
             <h4 className="mb-0">{title}</h4>
             <p className="text-secondary max-w-sm mb-0">{detail}</p>
         </div>
@@ -137,6 +148,14 @@ export function AccountEmailThreadsExpansion({ accountId }: { accountId: string 
     const { threadsResult, threadsResultLoading, page, expandedThreadId } = useValues(logic)
     const { setPage, openThread, closeThread } = useActions(logic)
 
+    const toggleThread = (threadId: string): void => {
+        if (threadId === expandedThreadId) {
+            closeThread(threadId)
+        } else {
+            openThread(threadId)
+        }
+    }
+
     if (threadsResult === NOT_LOADED || threadsResultLoading) {
         return <LemonSkeleton className="h-64 w-full" />
     }
@@ -164,16 +183,38 @@ export function AccountEmailThreadsExpansion({ accountId }: { accountId: string 
             title: 'Thread',
             key: 'subject',
             render: (_, thread) => (
-                <div className="flex flex-col gap-1 py-1 max-w-xl">
-                    <span className="font-medium line-clamp-1">{thread.subject || 'No subject'}</span>
-                    {thread.preview ? <span className="text-xs text-muted line-clamp-1">{thread.preview}</span> : null}
-                </div>
+                <LemonButton
+                    type="tertiary"
+                    fullWidth
+                    noPadding
+                    className="justify-start text-left"
+                    aria-expanded={thread.id === expandedThreadId}
+                    onClick={() => toggleThread(thread.id)}
+                >
+                    <div className="flex flex-col gap-1 py-1 max-w-xl min-w-0">
+                        <span className="font-medium line-clamp-1">{thread.subject || 'No subject'}</span>
+                        {thread.preview ? (
+                            <span className="text-xs text-muted line-clamp-1">{thread.preview}</span>
+                        ) : null}
+                    </div>
+                </LemonButton>
             ),
         },
         {
             title: 'Participants',
             key: 'participants',
-            render: (_, thread) => <ParticipantList participants={thread.participants} />,
+            render: (_, thread) => (
+                <LemonButton
+                    type="tertiary"
+                    fullWidth
+                    noPadding
+                    className="justify-start text-left"
+                    aria-expanded={thread.id === expandedThreadId}
+                    onClick={() => toggleThread(thread.id)}
+                >
+                    <ParticipantList participants={thread.participants} />
+                </LemonButton>
+            ),
         },
         {
             title: 'Messages',
@@ -218,6 +259,7 @@ export function AccountEmailThreadsExpansion({ accountId }: { accountId: string 
                 onRowExpand: (thread) => openThread(thread.id),
                 onRowCollapse: (thread) => closeThread(thread.id),
                 rowExpandable: () => true,
+                showRowExpansionToggle: false,
             }}
             emptyState="No email threads on this page."
         />

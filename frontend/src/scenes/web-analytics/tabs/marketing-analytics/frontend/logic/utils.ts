@@ -5,6 +5,7 @@ import {
     ConversionGoalFilter,
     DataWarehouseNode,
     ExternalDataSourceType,
+    IntegrationFilter,
     MARKETING_INTEGRATION_CONFIGS,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants,
@@ -14,7 +15,7 @@ import {
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { HogQLMathType, ManualLinkSourceType } from '~/types'
+import { HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 
@@ -193,6 +194,18 @@ export function generateUniqueName(baseName: string, existingNames: string[]): s
     }
 
     return newName
+}
+
+/**
+ * Mirrors the backend `goal_sums_a_property` (conversion_goal_processor.py): whether a goal's
+ * column holds a summed property value rather than a conversion count. The backend builds ROAS
+ * only from summing revenue goals and CAC only from counting customer goals, so the column gates
+ * here must apply the same test — otherwise the table requests a ratio column the backend leaves
+ * out, and it silently disappears.
+ */
+export function goalSumsAProperty(goal: ConversionGoalFilter): boolean {
+    const math = goal.math
+    return math === PropertyMathType.Sum || (typeof math === 'string' && math.endsWith('_sum'))
 }
 
 export function isDraftConversionGoalColumn(column: string, draftConversionGoal: ConversionGoalFilter | null): boolean {
@@ -814,4 +827,11 @@ export function rowMatchesSearch(record: unknown, searchTerm: string): boolean {
         }
         return false
     })
+}
+
+/** The stored filter is whatever an older build of this page wrote, so keep only the field we still read.
+ * A key the query schema no longer accepts makes the backend reject every request the dashboard sends. */
+export function sanitizeIntegrationFilter(stored: unknown): IntegrationFilter {
+    const ids = (stored as IntegrationFilter | null | undefined)?.integrationSourceIds
+    return { integrationSourceIds: Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [] }
 }

@@ -1,10 +1,10 @@
 import {
+  INBOX_REPORT_DETAIL_STALE_TIME_MS,
   inboxReportKeys,
   resolveInboxReportDetailCache,
 } from "@posthog/core/inbox/inboxQuery";
 import type {
   AvailableSuggestedReviewersResponse,
-  SignalProcessingStateResponse,
   SignalReport,
   SignalReportArtefactsResponse,
   SignalReportSignalsResponse,
@@ -22,10 +22,11 @@ import { useAuthenticatedInfiniteQuery } from "@posthog/ui/hooks/useAuthenticate
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { toast } from "@posthog/ui/primitives/toast";
+import type { InfiniteData } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 
-const REPORTS_PAGE_SIZE = 100;
+const REPORTS_PAGE_SIZE = 50;
 
 export const reportKeys = inboxReportKeys;
 
@@ -56,26 +57,39 @@ export function useInboxReportsInfinite(
       | ((query: unknown) => number | false | undefined);
     refetchIntervalInBackground?: boolean;
     staleTime?: number;
+    /** Rows per page; smaller pages paint faster where the list streams in on scroll. */
+    pageSize?: number;
+    placeholderData?: (
+      previousData: InfiniteData<SignalReportsResponse, number> | undefined,
+    ) => InfiniteData<SignalReportsResponse, number> | undefined;
   },
 ) {
+  const pageSize = options?.pageSize ?? REPORTS_PAGE_SIZE;
   const query = useAuthenticatedInfiniteQuery<SignalReportsResponse, number>(
-    reportKeys.infiniteList(params),
+    // The page size is part of the key: pages of different sizes can't be
+    // stitched into one cached list.
+    reportKeys.infiniteList({ ...params, limit: pageSize }),
     (client, offset) =>
       client.getSignalReports({
         ...params,
-        limit: REPORTS_PAGE_SIZE,
+        limit: pageSize,
         offset,
       }),
     {
       enabled: options?.enabled,
       initialPageParam: 0,
       getNextPageParam: (lastPage, allPages) => {
+        // An empty page ends pagination even when `count` says otherwise —
+        // trusting a disagreeing count would loop the scroll sentinel on a
+        // spinner forever, refetching the same empty page.
+        if (lastPage.results.length === 0) return undefined;
         const loaded = allPages.reduce((n, p) => n + p.results.length, 0);
         return loaded < lastPage.count ? loaded : undefined;
       },
       refetchInterval: options?.refetchInterval,
       refetchIntervalInBackground: options?.refetchIntervalInBackground,
       staleTime: options?.staleTime,
+      placeholderData: options?.placeholderData,
     },
   );
 
@@ -144,19 +158,6 @@ export function useInboxAvailableSuggestedReviewers(options?: {
   return query;
 }
 
-export function useInboxSignalProcessingState(options?: {
-  enabled?: boolean;
-  refetchInterval?: number | false | (() => number | false | undefined);
-  refetchIntervalInBackground?: boolean;
-  staleTime?: number;
-}) {
-  return useAuthenticatedQuery<SignalProcessingStateResponse>(
-    reportKeys.signalProcessingState,
-    (client) => client.getSignalProcessingState(),
-    options,
-  );
-}
-
 export function useInboxReportById(
   reportId: string | null,
   options?: {
@@ -188,7 +189,7 @@ export function useInboxReportById(
       placeholderData: (previous) => previous,
       refetchInterval: options?.refetchInterval,
       refetchIntervalInBackground: options?.refetchIntervalInBackground,
-      staleTime: options?.staleTime,
+      staleTime: options?.staleTime ?? INBOX_REPORT_DETAIL_STALE_TIME_MS,
     },
   );
 }
@@ -225,7 +226,6 @@ export function useInboxReportSignals(
 }
 
 interface UpdateSuggestedReviewersVariables {
-  artefactId: string;
   /** Reviewer list sent to the server (it appends a new suggested_reviewers status row). */
   content: SuggestedReviewerWriteEntry[];
   /** Read-shape list used to optimistically show the new current reviewers. */
@@ -247,8 +247,7 @@ export function useUpdateSuggestedReviewers(reportId: string) {
     Error,
     UpdateSuggestedReviewersVariables
   >(
-    (client, { artefactId, content }) =>
-      client.updateSignalReportArtefact(reportId, artefactId, content),
+    (client, { content }) => client.setSignalReportReviewers(reportId, content),
     {
       onMutate: async ({ optimisticReviewers }) => {
         await queryClient.cancelQueries({ queryKey });

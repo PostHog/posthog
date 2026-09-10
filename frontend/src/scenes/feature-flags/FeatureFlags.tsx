@@ -3,12 +3,13 @@ import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconArchive, IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
+import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -55,6 +56,7 @@ import {
 } from '~/types'
 
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
+import { FeatureFlagRequestUsage } from 'products/feature_flags/frontend/requestUsage/FeatureFlagRequestUsage'
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
@@ -66,6 +68,10 @@ import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } f
 import { BULK_ARCHIVE_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
+
+// "NPS - Feature Flags" in project 2: https://us.posthog.com/project/2/surveys/018bcec8-6cf5-0000-c724-a51a86a4e8b1
+// The survey also self-triggers as a popover on feature flag URLs; this is the on-demand path.
+const FEATURE_FLAGS_NPS_SURVEY_ID = '018bcec8-6cf5-0000-c724-a51a86a4e8b1'
 
 function FlagDescription({ name }: { name: string }): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
@@ -362,9 +368,16 @@ export function OverviewTab({
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
-        useValues(flagLogic)
-    const { setFeatureFlagsFilters } = useActions(flagLogic)
+    const {
+        featureFlagsLoading,
+        displayedFlags,
+        pagination,
+        filters,
+        shouldShowEmptyState,
+        filtersChanged,
+        hasActiveFilters,
+    } = useValues(flagLogic)
+    const { setFeatureFlagsFilters, resetFilters } = useActions(flagLogic)
 
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -587,7 +600,16 @@ export function OverviewTab({
                 pagination={pagination}
                 nouns={nouns}
                 data-attr="feature-flag-table"
-                emptyState="No results for this filter, change filter or create a new flag."
+                emptyState={
+                    hasActiveFilters || filtersChanged ? (
+                        <>
+                            No feature flags match your filters.{' '}
+                            <Link onClick={() => resetFilters()}>Clear filters</Link>
+                        </>
+                    ) : (
+                        'No feature flags yet. Create one to get started.'
+                    )
+                }
                 onSort={(newSorting) =>
                     setFeatureFlagsFilters({
                         order: newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : undefined,
@@ -754,6 +776,7 @@ export function FeatureFlags(): JSX.Element {
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
     const newFeatureFlagUrl = urls.featureFlagTemplates()
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
+    const showRequestUsageTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
 
     return (
         <SceneContent className="feature_flags">
@@ -764,43 +787,51 @@ export function FeatureFlags(): JSX.Element {
                     type: 'feature_flag',
                 }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.FeatureFlag}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <Shortcut
-                            name="NewFeatureFlag"
-                            keybind={[keyBinds.new]}
-                            intent="New feature flag"
-                            interaction="click"
-                            scope={Scene.FeatureFlags}
+                    <>
+                        <FeedbackSurveyButton
+                            surveyId={FEATURE_FLAGS_NPS_SURVEY_ID}
+                            data-attr="feature-flags-feedback-button"
+                        />
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.FeatureFlag}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <LemonButton
-                                type="primary"
-                                to={newFeatureFlagUrl}
-                                data-attr="new-feature-flag"
-                                size="small"
-                                icon={<IconPlusSmall />}
-                                sideAction={{
-                                    dropdown: {
-                                        placement: 'bottom-end',
-                                        className: 'new-feature-flag-overlay',
-                                        actionable: true,
-                                        closeOnClickInside: false,
-                                        overlay: <OverlayForNewFeatureFlagMenu />,
-                                    },
-                                    'data-attr': 'new-feature-flag-dropdown',
-                                }}
-                                tooltip="New feature flag"
+                            <Shortcut
+                                name="NewFeatureFlag"
+                                keybind={[keyBinds.new]}
+                                intent="New feature flag"
+                                interaction="click"
+                                scope={Scene.FeatureFlags}
                             >
-                                New
-                            </LemonButton>
-                        </Shortcut>
-                    </AccessControlAction>
+                                <LemonButton
+                                    type="primary"
+                                    to={newFeatureFlagUrl}
+                                    data-attr="new-feature-flag"
+                                    size="small"
+                                    icon={<IconPlusSmall />}
+                                    sideAction={{
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            className: 'new-feature-flag-overlay',
+                                            actionable: true,
+                                            closeOnClickInside: false,
+                                            overlay: <OverlayForNewFeatureFlagMenu />,
+                                        },
+                                        'data-attr': 'new-feature-flag-dropdown',
+                                    }}
+                                    tooltip="New feature flag"
+                                >
+                                    New
+                                </LemonButton>
+                            </Shortcut>
+                        </AccessControlAction>
+                    </>
                 }
             />
             <LemonTabs
-                activeKey={activeTab}
+                activeKey={
+                    activeTab === FeatureFlagsTab.USAGE && !showRequestUsageTab ? FeatureFlagsTab.OVERVIEW : activeTab
+                }
                 onChange={(newKey) => setActiveTab(newKey)}
                 sceneInset
                 tabs={[
@@ -809,6 +840,15 @@ export function FeatureFlags(): JSX.Element {
                         label: 'Overview',
                         content: <OverviewTab />,
                     },
+                    ...(showRequestUsageTab
+                        ? [
+                              {
+                                  key: FeatureFlagsTab.USAGE,
+                                  label: 'Request usage',
+                                  content: <FeatureFlagRequestUsage />,
+                              },
+                          ]
+                        : []),
                     {
                         key: FeatureFlagsTab.PROJECTS,
                         label: 'Projects',

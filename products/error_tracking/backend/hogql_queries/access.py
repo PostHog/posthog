@@ -1,5 +1,6 @@
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class ErrorTrackingQueryRunnerAccessMixin:

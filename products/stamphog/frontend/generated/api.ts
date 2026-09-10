@@ -9,18 +9,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    DigestChannelApi,
-    DigestChannelWriteApi,
     DigestRunApi,
-    PaginatedDigestChannelListApi,
     PaginatedDigestRunListApi,
     PaginatedReviewRunListApi,
     PaginatedStamphogPullRequestListApi,
     PaginatedStamphogRepoConfigListApi,
-    PatchedDigestChannelApi,
     PatchedStamphogRepoConfigWriteApi,
     ReviewRunApi,
-    StamphogDigestChannelsListParams,
     StamphogDigestRunsListParams,
     StamphogInstallInfoApi,
     StamphogPullRequestApi,
@@ -32,151 +27,6 @@ import type {
     StamphogSyncInstallationRequestApi,
     StamphogSyncInstallationResponseApi,
 } from './api.schemas'
-
-// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
-type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
-
-type WritableKeys<T> = {
-    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
-}[keyof T]
-
-type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
-type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
-
-type Writable<T> = Pick<T, WritableKeys<T>>
-type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
-    ? {
-          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
-      }
-    : DistributeReadOnlyOverUnions<T>
-
-export const getStamphogDigestChannelsListUrl = (projectId: string, params?: StamphogDigestChannelsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/stamphog/digest_channels/?${stringifiedParams}`
-        : `/api/projects/${projectId}/stamphog/digest_channels/`
-}
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const stamphogDigestChannelsList = async (
-    projectId: string,
-    params?: StamphogDigestChannelsListParams,
-    options?: RequestInit
-): Promise<PaginatedDigestChannelListApi> => {
-    return apiMutator<PaginatedDigestChannelListApi>(getStamphogDigestChannelsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getStamphogDigestChannelsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/stamphog/digest_channels/`
-}
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const stamphogDigestChannelsCreate = async (
-    projectId: string,
-    digestChannelWriteApi: DigestChannelWriteApi,
-    options?: RequestInit
-): Promise<DigestChannelApi> => {
-    return apiMutator<DigestChannelApi>(getStamphogDigestChannelsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(digestChannelWriteApi),
-    })
-}
-
-export const getStamphogDigestChannelsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/stamphog/digest_channels/${id}/`
-}
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const stamphogDigestChannelsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<DigestChannelApi> => {
-    return apiMutator<DigestChannelApi>(getStamphogDigestChannelsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getStamphogDigestChannelsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/stamphog/digest_channels/${id}/`
-}
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const stamphogDigestChannelsUpdate = async (
-    projectId: string,
-    id: string,
-    digestChannelWriteApi: DigestChannelWriteApi,
-    options?: RequestInit
-): Promise<DigestChannelApi> => {
-    return apiMutator<DigestChannelApi>(getStamphogDigestChannelsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(digestChannelWriteApi),
-    })
-}
-
-export const getStamphogDigestChannelsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/stamphog/digest_channels/${id}/`
-}
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const stamphogDigestChannelsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedDigestChannelApi?: NonReadonly<PatchedDigestChannelApi>,
-    options?: RequestInit
-): Promise<DigestChannelApi> => {
-    return apiMutator<DigestChannelApi>(getStamphogDigestChannelsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDigestChannelApi),
-    })
-}
-
-export const getStamphogDigestChannelsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/stamphog/digest_channels/${id}/`
-}
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const stamphogDigestChannelsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getStamphogDigestChannelsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
 
 export const getStamphogDigestRunsListUrl = (projectId: string, params?: StamphogDigestRunsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -195,7 +45,7 @@ export const getStamphogDigestRunsListUrl = (projectId: string, params?: Stampho
 }
 
 /**
- * Read-only history of posted (or attempted) digests, filterable by digest channel.
+ * Read-only history of posted (or attempted) digests, filterable by Slack channel.
  */
 export const stamphogDigestRunsList = async (
     projectId: string,
@@ -213,7 +63,7 @@ export const getStamphogDigestRunsRetrieveUrl = (projectId: string, id: string) 
 }
 
 /**
- * Read-only history of posted (or attempted) digests, filterable by digest channel.
+ * Read-only history of posted (or attempted) digests, filterable by Slack channel.
  */
 export const stamphogDigestRunsRetrieve = async (
     projectId: string,

@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   channels: [] as {
     id: string;
     name: string;
-    channelType: "public" | "personal";
+    channelType: "public" | "personal" | "private";
     starred: boolean;
     repositories: string[];
     createdBy: null;
@@ -39,7 +39,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: mocks.channels, isLoading: false }),
-  useChannelMutations: () => ({ deleteChannel: vi.fn(), isDeleting: false }),
+  useChannelMutations: () => ({
+    deleteChannel: vi.fn(),
+    isDeleting: false,
+    updateAutoArchive: vi.fn(),
+    isUpdatingAutoArchive: false,
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
   useChannelStarToggle: () => ({
@@ -76,6 +81,9 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => ({ fileTask: vi.fn() }),
 }));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
 vi.mock(
   "@posthog/ui/features/task-detail/components/HandoffTaskDialog",
   () => ({
@@ -85,6 +93,7 @@ vi.mock(
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
   NO_TASKS: { items: [], total: 0 },
   usePrefetchSpaceTasks: () => () => undefined,
+  useSpacePresence: () => new Map(),
   useRecentSpaceTasks: (spaceIds: string[]) =>
     new Map(
       spaceIds.map((spaceId) => {
@@ -142,7 +151,11 @@ vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
-  useRouterState: () => "/website",
+  useRouterState: ({
+    select,
+  }: {
+    select: (s: { location: { pathname: string } }) => unknown;
+  }) => select({ location: { pathname: "/spaces" } }),
 }));
 
 import {
@@ -153,9 +166,11 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import {
-  requestSpaceSearchFocus,
-  useSpaceTreeStore,
-} from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+  requestSidebarSearchFocus,
+  useSidebarSearchStore,
+} from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
+import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelsList } from "./ChannelsList";
 
@@ -207,8 +222,14 @@ describe("ChannelsList", () => {
     useSidebarStore.setState({ collapsedSections: new Set() });
     useSpaceTreeStore.setState({
       expandedSpaceIds: new Set(),
-      searchFocusRequest: 0,
       highlightedValue: undefined,
+    });
+    useArchivingTasksStore.setState({
+      archivingTaskIds: new Set(),
+      hiddenArchivingTaskIds: new Set(),
+    });
+    useSidebarSearchStore.setState({
+      focusRequest: 0,
     });
     mocks.totals = {};
     useCurrentChannelStore.setState({ currentChannelId: null });
@@ -235,6 +256,7 @@ describe("ChannelsList", () => {
     await user.click(screen.getByText("engineering"));
 
     expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    expect(useChannelPaneStore.getState().animateTransition).toBe(true);
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
@@ -250,17 +272,35 @@ describe("ChannelsList", () => {
     expect(me.parentElement?.textContent).toMatch(/personal(⌘|Ctrl)/);
   });
 
+  it.each(["personal", "engineering"])(
+    "offers automatic archiving for the %s space",
+    async (spaceName) => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(
+        screen.getByRole("button", { name: `Options for ${spaceName}` }),
+      );
+
+      expect(
+        await screen.findByRole("menuitem", { name: "Auto-archive: off…" }),
+      ).toBeVisible();
+    },
+  );
+
   describe("group headings", () => {
     beforeEach(() => {
       mocks.channels = [ME, { ...ENG, starred: true }, DESIGN];
     });
 
     it("rebrands only the spaces layout", () => {
-      renderList();
-      expect(screen.getByText("Spaces")).toBeTruthy();
+      const view = renderList();
+      expect(screen.getByRole("heading", { name: "Spaces" })).toBeTruthy();
 
+      view.unmount();
       mocks.channelsLayout = false;
       renderList();
+      expect(screen.queryByRole("heading", { name: "Spaces" })).toBeNull();
       expect(screen.getByText("Channels")).toBeTruthy();
     });
   });
@@ -414,7 +454,7 @@ describe("ChannelsList", () => {
       renderList();
       expect(screen.getByText("engineering")).toBeTruthy();
 
-      await user.click(screen.getByText("Spaces"));
+      await user.click(screen.getByRole("option", { name: "Spaces" }));
 
       expect(screen.queryByText("engineering")).toBeNull();
     });
@@ -519,6 +559,26 @@ describe("ChannelsList", () => {
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
     });
 
+    it("shows inert archive progress for a session in the expanded tree", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(screen.getByLabelText("Expand engineering"));
+      act(() => useArchivingTasksStore.getState().startArchiving("task-new"));
+
+      const row = screen.getByText("Ship the tree").closest("button");
+      expect(row).toHaveAttribute("aria-busy", "true");
+      expect(row).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByText("Archiving")).toHaveClass("sr-only");
+
+      if (row) {
+        fireEvent.click(row);
+        fireEvent.contextMenu(row);
+      }
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      expect(screen.queryByRole("menu")).toBeNull();
+    });
+
     // The row after the last session: the keyboard has to know about it, or the
     // highlight index and the rendered options disagree from there down.
     it("walks onto View all and opens the space from it", async () => {
@@ -554,14 +614,21 @@ describe("ChannelsList", () => {
     // ⌘⇧S is bound in ChannelHotkeys, which can only ask; the list is what
     // actually takes the keyboard.
     it("takes the keyboard on a focus request", async () => {
-      renderList();
+      const firstRender = renderList();
 
-      act(() => requestSpaceSearchFocus());
+      act(() => requestSidebarSearchFocus());
 
       await waitFor(() =>
         expect(document.activeElement).toBe(
           screen.getByLabelText("Search spaces"),
         ),
+      );
+
+      firstRender.unmount();
+      renderList();
+
+      expect(document.activeElement).not.toBe(
+        screen.getByLabelText("Search spaces"),
       );
     });
 

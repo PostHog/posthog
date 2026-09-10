@@ -15,6 +15,9 @@ class TestDemoConversionGoals(BaseTest):
                 assert goal.get("math_property"), goal["conversion_goal_id"]
 
     def test_a_revenue_shaped_goal_is_left_unflagged(self):
+        # For the settings checkboxes, not for the mark_goal_* suggestions: those fire
+        # only when no goal carries the flag, and this fixture keeps two that do so ROAS
+        # and cost per customer stay unlocked.
         unflagged = [
             g
             for g in build_conversion_goals(self.team)
@@ -23,7 +26,7 @@ class TestDemoConversionGoals(BaseTest):
             and not g.get("counts_as_revenue")
             and not g.get("counts_as_customer")
         ]
-        assert unflagged, "nothing drives mark_goal_as_revenue / mark_goal_as_customer"
+        assert unflagged, "the revenue/customer checkboxes have no goal to turn on"
 
     def test_both_flags_are_represented(self):
         goals = build_conversion_goals(self.team)

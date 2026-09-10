@@ -1,4 +1,19 @@
-from products.alerts.backend.destination_configs import AlertDestinationAction, EventKindSpec, slack_blocks, teams_text
+from typing import Any
+
+import pytest
+
+from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
+
+from products.alerts.backend.destination_configs import (
+    DESTINATION_SPECS,
+    AlertDestinationAction,
+    AlertDestinationData,
+    DestinationType,
+    EventKindSpec,
+    build_alert_destination_config,
+    slack_blocks,
+    teams_text,
+)
 
 DEFAULT_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",
@@ -54,3 +69,66 @@ class TestSpecVocabularyRendering:
         assert teams_text(DEFAULT_SPEC) == (
             "**Insight alert firing**\n\n**Threshold:** 30\n\n[View insight](https://example.com/insight)"
         )
+
+
+_TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTION_TEMPLATES}
+
+_TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-slack", "template-webhook"}
+
+_DESTINATION_DATA: dict[DestinationType, AlertDestinationData] = {
+    DestinationType.DISCORD: {"type": DestinationType.DISCORD, "webhook_url": "https://discord.example.com/hook"},
+    DestinationType.TEAMS: {"type": DestinationType.TEAMS, "webhook_url": "https://teams.example.com/hook"},
+}
+
+
+def _inputs_a_hog_function_would_keep(template: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+    return {entry["key"]: inputs.get(entry["key"]) for entry in template.inputs_schema or [] if not entry.get("secret")}
+
+
+class TestDestinationTemplateContract:
+    def test_the_templates_defined_outside_python_are_the_ones_we_expect(self) -> None:
+        unreachable = {spec.template_id for spec in DESTINATION_SPECS.values()} - set(_TEMPLATES_BY_ID)
+
+        assert unreachable == _TEMPLATE_IDS_DEFINED_IN_NODEJS
+
+    @pytest.mark.parametrize("destination_type", list(_DESTINATION_DATA))
+    def test_a_config_read_back_from_the_inputs_a_template_keeps_equals_the_config_built(
+        self, destination_type: DestinationType
+    ) -> None:
+        template = _TEMPLATES_BY_ID[DESTINATION_SPECS[destination_type].template_id]
+        data = _DESTINATION_DATA[destination_type]
+        config = build_alert_destination_config(
+            team=None,
+            spec=DEFAULT_SPEC,
+            alert_id="alert-1",
+            alert_name="Signups",
+            data=data,
+            slack_context_elements=(),
+        )
+
+        stored_inputs = _inputs_a_hog_function_would_keep(template, config.payload["inputs"])
+
+        assert DESTINATION_SPECS[destination_type].read(stored_inputs) == data
+
+    def test_slack_channel_name_shapes_the_hog_function_name_and_is_never_stored_in_inputs(self) -> None:
+        data: AlertDestinationData = {
+            "type": DestinationType.SLACK,
+            "slack_workspace_id": 42,
+            "slack_channel_id": "C123",
+            "slack_channel_name": "eng",
+        }
+        config = build_alert_destination_config(
+            team=None,
+            spec=DEFAULT_SPEC,
+            alert_id="alert-1",
+            alert_name="Signups",
+            data=data,
+            slack_context_elements=(),
+        )
+
+        assert config.payload["name"].endswith("Slack #eng")
+        assert DESTINATION_SPECS[DestinationType.SLACK].read(config.payload["inputs"]) == {
+            "type": DestinationType.SLACK,
+            "slack_workspace_id": 42,
+            "slack_channel_id": "C123",
+        }

@@ -110,15 +110,6 @@ export const DEFAULT_CONFIG: DetectionConfig = {
 
 // ── Supported languages ──
 
-export type SupportedLanguage =
-  | "javascript"
-  | "javascriptreact"
-  | "typescript"
-  | "typescriptreact"
-  | "python"
-  | "go"
-  | "ruby";
-
 // ── PostHog entity types (for flag classification / stale detection) ──
 
 export interface FeatureFlag {

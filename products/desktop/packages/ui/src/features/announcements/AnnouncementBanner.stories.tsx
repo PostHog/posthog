@@ -15,7 +15,7 @@ function bannerAnnouncement(
     kind: "announcement",
     id: "storybook-banner",
     title: "Loops are here",
-    body: "Schedule **recurring agent jobs** and route results to your [inbox](posthog-code://inbox/demo).\nBanners render only this first line.",
+    body: "Schedule **recurring agent jobs** and route results to [Self-driving](posthog-code://inbox/demo).\nBanners render only this first line.",
     cta: { label: "Try loops", url: "posthog-code://loop/storybook" },
     ...overrides,
   });

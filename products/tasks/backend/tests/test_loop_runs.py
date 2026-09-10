@@ -814,7 +814,13 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
             (
                 "update_context_only",
                 {"update_context": True},
-                ["channel-instructions-retrieve", "channel-instructions-update"],
+                [
+                    "loop-context-wiki-channel-resolve",
+                    "loop-context-wiki-page-retrieve",
+                    "loop-context-wiki-page-update",
+                    "loop-channel-instructions-retrieve",
+                    "loop-channel-instructions-update",
+                ],
             ),
             (
                 "canvas_only",
@@ -831,7 +837,11 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
                 {"update_context": True, "canvas_id": CANVAS_ID},
                 [
                     CANVAS_ID,
-                    "channel-instructions-retrieve",
+                    "loop-context-wiki-channel-resolve",
+                    "loop-context-wiki-page-retrieve",
+                    "loop-context-wiki-page-update",
+                    "loop-channel-instructions-retrieve",
+                    "loop-channel-instructions-update",
                     "canvas-source-retrieve",
                     "canvas-publish-create",
                     "expected_current_version_id",
@@ -874,7 +884,10 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
 
         self.assertIsInstance(scopes, list)
         if outputs.get("update_context"):
+            self.assertIn("task:read", scopes)
             self.assertIn("task:write", scopes)
+            self.assertIn("loop_context_internal:write", scopes)
+            self.assertNotIn("organization:write", scopes)
         if outputs.get("canvas_id"):
             self.assertIn("canvas:write", scopes)
             self.assertIn("canvas:read", scopes)
@@ -894,6 +907,19 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         task_run = TaskRun.objects.get(id=result.task_run_id)
         self.assertNotIn("living deliverables", task_run.state["pending_user_message"])
         self.assertEqual(scopes, "read_only")
+
+    def test_context_update_adds_loop_scope_to_full_preset(self):
+        loop = self.create_loop(
+            connectors={"posthog_mcp_scopes": "full"},
+            context_target=self.context_target(update_context=True),
+        )
+        trigger = self.create_trigger(loop)
+
+        _, scopes = self.fire_and_capture(loop, trigger)
+
+        self.assertIsInstance(scopes, list)
+        self.assertIn("loop_context_internal:write", scopes)
+        self.assertIn("task:write", scopes)
 
     def test_unattached_loop_sets_no_channel_and_no_publish_block(self):
         loop = self.create_loop()

@@ -1,17 +1,21 @@
 import re
 import base64
+import dataclasses
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 from requests import Request, Response
 
 from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
     build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
@@ -25,9 +29,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
     IncrementalConfig,
+    ParentRowFilter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+    parent_snapshot_covers_through,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.settings import (
     FANOUT_PARENTS,
+    TICKET_COMMENTS_PARENT_FILTER_FIELD,
+    TICKET_COMMENTS_PARENT_LOOKBACK,
+    TICKET_COMMENTS_PARENT_MAX_CATCHUP,
     ZENDESK_ENDPOINTS,
     ZendeskEndpointConfig,
 )
@@ -63,6 +74,52 @@ def zendesk_incremental_window(start_param: str, cursor_path: str) -> Incrementa
         "initial_value": ZENDESK_EPOCH_START,
         "convert": to_zendesk_iso8601,
     }
+
+
+def _bounded_fanout(fanout: DependentEndpointConfig, db_incremental_field_last_value: Any) -> DependentEndpointConfig:
+    """Bound a warehouse parent scan to the tickets whose comments may have changed.
+
+    The floor is the child's own watermark, so the scan covers exactly what the previous run did
+    not: a comment added, redacted, or made private since then moved its ticket's `updated_at`.
+
+    Two cases have no floor that is both safe and complete, and both take the parent-API path the
+    feature already falls back to. Without a watermark there is nothing to scan from. With a
+    watermark older than Zendesk's archive delay, a scan wide enough to cover the gap reaches
+    tickets `/api/v2/tickets` no longer lists, so it would fan out wider than the API path rather
+    than narrower.
+    """
+    if fanout.parent_source != "warehouse":
+        return fanout
+
+    now = datetime.now(UTC)
+    watermark = parse_datetime_value(db_incremental_field_last_value)
+    if watermark is None or watermark < now - TICKET_COMMENTS_PARENT_MAX_CATCHUP:
+        return dataclasses.replace(fanout, parent_source="api")
+
+    return dataclasses.replace(
+        fanout,
+        parent_row_filter=ParentRowFilter(
+            field=TICKET_COMMENTS_PARENT_FILTER_FIELD,
+            # A watermark ahead of now would floor the scan in the future and read nothing.
+            not_before=min(watermark, now) - TICKET_COMMENTS_PARENT_LOOKBACK,
+        ),
+    )
+
+
+def _fanout_incremental_config(config: ZendeskEndpointConfig) -> Callable[[str], IncrementalConfig | None]:
+    """Build the child's request window, or report that the endpoint has none.
+
+    A plain list endpoint without a start param is a config error (`get_declarative_resource`
+    raises). A fan-out child is different: the parent bounds which rows it requests, so a child
+    endpoint that takes no time filter still merges rather than replaces.
+    """
+
+    def _factory(cursor_path: str) -> IncrementalConfig | None:
+        if config.incremental_start_param is None:
+            return None
+        return zendesk_incremental_window(config.incremental_start_param, cursor_path)
+
+    return _factory
 
 
 def paginator_for(config: ZendeskEndpointConfig) -> BasePaginator:
@@ -487,16 +544,33 @@ def zendesk_fanout_source(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
     incremental_field_name: str | None = None,
+    source_id: str | None = None,
+    use_warehouse_parent: bool = False,
 ) -> Resource:
     """Fan out over a parent list endpoint, then page the child endpoint per parent row."""
     assert config.fanout is not None
-    parent = FANOUT_PARENTS[config.fanout.parent_name]
+    fanout = _bounded_fanout(config.fanout, db_incremental_field_last_value)
+
+    # How far the tickets snapshot is guaranteed complete. The comments fanned out below are
+    # fetched live, so emitting one past this point would carry this schema's watermark over
+    # ticket changes the snapshot could not show it, and the next run's floor would skip them for
+    # good. Capping defers those comments by one run instead, so nothing is lost. Read before
+    # `build_dependent_resource` pins the table, never after — see the helper's docstring. Without
+    # a completed parent sync there is no cap, so the run takes the API path, whose listing is
+    # live and needs none.
+    snapshot_at: datetime | None = None
+    if fanout.parent_source == "warehouse" and use_warehouse_parent:
+        snapshot_at = parent_snapshot_covers_through(team_id, source_id or "", fanout.parent_name)
+        if snapshot_at is None:
+            fanout = dataclasses.replace(fanout, parent_source="api")
+
+    parent = FANOUT_PARENTS[fanout.parent_name]
     return cast(
         Resource,
         build_dependent_resource(
             endpoint_configs={config.name: config, parent.name: parent},
             child_endpoint=config.name,
-            fanout=config.fanout,
+            fanout=fanout,
             client_config=client_config,
             path_format_values={},
             team_id=team_id,
@@ -504,6 +578,7 @@ def zendesk_fanout_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
             should_use_incremental_field=should_use_incremental_field,
             incremental_field=incremental_field_name,
+            incremental_config_factory=_fanout_incremental_config(config),
             page_size_param="page[size]",
             parent_endpoint_extra={
                 "paginator": JSONLinkPaginator(next_url_path="links.next"),
@@ -513,6 +588,9 @@ def zendesk_fanout_source(
                 "paginator": paginator_for(config),
                 "data_selector": config.data_selector,
             },
+            source_id=source_id,
+            use_warehouse_parent=use_warehouse_parent,
+            parent_snapshot_at=snapshot_at,
         ),
     )
 
@@ -527,6 +605,8 @@ def zendesk_source(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
     incremental_field_name: str | None = None,
+    source_id: str | None = None,
+    use_warehouse_parent: bool = False,
 ):
     client_config = zendesk_client_config(subdomain, api_key, email_address)
 
@@ -540,6 +620,8 @@ def zendesk_source(
             db_incremental_field_last_value,
             should_use_incremental_field,
             incremental_field_name,
+            source_id=source_id,
+            use_warehouse_parent=use_warehouse_parent,
         )
 
     config: RESTAPIConfig = {

@@ -313,6 +313,39 @@ impl RedisClient {
     }
 }
 
+/// Run a Lua script and decode its integer-array reply. Behind a trait so callers
+/// can be unit-tested against an in-memory fake, including a failing one that
+/// proves a limiter fails open.
+#[async_trait]
+pub trait ScriptRunner: Send + Sync {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError>;
+
+    /// Rebuild the underlying connection after a connection-class failure; see
+    /// [`Client::heal`]. The default no-op keeps test fakes trivial.
+    async fn heal(&self) {}
+}
+
+#[async_trait]
+impl ScriptRunner for RedisClient {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError> {
+        RedisClient::eval_int_vec(self, script, keys, args).await
+    }
+
+    async fn heal(&self) {
+        self.heal_connection().await;
+    }
+}
+
 #[async_trait]
 impl Client for RedisClient {
     async fn heal(&self) {
@@ -327,6 +360,19 @@ impl Client for RedisClient {
     ) -> Result<Vec<String>, CustomRedisError> {
         let mut conn = self.conn();
         let results = conn.zrangebyscore(k, min, max).await?;
+        Ok(results)
+    }
+
+    async fn zrangebyscore_limit(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<String>, CustomRedisError> {
+        let mut conn = self.conn();
+        let results = conn.zrangebyscore_limit(k, min, max, offset, count).await?;
         Ok(results)
     }
 
@@ -674,6 +720,12 @@ impl Client for RedisClient {
                 PipelineCommand::SAdd { key, member } => {
                     pipe.cmd("SADD").arg(key).arg(member);
                 }
+                PipelineCommand::ZAdd { key, members } => {
+                    let cmd = pipe.cmd("ZADD").arg(key);
+                    for (score, member) in members {
+                        cmd.arg(*score).arg(member);
+                    }
+                }
                 PipelineCommand::Expire { key, seconds } => {
                     pipe.cmd("EXPIRE").arg(key).arg(*seconds);
                 }
@@ -736,6 +788,7 @@ impl RedisClient {
             PipelineCommand::Set { .. }
             | PipelineCommand::SetEx { .. }
             | PipelineCommand::Del { .. }
+            | PipelineCommand::ZAdd { .. }
             | PipelineCommand::HIncrBy { .. } => Ok(PipelineResult::Ok),
             PipelineCommand::Expire { .. } => {
                 // EXPIRE returns 1 if the timeout was set, 0 if the key does not exist
@@ -1292,7 +1345,7 @@ mod integration_tests {
         }
         assert!(ready, "redis container never came back");
 
-        healed_client.heal().await;
+        Client::heal(&healed_client).await;
         assert!(healed_client
             .set("k".to_string(), "v".to_string())
             .await

@@ -1,12 +1,27 @@
 import {
   ArchiveIcon,
+  ArrowClockwiseIcon,
   CaretLeftIcon,
   CaretRightIcon,
-  ChartLine,
-  EnvelopeSimple,
+  ChartLineIcon,
+  CubeIcon,
+  DesktopIcon,
+  EnvelopeSimpleIcon,
+  FileTextIcon,
+  GaugeIcon,
+  GearIcon,
   GitDiffIcon,
+  HashIcon,
+  HouseIcon,
+  MagnifyingGlassIcon,
+  MagnifyingGlassMinusIcon,
+  MagnifyingGlassPlusIcon,
+  MoonIcon,
+  SidebarSimpleIcon,
   SquaresFourIcon,
+  SunIcon,
 } from "@phosphor-icons/react";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { workspaceIdSet } from "@posthog/core/command-center/eligibility";
 import { resolveService } from "@posthog/di/container";
 import {
@@ -28,12 +43,18 @@ import {
   Kbd,
   KbdGroup,
 } from "@posthog/quill";
-import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  LOOPS_FLAG,
+  PROJECT_BLUEBIRD_FLAG,
+  singleLineTitle,
+} from "@posthog/shared";
 import {
   ANALYTICS_EVENTS,
   type CommandMenuAction,
 } from "@posthog/shared/analytics-events";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { useTaskArchive } from "@posthog/ui/features/archive/useTaskArchive";
+import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import {
   EDITOR_TEXT_CLASS,
@@ -45,6 +66,20 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { CommandKeyHints } from "@posthog/ui/features/command/CommandKeyHints";
+import type {
+  Command,
+  CommandSection,
+} from "@posthog/ui/features/command/commandRow";
+import {
+  channelRowParts,
+  taskRowParts,
+  taskRowRecency,
+} from "@posthog/ui/features/command/commandRowFacts";
+import {
+  channelHref,
+  taskHref,
+} from "@posthog/ui/features/command/commandRowHref";
+import { commandRowMeta } from "@posthog/ui/features/command/commandRowMeta";
 import {
   addRecentCommand,
   matchesCommandSearch,
@@ -56,6 +91,10 @@ import {
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { PaletteFilterChips } from "@posthog/ui/features/command/PaletteFilterChips";
+import {
+  type ResultRow,
+  rankResultRows,
+} from "@posthog/ui/features/command/rankResultRows";
 import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import { taskSearchDelay } from "@posthog/ui/features/command/taskSearchQuery";
 import {
@@ -63,13 +102,10 @@ import {
   useFeedQueryCommands,
 } from "@posthog/ui/features/command/useFeedQueryCommands";
 import { useFileSearchContext } from "@posthog/ui/features/command/useFileSearchContext";
-import {
-  type Command,
-  type CommandSection,
-  useSearchSections,
-} from "@posthog/ui/features/command/useSearchSections";
+import { useSearchRows } from "@posthog/ui/features/command/useSearchRows";
 import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
 import {
@@ -96,20 +132,9 @@ import { track } from "@posthog/ui/shell/analytics";
 import { showLogFolder } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import {
-  DesktopIcon,
-  FileTextIcon,
-  GearIcon,
-  HomeIcon,
-  MagnifyingGlassIcon,
-  MoonIcon,
-  ReloadIcon,
-  SunIcon,
-  ViewVerticalIcon,
-  ZoomInIcon,
-  ZoomOutIcon,
-} from "@radix-ui/react-icons";
-import {
+  lazy,
   type KeyboardEvent as ReactKeyboardEvent,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -123,7 +148,21 @@ interface CommandMenuProps {
   onOpenChange: (open: boolean) => void;
 }
 
+// Static-importing this pulls the task-creation stack onto the mod+K path.
+const CreateChannelModalLazy = lazy(() =>
+  import("@posthog/ui/features/canvas/components/CreateChannelModal").then(
+    (module) => ({ default: module.CreateChannelModal }),
+  ),
+);
+
 const DEFAULT_RESULT_LIMIT = 8;
+
+/** The palette hands the highlighted row itself, not its value. */
+function highlightedCommandId(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  const id = (value as { id?: unknown } | null)?.id;
+  return typeof id === "string" ? id : null;
+}
 const COLLAPSED_CHIP_COUNT = 5;
 
 function PaletteQueryMirror({
@@ -216,8 +255,10 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
+  const inboxAvailable = useInboxAvailable();
   const { channels } = useChannels({ enabled: bluebirdEnabled });
+  const openBrowserTab = useOpenBrowserTab();
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
   const view = useAppView();
@@ -234,6 +275,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     (state) => state.activeTasks,
   );
   const [query, setQuery] = useState("");
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [createChannelUsed, setCreateChannelUsed] = useState(false);
   const [recentCommands, setRecentCommands] = useState<Command[]>([]);
   const [remoteQuery, setRemoteQuery] = useState("");
   // The legacy title search only ever surfaces while the palette is browsing
@@ -286,6 +329,13 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     }
   }, [reviewTaskId, getReviewMode, setReviewMode]);
 
+  // Archiving acts on the open task, so the command needs the task itself and
+  // drops out of the list when the palette can't find it.
+  const openedTask = tasks.find((task) => task.id === reviewTaskId);
+  const { requestArchive, dialog: archiveDialog } = useTaskArchive(openedTask, {
+    navigateUnscoped: !openedTask?.channel,
+  });
+
   useEffect(() => {
     if (open) {
       track(ANALYTICS_EVENTS.COMMAND_MENU_OPENED);
@@ -301,7 +351,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "switch-theme-light",
         label: "Switch to light mode",
         keywords: "theme appearance",
-        icon: <SunIcon className="h-3 w-3 text-gray-11" />,
+        icon: <SunIcon size={12} className="text-muted-foreground" />,
         action: "toggle-theme",
         onRun: () => setTheme("light"),
       });
@@ -311,7 +361,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "switch-theme-dark",
         label: "Switch to dark mode",
         keywords: "theme appearance",
-        icon: <MoonIcon className="h-3 w-3 text-gray-11" />,
+        icon: <MoonIcon size={12} className="text-muted-foreground" />,
         action: "toggle-theme",
         onRun: () => setTheme("dark"),
       });
@@ -324,7 +374,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "switch-theme-system",
         label: "Switch to system theme",
         keywords: "theme appearance auto",
-        icon: <DesktopIcon className="h-3 w-3 text-gray-11" />,
+        icon: <DesktopIcon size={12} className="text-muted-foreground" />,
         action: "toggle-theme",
         onRun: () => setTheme("system"),
       });
@@ -337,7 +387,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       {
         id: "home",
         label: "Home",
-        icon: <HomeIcon className="h-3 w-3 text-gray-11" />,
+        icon: <HouseIcon size={12} className="text-muted-foreground" />,
         action: "home",
         onRun: () => {
           closeSettingsDialog();
@@ -347,28 +397,37 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       {
         id: "settings",
         label: "Settings",
-        icon: <GearIcon className="h-3 w-3 text-gray-11" />,
+        icon: <GearIcon size={12} className="text-muted-foreground" />,
         action: "settings",
         shortcut: SHORTCUTS.SETTINGS,
         onRun: () => openSettingsDialog(),
       },
-      {
-        id: "inbox",
-        label: "Inbox",
-        keywords: "reports pull requests agents notifications",
-        icon: <EnvelopeSimple size={12} className="text-gray-11" />,
-        action: "open-inbox",
-        shortcut: SHORTCUTS.INBOX,
-        onRun: () => {
-          closeSettingsDialog();
-          navigateToInbox();
-        },
-      },
+      ...(inboxAvailable
+        ? [
+            {
+              id: "inbox",
+              label: "Self-driving",
+              keywords: "reports pull requests agents notifications",
+              icon: (
+                <EnvelopeSimpleIcon
+                  size={12}
+                  className="text-muted-foreground"
+                />
+              ),
+              action: "open-inbox",
+              shortcut: SHORTCUTS.INBOX,
+              onRun: () => {
+                closeSettingsDialog();
+                navigateToInbox();
+              },
+            } satisfies Command,
+          ]
+        : []),
       {
         id: "archived",
         label: "Archived",
         keywords: "archive archived tasks",
-        icon: <ArchiveIcon size={12} className="text-gray-11" />,
+        icon: <ArchiveIcon size={12} className="text-muted-foreground" />,
         action: "open-archived",
         onRun: () => {
           closeSettingsDialog();
@@ -379,7 +438,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "command-center",
         label: "Command center",
         keywords: "grid tasks parallel dashboard",
-        icon: <SquaresFourIcon className="h-3 w-3 text-gray-11" />,
+        icon: <SquaresFourIcon size={12} className="text-muted-foreground" />,
         action: "open-command-center",
         onRun: () => {
           closeSettingsDialog();
@@ -392,7 +451,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               id: "loops",
               label: "Loops",
               keywords: "automations schedules recurring",
-              icon: <LoopIcon size={12} className="text-gray-11" />,
+              icon: <LoopIcon size={12} className="text-muted-foreground" />,
               action: "open-loops" as CommandMenuAction,
               onRun: () => {
                 closeSettingsDialog();
@@ -402,10 +461,18 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           ]
         : []),
       {
+        id: "cost-management",
+        label: "Cost management",
+        keywords: "cost spend limits budget savings recommendations",
+        icon: <GaugeIcon size={12} className="text-muted-foreground" />,
+        action: "open-cost-management" as CommandMenuAction,
+        onRun: () => openSettingsDialog("cost-management"),
+      },
+      {
         id: "plan-usage",
         label: "Plan & usage",
         keywords: "billing spend cost credits usage plan",
-        icon: <ChartLine size={12} className="text-gray-11" />,
+        icon: <ChartLineIcon size={12} className="text-muted-foreground" />,
         action: "open-usage",
         onRun: () => openSettingsDialog("plan-usage"),
       },
@@ -413,7 +480,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "go-back",
         label: "Go back",
         keywords: "navigate history previous",
-        icon: <CaretLeftIcon size={12} className="text-gray-11" />,
+        icon: <CaretLeftIcon size={12} className="text-muted-foreground" />,
         action: "go-back",
         shortcut: SHORTCUTS.GO_BACK,
         onRun: goBackInHistory,
@@ -422,7 +489,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "go-forward",
         label: "Go forward",
         keywords: "navigate history next",
-        icon: <CaretRightIcon size={12} className="text-gray-11" />,
+        icon: <CaretRightIcon size={12} className="text-muted-foreground" />,
         action: "go-forward",
         shortcut: SHORTCUTS.GO_FORWARD,
         onRun: goForwardInHistory,
@@ -434,7 +501,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "new-task",
         label: "New task",
         keywords: "create",
-        icon: <FileTextIcon className="h-3 w-3 text-gray-11" />,
+        icon: <FileTextIcon size={12} className="text-muted-foreground" />,
         action: "new-task",
         shortcut: SHORTCUTS.NEW_TASK,
         onRun: () => {
@@ -442,10 +509,30 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           openTaskInput();
         },
       },
+      ...(bluebirdEnabled
+        ? [
+            {
+              id: "create-channel",
+              label: spacesLayout ? "New space" : "New channel",
+              keywords: "create add space channel context",
+              icon: spacesLayout ? (
+                <CubeIcon size={12} className="text-muted-foreground" />
+              ) : (
+                <HashIcon size={12} className="text-muted-foreground" />
+              ),
+              action: "create-channel" as CommandMenuAction,
+              onRun: () => {
+                closeSettingsDialog();
+                setCreateChannelUsed(true);
+                setCreateChannelOpen(true);
+              },
+            },
+          ]
+        : []),
       {
         id: "toggle-left-sidebar",
         label: "Toggle left sidebar",
-        icon: <ViewVerticalIcon className="h-3 w-3 text-gray-11" />,
+        icon: <SidebarSimpleIcon size={12} className="text-muted-foreground" />,
         action: "toggle-left-sidebar",
         shortcut: SHORTCUTS.TOGGLE_LEFT_SIDEBAR,
         onRun: toggleLeftSidebar,
@@ -455,10 +542,23 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             {
               id: "open-review-panel",
               label: "Open diff view",
-              icon: <GitDiffIcon className="h-3 w-3 text-gray-11" />,
+              icon: <GitDiffIcon size={12} className="text-muted-foreground" />,
               action: "open-review-panel" as CommandMenuAction,
               shortcut: SHORTCUTS.TOGGLE_REVIEW_PANEL,
               onRun: openReviewPanel,
+            },
+          ]
+        : []),
+      ...(openedTask
+        ? [
+            {
+              id: "archive-task",
+              label: "Archive task",
+              keywords: "archive close remove",
+              icon: <ArchiveIcon size={12} className="text-muted-foreground" />,
+              action: "archive-task" as CommandMenuAction,
+              shortcut: SHORTCUTS.ARCHIVE_TASK,
+              onRun: requestArchive,
             },
           ]
         : []),
@@ -471,7 +571,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "search-files",
         label: "Search files",
         keywords: "file find open",
-        icon: <MagnifyingGlassIcon className="h-3 w-3 text-gray-11" />,
+        icon: (
+          <MagnifyingGlassIcon size={12} className="text-muted-foreground" />
+        ),
         action: "search-files",
         onRun: openFilePicker,
       });
@@ -482,7 +584,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "show-log-folder",
         label: "Show log folder",
         keywords: "logs debug files finder",
-        icon: <FileTextIcon className="h-3 w-3 text-gray-11" />,
+        icon: <FileTextIcon size={12} className="text-muted-foreground" />,
         action: "show-log-folder",
         onRun: showLogFolder,
       },
@@ -490,7 +592,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "reload-window",
         label: "Reload window",
         keywords: "refresh restart",
-        icon: <ReloadIcon className="h-3 w-3 text-gray-11" />,
+        icon: (
+          <ArrowClockwiseIcon size={12} className="text-muted-foreground" />
+        ),
         action: "reload-window",
         shortcut: SHORTCUTS.RELOAD_WINDOW,
         onRun: () => window.location.reload(),
@@ -502,7 +606,12 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "zoom-in",
         label: "Zoom in",
         keywords: "zoom increase larger",
-        icon: <ZoomInIcon className="h-3 w-3 text-gray-11" />,
+        icon: (
+          <MagnifyingGlassPlusIcon
+            size={12}
+            className="text-muted-foreground"
+          />
+        ),
         action: "zoom-in",
         shortcut: SHORTCUTS.ZOOM_IN,
         onRun: () =>
@@ -514,7 +623,12 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "zoom-out",
         label: "Zoom out",
         keywords: "zoom decrease smaller",
-        icon: <ZoomOutIcon className="h-3 w-3 text-gray-11" />,
+        icon: (
+          <MagnifyingGlassMinusIcon
+            size={12}
+            className="text-muted-foreground"
+          />
+        ),
         action: "zoom-out",
         shortcut: SHORTCUTS.ZOOM_OUT,
         onRun: () =>
@@ -526,7 +640,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         id: "zoom-reset",
         label: "Reset zoom",
         keywords: "zoom actual size default",
-        icon: <MagnifyingGlassIcon className="h-3 w-3 text-gray-11" />,
+        icon: (
+          <MagnifyingGlassIcon size={12} className="text-muted-foreground" />
+        ),
         action: "zoom-reset",
         shortcut: SHORTCUTS.RESET_ZOOM,
         onRun: () =>
@@ -550,7 +666,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           id: `new-task-folder-${folder.id}`,
           label: `New task in ${folder.name}`,
           keywords: folder.path,
-          icon: <FileTextIcon className="h-3 w-3 text-gray-11" />,
+          icon: <FileTextIcon size={12} className="text-muted-foreground" />,
           action: "new-task",
           onRun: () => {
             closeSettingsDialog();
@@ -569,12 +685,17 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     toggleLeftSidebar,
     openReviewPanel,
     reviewTaskId,
+    openedTask,
+    requestArchive,
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
+    inboxAvailable,
+    bluebirdEnabled,
+    spacesLayout,
   ]);
 
-  const taskSections = useMemo<CommandSection[]>(() => {
+  const taskRows = useMemo<ResultRow[]>(() => {
     const workspaceIds = workspaceIdSet(workspaces);
     const visibleTasks = tasks.filter(
       (task) =>
@@ -587,37 +708,39 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     const channelsById = new Map(
       channels.map((channel) => [channel.id, channel] as const),
     );
-    return [
-      {
-        label: "Tasks",
-        items: visibleTasks.map((task) => {
-          const channel = task.channel
-            ? channelsById.get(task.channel)
-            : undefined;
-          return {
-            id: `task-${task.id}`,
-            label: task.title,
-            detail: channel?.name,
-            // Include the channel name so searching it surfaces filed tasks.
-            keywords: channel?.name,
-            icon: <TaskCommandIcon task={task} />,
-            action: "open-task" as CommandMenuAction,
-            channelId: bluebirdEnabled ? channel?.id : undefined,
-            onRun: () => {
-              closeSettingsDialog();
-              // Bluebird: a task filed to a channel opens in the channel-
-              // organized view under /website, keeping the channels chrome.
-              // Otherwise fall back to the /code task detail.
-              const channelTarget =
-                bluebirdEnabled && channel
-                  ? { channelId: channel.id }
-                  : undefined;
-              void openTask(task, channelTarget);
-            },
-          };
-        }),
-      },
-    ];
+    return visibleTasks.map((task) => {
+      const channel = task.channel ? channelsById.get(task.channel) : undefined;
+      return {
+        kind: "task" as const,
+        recency: taskRowRecency(task),
+        command: {
+          id: `task-${task.id}`,
+          label: singleLineTitle(task.title),
+          subtitle: commandRowMeta(taskRowParts(task)),
+          detail: channel
+            ? channelDisplayLabel(channel.name, channel.channelType)
+            : undefined,
+          detailPrefix: "",
+          // Include the channel name so searching it surfaces filed tasks.
+          keywords: channel?.name,
+          icon: <TaskCommandIcon task={task} />,
+          action: "open-task" as CommandMenuAction,
+          channelId: bluebirdEnabled ? channel?.id : undefined,
+          href: taskHref(task, bluebirdEnabled ? channel?.id : undefined),
+          onRun: () => {
+            closeSettingsDialog();
+            // Bluebird: a task filed to a channel opens in the channel-
+            // organized view under /website, keeping the channels chrome.
+            // Otherwise fall back to the /code task detail.
+            const channelTarget =
+              bluebirdEnabled && channel
+                ? { channelId: channel.id }
+                : undefined;
+            void openTask(task, channelTarget);
+          },
+        },
+      };
+    });
   }, [
     tasks,
     archivedTaskIds,
@@ -629,40 +752,61 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     closeSettingsDialog,
   ]);
 
-  const channelSections = useMemo<CommandSection[]>(() => {
-    if (channels.length === 0) return [];
-    return [
-      {
-        label: spacesLayout ? "Spaces" : "Channels",
-        items: channels.map((channel) => ({
+  const taskSections = useMemo<CommandSection[]>(
+    () =>
+      taskRows.length > 0
+        ? [{ label: "Tasks", items: taskRows.map((row) => row.command) }]
+        : [],
+    [taskRows],
+  );
+
+  const channelRows = useMemo<ResultRow[]>(
+    () =>
+      channels.map((channel) => ({
+        kind: "channel" as const,
+        command: {
           id: `channel-${channel.id}`,
           label: channel.name,
+          subtitle: commandRowMeta(channelRowParts(channel)),
           keywords: "space channel",
           icon: channelGlyph(channel.name, {
             personal: channel.channelType === "personal",
+            private: channel.channelType === "private",
             size: 12,
-            space: spacesLayout,
             className: "text-muted-foreground",
           }),
           action: "open-channel" as CommandMenuAction,
           channelId: channel.id,
+          href: channelHref(channel.id),
           onRun: () => {
             closeSettingsDialog();
             navigateToChannel(channel.id);
           },
-        })),
-      },
-    ];
-  }, [channels, closeSettingsDialog, spacesLayout]);
+        },
+      })),
+    [channels, closeSettingsDialog],
+  );
 
-  const searchSections = useSearchSections({
+  const channelSections = useMemo<CommandSection[]>(
+    () =>
+      channelRows.length > 0
+        ? [
+            {
+              label: spacesLayout ? "Spaces" : "Channels",
+              items: channelRows.map((row) => row.command),
+            },
+          ]
+        : [],
+    [channelRows, spacesLayout],
+  );
+
+  const searchRows = useSearchRows({
     remoteQuery,
     searchResults,
     tasks,
     taskSections,
     channels,
     bluebirdEnabled,
-    spacesLayout,
   });
 
   const [feedModalQuery, setFeedModalQuery] = useState<string | null>(null);
@@ -728,25 +872,56 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     remoteSearchAllowedRef.current = browsing && !scope;
   }, [mode, scope]);
 
+  const resultSections = useMemo<CommandSection[]>(() => {
+    if (!searchText.trim()) return [];
+    const matches = rankResultRows(
+      [...searchRows, ...taskRows, ...channelRows],
+      searchText,
+    ).filter((command) => matchesCommandSearch(command, searchText));
+    if (matches.length === 0) return [];
+    const items = matches.slice(0, resultLimit);
+    const hidden = matches.length - items.length;
+    if (hidden > 0) {
+      items.push({
+        id: "results-show-all",
+        label: `Show ${hidden} more`,
+        keywords: searchText,
+        icon: <MagnifyingGlassIcon className="h-3 w-3 text-gray-11" />,
+        action: "show-all-matches",
+        keepOpen: true,
+        onRun: showAllMatches,
+      });
+    }
+    return [{ label: "", items }];
+  }, [
+    searchRows,
+    taskRows,
+    channelRows,
+    searchText,
+    resultLimit,
+    showAllMatches,
+  ]);
+
   const baseSections = useMemo(() => {
     const browsing = mode === "browsing" || mode === "completingKey";
+    const searching = browsing && !scope && searchText.trim().length > 0;
     const showCommands = browsing && (!scope || scope === "command");
-    const showChannels = browsing && (!scope || scope === "space");
-    const showPlainTasks = browsing && !scope;
-    const showRemoteSearch = browsing && !scope;
-    return prioritizeExactCommandMatches(
-      [
-        ...feedQuery.sections,
-        ...(showRemoteSearch ? searchSections : []),
-        ...(showCommands ? commandSections : []),
-        ...(showChannels ? channelSections : []),
-        ...(showPlainTasks ? taskSections : []),
-      ],
-      searchText,
-    );
+    const showChannels =
+      browsing && !searching && (!scope || scope === "space");
+    const showPlainTasks = browsing && !searching && !scope;
+    return [
+      ...feedQuery.sections,
+      ...(searching ? resultSections : []),
+      ...prioritizeExactCommandMatches(
+        showCommands ? commandSections : [],
+        searchText,
+      ),
+      ...(showChannels ? channelSections : []),
+      ...(showPlainTasks ? taskSections : []),
+    ];
   }, [
     feedQuery.sections,
-    searchSections,
+    resultSections,
     commandSections,
     channelSections,
     taskSections,
@@ -789,12 +964,31 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   );
 
   const highlightedId = useRef<string | null>(null);
+  // Any row with a place of its own can open in a tab, so the footer says so
+  // once rather than following the highlight, which re-renders on every move.
+  const anyRowOpensInTab = useMemo(
+    () => allCommands.some((command) => command.href),
+    [allCommands],
+  );
   const showMatchSummary = mode === "querying" || matchCount != null;
 
-  const handleSelect = (id: string | null): void => {
+  const openInNewTab = (cmd: Command): boolean => {
+    if (!cmd.href) return false;
+    track(ANALYTICS_EVENTS.COMMAND_MENU_ACTION, {
+      action_type: cmd.action,
+      channel_id: cmd.channelId,
+    });
+    openBrowserTab(cmd.href);
+    onOpenChange(false);
+    setQuery("");
+    return true;
+  };
+
+  const handleSelect = (id: string | null, newTab = false): void => {
     if (id === null) return;
     const cmd = allCommands.find((c) => c.id === id);
     if (!cmd) return;
+    if (newTab && openInNewTab(cmd)) return;
     track(ANALYTICS_EVENTS.COMMAND_MENU_ACTION, {
       action_type: cmd.action,
       channel_id: cmd.channelId,
@@ -809,6 +1003,16 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   };
 
   const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      const highlighted = allCommands.find(
+        (command) => command.id === highlightedId.current,
+      );
+      if (highlighted?.href) {
+        event.preventDefault();
+        openInNewTab(highlighted);
+        return;
+      }
+    }
     if (
       event.key.toLowerCase() === "s" &&
       (event.metaKey || event.ctrlKey) &&
@@ -849,7 +1053,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             autoHighlight
             keepHighlight
             onItemHighlighted={(value) => {
-              highlightedId.current = typeof value === "string" ? value : null;
+              highlightedId.current = highlightedCommandId(value);
             }}
             onValueChange={(val, eventDetails) => {
               if (typeof val !== "string") return;
@@ -882,8 +1086,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                   spacesLayout
                     ? cn(
                         "[&_input]:whitespace-pre [&_input]:font-mono [&_input]:text-[13px] [&_input]:tracking-normal",
-                        "[&_input]:text-transparent [&_input]:caret-(--gray-12) [&_input]:placeholder:text-(--gray-9)",
-                        "[&_input]:selection:bg-(--blue-a4) [&_input]:selection:text-transparent",
+                        "[&_input]:text-transparent [&_input]:caret-foreground [&_input]:placeholder:text-subtle-foreground",
+                        "[&_input]:selection:bg-primary/25 [&_input]:selection:text-transparent",
                       )
                     : undefined
                 }
@@ -901,7 +1105,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               />
             )}
             {showMatchSummary ? (
-              <div className="border-(--gray-a4) border-b px-3 py-1.5 text-(--gray-9) text-xs tabular-nums">
+              <div className="border-border border-b px-3 py-1.5 text-subtle-foreground text-xs tabular-nums">
                 {partialResults
                   ? "Some matching tasks may not be shown."
                   : matchSummary(matchCount, shownCount, hasRepairs)}
@@ -920,37 +1124,48 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             <AutocompleteList className="max-h-[60vh]">
               {(section: CommandSection) => (
                 <AutocompleteGroup key={section.label} items={section.items}>
-                  <AutocompleteLabel>{section.label}</AutocompleteLabel>
+                  {section.label && (
+                    <AutocompleteLabel>{section.label}</AutocompleteLabel>
+                  )}
                   <AutocompleteCollection>
                     {(cmd: Command) => (
                       <AutocompleteItem
                         key={cmd.id}
                         value={cmd.id}
-                        onClick={() => handleSelect(cmd.id)}
-                        className="group flex h-auto! min-h-7 w-full items-center gap-2 py-1.5 pr-2 text-left [&>span]:w-full [&>span]:overflow-visible"
+                        title={cmd.label}
+                        onClick={(event) =>
+                          handleSelect(cmd.id, event.metaKey || event.ctrlKey)
+                        }
+                        className="group flex h-auto! min-h-7 w-full items-center gap-2 py-1 pr-2 text-left leading-snug [&>span]:w-full [&>span]:overflow-visible"
                       >
-                        {cmd.icon}
-                        <span className="wrap-break-word min-w-0 whitespace-normal">
-                          {cmd.label}
+                        <span className="flex size-4 shrink-0 items-center justify-center opacity-80 group-data-highlighted:opacity-100">
+                          {cmd.icon}
+                        </span>
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="flex min-h-[18px] items-center gap-2">
+                            <span className="min-w-0 flex-1 truncate">
+                              {cmd.label}
+                            </span>
+                            {cmd.detail && (
+                              <span className="max-w-[40%] shrink-0 truncate text-[11px] text-muted-foreground">
+                                {cmd.detailPrefix ?? "#"}
+                                {cmd.detail}
+                              </span>
+                            )}
+                            {cmd.shortcut && (
+                              <span className="flex shrink-0 items-center gap-2">
+                                {formatHotkeyParts(cmd.shortcut).map((part) => (
+                                  <Kbd key={part}>{part}</Kbd>
+                                ))}
+                              </span>
+                            )}
+                          </span>
                           {cmd.subtitle && (
-                            <span className="block truncate text-gray-9 text-xs">
+                            <span className="truncate text-muted-foreground/70 text-xxs">
                               {cmd.subtitle}
                             </span>
                           )}
                         </span>
-                        {cmd.detail && (
-                          <span className="shrink-0 text-gray-9">
-                            · {cmd.detailPrefix ?? "#"}
-                            {cmd.detail}
-                          </span>
-                        )}
-                        {cmd.shortcut && (
-                          <span className="ml-auto flex shrink-0 items-center gap-2 pl-2">
-                            {formatHotkeyParts(cmd.shortcut).map((part) => (
-                              <Kbd key={part}>{part}</Kbd>
-                            ))}
-                          </span>
-                        )}
                       </AutocompleteItem>
                     )}
                   </AutocompleteCollection>
@@ -958,7 +1173,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               )}
             </AutocompleteList>
           </Autocomplete>
-          <CommandKeyHints>
+          <CommandKeyHints newTabHint={anyRowOpensInTab}>
             {hasFilterTokens && (
               <div className="flex items-center gap-2">
                 <KbdGroup>
@@ -982,6 +1197,17 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         surface="command_menu"
         onCreated={(feed) => navigateToFeed(feed.id)}
       />
+      {createChannelUsed && (
+        <Suspense fallback={null}>
+          <CreateChannelModalLazy
+            open={createChannelOpen}
+            onOpenChange={setCreateChannelOpen}
+            surface="command_menu"
+          />
+        </Suspense>
+      )}
+      {/* Outlives the palette, which closes as the command runs. */}
+      {archiveDialog}
     </>
   );
 }

@@ -435,6 +435,7 @@ the row lists both.
 | logz_io                          | HTTP                        | requests                                                        | ✅                          |
 | loop_returns                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| lovable                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | luma                             | HTTP                        | requests                                                        | ✅                          |
 | mailchimp                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | marketo                          | HTTP                        | requests                                                        | ✅                          |
@@ -455,6 +456,7 @@ the row lists both.
 | metaplane                        | HTTP                        | requests                                                        | ✅                          |
 | meteostat                        | HTTP                        | requests                                                        | ✅                          |
 | metorial                         | HTTP                        | requests                                                        | ✅                          |
+| metronome                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | microsoft_clarity                | HTTP                        | requests                                                        | ✅                          |
 | mighty_networks                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mistral_ai                       | HTTP                        | requests                                                        | ✅                          |
@@ -592,6 +594,7 @@ the row lists both.
 | rki_covid                        | HTTP                        | requests                                                        | ✅                          |
 | roark                            | HTTP                        | requests                                                        | ✅                          |
 | rocketlane                       | HTTP                        | requests                                                        | ✅                          |
+| rokt_ads                         | HTTP                        | requests                                                        | ✅                          |
 | rollbar                          | HTTP                        | requests                                                        | ✅                          |
 | rootly                           | HTTP                        | requests                                                        | ✅                          |
 | rss                              | HTTP                        | requests                                                        | ✅                          |
@@ -619,6 +622,7 @@ the row lists both.
 | servicem8                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
 | sftp                             | SSH (SFTP)                  | paramiko                                                        | ➖                          |
+| shipmail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | shippo                           | HTTP                        | requests                                                        | ✅                          |
 | shipstation                      | HTTP                        | requests                                                        | ✅                          |
 | shopify                          | HTTP                        | requests                                                        | ✅                          |
@@ -704,6 +708,7 @@ the row lists both.
 | tremendous                       | HTTP                        | requests                                                        | ✅                          |
 | trigger_dev                      | HTTP                        | requests                                                        | ✅                          |
 | trunk_io                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| trino                            | HTTP (vendor SDK)           | trino                                                           | ✅                          |
 | tvmaze                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twelve_data                      | HTTP                        | requests                                                        | ✅                          |
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
@@ -745,7 +750,7 @@ the row lists both.
 | workable                         | HTTP                        | requests                                                        | ✅                          |
 | workday                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | workiz                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| workos                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| workos                           | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | world_bank                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wrike                            | HTTP                        | requests                                                        | ✅                          |
 | writesonic                       | HTTP                        | requests                                                        | ✅                          |
@@ -843,6 +848,7 @@ doesn't conflict with concurrent PRs.
 - amazon_sqs
 - anodot_cost
 - anomalo
+- anvil
 - apaleo
 - appcues
 - appdirect
@@ -952,10 +958,12 @@ doesn't conflict with concurrent PRs.
 - codacy
 - codecov
 - collibra
+- commission_junction
 - constant_contact
 - conta_azul
 - contentsquare
 - convonite
+- coolify
 - copper
 - cosmosdb
 - couchbase
@@ -964,12 +972,14 @@ doesn't conflict with concurrent PRs.
 - crowdstrike_falcon
 - cube_cloud
 - curve
+- cybersource
 - d2l_brightspace
 - datascope
 - datorama
 - dayforce
 - db2
 - deelflows
+- demodesk
 - deno_deploy
 - depot
 - deputy
@@ -1018,6 +1028,7 @@ doesn't conflict with concurrent PRs.
 - flexport
 - flowlu
 - fly_io
+- folk
 - formbricks
 - fortnox
 - fourthwall
@@ -1149,6 +1160,7 @@ doesn't conflict with concurrent PRs.
 - lingo_dev
 - linkedin_pages
 - linnworks
+- liveblocks
 - llama_cloud
 - lodgify
 - logicmonitor
@@ -1160,15 +1172,16 @@ doesn't conflict with concurrent PRs.
 - mantle
 - manychat
 - mastodon
+- medusa
 - meetup
 - memberful
+- membrain
 - mendeley
 - mercado_ads
 - mercado_pago
 - merge
 - metricool
 - metriport
-- metronome
 - mews
 - mezmo
 - microsoft_365_usage_reports
@@ -1201,6 +1214,7 @@ doesn't conflict with concurrent PRs.
 - msg91
 - mycase
 - nasa
+- nationbuilder
 - navan
 - neon_crm
 - netsuite
@@ -1288,6 +1302,7 @@ doesn't conflict with concurrent PRs.
 - raygun
 - rb2b
 - rd_station_marketing
+- recall_ai
 - reddit
 - redis
 - redpanda_cloud
@@ -1345,6 +1360,7 @@ doesn't conflict with concurrent PRs.
 - sideshift
 - signnow
 - sim
+- simon_data
 - simplecast
 - simplesat
 - simpro
@@ -1360,6 +1376,7 @@ doesn't conflict with concurrent PRs.
 - smartwaiver
 - smokeball
 - snovio
+- socialpilot
 - soda_cloud
 - solarwinds_service_desk
 - sonar_cloud
@@ -1372,6 +1389,7 @@ doesn't conflict with concurrent PRs.
 - starburst
 - statsig
 - stockx
+- strato
 - strava
 - streamlabs
 - sumsub
@@ -1385,10 +1403,13 @@ doesn't conflict with concurrent PRs.
 - systeme
 - tackle_io
 - talkdesk
+- tana
 - teamup_fitness
 - tebra
 - telli
 - tempo
+- tenjin
+- terabox
 - ternary
 - terra_api
 - thinkific_courses
@@ -1452,6 +1473,7 @@ doesn't conflict with concurrent PRs.
 - workato
 - workflowmax
 - workramp
+- wps_office
 - wufoo
 - xero
 - xsolla
@@ -1464,6 +1486,7 @@ doesn't conflict with concurrent PRs.
 - zalando_zdirect
 - zapsign
 - zellify
+- zenchef
 - zenefits
 - zenloop
 - zitadel

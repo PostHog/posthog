@@ -1,9 +1,9 @@
 import {
   ArrowRightIcon,
   CaretDownIcon,
-  CopyIcon,
   FileTextIcon,
   GitPullRequestIcon,
+  LinkIcon,
   MagnifyingGlassIcon,
   TerminalIcon,
   WarningIcon,
@@ -53,12 +53,16 @@ import {
 import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
 import { TaskLogsPanel } from "@posthog/ui/features/task-detail/components/TaskLogsPanel";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
+import {
+  navigationSourceHref,
+  reportNavigationState,
+} from "@posthog/ui/router/reportNavigation";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { DropdownMenu, Flex, Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-export function TaskRunStatusDot({ status }: { status: TaskRunStatus }) {
+function TaskRunStatusDot({ status }: { status: TaskRunStatus }) {
   const terminal = isTerminalStatus(status);
   const color = terminal
     ? status === "failed" || status === "cancelled"
@@ -139,40 +143,40 @@ function RunOutputReadyCard({ report }: { report: SignalReport }) {
   const prRef = prUrl ? parsePrUrl(prUrl) : null;
   const sourceMeta = getSourceProductMeta(report.source_products?.[0]);
   const headline = deriveHeadline(report.summary);
+  // This card renders only on /inbox/runs/$reportId, which a source href must
+  // not be (it would make the report's breadcrumb point at another report).
+  // The run's own tab is the list the reader came from.
+  const source = navigationSourceHref() ?? "/inbox/runs";
 
   return (
     <Link
-      to={
-        isPr ? "/code/inbox/pulls/$reportId" : "/code/inbox/reports/$reportId"
-      }
+      to="/reports/$reportId"
+      state={reportNavigationState}
+      search={{ from: source }}
       params={{ reportId: report.id }}
       className="group block rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 no-underline transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm focus-visible:outline-none"
     >
-      <Flex direction="column" gap="2">
-        <Flex align="center" gap="2" wrap="wrap">
-          <Flex
-            align="center"
-            justify="center"
-            className="h-5 w-5 shrink-0 rounded-full bg-(--green-2) ring-(--green-5) ring-1 ring-inset"
-          >
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-(--green-2) ring-(--green-5) ring-1 ring-inset">
             {isPr ? (
               <GitPullRequestIcon size={11} className="text-(--green-11)" />
             ) : (
               <FileTextIcon size={11} className="text-(--green-11)" />
             )}
-          </Flex>
+          </div>
           {prRef ? (
-            <Text className="font-mono text-[12.5px] text-gray-12">
+            <span className="font-mono text-[12.5px] text-gray-12">
               {prRef.repoSlug}#{prRef.number}
-            </Text>
+            </span>
           ) : (
-            <Text className="font-medium text-[13px] text-gray-12">Report</Text>
+            <span className="font-medium text-[13px] text-gray-12">Report</span>
           )}
           <span className="flex-1" />
           {prUrl ? (
             <PrDiffStats prUrl={prUrl} hideWhileLoading />
           ) : sourceMeta ? (
-            <Flex align="center" gap="1.5" className="text-[12px] text-gray-11">
+            <div className="flex items-center gap-1.5 text-[12px] text-gray-11">
               <span
                 className="inline-flex shrink-0 items-center"
                 style={{ color: sourceMeta.color }}
@@ -181,22 +185,22 @@ function RunOutputReadyCard({ report }: { report: SignalReport }) {
                 <sourceMeta.Icon size={12} />
               </span>
               <span>{sourceMeta.label}</span>
-            </Flex>
+            </div>
           ) : null}
-        </Flex>
+        </div>
         {(report.title || headline) && (
-          <Text className="line-clamp-2 text-[12.5px] text-gray-11 leading-snug">
+          <span className="line-clamp-2 text-[12.5px] text-gray-11 leading-snug">
             {report.title || headline}
-          </Text>
+          </span>
         )}
-        <Flex align="center" gap="1" className="text-[12px] text-gray-10">
+        <div className="flex items-center gap-1 text-[12px] text-gray-10">
           <span>{isPr ? "Open the pull request" : "Open the report"}</span>
           <ArrowRightIcon
             size={12}
             className="transition-transform group-hover:translate-x-0.5"
           />
-        </Flex>
-      </Flex>
+        </div>
+      </div>
     </Link>
   );
 }
@@ -209,7 +213,7 @@ export function AgentRunDetail({ reportId }: AgentRunDetailProps) {
   return (
     <InboxReportDetailGate
       reportId={reportId}
-      backTo="/code/inbox/runs"
+      backTo="/inbox/runs"
       backLabel="Back to runs"
       missingCopy="This run couldn't be found. It may have completed or been removed."
     >
@@ -266,7 +270,7 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
   return (
     <Flex direction="column" className="min-h-full">
       <InboxDetailPageHeader
-        backTo="/code/inbox/runs"
+        backTo="/inbox/runs"
         backLabel="Back to runs"
         breadcrumb={
           <>
@@ -350,7 +354,7 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
               onClick={() => copyInboxReportLink(report)}
               title="Copy a deep link to this run"
             >
-              <CopyIcon size={12} />
+              <LinkIcon size={12} />
               Copy link
             </Button>
           </>

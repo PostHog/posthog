@@ -15,12 +15,9 @@ import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
-import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
-import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     BREAKPOINTS,
     BREAKPOINT_COLUMN_COUNTS,
@@ -28,21 +25,20 @@ import {
     isWidgetTileVisibleOnPlacement,
 } from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
-import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
 import { useDashboardLayoutInteraction } from 'scenes/dashboard/useDashboardLayoutInteraction'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
-import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
 
+import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
-import { DashboardTextItem } from './items/DashboardTextItem'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 50
@@ -84,7 +80,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dashboard,
         tiles,
         layouts,
-        dashboardMode,
         layoutEditMode,
         placement,
         isRefreshingQueued,
@@ -92,13 +87,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         highlightedInsightId,
         refreshStatus,
         dashboardStreaming,
+        dashboardLoading,
         effectiveEditBarFilters,
-        effectiveDashboardVariableOverrides,
+        currentDashboardVariables,
         effectiveBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
-        inlineTileInsertionEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
@@ -112,26 +107,28 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         removeTile,
         duplicateTile,
         refreshDashboardItem,
+        loadDashboard,
         refreshDashboardWidgets,
         scheduleRefreshDashboardWidgets,
         applyWidgetIssueMetadataChange,
         moveToDashboard,
         copyToDashboard,
         setTileOverride,
-        setDashboardMode,
-        setAddWidgetModalOpen,
-        setPendingInsertion,
+        setDashboardEditing,
     } = useActions(dashboardLogic)
-    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
-    const { reportDashboardAddMenuOpened, reportDashboardTileRepositioned } = useActions(eventUsageLogic)
+    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
         ? null
         : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
+    const retryFailedDashboardTile = isSharedView()
+        ? undefined
+        : () => loadDashboard({ action: DashboardLoadAction.Update })
+    const refreshDashboardTile = isSharedView() ? undefined : refreshDashboardItem
 
     // Tile currently being resized. Its viz is unmounted for the duration of the gesture so the chart doesn't
     // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
@@ -194,7 +191,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const { width, containerRef, mounted } = useContainerWidth()
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
-        useDashboardLayoutInteraction({ layoutEditMode, updateLayouts })
+        useDashboardLayoutInteraction({
+            layoutEditMode,
+            layoutCompaction: dashboard?.customization?.layout_compaction,
+            updateLayouts,
+        })
 
     // Debounce width changes to the grid. Rapidly crossing the width causes tiles to stay squashed at 1-column
     // width. Debouncing avoids this and reduces unnecessary re-layouts during resize.
@@ -252,28 +253,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         [gridGap, spacingFactor]
     )
 
-    const getInsertMenuItems = useCallback(
-        (targetX: number, targetY: number, targetW?: number): LemonMenuItems =>
-            dashboard
-                ? getAddTileMenuItems({
-                      dashboardId: dashboard.id,
-                      dashboardWidgetsEnabled,
-                      onAddInsight: showAddInsightToDashboardModal,
-                      push,
-                      setAddWidgetModalOpen,
-                      onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),
-                  })
-                : [],
-        [
-            dashboard,
-            dashboardWidgetsEnabled,
-            showAddInsightToDashboardModal,
-            push,
-            setAddWidgetModalOpen,
-            setPendingInsertion,
-        ]
-    )
-
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
     const showEditingControls = isEditablePlacement || layoutEditMode
     const showDetailsControls =
@@ -283,20 +262,20 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const dragConfig = useMemo(
         () => ({
-            enabled: layoutEditMode && !isMobileView,
-            handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body,.WidgetCard__header,.drag-handle',
+            enabled: canEditDashboard && layoutEditMode && !isMobileView,
+            handle: '.CardMeta,.DashboardTileCard__body,.WidgetCard__header,.drag-handle',
             cancel: 'a,table,button,input,.Popover',
             bounded: true,
         }),
-        [layoutEditMode, isMobileView]
+        [canEditDashboard, layoutEditMode, isMobileView]
     )
 
     const resizeConfig = useMemo(
         () => ({
-            enabled: layoutEditMode && !isMobileView && !isLayoutZoomToggled,
+            enabled: canEditDashboard && layoutEditMode && !isMobileView && !isLayoutZoomToggled,
             handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'] as const,
         }),
-        [layoutEditMode, isMobileView, isLayoutZoomToggled]
+        [canEditDashboard, layoutEditMode, isMobileView, isLayoutZoomToggled]
     )
 
     useResizeHandleScrollbarPassThrough(layoutEditMode && !isMobileView)
@@ -305,12 +284,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         () =>
             canEnterEditModeFromEdge
                 ? (e: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => {
-                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
+                      setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardEdgeHover)
                       // continue the press into a live resize so the user doesn't have to release and grab again
                       continueResizeGestureInEditMode(e, edge)
                   }
                 : undefined,
-        [canEnterEditModeFromEdge, setDashboardMode]
+        [canEnterEditModeFromEdge, setDashboardEditing]
     )
 
     const onDragHandleMouseDown = useMemo(
@@ -337,12 +316,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                       }
                       e.preventDefault()
                       e.stopPropagation()
-                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
+                      setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardDragHandle)
                       // continue the press into a live drag so the user doesn't have to release and grab again
                       continueDragGestureInEditMode(e)
                   }
                 : undefined,
-        [canEnterEditModeFromEdge, setDashboardMode]
+        [canEnterEditModeFromEdge, setDashboardEditing]
     )
 
     const requireDashboardId = useCallback(
@@ -542,6 +521,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                     <MemoizedDashboardErrorTileItem
                                         key={tile.id}
                                         tile={tile}
+                                        onRetry={retryFailedDashboardTile}
+                                        retryLoading={dashboardLoading}
+                                        placement={placement}
                                         onRemove={commonTileProps.removeFromDashboard}
                                         showResizeHandles={showResizeHandles}
                                         canEnterEditModeFromEdge={canEnterEditModeFromEdge}
@@ -577,11 +559,22 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         loading={loading}
                                         apiErrored={apiErrored}
                                         apiError={apiError}
+                                        queryId={insight.query_status?.id}
                                         highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                         updateColor={(color) => updateTileColor(tile.id, color)}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         ribbonColor={tile.color}
-                                        refresh={() => refreshDashboardItem({ tile })}
+                                        refresh={
+                                            refreshDashboardTile ? () => refreshDashboardTile({ tile }) : undefined
+                                        }
+                                        refreshAfterDisplayOptionsChange={
+                                            refreshDashboardTile
+                                                ? (updatedInsight) =>
+                                                      refreshDashboardTile({
+                                                          tile: { ...tile, insight: updatedInsight },
+                                                      })
+                                                : undefined
+                                        }
                                         rename={() => renameInsight(insight)}
                                         duplicate={() => duplicateTile(tile)}
                                         setOverride={() => setTileOverride(tile)}
@@ -590,7 +583,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                         isResizing={resizingTileId === tile.id.toString()}
                                         filtersOverride={effectiveEditBarFilters}
-                                        variablesOverride={effectiveDashboardVariableOverrides}
+                                        variablesOverride={currentDashboardVariables}
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                         breakdownColorOverride={effectiveBreakdownColors}
                                         dataColorThemeId={dataColorThemeId}
@@ -610,7 +603,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         dashboardId={dashboard?.id}
                                         onEdit={() => {
                                             if (dashboard?.id) {
-                                                push(urls.dashboardTextTile(dashboard.id, tile.id))
+                                                push(urls.dashboardTile(dashboard.id, tile.id))
                                             }
                                         }}
                                         onMoveToDashboard={commonTileProps.moveToDashboard}
@@ -636,7 +629,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         isDraggingRef={isDragging}
                                         onEdit={() => {
                                             if (dashboard?.id) {
-                                                push(urls.dashboardButtonTile(dashboard.id, tile.id))
+                                                push(urls.dashboardTile(dashboard.id, tile.id))
                                             }
                                         }}
                                         onMoveToDashboard={commonTileProps.moveToDashboard}
@@ -662,7 +655,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         placement={placement}
                                         dashboardId={dashboard?.id}
                                         canEditDashboard={canEditDashboard}
-                                        isDashboardEditMode={dashboardMode === DashboardMode.Edit}
+                                        isDashboardEditMode={layoutEditMode}
                                         result={runResult?.result}
                                         error={getDashboardWidgetFetchDisplayError(
                                             runResult?.error ?? refreshState?.error
@@ -699,25 +692,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             }
                         })}
                     </ReactGridLayout>
-                    {isEditablePlacement && inlineTileInsertionEnabled && (
-                        <InsertTileOverlay
-                            layout={layouts['sm']}
-                            gridWidth={gridWidth}
-                            cols={BREAKPOINT_COLUMN_COUNTS.sm}
-                            rowHeight={rowHeight}
-                            marginX={margin[0]}
-                            marginY={margin[1]}
-                            canEditDashboard={canEditDashboard}
-                            isMobileView={isMobileView}
-                            disabled={resizingTileId !== null}
-                            getMenuItems={getInsertMenuItems}
-                            onMenuOpen={() => {
-                                if (dashboard?.id) {
-                                    reportDashboardAddMenuOpened('inline', dashboard.id)
-                                }
-                            }}
-                        />
-                    )}
                 </div>
             )}
             {dashboardStreaming && (

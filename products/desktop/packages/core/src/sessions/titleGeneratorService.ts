@@ -1,3 +1,12 @@
+import { hasProseBeyondAttachments } from "@posthog/core/editor/cloud-prompt";
+import {
+  formatAttachmentSnippet,
+  readAttachmentSnippets,
+} from "@posthog/core/files/attachmentText";
+import {
+  FILE_READ_CLIENT,
+  type FileReadClient,
+} from "@posthog/core/files/identifiers";
 import { LLM_GATEWAY_SERVICE } from "@posthog/core/llm-gateway/identifiers";
 import {
   HELPER_GATEWAY_MODEL,
@@ -7,27 +16,14 @@ import { xmlToContent } from "@posthog/core/message-editor/content";
 import { isLoadingGithubRefTitle } from "@posthog/core/message-editor/githubIssueChip";
 import { parseGithubIssueUrl } from "@posthog/core/message-editor/githubIssueUrl";
 import { parseXmlAttrs } from "@posthog/core/message-editor/skillTags";
-import { escapeXmlAttr, getFileName, isBinaryFile } from "@posthog/shared";
+import { escapeXmlAttr } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import {
-  type FileReadClient,
   type GithubPrTitleClient,
-  TITLE_GENERATOR_FILE_READ_CLIENT,
   TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT,
   TITLE_GENERATOR_LOGGER,
   type TitleGeneratorLogger,
 } from "./titleGeneratorIdentifiers";
-
-// Matches the attachment-summary sentinel we synthesize for prompts that carry
-// no typed text. Three forms need stripping:
-//   "Attached files: a.txt"          — bare description (cloud task.description)
-//   "[Attached files: a.txt]"        — bracketed session-event sentinel
-//   "1. [Attached files: a.txt]"     — numbered form from formatPromptsForTitleInput
-// The bracketed forms require a literal `[` so that user text like
-// "1. Attached files: my notes" (no brackets) is never stripped.
-const ATTACHED_FILES_REGEX =
-  /^(?:(?:\d+\.\s*)?\[Attached files:[^\]]*\]|Attached files:.*)$/gm;
-const PASTED_TEXT_SNIPPET_LIMIT = 500;
 
 interface GithubPrGenerationContext {
   content: string;
@@ -213,7 +209,7 @@ export class TitleGeneratorService {
   constructor(
     @inject(LLM_GATEWAY_SERVICE)
     private readonly llmGateway: LlmGatewayService,
-    @inject(TITLE_GENERATOR_FILE_READ_CLIENT)
+    @inject(FILE_READ_CLIENT)
     private readonly fileReadClient: FileReadClient,
     @inject(TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT)
     private readonly githubPrTitleClient: GithubPrTitleClient,
@@ -226,14 +222,7 @@ export class TitleGeneratorService {
     filePaths: string[] = [],
   ): Promise<string> {
     const parsed = xmlToContent(description);
-    const stripped = parsed.segments
-      .flatMap((seg) => (seg.type === "text" ? [seg.text] : []))
-      .join("")
-      .replace(ATTACHED_FILES_REGEX, "")
-      .replace(/^\d+\.\s*$/gm, "")
-      .trim();
-
-    if (stripped.length > 0) return description;
+    if (hasProseBeyondAttachments(parsed)) return description;
 
     const chipFilePaths = parsed.segments.flatMap((seg) =>
       seg.type === "chip" && seg.chip.type === "file" ? [seg.chip.id] : [],
@@ -242,25 +231,8 @@ export class TitleGeneratorService {
 
     if (paths.length === 0) return description;
 
-    const parts = await Promise.all(
-      paths.map(async (filePath) => {
-        if (isBinaryFile(filePath)) {
-          return `[Attached: ${getFileName(filePath)}]`;
-        }
-        try {
-          const fileContent =
-            await this.fileReadClient.readAbsoluteFile(filePath);
-          if (fileContent) {
-            return fileContent.length > PASTED_TEXT_SNIPPET_LIMIT
-              ? fileContent.slice(0, PASTED_TEXT_SNIPPET_LIMIT)
-              : fileContent;
-          }
-          return `[Attached: ${getFileName(filePath)}]`;
-        } catch {
-          return `[Attached: ${getFileName(filePath)}]`;
-        }
-      }),
-    );
+    const snippets = await readAttachmentSnippets(paths, this.fileReadClient);
+    const parts = snippets.map(formatAttachmentSnippet);
 
     return parts.length > 0 ? parts.join("\n\n") : description;
   }

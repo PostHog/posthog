@@ -5,11 +5,11 @@ import { CyclotronPerson } from '~/cdp/types'
 
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
+import { resolveTimezone } from './timezone'
 
 type Action = Extract<HogFlowAction, { type: 'wait_until_time_window' }>
 
 const DAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
-const GEOIP_TIMEZONE_PROPERTY = '$geoip_time_zone'
 
 export class WaitUntilTimeWindowHandler implements ActionHandler {
     execute({
@@ -57,28 +57,6 @@ function getNextValidDay(now: DateTime, dateConfig: Action['config']['day']): Da
     }
 
     return nextDay
-}
-
-function isValidTimezone(timezone: string): boolean {
-    // Luxon returns an invalid DateTime if the timezone is not recognized
-    return DateTime.utc().setZone(timezone).isValid
-}
-
-export function resolveTimezone(config: Action['config'], person?: CyclotronPerson): string {
-    const fallback = config.fallback_timezone || config.timezone || 'UTC'
-
-    if (config.use_person_timezone) {
-        if (person?.properties) {
-            const personTimezone = person.properties[GEOIP_TIMEZONE_PROPERTY]
-            if (personTimezone && typeof personTimezone === 'string' && isValidTimezone(personTimezone)) {
-                return personTimezone
-            }
-        }
-        // Fall back if person doesn't exist, doesn't have a timezone, or timezone is invalid
-        return fallback
-    }
-    // Use the configured timezone or default to UTC
-    return config.timezone || 'UTC'
 }
 
 export const getWaitUntilTime = (

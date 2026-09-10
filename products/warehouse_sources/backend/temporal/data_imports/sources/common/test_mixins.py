@@ -12,6 +12,8 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     OAuthMixin,
     SSHTunnelMixin,
@@ -19,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     _is_host_safe,
     make_ssh_tunnel_factory,
     open_ssh_tunnel,
+    resolve_safe_host,
 )
 
 _MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
@@ -35,9 +38,15 @@ class TestIsHostSafe(SimpleTestCase):
             ("localhost", "localhost"),
             ("link_local_imds", "169.254.169.254"),
             ("link_local", "169.254.1.1"),
+            ("cgnat_shared_address_space", "100.64.1.1"),
+            ("cgnat_upper", "100.127.255.254"),
+            ("ipv6_mapped_cgnat", "::ffff:100.64.1.1"),
             ("ipv6_mapped_loopback", "::ffff:127.0.0.1"),
             ("ipv6_mapped_imds", "::ffff:169.254.169.254"),
             ("ipv6_mapped_private", "::ffff:10.0.0.1"),
+            ("nat64_imds", "64:ff9b::169.254.169.254"),
+            ("ipv4_compatible_imds", "::169.254.169.254"),
+            ("ipv6_reserved", "4000::1"),
             ("ipv6_loopback", "::1"),
             ("multicast", "224.0.0.1"),
             ("reserved", "0.0.0.0"),
@@ -126,6 +135,24 @@ class TestIsHostSafe(SimpleTestCase):
         ):
             valid, _ = _is_host_safe("good.example.com", team_id=999)
             assert valid
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_dual_stack_host_pins_an_address_the_worker_can_route_to(self):
+        # A dual-stack name resolves IPv6-first, and the pinned address is the only one anything
+        # connects to — so on an IPv4-only worker, pinning the resolver's choice can never connect.
+        with (
+            patch(
+                f"{_MIXINS_MODULE}.socket.getaddrinfo",
+                return_value=[
+                    (None, None, None, None, ("2600:1f16:1c4:661c:d148:b481:5246:e29d", 0)),
+                    (None, None, None, None, ("52.1.2.3", 0)),
+                ],
+            ),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=False),
+        ):
+            resolution = resolve_safe_host("dual-stack.example.com", team_id=999)
+
+        assert resolution.connect_host == "52.1.2.3"
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_unresolvable_host_blocked(self):
@@ -466,3 +493,60 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
                 OAuthMixin().get_oauth_integration(integration_id=1, team_id=2)
 
         assert get.call_count == 2
+
+
+class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
+    # A direct database connection is a raw socket that the HTTP egress proxy never sees, and the
+    # sync path reaches these entry points from stored config without re-running
+    # `is_database_host_valid`, so what they do here is the only control on where it connects.
+    @staticmethod
+    def _resolves_to(ip: str) -> list:
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, 0))]
+
+    @staticmethod
+    def _connection_cm(entrypoint: str, config, team_id: int):
+        if entrypoint == "open_ssh_tunnel":
+            return open_ssh_tunnel(config, team_id)
+        return make_ssh_tunnel_factory(config, team_id)()
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_yields_the_hostname_so_sni_and_multi_address_failover_survive(self, entrypoint: str):
+        config = FakeConfig(host="db.example.com", ssh_tunnel=None)
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=self._resolves_to("93.184.216.34")),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with self._connection_cm(entrypoint, config, 999) as (host, port):
+                assert (host, port) == ("db.example.com", 5432)
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_host_resolving_to_an_internal_ip_is_refused(self, entrypoint: str):
+        config = FakeConfig(host="db.example.com", ssh_tunnel=None)
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=self._resolves_to("169.254.169.254")),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with pytest.raises(Exception, match="Database host not allowed"):
+                with self._connection_cm(entrypoint, config, 999):
+                    pass
+
+
+class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
+    # The rejection is a config problem only the customer can fix, so it has to stop the schedule
+    # the way its SSH counterpart does. Raising it through the real path couples the wording to the
+    # registered pattern: reword one without the other and this fails.
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_rejection_message_matches_a_registered_non_retryable_error(self):
+        config = FakeConfig(host="db.example.com", ssh_tunnel=None)
+        addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("169.254.169.254", 0))]
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=addrinfo),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with pytest.raises(Exception) as exc:
+                with open_ssh_tunnel(config, 999):
+                    pass
+
+        assert error_message_matches(str(exc.value), Any_Source_Errors.keys())

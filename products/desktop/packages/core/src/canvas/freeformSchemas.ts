@@ -96,13 +96,28 @@ export type CanvasCaptureInput = z.infer<typeof canvasCaptureInput>;
 export const canvasCaptureResultSchema = z.object({ ok: z.boolean() });
 export type CanvasCaptureResult = z.infer<typeof canvasCaptureResultSchema>;
 
+// Connector-call avenue behind the `ph.connectors.call` shim. The host resolves
+// the viewer's own connection server-side; the iframe names only the provider,
+// the tool, and its arguments.
+export const canvasConnectorProviderSchema = z.union([
+  z.literal("github"),
+  z
+    .string()
+    .max(300)
+    .regex(/^mcp:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i),
+]);
+
+export const canvasConnectorCallInput = z.object({
+  provider: canvasConnectorProviderSchema,
+  tool: z.string().min(1).max(200),
+  arguments: z.record(z.string().max(128), z.unknown()).default({}),
+  refresh: z.number().int().min(30).max(86_400).optional(),
+});
+export type CanvasConnectorCallInput = z.infer<typeof canvasConnectorCallInput>;
+
 export const canvasAgentRequestInputSchema = z.object({
   prompt: z.string().min(1).max(10_000),
 });
-export type CanvasAgentRequestInput = z.infer<
-  typeof canvasAgentRequestInputSchema
->;
-
 export const canvasAgentRequestResultSchema = z.object({
   requestOutcome: z.enum(["signaled", "new_run", "already_queued", "reported"]),
   taskId: z.string().min(1),
@@ -132,8 +147,6 @@ export type CanvasCaptureConfig = z.infer<typeof canvasCaptureConfigSchema>;
 // Stamped on every frame so a page hosting multiple canvas iframes (or other
 // postMessage traffic) can route unambiguously.
 const CANVAS_CHANNEL = "posthog-canvas" as const;
-export const CANVAS_MESSAGE_CHANNEL = CANVAS_CHANNEL;
-
 // Analytics bootstrap config handed to the iframe so posthog-js can run INSIDE
 // it (the only way session replay records the app's DOM). Only the PUBLIC
 // capture key crosses — never the private read token. `distinctId` seeds
@@ -177,8 +190,8 @@ export type CanvasCommentHighlight = z.infer<
   typeof canvasCommentHighlightSchema
 >;
 
-export const MAX_CANVAS_COMMENT_HIGHLIGHTS = 500;
-export const MAX_CANVAS_COMMENT_HIGHLIGHT_TEXT_LENGTH = 100_000;
+const MAX_CANVAS_COMMENT_HIGHLIGHTS = 500;
+const MAX_CANVAS_COMMENT_HIGHLIGHT_TEXT_LENGTH = 100_000;
 
 export function limitCanvasCommentHighlights(
   highlights: CanvasCommentHighlight[],
@@ -265,6 +278,12 @@ export const canvasNavIntentSchema = z.discriminatedUnion("target", [
   z.object({ target: z.literal("new-task") }),
   z.object({ target: z.literal("canvas"), dashboardId: z.string().min(1) }),
   z.object({ target: z.literal("new-canvas") }),
+  // ph.connectors.connect(provider): the host maps the provider to its own
+  // settings page, so the iframe never names a route.
+  z.object({
+    target: z.literal("connect"),
+    provider: canvasConnectorProviderSchema,
+  }),
 ]);
 export type CanvasNavIntent = z.infer<typeof canvasNavIntentSchema>;
 
@@ -292,6 +311,7 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
       "stateList",
       "actionInvoke",
       "agentRequest",
+      "connectorCall",
     ]),
     payload: z.unknown(),
   }),

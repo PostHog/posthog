@@ -17,6 +17,7 @@ export interface AnonymizeEventMeta {
     flags: number
     /** Post-scrub `hrefFrom(event)` (`data.href` / `data.payload.href`, trimmed), when present. */
     href?: string
+    jsonLd?: { rootTypes: string[]; fullSnapshotTimestamp?: number }
 }
 
 /** One collected original image: `offset..offset+len` in {@link AnonymizeKafkaPayloadResult.images}. */
@@ -42,6 +43,13 @@ export interface AnonymizeUrlEntry {
     domain: string
 }
 
+export interface AnonymizeImageSourceCount {
+    source: 'css' | 'html'
+    property: string
+    kind: 'inline' | 'url'
+    count: number
+}
+
 /** Envelope + per-event metadata parsed from {@link AnonymizeKafkaPayloadResult.meta}. */
 export interface AnonymizeMeta {
     distinctId: string
@@ -58,11 +66,14 @@ export interface AnonymizeMeta {
     consoleLogCount: number
     consoleWarnCount: number
     consoleErrorCount: number
+    jsonLdEventCount: number
     events: AnonymizeEventMeta[]
     /** Collected original images (hash-sorted); present only when the collection lane was enabled and images were collected. */
     images?: AnonymizeImageEntry[]
     /** Collected remote image URLs (hash-sorted); present only when the URL lane was enabled and URLs were collected. */
     urls?: AnonymizeUrlEntry[]
+    /** Collected ref occurrences by bounded replay location, property, and inline or URL lane. */
+    imageSources?: AnonymizeImageSourceCount[]
     /** Counts by reason for the URLs the collector refused. Absent when it refused none. */
     urlDeclines?: { reason: string; count: number }[]
 }
@@ -137,12 +148,11 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * blur, and the original bytes come back in `images`/`meta.images` for the caller to produce to
  * the scrub topic.
  *
- * `urlKey` enables the URL-collection lane alongside it: a remote image's `src` keeps the media
- * placeholder, a namespaced sibling attribute carries its ref, and its original URL comes back in
- * `meta.urls` for the caller to hand to the fetch lane.
+ * `urlKey` enables the URL-collection lane independently. It is the global URL HMAC key. A remote
+ * image's `src` keeps the media placeholder, a namespaced sibling attribute carries its ref, and
+ * its original URL comes back in `meta.urls` for the caller to hand to the fetch lane.
  *
- * The two lanes are independent: either, both, or neither. Both need `pseudoTeam`, because the ref
- * embeds it, so a `contentKey` or a `urlKey` without one throws.
+ * The two lanes are independent: either, both, or neither. Only `contentKey` needs `pseudoTeam`.
  */
 export async function anonymizeKafkaPayload(
     payload: Buffer,
@@ -196,4 +206,45 @@ export function politenessKey(host: string): string {
  */
 export function isPublicHost(host: string): boolean {
     return native.isPublicHost(host)
+}
+
+export interface CanonicalUrl {
+    fetch: string
+    dedup: string
+    host: string
+    domain: string
+}
+
+/** The labels of the Rust `Decline` enum. The fetch lane reports them as metric reasons. */
+export type UrlPolicyDecline =
+    | 'too_long'
+    | 'not_absolute'
+    | 'bad_scheme'
+    | 'bad_port'
+    | 'no_host'
+    | 'non_public_host'
+    | 'credential'
+    | 'invalid_query'
+    | 'tracking_beacon'
+
+/**
+ * The canonical forms of a URL the policy accepts, or the rule that refused it. `unwanted` is true
+ * when the URL is well formed and safe but nobody wants it fetched, so a queue consumer drops only
+ * that job instead of rejecting the record that carries it.
+ */
+export type UrlPolicyVerdict =
+    | { ok: true; url: CanonicalUrl }
+    | { ok: false; decline: UrlPolicyDecline; unwanted: boolean }
+
+export function tryCanonicalizeUrl(url: string): UrlPolicyVerdict {
+    const result = native.tryCanonicalizeUrl(url)
+    if (typeof result.decline === 'string') {
+        return { ok: false, decline: result.decline, unwanted: result.unwanted === true }
+    }
+    return { ok: true, url: result }
+}
+
+export function canonicalizeUrl(url: string): CanonicalUrl | null {
+    const verdict = tryCanonicalizeUrl(url)
+    return verdict.ok ? verdict.url : null
 }

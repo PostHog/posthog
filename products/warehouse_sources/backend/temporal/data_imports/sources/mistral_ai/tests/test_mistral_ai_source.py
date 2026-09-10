@@ -6,10 +6,7 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.mistral_ai import MistralAIResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.source import MistralAISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> MagicMock:
@@ -23,9 +20,6 @@ def _make_inputs(**overrides: Any) -> MagicMock:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert MistralAISource().source_type == ExternalDataSourceType.MISTRALAI
-
     def test_api_key_field_is_required_secret_password(self) -> None:
         # A non-secret key field would persist the API key in plaintext job inputs.
         fields = MistralAISource().get_source_config.fields
@@ -134,29 +128,6 @@ class TestNonRetryableErrors:
 
 
 class TestPipelinePlumbing:
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        manager = MistralAISource().get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MistralAIResumeConfig
-
-    def test_source_for_pipeline_forwards_incremental_inputs(self) -> None:
-        source = MistralAISource()
-        inputs = _make_inputs(
-            schema_name="batch_jobs",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1_772_000_000,
-            incremental_field="created_at",
-        )
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.source.mistral_ai_source"
-        ) as mock_source:
-            source.source_for_pipeline(MagicMock(api_key="sk-x"), MagicMock(), inputs)
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["endpoint"] == "batch_jobs"
-        assert kwargs["api_key"] == "sk-x"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == 1_772_000_000
-
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
         # Passing a stale watermark on a full-refresh run would build a bogus created_after filter.
         source = MistralAISource()

@@ -15,10 +15,15 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     IncrementalFieldMissingFromDataError,
     get_incremental_field_value,
+    notify_revenue_analytics_that_sync_has_completed,
     run_post_load_operations,
     update_job_row_count,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load"
 _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
@@ -335,6 +340,40 @@ class TestCdcCompanionSeeding:
         assert seed.await_count == (1 if expect_seed else 0)
 
 
+class TestZeroRowRunFinalizesBookkeeping:
+    @pytest.mark.asyncio
+    async def test_no_delta_table_still_sets_initial_sync_complete(self) -> None:
+        # A clean run that wrote zero rows creates no delta table. Post-load used to bail before the
+        # bookkeeping, so initial_sync_complete never advanced and the schema stayed "completed but
+        # not initial-synced" forever. It must be finalized even with no table to register.
+        schema = _make_schema(is_cdc=False, initial_sync_complete=False)
+        job = MagicMock()
+        job.id = uuid.uuid4()
+        job.team_id = schema.team_id
+        logger = MagicMock(debug=MagicMock(), adebug=AsyncMock())
+        helper = MagicMock(get_delta_table=AsyncMock(return_value=None))
+
+        set_complete = AsyncMock()
+        with (
+            patch(f"{_LOAD_MODULE}.set_initial_sync_complete", set_complete),
+            patch(f"{_PIPELINE_SYNC_MODULE}.update_last_synced_at", AsyncMock()) as synced,
+        ):
+            result = await run_post_load_operations(
+                job=job,
+                schema=schema,
+                source=MagicMock(),
+                delta_table_ref=helper,
+                row_count=0,
+                table_schema_dict={},
+                resource_name="subscription_reports",
+                logger=logger,
+            )
+
+        assert result is None
+        set_complete.assert_awaited_once()
+        synced.assert_awaited_once()
+
+
 class TestGetIncrementalFieldValue:
     def _schema(self, incremental_field: str, sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL) -> MagicMock:
         schema = MagicMock()
@@ -404,3 +443,39 @@ class TestUpdateJobRowCount:
         assert update.call_count == 2
         close.assert_called_once()
         sleep.assert_called_once_with(2)
+
+
+class TestNotifyRevenueAnalyticsThatSyncHasCompleted:
+    @pytest.mark.asyncio
+    async def test_retries_transient_operational_error_then_notifies(self):
+        # Opening a fresh pooled Postgres connection from the Temporal worker's thread pool can
+        # hit a momentary DNS resolution blip; retrying it is safe and avoids silently skipping
+        # the "revenue analytics ready" notification over a transient failure.
+        attempts = MagicMock(side_effect=[OperationalError("Name or service not known"), True])
+
+        class _RevenueAnalyticsConfig:
+            @property
+            def enabled(self):
+                return attempts()
+
+        source = MagicMock(
+            source_type=ExternalDataSourceType.STRIPE, revenue_analytics_config=_RevenueAnalyticsConfig()
+        )
+        schema = MagicMock()
+        schema.name = STRIPE_CHARGE_RESOURCE_NAME
+        schema.team.revenue_analytics_config.notified_first_sync = False
+        schema.team.all_users_with_access.return_value = []
+        logger = MagicMock(aexception=AsyncMock())
+
+        with (
+            patch(f"{_DB_RETRY_MODULE}.close_old_connections") as close,
+            patch(f"{_DB_RETRY_MODULE}.time.sleep") as sleep,
+        ):
+            await notify_revenue_analytics_that_sync_has_completed(schema, source, logger)
+
+        assert attempts.call_count == 2
+        close.assert_called_once()
+        sleep.assert_called_once_with(2)
+        assert schema.team.revenue_analytics_config.notified_first_sync is True
+        schema.team.revenue_analytics_config.save.assert_called_once()
+        logger.aexception.assert_not_called()

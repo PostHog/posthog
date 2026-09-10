@@ -11,19 +11,22 @@ import type { MockResolverInfo } from '~/mocks/utils'
 
 import type { PaginatedAccountEmailThreadListApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
+const QUERY_ENDPOINT = '/api/projects/:team_id/accounts_table_query/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
 const ACCOUNT_EMAIL_THREADS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/email_threads/'
 const ACCOUNT_EMAIL_THREAD_DETAIL_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/email_threads/:thread_id/'
+const ACCOUNT_SUMMARIES_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/summaries/'
+const ACCOUNT_SUPPORT_TICKETS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/support_tickets/'
 const ACCOUNT_RELATIONSHIPS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/relationships/'
 const FEATURE_REQUESTS_ENDPOINT = 'api/projects/:team_id/feature_requests/'
 const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
 const ORGANIZATION_MEMBERS_ENDPOINT = 'api/projects/:team_id/organization_members/'
 const WAREHOUSE_VIEW_LINK_ENDPOINT = 'api/environments/:team_id/warehouse_view_link/'
+const ACCOUNT_ICON_ENDPOINT = 'api/projects/:team_id/accounts/icon/'
 const INSIGHTS_ENDPOINT = 'api/environments/:team_id/insights/'
 
-type AccountNameCell = { name: string; external_id: string | null; id: string }
+type AccountNameCell = { name: string; external_id: string | null; id: string; logo_domain: string | null }
 // Active assignee user ids from the relationships lazy join. Ids 178 and 202 match
 // the default org-members mock so the cells resolve to john.doe / jane.mcdoe.
 type AccountRelationshipCell = number[]
@@ -69,6 +72,7 @@ function buildAccountsTableQueryResponse(rows: AccountRow[]): Record<string, unk
             id: account.id,
             name: account.name,
             externalId: account.external_id,
+            logoDomain: account.logo_domain,
             accountFields: { name: account.name },
             tags,
             noteCount,
@@ -87,13 +91,27 @@ function buildAccountsTableQueryResponse(rows: AccountRow[]): Record<string, unk
 }
 
 const SAMPLE_ROWS: AccountRow[] = [
-    [{ name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' }, ['enterprise', 'priority'], 0, [178], [202], []],
-    [{ name: 'Globex', external_id: 'cust_globex_002', id: 'acc-2' }, [], 0, [], [], []],
-    [{ name: 'Hooli', external_id: null, id: 'acc-3' }, ['scaleup'], 0, [178], [], [202]],
+    [
+        { name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1', logo_domain: 'acme.example' },
+        ['enterprise', 'priority'],
+        0,
+        [178],
+        [202],
+        [],
+    ],
+    [{ name: 'Globex', external_id: 'cust_globex_002', id: 'acc-2', logo_domain: 'globex.example' }, [], 0, [], [], []],
+    [{ name: 'Hooli', external_id: null, id: 'acc-3', logo_domain: null }, ['scaleup'], 0, [178], [], [202]],
 ]
 
 const SINGLE_ROW: AccountRow[] = [
-    [{ name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' }, ['enterprise', 'priority'], 1, [178], [202], []],
+    [
+        { name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1', logo_domain: 'acme.example' },
+        ['enterprise', 'priority'],
+        1,
+        [178],
+        [202],
+        [],
+    ],
 ]
 
 const ACCOUNT_WITH_LINKS = {
@@ -170,6 +188,8 @@ const EXPANDED_ROW_FETCH_MOCKS = {
     [ORGANIZATION_MEMBERS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
     [ACCOUNT_RELATIONSHIPS_ENDPOINT]: [],
     [ACCOUNT_EMAIL_THREADS_ENDPOINT]: EMPTY_EMAIL_THREADS,
+    [ACCOUNT_SUMMARIES_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+    [ACCOUNT_SUPPORT_TICKETS_ENDPOINT]: [],
 }
 
 // Billing tab stories share the same account + notebooks mocks; they differ only in the insight and query responses.
@@ -270,6 +290,23 @@ function mockAccountsTableQuery(
     }
 }
 
+// Storybook must not call logo.dev, and stable bytes keep visual snapshots deterministic.
+const LOGO_SWATCHES: Record<string, string> = {
+    'acme.example': '#8f68d4',
+    'globex.example': '#dc9300',
+}
+
+function mockAccountIcon({ request }: MockResolverInfo): Response {
+    const fill = LOGO_SWATCHES[new URL(request.url).searchParams.get('domain') ?? '']
+    if (!fill) {
+        return new Response(null, { status: 404 })
+    }
+    return new Response(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="${fill}"/></svg>`,
+        { headers: { 'Content-Type': 'image/svg+xml' } }
+    )
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Customer Analytics/Accounts',
@@ -292,6 +329,7 @@ const meta: Meta = {
             get: {
                 [WAREHOUSE_VIEW_LINK_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
                 [RELATIONSHIP_DEFINITIONS_ENDPOINT]: RELATIONSHIP_DEFINITIONS,
+                [ACCOUNT_ICON_ENDPOINT]: mockAccountIcon,
             },
         }),
     ],
@@ -458,7 +496,7 @@ export const RowExpandedFeatureRequests: Story = {
     },
 }
 
-export const RowExpandedEmailThreads: Story = {
+export const RowExpandedConversations: Story = {
     render: () => <App />,
     parameters: {
         testOptions: {
@@ -477,13 +515,34 @@ export const RowExpandedEmailThreads: Story = {
                     subject: 'Renewal planning',
                     preview: 'I shared the revised timeline with the team.',
                     first_message_at: '2026-05-20T09:00:00Z',
+                    first_message: {
+                        sender: {
+                            name: 'Example buyer',
+                            email: 'buyer@example.com',
+                            person_id: null,
+                            distinct_id: null,
+                        },
+                        sent_at: '2026-05-20T09:00:00Z',
+                        direction: 'inbound',
+                    },
                     last_message_at: '2026-05-20T11:30:00Z',
+                    last_message: {
+                        sender: {
+                            name: 'Alice Anderson',
+                            email: 'alice@posthog.com',
+                            person_id: null,
+                            distinct_id: null,
+                        },
+                        sent_at: '2026-05-20T11:30:00Z',
+                        direction: 'outbound',
+                    },
                     message_count: 2,
                     participants: [
                         {
                             email: 'buyer@example.com',
                             display_name: 'Example buyer',
                             kind: 'customer',
+                            person_id: null,
                         },
                     ],
                 },
@@ -529,20 +588,35 @@ export const RowExpandedEmailThreads: Story = {
     play: async ({ canvasElement }) => {
         await expandFirstRow(canvasElement)
         const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Email threads', {}, { timeout: 15000 }))
+        await userEvent.click(await canvas.findByRole('tab', { name: 'Conversations' }, { timeout: 15000 }))
         await waitFor(
             () => {
-                if (!canvasElement.querySelector('[data-attr="account-email-threads-table"]')) {
-                    throw new Error('Email threads table did not render')
+                if (!canvasElement.querySelector('[data-attr="account-conversations-table"]')) {
+                    throw new Error('Conversations table did not render')
                 }
             },
             { timeout: 15000 }
         )
-        const table = canvasElement.querySelector('[data-attr="account-email-threads-table"]') as HTMLElement
-        await userEvent.click(await within(table).findByTitle('Show more'))
+        const table = canvasElement.querySelector('[data-attr="account-conversations-table"]') as HTMLElement
+        if (within(table).queryByTitle('Show more')) {
+            throw new Error('Conversation expansion toggle should not render')
+        }
+        await userEvent.click(await within(table).findByText('Renewal planning'))
         await waitFor(() => {
             if (!canvasElement.querySelector('[data-attr="account-email-thread-detail"]')) {
                 throw new Error('Email thread detail did not render')
+            }
+        })
+        await userEvent.click(await within(table).findByText('Renewal planning'))
+        await waitFor(() => {
+            if (canvasElement.querySelector('[data-attr="account-email-thread-detail"]')) {
+                throw new Error('Email thread detail did not collapse')
+            }
+        })
+        await userEvent.click(await within(table).findByText('Renewal planning'))
+        await waitFor(() => {
+            if (!canvasElement.querySelector('[data-attr="account-email-thread-detail"]')) {
+                throw new Error('Email thread detail did not reopen')
             }
         })
     },

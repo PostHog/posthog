@@ -97,6 +97,12 @@ Most low-value tests are one of these — recognize them and extend an existing 
 - **Redundant coverage**: a new test that's a variation of an existing one is a `@parameterized` case (Python) or a `test.each` row (Jest), not a new test function.
 - **Coverage-chasing**: an uncovered line is information, not a defect — don't add a test just to move the number.
 
+Then answer a second question: **why can't this be a case in the test that already covers the nearest behavior?**
+Earning the coverage doesn't earn a new test function.
+Default to extending the existing test with a parameterized case, and write a standalone one only when you can say why extending doesn't work: different setup, a different unit, or nothing relevant exists.
+Extend to remove duplication, not to save setup time, since a parameterized case still runs `setUp` for itself.
+Fold in variations of the same behavior, and don't attach unrelated assertions to a test that already passes.
+
 #### Weight tests down the pyramid
 
 Each rung is roughly an order of magnitude slower and flakier than the one below:
@@ -114,6 +120,7 @@ Escalating to the next rung is the last resort, not the default.
 - Mock only true boundaries — network, external APIs, the clock, queues. Don't mock your own internal helpers; that's how change-detector tests are born.
 - Frontend: prefer a kea logic test (`logic.actions` / `logic.values`) over a full component render whenever the behavior lives in the logic, and don't snapshot large rendered trees — assert specific fields instead.
 - Keep tests deterministic and isolated: no `time.sleep` or arbitrary waits (use `freeze_time` or wait on a real condition), no real network or live external services, and they must pass in any order. Don't leave a `@skip`/`xfail`/`.only` without a one-line reason and a linked issue.
+- **An absolute date in a test is a time bomb until you pin the clock.** A fixture date holds its meaning only while the real clock stays where you left it, so a test that measures that date against `now` — an age, a window, a "recent" flag, an expiry — passes today and fails weeks later on every open branch. Pin the process clock to the same instant (`freeze_time`, or `jest.useFakeTimers()` with `jest.setSystemTime()`), or write the fixture relative to `now`. Pinning covers only what reads the clock inside your process: anything outside it, such as a ClickHouse TTL or an S3 lifecycle rule, still runs on the real one.
 
 #### Fast developer ("unit") tests
 

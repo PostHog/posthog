@@ -16,17 +16,19 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { ObservationSearchTab } from '../search/ObservationSearchTab'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
+import { ScannerAlertsTab } from './components/ScannerAlertsTab'
 import { ScannerBackfillsTab } from './components/ScannerBackfillsTab'
 import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
-import { ScannerDigestCard } from './components/ScannerDigestCard'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { ScannerRunTab } from './components/ScannerRunTab'
-import { VisionActionsTab } from './components/VisionActionsTab'
+import { ScannerScoutCard } from './components/ScannerScoutCard'
+import { ScannerScoutsTab } from './components/ScannerScoutsTab'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
 import { scanDrought } from './scanDrought'
@@ -111,7 +113,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Overview',
                         content: (
                             <div className="flex flex-col gap-6">
-                                <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
+                                <ScannerScoutCard scannerId={scannerId} scannerName={scanner.name || ''} />
                                 <ScannerOverview scannerId={scannerId} />
                             </div>
                         ),
@@ -120,6 +122,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         key: ReplayScannerTab.Observations,
                         label: 'Observations',
                         content: <ScannerObservationsTable scannerId={scannerId} />,
+                    },
+                    {
+                        key: ReplayScannerTab.Search,
+                        label: 'Search',
+                        content: <ObservationSearchTab scanner={scanner} />,
                     },
                     {
                         key: ReplayScannerTab.OnDemand,
@@ -142,14 +149,21 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         content: <ScannerCalibrationTab scannerId={scannerId} />,
                     },
                     {
-                        key: ReplayScannerTab.Actions,
-                        label: 'Digests and alerts',
-                        content: (
-                            <VisionActionsTab
-                                scannerId={scannerId}
-                                scannerUserAccessLevel={scanner.user_access_level}
-                            />
+                        key: ReplayScannerTab.Scouts,
+                        label: (
+                            <>
+                                Scouts{' '}
+                                <LemonTag type="completion" size="small" className="ml-1">
+                                    Beta
+                                </LemonTag>
+                            </>
                         ),
+                        content: <ScannerScoutsTab scannerId={scannerId} />,
+                    },
+                    {
+                        key: ReplayScannerTab.Alerts,
+                        label: 'Alerts',
+                        content: <ScannerAlertsTab scannerId={scannerId} />,
                     },
                 ]}
             />
@@ -168,11 +182,11 @@ function QuotaBanner(): JSX.Element | null {
         <LemonBanner type="warning">
             {state.kind === 'exhausted'
                 ? `${
-                      onFreePlan ? 'Free credits used up' : 'Monthly spend limit reached'
+                      onFreePlan ? 'Free credits used up' : 'Spend limit reached'
                   }: ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)}. New observations are paused until ${state.resetsOn}.`
                 : onFreePlan
-                  ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this month. New observations will pause once they run out. Resets ${state.resetsOn}.`
-                  : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this month. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
+                  ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this billing period. New observations will pause once they run out. Resets ${state.resetsOn}.`
+                  : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this billing period. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
         </LemonBanner>
     )
 }

@@ -1,6 +1,7 @@
 """LangGraph agent for evaluation report generation using create_react_agent."""
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 import structlog
@@ -22,7 +23,9 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 from posthog.temporal.ai_observability.eval_reports.report_agent.state import EvalReportAgentState
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _ch_ts,
+    _dead_backticked_ids_in_report,
     _fetch_period_summary,
+    _handled_ids,
     _is_retriable_ch_error,
     get_eval_report_tools,
 )
@@ -45,6 +48,7 @@ def _compute_metrics(
     period_end: str,
     previous_period_start: str,
     output_type: str = "boolean",
+    true_is_failure: bool = False,
     evaluation_target: str = GENERATION_TARGET,
 ) -> EvalReportMetrics | None:
     """Compute report metrics directly via HogQL (independent of agent state).
@@ -57,7 +61,7 @@ def _compute_metrics(
         ts_start = _ch_ts(period_start)
         ts_end = _ch_ts(period_end)
         ts_prev_start = _ch_ts(previous_period_start)
-        definition = get_outcome_definition(output_type)
+        definition = get_outcome_definition(output_type, true_is_failure=true_is_failure)
 
         result_counts, total = _fetch_period_summary(
             team_id, evaluation_id, ts_start, ts_end, definition, evaluation_target
@@ -183,13 +187,19 @@ def _append_references_section(content: EvalReportContent) -> None:
     content.sections.append(ReportSection(title="References", content="\n".join(refs_lines)))
 
 
-def _validate_agent_output(content: EvalReportContent) -> str | None:
+def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | None = None) -> str | None:
     """Return a reason string if content is invalid, else None.
 
     Enforced invariants:
       - title must be non-empty
       - section count must be within [MIN_REPORT_SECTIONS, MAX_REPORT_SECTIONS]
       - every section must have a non-empty title and content
+      - no backticked ID may ship dead: a section body links only an exactly-cited ID
+        in one pair of backticks, and a title links nothing at all, so every other
+        backticked ID is a dead identifier
+
+    set_title and add_section run the same dead-ID check in the loop, so the agent can
+    correct a dead ID on its next call. This is the backstop for what reaches the end.
     """
     if not content.title.strip():
         return "agent did not call set_title"
@@ -202,12 +212,19 @@ def _validate_agent_output(content: EvalReportContent) -> str | None:
             return f"section {idx + 1} has empty title"
         if not section.content.strip():
             return f"section {idx + 1} ({section.title!r}) has empty content"
+
+    titles = [content.title, *(section.title for section in content.sections)]
+    bodies = [section.content for section in content.sections]
+    dead = _dead_backticked_ids_in_report(titles, bodies, content.citations, handled_ids or set())
+    if dead:
+        return f"backticked IDs will not render as citation links: {', '.join(dead[:3])}"
     return None
 
 
 def run_eval_report_agent(
     inputs: RunEvalReportAgentInput,
     evaluation_target: str = "generation",
+    detector_evaluation_ids: Sequence[str] = (),
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
 
@@ -230,6 +247,7 @@ def run_eval_report_agent(
         inputs.period_end,
         inputs.previous_period_start,
         output_type=inputs.output_type,
+        true_is_failure=inputs.true_is_failure,
         evaluation_target=evaluation_target,
     )
 
@@ -275,6 +293,7 @@ def run_eval_report_agent(
         period_start=inputs.period_start,
         period_end=inputs.period_end,
         report_prompt_guidance=inputs.report_prompt_guidance,
+        true_is_failure=inputs.true_is_failure,
     )
 
     agent = create_react_agent(
@@ -297,6 +316,8 @@ def run_eval_report_agent(
         "evaluation_type": inputs.evaluation_type,
         "evaluation_target": evaluation_target,
         "output_type": inputs.output_type,
+        "true_is_failure": inputs.true_is_failure,
+        "detector_evaluation_ids": list(detector_evaluation_ids),
         "period_start": inputs.period_start,
         "period_end": inputs.period_end,
         "previous_period_start": inputs.previous_period_start,
@@ -330,7 +351,7 @@ def run_eval_report_agent(
         content.evaluation_target = evaluation_target
         content.metrics = metrics
 
-        validation_error = _validate_agent_output(content)
+        validation_error = _validate_agent_output(content, _handled_ids(result))
         if validation_error:
             increment_report_generated("fallback_validation")
 

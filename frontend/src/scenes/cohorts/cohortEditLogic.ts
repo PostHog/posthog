@@ -434,6 +434,8 @@ export interface cohortEditLogicActions {
             is_static?: boolean | undefined
             last_calculation?: string | undefined
             last_error_message?: string | null | undefined
+            last_import_total_count?: number | null | undefined
+            last_import_unmatched_count?: number | null | undefined
             name?: string | undefined
             pending_version?: number | null | undefined
             version?: number | null | undefined
@@ -463,6 +465,8 @@ export interface cohortEditLogicActions {
             is_static?: boolean | undefined
             last_calculation?: string | undefined
             last_error_message?: string | null | undefined
+            last_import_total_count?: number | null | undefined
+            last_import_unmatched_count?: number | null | undefined
             name?: string | undefined
             pending_version?: number | null | undefined
             version?: number | null | undefined
@@ -1147,6 +1151,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     errors_calculating: cohort.errors_calculating,
                     last_calculation: cohort.last_calculation,
                     count: cohort.count,
+                    last_import_total_count: cohort.last_import_total_count,
+                    last_import_unmatched_count: cohort.last_import_unmatched_count,
                     version: cohort.version,
                     pending_version: cohort.pending_version,
                 }

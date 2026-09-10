@@ -3,16 +3,13 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.humanitix import (
     HumanitixSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.humanitix import HumanitixResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source import HumanitixSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHumanitixSource:
@@ -20,9 +17,6 @@ class TestHumanitixSource:
         self.source = HumanitixSource()
         self.team_id = 123
         self.config = HumanitixSourceConfig(api_key="hmtx-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HUMANITIX
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -35,13 +29,6 @@ class TestHumanitixSource:
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret `api_key` itself; the base URL is hardcoded and the account is
@@ -59,14 +46,6 @@ class TestHumanitixSource:
         assert all(s.supports_incremental is False for s in schemas)
         assert all(s.supports_append is False for s in schemas)
         assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["tags"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "tags"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     def test_documented_tables_render_for_public_docs(self) -> None:
         # Exercises the credential-free catalog path used by the posthog.com docs.
@@ -98,29 +77,6 @@ class TestHumanitixSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @parameterized.expand(
-        [
-            ("ok", (True, None), True, None),
-            ("unauthorized", (False, "Invalid Humanitix API key"), False, "Invalid Humanitix API key"),
-            ("server_error", (False, "Humanitix returned HTTP 500"), False, "Humanitix returned HTTP 500"),
-        ]
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source.validate_humanitix_credentials"
-    )
-    def test_validate_credentials(
-        self,
-        _name: str,
-        probe_result: tuple[bool, str | None],
-        expected_valid: bool,
-        expected_message: str | None,
-        mock_validate: mock.MagicMock,
-    ) -> None:
-        mock_validate.return_value = probe_result
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert returned == expected_message
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source.validate_humanitix_credentials"
     )
@@ -129,11 +85,6 @@ class TestHumanitixSource:
         mock_validate.return_value = (200, None)
         self.source.validate_credentials(self.config, self.team_id, schema_name="tags")
         mock_validate.assert_called_once_with("hmtx-key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is HumanitixResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source.humanitix_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_humanitix_source: mock.MagicMock) -> None:

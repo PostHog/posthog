@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ast_helpers import module_import_targets
+from .crossings import driven_wiring_locations
 from .isolation import (
     IsolationStatus,
     compute_isolation_status,
@@ -262,7 +263,11 @@ class CheckContext:
         """
         if self._isolation is None:
             self._isolation = compute_isolation_status(
-                self.name, self.product_dir, self.backend_dir, is_isolated=self.is_isolated
+                self.name,
+                self.product_dir,
+                self.backend_dir,
+                is_isolated=self.is_isolated,
+                driven_wiring_locations=driven_wiring_locations(self.name),
             )
         return self._isolation
 
@@ -763,7 +768,7 @@ class IsolationChainCheck(ProductCheck):
                 "a real facade should convert models to contracts, not just re-export"
             )
 
-        # The wiring-doctrine gate. Facade class re-exports from a non-garage module gate NARROWING,
+        # The wiring-doctrine gate. Facade class re-exports from outside a wiring location gate NARROWING,
         # not the script: while a product is un-narrowed the skip is inert (everything is watched), so
         # a leak there is guidance, not breakage. Once narrowed, the same leak means core can reach an
         # unsanctioned class the suite may not re-test — a hard error. See products/architecture.md
@@ -786,7 +791,7 @@ class IsolationChainCheck(ProductCheck):
         if facade_violations:
             detail = format_facade_imports(facade_violations)
             remedies = (
-                "move it to a garage (backend/hogql_queries/, backend/max_tools.py, backend/temporal/, "
+                "move it to a wiring location (backend/hogql_queries/, backend/max_tools.py, backend/temporal/, "
                 "backend/tasks.py) if it implements a core-owned base; move it to facade/contracts.py "
                 "if it's a data/error type; or drop the turbo.json narrowing to watch everything"
             )
@@ -815,10 +820,10 @@ class IsolationChainCheck(ProductCheck):
         if has_narrowed and status.uncovered_model_surface:
             surface_globs = ", ".join(location_input_glob(p) for p in status.uncovered_model_surface)
             result.issues.append(
-                "turbo.json narrows contract-check inputs but omits the watched-models surface "
-                f"{', '.join(status.uncovered_model_surface)} — the facade hands out model classes under the "
-                f"watched-models allowance, so a change there would skip the Django suite. Add the matching "
-                f"input(s) ({surface_globs})"
+                "turbo.json narrows contract-check inputs but omits the model surface "
+                f"{', '.join(status.uncovered_model_surface)} — a model is reachable without an import "
+                "(apps.get_model, migrations, admin), so a model or migration change must re-run the Django "
+                f"suite. Add the matching input(s) ({surface_globs})"
             )
 
         # Earned but not turned on: a fully sealed, eligible product that already carries
@@ -843,8 +848,9 @@ class IsolationChainCheck(ProductCheck):
                 "'backend:contract-check', but turbo.json does not narrow contract-check inputs to "
                 "facade/presentation — the skip is inert (every change still re-runs the full Django "
                 'suite). Add a turbo.json narrowing inputs to ["backend/facade/**", '
-                '"backend/presentation/**"] plus any wiring locations the product has '
-                "(backend/tasks/**, backend/temporal/**, …) to turn the skip on"
+                '"backend/presentation/**"] plus the model surface (backend/models.py or '
+                "backend/models/**, and backend/migrations/**) and any wiring locations the "
+                "product has (backend/tasks/**, backend/temporal/**, …) to turn the skip on"
             )
         # When needs_turn_on is suppressed purely because of a facade violation (the other four
         # conjuncts hold), the facade_violations warning above already explains what blocks narrowing,
@@ -880,15 +886,24 @@ class IsolationChainCheck(ProductCheck):
                 f"would skip the Django suite. Add the matching input(s) ({globs}) to keep the skip sound"
             )
 
-        # Watching the wiring garages: a garage the product has must stay in the contract-check
+        # Watching the wiring locations: a location the product has must stay in the contract-check
         # inputs, or a change to a query runner / Max tool / Temporal defn / Celery task the facade
-        # wires would skip the Django suite. Mirrors routes_unwatched, presence-based.
+        # wires would skip the Django suite. Presence-based, except for the computed locations,
+        # which are listed only while the crossings baseline records an outside test driving them.
         if has_narrowed and status.unwatched_garages:
             globs = ", ".join(location_input_glob(g) for g in status.unwatched_garages)
+            driven = [g for g in status.unwatched_garages if g in status.driven_wiring_locations]
+            evidence = (
+                f" Tests outside the product still execute what lives in {', '.join(driven)}: see the "
+                f"`{ctx.name}:` drives lines in products/model_crossing_uses_baseline.txt, and move those "
+                "tests into the product to drop the input."
+                if driven
+                else ""
+            )
             result.issues.append(
                 "turbo.json narrows contract-check inputs but omits the wiring location(s) "
                 f"{', '.join(status.unwatched_garages)} — implementations core registers and drives live there, "
-                f"so a change to them would skip the Django suite. Add the matching input(s) ({globs})"
+                f"so a change to them would skip the Django suite. Add the matching input(s) ({globs}).{evidence}"
             )
 
         # Watching the carve-out modules: a sanctioned model-registry carve-out crosses the facade by

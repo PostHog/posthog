@@ -15,6 +15,7 @@ from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
 import structlog
+from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH, activity_storage
@@ -24,6 +25,12 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
+
+ACTIVITY_LOG_WRITE_FAILURES = Counter(
+    "activity_log_write_failures_total",
+    "Activity log rows that failed to write",
+    labelnames=["deferred"],
+)
 
 ActivityScope = Literal[
     "Cohort",
@@ -106,6 +113,7 @@ ActivityScope = Literal[
     "DataQualityCheck",
     "Billing",
     "Loop",
+    "StamphogRepoConfig",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -177,18 +185,17 @@ class ActivityLog(UUIDTModel):
                 name="idx_alog_org_detail_exists",
                 condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
             ),
-            # Used for searching on the detail field, e.g. containing a specific value
-            GinIndex(
-                name="activitylog_detail_gin",
-                fields=["detail"],
-                opclasses=["jsonb_ops"],
-            ),
-            # Used primarily for available_filters queries
+            # Serves whole-column containment (`detail @> ...`), the only detail lookup an index
+            # can answer. Key-path lookups and the `detail::text` search are not GIN-servable
+            # under any opclass. `jsonb_path_ops` stores one hash per root-to-leaf path, so it is
+            # smaller and cheaper to maintain than `jsonb_ops`, whose only extra operators are the
+            # key-existence family (`?`, `?|`, `?&`) that no query path uses. It also stores no
+            # entry for a JSON structure that holds no scalar, so containment against an empty
+            # object or array (`detail @> '{"changes": []}'`) falls back to a full index scan.
             GinIndex(
                 name="idx_alog_detail_gin_path_ops",
                 fields=["detail"],
                 opclasses=["jsonb_path_ops"],
-                condition=models.Q(detail__isnull=False),
             ),
             # User-specific filtered queries
             models.Index(
@@ -328,6 +335,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
+    "AlertConfiguration": {
+        "schedule_start_time": "schedule start time",
+    },
     "HogFunction": {
         "execution_order": "priority",
     },
@@ -357,6 +367,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "emit": "emit findings",
         "pause_reason": "pause reason",
         "auto_pause_exempt": "never pause for inactivity",
+        "write_scopes": "write access",
     },
     # Match the labels the inbox settings show, so an entry reads the way the setting was flipped.
     "SignalTeamConfig": {
@@ -507,6 +518,11 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "StamphogRepoConfig": [
+        # Reverse relation to the repo's review history. The diff would read every pull request row
+        # on each settings toggle, and none of it is configuration.
+        "pull_requests",
+    ],
     "HogFlow": [
         # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph
         # writes — bookkeeping, not a user edit, so keep it out of change diffs.
@@ -548,13 +564,12 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "scim_provisioned_users",
         "scim_request_logs",
         # Internal link to the IdP config mirror; the mirrored fields themselves are already logged
-        "identity_provider_config",
+        "_identity_provider_config",
     ],
     "IdentityProviderConfig": [
         "organization",
         # Reverse relations, not plain field diffs — and diffing them reads every related row, which
         # for SCIM request logs is the tenant's whole request history.
-        "domains",
         "linked_identity_provider_configs",
         "scim_provisioned_users",
         "scim_request_logs",
@@ -588,6 +603,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "Notebook": [
         "text_content",
+        "widget_instances",
     ],
     "FeatureFlag": [
         "experiment",
@@ -715,7 +731,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "domain_whitelist",
         "setup_section_2_completed",
         "plugins_access_level",
-        "is_hipaa",
         "never_drop_data",
     ],
     "BatchExport": [
@@ -788,6 +803,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "totp_devices",
         "static_devices",
         "recovery_devices",
+        # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
+        # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
+        "facet_settings",
     ],
     "AlertConfiguration": [
         "last_checked_at",
@@ -817,12 +835,17 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reverse relation to a fail-closed model: reading through it in `changes_between` raises
         # TeamScopeError when a source is saved outside request scope, and it isn't source-config intent.
         "custom_oauth2_integrations",
+        # Same hazard: the destination set is edited through its own endpoint, not by saving a source.
+        "destination_links",
     ],
     "ExternalDataSchema": [
         "status",
         "sync_type_config",
         "latest_error",
         "last_synced_at",
+        # Reverse relation to a fail-closed model — same hazard as the source's `destination_links`.
+        # Every sync saves the schema from a Temporal activity, where diffing it would raise.
+        "destination_links",
         # Pipeline-assigned, not user intent. Diffing it resolves the FK through
         # DataWarehouseTable.objects, whose manager adds two joins and a prefetch on every
         # schema save (even ones that don't touch this field) — the extra queries have
@@ -1051,22 +1074,39 @@ def dict_changes_between(
     return changes
 
 
-def _handle_activity_log_transaction(create_fn, error_context: dict):
+def _report_activity_log_write_failure(e: Exception, error_context: dict, deferred: bool) -> None:
+    logger.warn(
+        "activity_log.failed_to_write_to_activity_log",
+        **error_context,
+        exception=e,
+    )
+    capture_exception(e)
+    ACTIVITY_LOG_WRITE_FAILURES.labels(deferred=str(deferred).lower()).inc()
+
+
+def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: str | None = None):
     try:
         # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
-        if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
-            transaction.on_commit(create_fn)
+        if not transaction.get_autocommit(using=using) and getattr(
+            settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True
+        ):
+            # The transaction already committed by the time this callback runs, so its own guard
+            # keeps a slow audit write from failing a request whose data is already durable.
+            def _deferred_create():
+                try:
+                    create_fn()
+                except Exception as e:
+                    _report_activity_log_write_failure(e, error_context, deferred=True)
+                    if settings.TEST:
+                        raise
+
+            transaction.on_commit(_deferred_create, using=using)
             return None
         else:
             return create_fn()
 
     except Exception as e:
-        logger.warn(
-            "activity_log.failed_to_write_to_activity_log",
-            **error_context,
-            exception=e,
-        )
-        capture_exception(e)
+        _report_activity_log_write_failure(e, error_context, deferred=False)
         if settings.TEST:
             raise
         return None
@@ -1086,6 +1126,9 @@ def log_activity(
     ip_address: Optional[str] = None,
     force_save: bool = False,
     instance_only: bool = False,
+    # A product on its own database passes `router.db_for_write(Model)`, so the audit write waits
+    # for that connection's commit and is dropped when it rolls back. `None` uses the default one.
+    using: str | None = None,
 ) -> ActivityLog | None:
     if client is None:
         client = activity_storage.get_client()
@@ -1154,6 +1197,7 @@ def log_activity(
                 "scope": scope,
                 "activity": activity,
             },
+            using=using,
         )
 
     except Exception as e:
@@ -1186,13 +1230,16 @@ class LogActivityEntry(TypedDict, total=False):
 
 
 def bulk_log_activity(
-    log_entries: list[LogActivityEntry], batch_size: int = 500, *, notify: bool = True
+    log_entries: list[LogActivityEntry], batch_size: int = 500, *, notify: bool = True, using: str | None = None
 ) -> list[ActivityLog]:
     """Write activity log rows in bulk.
 
     Each row created also fires `post_save`, which produces a CDP internal event so customer
     destinations and workflows can react. Pass `notify=False` for a maintenance sweep, where that
     fan-out would put one event per affected row onto the internal-events topic.
+
+    A product on its own database passes `using=router.db_for_write(Model)`, so the audit write
+    waits for that connection's commit and is dropped when it rolls back.
     """
     if not log_entries:
         return []
@@ -1243,6 +1290,7 @@ def bulk_log_activity(
                 "activity": "bulk_create",
                 "log_entries": log_entries,
             },
+            using=using,
         )
         or []
     )

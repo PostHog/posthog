@@ -3,8 +3,8 @@ from uuid import UUID
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.engineering_analytics.backend.facade.contracts import CISignalsConfig, CISignalsSyncStatus
 from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_PRODUCT,
@@ -22,6 +22,7 @@ from products.signals.backend.facade.api import set_signal_source_types_enabled,
 from products.signals.backend.models import SignalSourceConfig
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 CI_SIGNAL_SOURCE_TYPES = (
     SOURCE_TYPE_FLAKY_CHECK,
@@ -159,9 +160,9 @@ def _sync_status(team: Team, user_access_control: UserAccessControl | None) -> C
     )
     required = set(CI_SIGNAL_REQUIRED_SCHEMAS)
     failure_statuses = {
-        ExternalDataSchema.Status.FAILED,
-        ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
-        ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
+        ExternalDataSchemaStatus.FAILED,
+        ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+        ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW,
     }
     syncing_by_group: dict[tuple[UUID, str], set[str]] = {}
     completed_by_group: dict[tuple[UUID, str], set[str]] = {}
@@ -174,7 +175,7 @@ def _sync_status(team: Team, user_access_control: UserAccessControl | None) -> C
             return CISignalsSyncStatus.FAILED
         group = (source_id, (repository or "").lower())
         syncing_by_group.setdefault(group, set()).add(endpoint)
-        if status == ExternalDataSchema.Status.COMPLETED:
+        if status == ExternalDataSchemaStatus.COMPLETED:
             completed_by_group.setdefault(group, set()).add(endpoint)
     if not syncing_by_group:
         return CISignalsSyncStatus.RUNNING

@@ -34,6 +34,7 @@
         "@tiptap/extension-link": "*",
         "@tiptap/extension-underline": "*",
         "@tiptap/extensions": "*",
+        "@tiptap/html": "*",
         "@tiptap/pm": "*",
         "@tiptap/react": "*",
         "@tiptap/starter-kit": "*",

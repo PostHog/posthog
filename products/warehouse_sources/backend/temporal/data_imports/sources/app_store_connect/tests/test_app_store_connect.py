@@ -1,4 +1,5 @@
 import gzip
+import json
 import hashlib
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -21,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     JWT_LIFETIME_SECONDS,
     AppStoreConnectAuthError,
     AppStoreConnectPermissionError,
+    AppStoreConnectReportError,
     AppStoreConnectResumeConfig,
     AppStoreConnectTokenProvider,
     AppStoreConnectUrlError,
@@ -105,13 +107,21 @@ def _json_response(body: dict[str, Any], status_code: int = 200) -> MagicMock:
     return response
 
 
-def _report_response(tsv: str | None, missing_status_code: int = 404) -> MagicMock:
-    """A gzipped-TSV report response, or the 404 Apple returns for a date with no activity."""
+def _report_response(tsv: str | None, missing_status_code: int = 404, error_detail: str | None = None) -> MagicMock:
+    """A gzipped-TSV report response, or the "no data" status Apple returns for a date with no activity.
+
+    A missing 400 defaults to Apple's misleading "Invalid vendor number specified" body — its wording
+    for a subscription-family day with no report yet, not a real credentials failure.
+    """
     response = MagicMock()
     if tsv is None:
         response.status_code = missing_status_code
         response.ok = False
-        response.text = '{"errors":[{"code":"NOT_FOUND"}]}'
+        if error_detail is None:
+            error_detail = "Invalid vendor number specified" if missing_status_code == 400 else "Not found"
+        body = {"errors": [{"status": str(missing_status_code), "detail": error_detail}]}
+        response.text = json.dumps(body)
+        response.json.return_value = body
         return response
     response.status_code = 200
     response.ok = True
@@ -156,17 +166,41 @@ class _FakeApi:
 
 
 class _FakeReportApi:
-    """Serves `/v1/salesReports` per requested report date; an unknown date 404s like Apple's does."""
+    """Serves `/v1/salesReports` per requested report date; an unknown date 404s like Apple's does.
 
-    def __init__(self, tsv_by_date: dict[str, str], missing_status_code: int = 404) -> None:
+    SALES requests are answered apart from the subscription families, because the vendor-number check
+    relies on Apple answering them differently: 404 for a known vendor with no data on the date, and
+    the vendor-number 400 for one it doesn't know. `sales_status_code` picks which, and `sales_error`
+    makes the check itself fail, as it does for a key with no Sales role.
+    """
+
+    def __init__(
+        self,
+        tsv_by_date: dict[str, str],
+        missing_status_code: int = 404,
+        missing_error_detail: str | None = None,
+        sales_status_code: int = 404,
+        sales_error: Exception | None = None,
+    ) -> None:
         self.tsv_by_date = tsv_by_date
         self.missing_status_code = missing_status_code
+        self.missing_error_detail = missing_error_detail
+        self.sales_status_code = sales_status_code
+        self.sales_error = sales_error
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     def get(self, url: str, **kwargs: Any) -> MagicMock:
         params: dict[str, Any] = kwargs.get("params") or {}
         self.calls.append((url, params))
-        return _report_response(self.tsv_by_date.get(params["filter[reportDate]"]), self.missing_status_code)
+        tsv = self.tsv_by_date.get(params["filter[reportDate]"])
+        if params["filter[reportType]"] == "SALES":
+            if self.sales_error is not None:
+                raise self.sales_error
+            return _report_response(tsv, self.sales_status_code)
+        return _report_response(tsv, self.missing_status_code, self.missing_error_detail)
+
+    def report_dates(self, report_type: str) -> list[str]:
+        return [params["filter[reportDate]"] for _, params in self.calls if params["filter[reportType]"] == report_type]
 
 
 def _collect(
@@ -643,7 +677,12 @@ def _analytics_api(
     return _FakeAnalyticsApi(bodies, segment_payloads=segment_payloads)
 
 
-def _collect_analytics(api: _FakeAnalyticsApi, manager: _FakeManager, **kwargs: Any) -> list[dict[str, Any]]:
+def _collect_analytics(
+    api: _FakeAnalyticsApi,
+    manager: _FakeManager,
+    endpoint: str = "analytics_app_sessions",
+    **kwargs: Any,
+) -> list[dict[str, Any]]:
     session = MagicMock()
     session.get.side_effect = api.get
     session.post.side_effect = api.post
@@ -657,7 +696,7 @@ def _collect_analytics(api: _FakeAnalyticsApi, manager: _FakeManager, **kwargs: 
             key_id="KEY123",
             private_key=PRIVATE_KEY_PEM,
             vendor_number=None,
-            endpoint="analytics_app_sessions",
+            endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=manager,
             **kwargs,
@@ -919,6 +958,26 @@ class TestAnalyticsReportStreams:
         )
         assert row["app_name"] == "Example"
 
+    def test_detailed_stream_syncs_rows_with_the_attribution_columns(self) -> None:
+        payload = _gzip_csv(
+            "Date,App Name,App Apple Identifier,Source Type,Source Info,Campaign,Page Type,Page Title,Sessions\n"
+            "2026-08-01,Example,123,App referrer,com.example.social,summer-launch,Product page,Alternate page,5\n"
+        )
+        api = _analytics_api(
+            reports=[_resource("analyticsReports", "REP1", name="App Sessions Detailed", category="APP_USAGE")],
+            instances=[_instance("I1", "2026-08-01")],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/1": payload},
+        )
+
+        rows = _collect_analytics(api, _FakeManager(), endpoint="analytics_app_sessions_detailed")
+
+        # The attribution headers exist only in Detailed files and must land as the three
+        # documented snake_case columns. Metric columns are typed by name in every variant.
+        assert [(row["campaign"], row["page_title"], row["source_info"], row["sessions"]) for row in rows] == [
+            ("summer-launch", "Alternate page", "com.example.social", 5)
+        ]
+
     def test_analytics_source_response_checkpoints_ascending(self) -> None:
         response = app_store_connect_source(
             issuer_id="issuer",
@@ -936,11 +995,12 @@ class TestAnalyticsReportStreams:
 
 
 class TestFindAnalyticsReport:
-    def _resolve(self, endpoint: str, apple_name: str) -> str | None:
+    def _resolve(self, endpoint: str, *apple_names: str) -> str | None:
         config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
         page = _Page(
             resources=[
-                _resource("analyticsReports", "REP1", name=apple_name, category=config.analytics_report_category)
+                _resource("analyticsReports", f"REP{index + 1}", name=name, category=config.analytics_report_category)
+                for index, name in enumerate(apple_names)
             ],
             included=[],
             next_url=None,
@@ -965,6 +1025,33 @@ class TestFindAnalyticsReport:
         # Apple's casing of "Pre-Orders" has drifted before; normalization must resolve it without a
         # config change so a cosmetic rename can't silently blank the stream again.
         assert self._resolve("analytics_app_store_preorders", "App Store Pre-orders Standard") == "REP1"
+
+    @parameterized.expand(
+        [
+            ("analytics_app_sessions", "analytics_app_sessions_detailed", "App Sessions"),
+            ("analytics_app_store_downloads", "analytics_app_store_downloads_detailed", "App Downloads"),
+            (
+                "analytics_installations_deletions",
+                "analytics_installations_deletions_detailed",
+                "App Store Installation and Deletion",
+            ),
+            (
+                "analytics_discovery_engagement",
+                "analytics_discovery_engagement_detailed",
+                "App Store Discovery and Engagement",
+            ),
+        ]
+    )
+    def test_standard_and_detailed_variants_resolve_their_own_reports(
+        self, standard_endpoint: str, detailed_endpoint: str, base_name: str
+    ) -> None:
+        # Apple lists both variants of a report under the same request and category, so each config
+        # picks from the same page. Resolving the sibling would silently fill one table with the
+        # other variant's rows — for the detailed table, rows missing the attribution columns.
+        variants = (f"{base_name} Standard", f"{base_name} Detailed")
+
+        assert self._resolve(standard_endpoint, *variants) == "REP1"
+        assert self._resolve(detailed_endpoint, *variants) == "REP2"
 
 
 def _failures() -> _ParseFailureCounter:
@@ -1154,7 +1241,60 @@ class TestSalesReports:
         )
 
         assert [(row["report_date"], row["units"]) for row in rows] == [(date(2026, 3, 4), 1)]
-        assert [params["filter[reportDate]"] for _, params in api.calls] == ["2026-03-02", "2026-03-03", "2026-03-04"]
+        assert api.report_dates("SUBSCRIPTION") == ["2026-03-02", "2026-03-03", "2026-03-04"]
+
+    @freeze_time("2026-03-05 09:00:00")
+    def test_unknown_vendor_number_fails_instead_of_completing_empty(self) -> None:
+        # Apple words a vendor number it doesn't know exactly like an empty subscription day, so a
+        # typo used to be tolerated across the whole lookback and complete with zero rows. The sales
+        # report separates the two, and an unknown vendor number now fails the sync.
+        api = _FakeReportApi({}, missing_status_code=400, sales_status_code=400)
+
+        with pytest.raises(AppStoreConnectReportError, match="does not recognize the vendor number"):
+            _collect(
+                "subscription_reports",
+                api,
+                _FakeManager(),
+                vendor_number="85234567",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=date(2026, 3, 2),
+            )
+
+    @freeze_time("2026-03-05 09:00:00")
+    def test_vendor_number_is_checked_once_per_run(self) -> None:
+        # The check costs an extra request. Repeating it per tolerated day would add one for every
+        # day of the lookback window.
+        api = _FakeReportApi({}, missing_status_code=400)
+
+        _collect(
+            "subscription_reports",
+            api,
+            _FakeManager(),
+            vendor_number="85234567",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 3, 2),
+        )
+
+        assert api.report_dates("SUBSCRIPTION") == ["2026-03-02", "2026-03-03", "2026-03-04"]
+        assert api.report_dates("SALES") == ["2026-03-02"]
+
+    @freeze_time("2026-03-05 09:00:00")
+    def test_unreadable_sales_report_leaves_the_day_tolerated(self) -> None:
+        # A key with a Finance role but no Sales role can read the subscription report and not the
+        # sales one. The check can't run, so it must not fail a sync it cannot judge.
+        api = _FakeReportApi({}, missing_status_code=400, sales_error=Exception("403 Client Error: Forbidden"))
+
+        rows = _collect(
+            "subscription_reports",
+            api,
+            _FakeManager(),
+            vendor_number="85234567",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 3, 2),
+        )
+
+        assert rows == []
+        assert api.report_dates("SUBSCRIPTION") == ["2026-03-02", "2026-03-03", "2026-03-04"]
 
     @freeze_time("2026-03-05 09:00:00")
     def test_sales_report_400_is_not_tolerated(self) -> None:
@@ -1178,6 +1318,68 @@ class TestSalesReports:
                         resumable_source_manager=_FakeManager(),
                     )
                 )
+
+    @freeze_time("2026-03-05 09:00:00")
+    def test_subscription_report_unrecognized_400_fails_loudly(self) -> None:
+        # A 400 whose body is not Apple's "no data" quirk is a genuinely malformed request (a wrong
+        # version or sub type). It must fail rather than read as an empty day across the whole
+        # lookback, so an operator can tell a bad request from a quiet account.
+        api = _FakeReportApi(
+            {},
+            missing_status_code=400,
+            missing_error_detail="filter[version] '9_9' is not a valid value",
+        )
+
+        with pytest.raises(AppStoreConnectReportError, match="rejected a report request as invalid"):
+            _collect(
+                "subscription_reports",
+                api,
+                _FakeManager(),
+                vendor_number="85234567",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=date(2026, 3, 4),
+            )
+
+    @freeze_time("2026-03-05 09:00:00")
+    def test_all_empty_run_logs_a_warning(self) -> None:
+        # Every day tolerated as empty and no rows anywhere: log once at the end so an operator can
+        # tell an account with no subscription data from a request Apple keeps rejecting.
+        api = _FakeReportApi({}, missing_status_code=400)
+        logger = MagicMock()
+
+        rows = _collect(
+            "subscription_reports",
+            api,
+            _FakeManager(),
+            vendor_number="85234567",
+            logger=logger,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 3, 2),
+        )
+
+        assert rows == []
+        warnings = [call.args[0] for call in logger.warning.call_args_list]
+        run_summary = [message for message in warnings if "produced no rows" in message]
+        assert len(run_summary) == 1
+        assert "days_tolerated_as_empty=3" in run_summary[0]
+        assert "Invalid vendor number specified" in run_summary[0]
+
+    @freeze_time("2026-03-05 09:00:00")
+    def test_run_with_rows_does_not_log_the_empty_warning(self) -> None:
+        api = _FakeReportApi({"2026-03-04": "SKU\tUnits\nacme\t1\n"}, missing_status_code=400)
+        logger = MagicMock()
+
+        _collect(
+            "subscription_reports",
+            api,
+            _FakeManager(),
+            vendor_number="85234567",
+            logger=logger,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 3, 2),
+        )
+
+        assert not any("produced no rows" in call.args[0] for call in logger.warning.call_args_list)
 
     @freeze_time("2026-03-05 09:00:00")
     def test_unparseable_values_are_nulled_with_counted_warnings(self) -> None:

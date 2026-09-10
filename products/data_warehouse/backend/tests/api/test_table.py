@@ -52,8 +52,9 @@ class TestTable(APIBaseTest):
             ("localhost", "https://localhost/path/*.csv", "Local/Loopback host not allowed"),
             ("literal_ipv4_loopback", "https://127.0.0.1/path/*.csv", "Local/Loopback host not allowed"),
             ("literal_ipv4_linklocal", "https://169.254.169.254/path/*.csv", "Local/metadata host"),
-            ("literal_ipv6_mapped_loopback", "https://[::ffff:127.0.0.1]/path/*.csv", "Disallowed target IP"),
-            ("literal_ipv6_6to4_loopback", "https://[2002:7f00:1::]/path/*.csv", "Disallowed target IP"),
+            # Both are IP literals, so the address is parsed and judged without a DNS lookup.
+            ("literal_ipv6_mapped_loopback", "https://[::ffff:127.0.0.1]/path/*.csv", "Private IP address not allowed"),
+            ("literal_ipv6_6to4_loopback", "https://[2002:7f00:1::]/path/*.csv", "Private IP address not allowed"),
         ]
     )
     def test_create_columns_blocks_unsafe_url_patterns(self, _: str, url_pattern: str, expected_error: str):
@@ -89,12 +90,12 @@ class TestTable(APIBaseTest):
                 "Disallowed target IP",
             ),
             (
-                # The hostname string itself starts with "169.254." (a link-local prefix), so this
-                # is blocked by the literal-prefix check before resolve_host_ips is ever called.
+                # The hostname is a name rather than an address, so it is judged by what it
+                # resolves to, like every other wildcard-DNS name in this list.
                 "sslip_io_linklocal",
                 "https://169.254.169.254.sslip.io/latest/meta-data/",
                 {ipaddress.ip_address("169.254.169.254")},
-                "Private IP address not allowed",
+                "Disallowed target IP",
             ),
             (
                 "custom_dns_rebinding",
@@ -688,7 +689,7 @@ class TestTable(APIBaseTest):
             },
         )
         assert response.status_code == 400
-        assert response.json()["detail"] == "A table with this name already exists."
+        assert response.json()["detail"] == "A table or view with this name already exists. Choose a different name."
 
     def test_update_table_name_to_existing_name(self):
         table = DataWarehouseTable.objects.create(
@@ -704,7 +705,7 @@ class TestTable(APIBaseTest):
             },
         )
         assert response.status_code == 400
-        assert response.json()["detail"] == "A table with this name already exists."
+        assert response.json()["detail"] == "A table or view with this name already exists. Choose a different name."
 
     def test_update_table_name_to_same_name(self):
         table = DataWarehouseTable.objects.create(

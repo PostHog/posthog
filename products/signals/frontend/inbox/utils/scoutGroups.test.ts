@@ -1,7 +1,7 @@
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalScoutRunSummary } from '../types'
-import { groupScouts, nextRunAt, scoutCadenceLabel, scoutGroup, ScoutGroupKey, scoutSubtitle } from './scoutGroups'
+import { nextRunAt, scoutCadenceLabel, scoutGroup, ScoutGroupKey, scoutSubtitle } from './scoutGroups'
 import { computeScoutRollups, ScoutRollup } from './scoutRunsWindow'
 
 const NOW = new Date('2026-06-27T22:00:00Z')
@@ -93,22 +93,6 @@ describe('scoutGroups', () => {
                 status_changed_at: '2026-06-24T00:00:00Z',
             })
             expect(scoutGroup(reEnabled, rollupFor([]), NOW)).toEqual('settling_in')
-        })
-    })
-
-    describe('groupScouts', () => {
-        it('returns buckets in display order and drops empty ones', () => {
-            const buckets = groupScouts(
-                [
-                    makeConfig({ id: 'a', skill_name: 'signals-scout-a' }),
-                    makeConfig({ id: 'b', skill_name: 'signals-scout-b', status: 'paused_by_user', enabled: false }),
-                    makeConfig({ id: 'c', skill_name: 'signals-scout-c', status: 'paused_by_system', enabled: false }),
-                ],
-                new Map(),
-                NOW
-            )
-            expect(buckets.map((bucket) => bucket.key)).toEqual(['needs_you', 'watching', 'off'])
-            expect(buckets[0].configs.map((config) => config.id)).toEqual(['c'])
         })
     })
 

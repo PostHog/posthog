@@ -1,4 +1,5 @@
 import base64
+from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest
@@ -11,6 +12,7 @@ from posthog.egress.google_workspace.transport import GoogleWorkspaceEgressBudge
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.models import (
     EmailThread,
     EmailThreadAccountLink,
@@ -19,9 +21,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.services import gmail_sync
 from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
-from products.customer_analytics.backend.models import Account
-
-from ee.models.rbac.access_control import AccessControl
+from products.customer_analytics.backend.facade.testing import create_account
 
 
 def _response(payload: dict, status_code: int = 200) -> MagicMock:
@@ -87,7 +87,7 @@ class TestGmailSync(BaseTest):
         self.user.save(update_fields=["email"])
         self.integration.config["email"] = self.user.email
         self.integration.save(update_fields=["config"])
-        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Example", external_id="example")
+        account = create_account(team_id=self.team.id, name="Example", external_id="example")
         account.properties = {"email_domains": ["example.com"]}
         account.save()
 
@@ -159,6 +159,55 @@ class TestGmailSync(BaseTest):
         self.integration.refresh_from_db()
         assert self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] == "100"
 
+    def test_backfill_pages_through_the_range_without_changing_history_state(self) -> None:
+        start_at = datetime(2026, 7, 1, tzinfo=UTC)
+        end_at = datetime(2026, 8, 1, tzinfo=UTC)
+        first_message = _gmail_message(
+            label="INBOX", sender="first@example.com", recipient=self.user.email, message_id="gmail-1"
+        )
+        second_message = _gmail_message(
+            label="SENT", sender=self.user.email, recipient="second@example.com", message_id="gmail-2"
+        )
+
+        with patch.object(
+            gmail_sync,
+            "google_workspace_request",
+            side_effect=[
+                _response({"messages": [{"id": "gmail-1"}], "nextPageToken": "page-2"}),
+                _response(first_message),
+                _response({"messages": [{"id": "gmail-2"}]}),
+                _response(second_message),
+            ],
+        ) as mock_request:
+            next_page_token, first_count = gmail_sync.sync_gmail_backfill_batch(
+                self.integration.id,
+                self.team.id,
+                start_at=start_at,
+                end_at=end_at,
+            )
+            final_page_token, second_count = gmail_sync.sync_gmail_backfill_batch(
+                self.integration.id,
+                self.team.id,
+                start_at=start_at,
+                end_at=end_at,
+                page_token=next_page_token,
+            )
+
+        assert next_page_token == "page-2"
+        assert final_page_token is None
+        assert first_count == second_count == 1
+        first_list_params = mock_request.call_args_list[0].kwargs["params"]
+        second_list_params = mock_request.call_args_list[2].kwargs["params"]
+        assert first_list_params == {
+            "q": f"{{in:inbox in:sent}} after:{int(start_at.timestamp()) - 1} before:{int(end_at.timestamp())}",
+            "maxResults": gmail_sync.BACKFILL_PAGE_SIZE,
+        }
+        assert second_list_params["pageToken"] == "page-2"
+        self.integration.refresh_from_db()
+        assert gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY not in self.integration.config
+        assert gmail_sync.GMAIL_LAST_SYNCED_AT_CONFIG_KEY not in self.integration.config
+        assert EmailThreadMessage.objects.for_team(self.team.id).count() == 2
+
     def test_incremental_sync_checkpoints_each_imported_message(self) -> None:
         self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] = "100"
         self.integration.save(update_fields=["config"])
@@ -206,6 +255,63 @@ class TestGmailSync(BaseTest):
         assert self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] == "101"
         assert gmail_sync.GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY not in self.integration.config
         assert EmailThreadMessage.objects.for_team(self.team.id).count() == 2
+
+    def test_deleted_message_is_skipped_and_cursor_advances(self) -> None:
+        self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] = "100"
+        self.integration.save(update_fields=["config"])
+        history = {
+            "history": [
+                {
+                    "id": "101",
+                    "messagesAdded": [
+                        {"message": {"id": "deleted-1"}},
+                        {"message": {"id": "gmail-2"}},
+                    ],
+                }
+            ],
+            "historyId": "101",
+        }
+        second_message = _gmail_message(
+            label="INBOX", sender="second@example.com", recipient=self.user.email, message_id="gmail-2"
+        )
+
+        with patch.object(
+            gmail_sync,
+            "google_workspace_request",
+            side_effect=[
+                _response(history),
+                _response({"error": {"message": "Requested entity was not found."}}, status_code=404),
+                _response(second_message),
+            ],
+        ):
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        self.integration.refresh_from_db()
+        assert self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] == "101"
+        assert gmail_sync.GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY not in self.integration.config
+        message = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
+        assert message.comment.content == "Customer message body"
+
+    def test_deleted_attachment_is_skipped(self) -> None:
+        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
+        message["payload"]["body"] = {"attachmentId": "body-attachment"}
+
+        with patch.object(
+            gmail_sync,
+            "google_workspace_request",
+            side_effect=[
+                _response({"emailAddress": self.user.email, "historyId": "100"}),
+                _response({"messages": [{"id": "gmail-1"}]}),
+                _response(message),
+                _response({"error": {"message": "Requested entity was not found."}}, status_code=404),
+            ],
+        ):
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        imported = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
+        assert imported.comment.content == ""
+        self.integration.refresh_from_db()
+        assert self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] == "100"
 
     def test_incremental_sync_is_idempotent(self) -> None:
         self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] = "100"

@@ -11,6 +11,8 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri
 
+from products.dashboards.backend.facade import enums
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
@@ -22,6 +24,15 @@ DASHBOARD_GRID_SPACING_GAPS = {
     "relaxed": 32,
     "wide": 48,
 }
+
+
+class LayoutCompaction(models.TextChoices):
+    VERTICAL = "vertical", "vertical"
+    HORIZONTAL = "horizontal", "horizontal"
+    STABLE = "stable", "stable"
+
+
+DASHBOARD_GRID_COMPACTION_MODES = tuple(LayoutCompaction.values)
 
 
 class DashboardManager(RootTeamManager):
@@ -45,27 +56,17 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
             "Unlisted (product-embedded)",
         )  # Product dashboards (e.g. AI observability) - hidden from general lists, accessed via tag queries
 
-    class RestrictionLevel(models.IntegerChoices):
-        """Collaboration restriction level (which is a dashboard setting). Sync with PrivilegeLevel."""
-
-        EVERYONE_IN_PROJECT_CAN_EDIT = 21, "Everyone in the project can edit"
-        ONLY_COLLABORATORS_CAN_EDIT = (
-            37,
-            "Only those invited to this dashboard can edit",
-        )
-
-    class PrivilegeLevel(models.IntegerChoices):
-        """Collaboration privilege level (which is a user property). Sync with RestrictionLevel."""
-
-        CAN_VIEW = 21, "Can view dashboard"
-        CAN_EDIT = 37, "Can edit dashboard"
+    # Aliases of the facade enums, which is where callers outside this product read them from.
+    # Kept on the model so `Dashboard.PrivilegeLevel` and the `choices=` below stay unchanged.
+    RestrictionLevel = enums.RestrictionLevel
+    PrivilegeLevel = enums.PrivilegeLevel
 
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     pinned = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
     last_accessed_at = models.DateTimeField(blank=True, null=True)
     last_refresh = models.DateTimeField(blank=True, null=True)
@@ -73,10 +74,7 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
     variables = models.JSONField(default=dict, null=True, blank=True)
     breakdown_colors = models.JSONField(default=list, null=True, blank=True)
     data_color_theme = models.ForeignKey(
-        "posthog.DataColorTheme",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        "posthog.DataColorTheme", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode)
     restriction_level = models.PositiveSmallIntegerField(

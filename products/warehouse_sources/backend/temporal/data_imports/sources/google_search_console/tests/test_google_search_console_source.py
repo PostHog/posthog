@@ -8,9 +8,6 @@ from posthog.schema import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (
-    GoogleSearchConsoleResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
     DEFAULT_SEARCH_TYPE,
     PROPERTY_SCHEMAS,
@@ -21,7 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source import (
     GoogleSearchConsoleSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _config(search_types: list[str] | None = None) -> GoogleSearchConsoleSourceConfig:
@@ -43,10 +40,6 @@ def _expected_names(search_types: list[str]) -> set[str]:
         for base_name, schema in SEARCH_ANALYTICS_SCHEMAS.items()
         if search_type == DEFAULT_SEARCH_TYPE or not schema.get("web_only")
     } | set(PROPERTY_SCHEMAS.keys())
-
-
-def test_source_type():
-    assert GoogleSearchConsoleSource().source_type == ExternalDataSourceType.GOOGLESEARCHCONSOLE
 
 
 def test_get_source_config_fields():
@@ -177,12 +170,6 @@ def test_canonical_descriptions_cover_every_schema(config):
     assert names <= set(source.get_canonical_descriptions().keys())
 
 
-def test_get_resumable_source_manager_uses_resume_config():
-    inputs = mock.MagicMock()
-    manager = GoogleSearchConsoleSource().get_resumable_source_manager(inputs)
-    assert manager._data_class is GoogleSearchConsoleResumeConfig
-
-
 @pytest.mark.parametrize(
     "error_message",
     [
@@ -204,13 +191,15 @@ def test_missing_integration_is_non_retryable():
 
 
 @pytest.mark.parametrize(
-    "status_code,expected_substring",
+    "status_code,body,expected_substring",
     [
-        (401, "rejected the credentials"),
-        (403, "rejected the credentials"),
+        (401, {}, "Reconnect your Google account"),
+        (403, {}, "can't read any Search Console property"),
+        # A quota 403 says nothing about the connection, so it must not send the user reconnecting.
+        (403, {"error": {"errors": [{"domain": "usageLimits", "reason": "rateLimitExceeded"}]}}, "rate limiting"),
     ],
 )
-def test_validate_credentials_handles_auth_failures(status_code, expected_substring):
+def test_validate_credentials_handles_auth_failures(status_code, body, expected_substring):
     import requests
 
     with mock.patch(
@@ -218,6 +207,7 @@ def test_validate_credentials_handles_auth_failures(status_code, expected_substr
     ) as mock_session_factory:
         response = mock.MagicMock()
         response.status_code = status_code
+        response.json.return_value = body
         err = requests.HTTPError(response=response)
         session = mock.MagicMock()
         session.get.return_value.raise_for_status.side_effect = err
@@ -231,6 +221,40 @@ def test_validate_credentials_handles_auth_failures(status_code, expected_substr
 
     assert ok is False
     assert expected_substring in (message or "")
+
+
+@pytest.mark.parametrize(
+    "body,expected_substring",
+    [
+        ({}, "can't read any Search Console property"),
+        ({"error": {"errors": [{"domain": "usageLimits", "reason": "rateLimitExceeded"}]}}, "rate limiting"),
+    ],
+)
+def test_get_oauth_accounts_reports_why_the_property_list_failed(body, expected_substring):
+    import requests
+
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+        IntegrationAccountListingError,
+    )
+
+    response = mock.MagicMock()
+    response.status_code = 403
+    response.json.return_value = body
+    err = requests.HTTPError(response=response)
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            side_effect=err,
+        ),
+        pytest.raises(IntegrationAccountListingError) as raised,
+    ):
+        GoogleSearchConsoleSource().get_oauth_accounts(integration_id=1, team_id=1)
+
+    assert expected_substring in str(raised.value)
 
 
 def test_validate_credentials_missing_integration_returns_reconnect_message():

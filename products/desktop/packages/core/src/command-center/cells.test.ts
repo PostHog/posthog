@@ -1,7 +1,11 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
 import { buildCommandCenterCells } from "./cells";
-import { BRAINROT_CELL, makeTerminalCellValue } from "./grid";
+import {
+  BRAINROT_CELL,
+  makeCanvasCellValue,
+  makeTerminalCellValue,
+} from "./grid";
 
 const EMPTY_INPUT = {
   taskById: new Map<string, Task>(),
@@ -23,6 +27,18 @@ describe("buildCommandCenterCells", () => {
       },
     },
     {
+      name: "canvas cell exposes its canvas id and no task",
+      input: makeCanvasCellValue("canvas-1"),
+      expected: {
+        cellIndex: 0,
+        canvasId: "canvas-1",
+        isBrainrot: false,
+        taskId: null,
+        task: undefined,
+        status: "idle",
+      },
+    },
+    {
       name: "terminal cell exposes its terminal id and no task",
       input: makeTerminalCellValue("term-1"),
       expected: {
@@ -37,7 +53,12 @@ describe("buildCommandCenterCells", () => {
     {
       name: "empty cell is a non-brainrot empty slot",
       input: null,
-      expected: { isBrainrot: false, taskId: null, terminalId: null },
+      expected: {
+        isBrainrot: false,
+        taskId: null,
+        canvasId: null,
+        terminalId: null,
+      },
     },
     {
       name: "unknown task id is a non-brainrot cell",

@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { AGENT_CLI_API_KEY_SCOPES, API_SCOPES, APIScope, scopesArrayToObject } from 'lib/scopes'
+import { AGENT_CLI_API_KEY_SCOPES, API_SCOPES, APIScope, scopeMatchesSearch, scopesArrayToObject } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationBasicType } from '~/types'
@@ -356,16 +356,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         ],
         filteredScopes: [
             (s) => [s.searchTerm],
-            (searchTerm: string): APIScope[] => {
-                const search = searchTerm.trim().toLowerCase()
-                if (!search) {
-                    return API_SCOPES
-                }
-                return API_SCOPES.filter(
-                    (scope) =>
-                        scope.key.toLowerCase().includes(search) || scope.objectPlural.toLowerCase().includes(search)
-                )
-            },
+            (searchTerm: string): APIScope[] => API_SCOPES.filter((scope) => scopeMatchesSearch(scope, searchTerm)),
         ],
         allAccessSelected: [
             (s) => [s.authorize],

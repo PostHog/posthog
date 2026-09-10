@@ -1,26 +1,37 @@
+import { resolveInboxReportForRender } from "@posthog/core/inbox/inboxQuery";
 import {
   isDismissedReport,
   isPullRequestReport,
   isReportTabReport,
 } from "@posthog/core/inbox/reportMembership";
-import { Spinner } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailBackLink } from "@posthog/ui/features/inbox/components/DetailBackLink";
-import type { InboxListRoute } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
+import {
+  asInboxBackTarget,
+  type InboxListRoute,
+  useInboxTriageOrigin,
+} from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import {
   type InboxDetailTab,
   useReportOpenTracker,
 } from "@posthog/ui/features/inbox/hooks/useReportOpenTracker";
-import { Flex, Text } from "@radix-ui/themes";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
 
 interface InboxReportDetailGateProps {
   reportId: string;
   cachedReport?: SignalReport | null;
-  backTo: InboxListRoute;
+  /** An inbox list route, or any literal path (the in-space detail view). */
+  backTo: InboxListRoute | (string & {});
   backLabel: string;
+  /**
+   * Off for the in-space detail route, which hosts every report status on one
+   * URL and so never needs the inbox's status↔route redirect.
+   */
+  statusRedirect?: boolean;
+  requireFreshStatus?: boolean;
   /**
    * Where the missing-report shell's back link points, when it should differ
    * from `backTo`. The Archive detail sets these to the recorded origin so the
@@ -30,15 +41,21 @@ interface InboxReportDetailGateProps {
    */
   backLinkTo?: string;
   backLinkLabel?: string;
+  /**
+   * Which inbox tab's list the open/close engagement events measure against.
+   * Defaults to the tab derived from `backTo`; `null` skips tracking (the
+   * Archive tab: its rank would be measured against the wrong list).
+   */
+  trackTab?: InboxDetailTab | null;
   missingCopy: string;
   children: (report: SignalReport) => ReactNode;
 }
 
 type InboxDetailRoute =
-  | "/code/inbox/pulls/$reportId"
-  | "/code/inbox/reports/$reportId"
-  | "/code/inbox/runs/$reportId"
-  | "/code/inbox/dismissed/$reportId";
+  | "/inbox/pulls/$reportId"
+  | "/inbox/reports/$reportId"
+  | "/inbox/runs/$reportId"
+  | "/inbox/dismissed/$reportId";
 
 /**
  * Detail route a non-suppressed report belongs on, by the same tab-membership
@@ -48,9 +65,9 @@ type InboxDetailRoute =
  * through to Runs — the only tab that actually lists them.
  */
 function nonSuppressedDetailRoute(report: SignalReport): InboxDetailRoute {
-  if (isPullRequestReport(report)) return "/code/inbox/pulls/$reportId";
-  if (isReportTabReport(report)) return "/code/inbox/reports/$reportId";
-  return "/code/inbox/runs/$reportId";
+  if (isPullRequestReport(report)) return "/inbox/pulls/$reportId";
+  if (isReportTabReport(report)) return "/inbox/reports/$reportId";
+  return "/inbox/runs/$reportId";
 }
 
 /**
@@ -63,19 +80,23 @@ export function InboxReportDetailGate({
   cachedReport = null,
   backTo,
   backLabel,
+  statusRedirect = true,
+  requireFreshStatus = false,
   backLinkTo,
   backLinkLabel,
+  trackTab = tabFromBackTo(backTo),
   missingCopy,
   children,
 }: InboxReportDetailGateProps) {
   const navigate = useNavigate();
+  const triageOrigin = useInboxTriageOrigin();
   const {
     data: report,
     isLoading,
     isFetching,
     isFetchedAfterMount,
   } = useInboxReportById(reportId);
-  const resolvedReport = report ?? cachedReport;
+  const resolvedReport = resolveInboxReportForRender(report, cachedReport);
 
   // Keep the report on the route that matches its status. A status↔route mismatch
   // happens when a URL goes stale — browser history, a bookmark, a copied deep
@@ -90,13 +111,13 @@ export function InboxReportDetailGate({
   // `initialDataUpdatedAt: 0`). Both terminal states belong on the Archive route,
   // so resolved cards keep their reference-only detail view instead of being
   // bounced to Runs.
-  const onDismissedRoute = backTo === "/code/inbox/dismissed";
+  const onDismissedRoute = backTo === "/inbox/dismissed";
   const isArchived =
     resolvedReport != null && isDismissedReport(resolvedReport);
   let redirectTo: InboxDetailRoute | null = null;
-  if (resolvedReport && !isFetching) {
+  if (statusRedirect && resolvedReport && !isFetching) {
     if (isArchived && !onDismissedRoute) {
-      redirectTo = "/code/inbox/dismissed/$reportId";
+      redirectTo = "/inbox/dismissed/$reportId";
     } else if (!isArchived && onDismissedRoute) {
       redirectTo = nonSuppressedDetailRoute(resolvedReport);
     }
@@ -107,10 +128,12 @@ export function InboxReportDetailGate({
   // fetch. Rendering the children then would briefly expose full triage actions
   // (create PR, discuss, archive) for a report that another session has already
   // suppressed, before the redirect kicks in. Hold the spinner until that same
-  // fetch settles. The Archive route stays render-from-cache (the PR's instant-open
-  // path): it's read-only and its one action, Restore, re-checks status server-side.
+  // fetch settles. Routes without status redirects and the Archive route render
+  // from cache: neither can expose actions for the wrong status route.
   const statusUnconfirmed =
-    !onDismissedRoute && isFetching && !isFetchedAfterMount;
+    (requireFreshStatus || (statusRedirect && !onDismissedRoute)) &&
+    isFetching &&
+    !isFetchedAfterMount;
   const redirectReportId = resolvedReport?.id;
   useEffect(() => {
     if (!redirectTo || !redirectReportId) return;
@@ -121,51 +144,47 @@ export function InboxReportDetailGate({
       // Carry where we came from into the Archive route so its back link reads
       // "Back to reports/pulls/runs" rather than "Back to archive". This branch
       // only fires from a non-Archive route, so `backTo` is the pipeline origin
-      // the user is returning to.
-      state:
-        redirectTo === "/code/inbox/dismissed/$reportId"
-          ? { inboxBackOrigin: { to: backTo, label: backLabel } }
-          : undefined,
+      // the user is returning to. Validated because `backTo` may be a literal
+      // path on the in-space route (which never redirects, but types can't see
+      // that).
+      state: (previous) => ({
+        ...previous,
+        ...(redirectTo === "/inbox/dismissed/$reportId"
+          ? {
+              inboxBackOrigin:
+                asInboxBackTarget({ to: backTo, label: backLabel }) ??
+                undefined,
+            }
+          : {}),
+        ...(triageOrigin ? { inboxTriageOrigin: triageOrigin } : {}),
+      }),
     });
-  }, [redirectTo, redirectReportId, navigate, backTo, backLabel]);
+  }, [redirectTo, redirectReportId, navigate, backTo, backLabel, triageOrigin]);
 
   if ((isLoading && !resolvedReport) || statusUnconfirmed) {
-    return (
-      <Flex align="center" justify="center" className="py-16">
-        <Spinner />
-      </Flex>
-    );
+    return <LoadingState className="py-16" />;
   }
 
   if (redirectTo) {
     // Redirecting across the dismissed↔pipeline boundary; render nothing
     // meaningful for the frame we're leaving.
-    return (
-      <Flex align="center" justify="center" className="py-16">
-        <Spinner />
-      </Flex>
-    );
+    return <LoadingState className="py-16" />;
   }
 
   if (!resolvedReport) {
     return (
-      <Flex direction="column" className="h-full min-h-0">
-        <Flex
-          direction="column"
-          gap="3"
-          className="border-(--gray-5) border-b px-6 py-6"
-        >
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex flex-col gap-3 border-(--gray-5) border-b px-6 py-6">
           <DetailBackLink
             to={backLinkTo ?? backTo}
             label={backLinkLabel ?? backLabel}
           />
-          <Text className="text-[13px] text-gray-11">{missingCopy}</Text>
-        </Flex>
-      </Flex>
+          <p className="m-0 text-[13px] text-gray-11">{missingCopy}</p>
+        </div>
+      </div>
     );
   }
 
-  const trackTab = tabFromBackTo(backTo);
   return (
     <>
       {trackTab && <ReportOpenTracker report={resolvedReport} tab={trackTab} />}
@@ -182,9 +201,9 @@ export function InboxReportDetailGate({
 function tabFromBackTo(
   backTo: InboxReportDetailGateProps["backTo"],
 ): InboxDetailTab | null {
-  if (backTo === "/code/inbox/pulls") return "pulls";
-  if (backTo === "/code/inbox/runs") return "runs";
-  if (backTo === "/code/inbox/dismissed") return null;
+  if (backTo === "/inbox/pulls") return "pulls";
+  if (backTo === "/inbox/runs") return "runs";
+  if (backTo === "/inbox/dismissed") return null;
   return "reports";
 }
 
@@ -192,7 +211,7 @@ function tabFromBackTo(
  * Mounts only once a report is resolved, so the OPENED/CLOSED engagement events
  * bracket the time the detail body is actually on screen. Renders nothing.
  */
-function ReportOpenTracker({
+export function ReportOpenTracker({
   report,
   tab,
 }: {

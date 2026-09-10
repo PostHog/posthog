@@ -1,9 +1,9 @@
 import { Trash } from "@phosphor-icons/react";
 import type { Task } from "@posthog/shared/domain-types";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { Button, Flex, Text } from "@radix-ui/themes";
-import { DotsCircleSpinner } from "../../../../primitives/DotsCircleSpinner";
 import { WorktreeSize } from "./WorktreeSize";
 
 export interface WorktreeEntry {
@@ -70,14 +70,16 @@ export function WorktreeRow({
                 key={task.id}
                 type="button"
                 onClick={() => handleTaskClick(task)}
-                className="cursor-pointer truncate border-0 bg-transparent p-0 text-left text-[12px] text-gray-10 hover:text-accent-11 hover:underline"
+                className="cursor-pointer truncate border-0 bg-transparent p-0 text-left text-[12px] text-muted-foreground hover:text-accent-11 hover:underline"
               >
                 {getTaskTitle(task)}
               </button>
             ))}
           </Flex>
         ) : (
-          <span className="text-[12px] text-gray-10">No linked tasks</span>
+          <span className="text-[12px] text-muted-foreground">
+            No linked tasks
+          </span>
         )}
       </Flex>
       <Button
@@ -94,7 +96,7 @@ export function WorktreeRow({
           )
         }
       >
-        {isDeleting ? <DotsCircleSpinner size={12} /> : <Trash size={12} />}
+        {isDeleting ? <Spinner size="sm" /> : <Trash size={12} />}
         Delete
       </Button>
     </Flex>

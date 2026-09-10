@@ -14,18 +14,24 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
 
+import { hasEnded } from 'products/experiments/frontend/experimentStatus'
 import {
     ExperimentWatchCardStrengthEnumApi,
     ExperimentWatchCardKindEnumApi,
+    ExperimentWatchEmptyReasonEnumApi,
     type ExperimentSessionEventDeltaResponseApi,
     type ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-import { hasEnded } from '../experimentStatus'
-import { type ExperimentReplayRecording, experimentReplayTabLogic } from './experimentReplayTabLogic'
+import {
+    type ExperimentReplayRecording,
+    type ExperimentWatchEmptyAction,
+    experimentReplayTabLogic,
+} from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
 
 const STRENGTH_WORD: Record<Exclude<ExperimentWatchCardStrengthEnumApi, 'only'>, string> = {
@@ -34,9 +40,9 @@ const STRENGTH_WORD: Record<Exclude<ExperimentWatchCardStrengthEnumApi, 'only'>,
     slightly_more: 'Slightly more common',
 }
 
-function otherVariants(card: ExperimentWatchCardApi, armKeys: string[]): string {
-    const named = armKeys.length === 2 ? armKeys.find((key) => key !== card.variant) : undefined
-    return named ?? pluralize(armKeys.length - 1, 'the other variant', undefined, false)
+function otherVariants(card: ExperimentWatchCardApi, comparedVariantKeys: string[]): string {
+    const named = comparedVariantKeys.length === 2 ? comparedVariantKeys.find((key) => key !== card.variant) : undefined
+    return named ?? pluralize(comparedVariantKeys.length - 1, 'the other variant', undefined, false)
 }
 
 /**
@@ -44,11 +50,11 @@ function otherVariants(card: ExperimentWatchCardApi, armKeys: string[]): string 
  * conservative end of the difference; wording it as a multiple would put an effect size on screen,
  * which is the results tab's job. Do not reintroduce one.
  *
- * `armKeys` is what the comparison actually pooled, not every variant the flag defines — a variant
+ * `comparedVariantKeys` is what the comparison actually pooled, not every variant the flag defines — a variant
  * below the evidence floor was never in the "other variants" this card is measured against.
  */
-function cardSentence(card: ExperimentWatchCardApi, armKeys: string[]): string {
-    const others = otherVariants(card, armKeys)
+function cardSentence(card: ExperimentWatchCardApi, comparedVariantKeys: string[]): string {
+    const others = otherVariants(card, comparedVariantKeys)
     if (card.kind === ExperimentWatchCardKindEnumApi.VariantOnly) {
         return card.strength === ExperimentWatchCardStrengthEnumApi.Only
             ? `Never fired in ${others}`
@@ -90,13 +96,13 @@ function MetricSourceTag({ metricName }: { metricName: string }): JSX.Element {
 function WatchCard({
     card,
     selected,
-    armKeys,
+    comparedVariantKeys,
     maxRecordings,
     onSelect,
 }: {
     card: ExperimentWatchCardApi
     selected: boolean
-    armKeys: string[]
+    comparedVariantKeys: string[]
     maxRecordings: number
     onSelect: (card: ExperimentWatchCardApi | null) => void
 }): JSX.Element {
@@ -113,7 +119,7 @@ function WatchCard({
             >
                 <VariantTag variantKey={card.variant} />
                 <div className="break-all text-sm font-semibold leading-tight">{card.event}</div>
-                <div className="text-xs text-secondary">{cardSentence(card, armKeys)}</div>
+                <div className="text-xs text-secondary">{cardSentence(card, comparedVariantKeys)}</div>
                 {card.metric_name && <MetricSourceTag metricName={card.metric_name} />}
                 {/* Pushed to the bottom rather than following the text, so the footers line up
                     across a row whose cards carry different numbers of lines. */}
@@ -250,7 +256,7 @@ function Shelf({
     note,
     cards,
     selectedCard,
-    armKeys,
+    comparedVariantKeys,
     maxRecordings,
     onSelect,
     recordingsById,
@@ -260,7 +266,7 @@ function Shelf({
     note?: string
     cards: ExperimentWatchCardApi[]
     selectedCard: ExperimentWatchCardApi | null
-    armKeys: string[]
+    comparedVariantKeys: string[]
     maxRecordings: number
     onSelect: (card: ExperimentWatchCardApi | null) => void
     recordingsById: Map<string, ExperimentReplayRecording>
@@ -285,7 +291,7 @@ function Shelf({
                         key={`${card.kind}-${card.event}-${card.variant}`}
                         card={card}
                         selected={isSameCard(selectedCard, card)}
-                        armKeys={armKeys}
+                        comparedVariantKeys={comparedVariantKeys}
                         maxRecordings={maxRecordings}
                         onSelect={onSelect}
                     />
@@ -411,7 +417,7 @@ export function ExperimentBehaviorComparison({
         selectedWatchCard,
         loadedRecordingsById,
     } = useValues(logic)
-    const { selectWatchCard, loadSessionEventDeltas, watchHighlightOpened } = useActions(logic)
+    const { selectWatchCard, loadSessionEventDeltas, watchHighlightOpened, watchEmptyActionClicked } = useActions(logic)
 
     // Nothing at all when closed, rather than an empty spacer: the toggle lives in the filter row
     // now, so a wrapper left behind here would push the recordings list down for no reason.
@@ -451,9 +457,71 @@ export function ExperimentBehaviorComparison({
                             watchHighlightOpened(card, position)
                         }
                     }}
+                    onEmptyAction={watchEmptyActionClicked}
                 />
             )}
         </div>
+    )
+}
+
+/** Empty states that point at what decides them: the result itself, replay settings, or how exposure is captured. */
+function EmptyShelf({
+    deltas,
+    reason,
+    ended,
+    onAction,
+}: {
+    deltas: ExperimentSessionEventDeltaResponseApi
+    reason:
+        | typeof ExperimentWatchEmptyReasonEnumApi.NoSeparation
+        | typeof ExperimentWatchEmptyReasonEnumApi.NoRecordings
+        | typeof ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures
+    ended: boolean
+    onAction: (action: ExperimentWatchEmptyAction) => void
+}): JSX.Element {
+    if (reason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures) {
+        // Dated, because only the window was checked: an experiment that once captured exposure
+        // from the browser and no longer does reads the same as one that never did.
+        const covered = coveredWindow(deltas)
+        return (
+            <LemonBanner
+                type="info"
+                action={{
+                    children: 'How exposures work',
+                    to: 'https://posthog.com/docs/experiments/exposures',
+                    targetBlank: true,
+                    onClick: () => onAction('exposure_docs'),
+                }}
+            >
+                Nothing to watch here. Between {covered.from} and {covered.to}, people were exposed but no exposure
+                carried a session, so there was nothing to compare. Exposures captured from a client-side SDK carry a
+                session, and exposures captured from a backend SDK don't.
+            </LemonBanner>
+        )
+    }
+    if (reason === ExperimentWatchEmptyReasonEnumApi.NoRecordings) {
+        // Names no cause: the same state is reached when this viewer may not open the recordings
+        // behind the findings, and saying so would reveal that recordings denied to them exist.
+        return (
+            <LemonBanner
+                type="info"
+                action={{
+                    children: 'Replay settings',
+                    to: urls.settings('environment-replay'),
+                    onClick: () => onAction('replay_settings'),
+                }}
+            >
+                Nothing to watch here. Some events separated the variants, but none of those sessions has a recording to
+                open. Session replay sampling and retention decide which sessions are kept.
+            </LemonBanner>
+        )
+    }
+    return (
+        <LemonBanner type="info">
+            {ended
+                ? 'Nothing separated the variants. People did the same things in the sessions compared here, which is a result in itself. Differences small enough to be chance never get a card.'
+                : 'Nothing separated the variants yet. People did the same things in the sessions compared here, which is a result in itself. Differences small enough to be chance never get a card, so check back as more people are exposed.'}
+        </LemonBanner>
     )
 }
 
@@ -464,6 +532,7 @@ function WatchShelves({
     onSelect,
     recordingsById,
     onOpenHighlight,
+    onEmptyAction,
 }: {
     deltas: ExperimentSessionEventDeltaResponseApi
     ended: boolean
@@ -471,21 +540,51 @@ function WatchShelves({
     onSelect: (card: ExperimentWatchCardApi | null) => void
     recordingsById: Map<string, ExperimentReplayRecording>
     onOpenHighlight: (card: ExperimentWatchCardApi, sessionId: string, position: number) => void
+    onEmptyAction: (action: ExperimentWatchEmptyAction) => void
 }): JSX.Element {
-    if (deltas.too_early) {
+    const emptyReason = deltas.empty_reason
+    if (emptyReason === ExperimentWatchEmptyReasonEnumApi.TooEarly) {
+        // No caption: nothing was compared, so there is no covered window to name.
         return (
             <LemonBanner type="info">
                 Too early to compare behavior: this needs at least{' '}
-                {pluralize(deltas.min_arm_persons, 'exposed person', 'exposed people')} in two variants, and has{' '}
-                {deltas.arms.map((arm) => `${humanFriendlyNumber(arm.persons)} in ${arm.key}`).join(', ')}.
+                {pluralize(deltas.min_variant_persons, 'exposed person', 'exposed people')} in two variants, and has{' '}
+                {deltas.variants
+                    .map((variant) => `${humanFriendlyNumber(variant.persons)} in ${variant.key}`)
+                    .join(', ')}
+                .{' '}
+                {ended
+                    ? 'The experiment ended before enough people were exposed to compare them.'
+                    : 'Check back once more people are exposed.'}
             </LemonBanner>
+        )
+    }
+
+    // No caption for the same reason: no session was read.
+    if (emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures) {
+        return <EmptyShelf deltas={deltas} reason={emptyReason} ended={ended} onAction={onEmptyAction} />
+    }
+
+    // Matched by name rather than `!= null`, so a reason this build does not know falls through to
+    // the shelves instead of replacing them with an empty state the backend never claimed.
+    if (
+        emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSeparation ||
+        emptyReason === ExperimentWatchEmptyReasonEnumApi.NoRecordings
+    ) {
+        return (
+            <div className="flex flex-col gap-3">
+                <ShelfCaption deltas={deltas} hasCards={false} />
+                <EmptyShelf deltas={deltas} reason={emptyReason} ended={ended} onAction={onEmptyAction} />
+            </div>
         )
     }
 
     // What the comparison pooled, which is not every variant the flag defines: one below the
     // evidence floor is left out of the comparison, so a card's sentence must not name it as
     // something the card was measured against.
-    const armKeys = deltas.arms.filter((arm) => arm.persons >= deltas.min_arm_persons).map((arm) => arm.key)
+    const comparedVariantKeys = deltas.variants
+        .filter((variant) => variant.persons >= deltas.min_variant_persons)
+        .map((variant) => variant.key)
     const behaviorCards = deltas.cards.filter((card) => card.kind === ExperimentWatchCardKindEnumApi.Behavior)
     const frictionCards = deltas.cards.filter((card) => card.kind === ExperimentWatchCardKindEnumApi.Friction)
     const variantOnlyCards = deltas.cards.filter((card) => card.kind === ExperimentWatchCardKindEnumApi.VariantOnly)
@@ -494,7 +593,7 @@ function WatchShelves({
 
     return (
         <div className="flex flex-col gap-3">
-            <ShelfCaption deltas={deltas} />
+            <ShelfCaption deltas={deltas} hasCards />
             {/* Said whenever nothing was found, not only when the response is empty: the shelves
                 below can be full of metric shortcuts and events a variant renders itself, and a
                 reader left to infer "no differences" from their absence reads the surface as
@@ -510,7 +609,7 @@ function WatchShelves({
                 title="Behaves differently"
                 cards={behaviorCards}
                 selectedCard={selectedCard}
-                armKeys={armKeys}
+                comparedVariantKeys={comparedVariantKeys}
                 maxRecordings={deltas.max_card_recordings}
                 onSelect={onSelect}
                 recordingsById={recordingsById}
@@ -520,7 +619,7 @@ function WatchShelves({
                 title="Friction"
                 cards={frictionCards}
                 selectedCard={selectedCard}
-                armKeys={armKeys}
+                comparedVariantKeys={comparedVariantKeys}
                 maxRecordings={deltas.max_card_recordings}
                 onSelect={onSelect}
                 recordingsById={recordingsById}
@@ -531,7 +630,7 @@ function WatchShelves({
                 note="These events don't exist in the other variants, so they show the change is live rather than a difference in what people did."
                 cards={variantOnlyCards}
                 selectedCard={selectedCard}
-                armKeys={armKeys}
+                comparedVariantKeys={comparedVariantKeys}
                 maxRecordings={deltas.max_card_recordings}
                 onSelect={onSelect}
                 recordingsById={recordingsById}
@@ -569,20 +668,36 @@ function WatchShelves({
     )
 }
 
-/**
- * Read before the cards, not after them: what a reader has to know to interpret a shelf is that it
- * points at recordings rather than measuring anything, and the window it actually covered. The
- * full method sits behind the info icon.
- */
-function ShelfCaption({ deltas }: { deltas: ExperimentSessionEventDeltaResponseApi }): JSX.Element {
+/** The window a response covered, worded for the caption and the dated empty state. */
+function coveredWindow(deltas: ExperimentSessionEventDeltaResponseApi): { span: string; from: string; to: string } {
     // A window that ran out inside a single day reads wrong as two identical dates, and "Aug 3 to
     // Aug 3" hides that only a few hours were covered.
     const sameDay = dayjs(deltas.date_from).isSame(dayjs(deltas.date_to), 'day')
     const format = sameDay ? 'MMM D, HH:mm' : 'MMM D'
-    // Named as a length and not only as two dates: the session ceiling can shrink the window to
-    // hours on a busy experiment, and "between Aug 8 and Aug 10" reads as the whole run to anyone
-    // who doesn't do the subtraction.
-    const span = dayjs(deltas.date_from).from(dayjs(deltas.date_to), true)
+    return {
+        // Named as a length and not only as two dates: the session ceiling can shrink the window to
+        // hours on a busy experiment, and "between Aug 8 and Aug 10" reads as the whole run to anyone
+        // who doesn't do the subtraction.
+        span: dayjs(deltas.date_from).from(dayjs(deltas.date_to), true),
+        from: dayjs(deltas.date_from).format(format),
+        to: dayjs(deltas.date_to).format(format),
+    }
+}
+
+/**
+ * Read before the cards, not after them: what a reader has to know to interpret a shelf is that it
+ * points at recordings rather than measuring anything, and the window it actually covered. The
+ * full method sits behind the info icon. `hasCards` drops the sentence about the cards above an
+ * empty state, where the window still matters but there are no cards to describe.
+ */
+function ShelfCaption({
+    deltas,
+    hasCards,
+}: {
+    deltas: ExperimentSessionEventDeltaResponseApi
+    hasCards: boolean
+}): JSX.Element {
+    const covered = coveredWindow(deltas)
     const details = [
         'Each variant is compared against the others on which events people did, counting each person once, in the first session they were exposed in. Cards only appear where the difference is too big to be chance, and only with recordings that actually exist.',
         'Page views, autocaptures and the exposure event are never compared, since their names describe a mechanism rather than something a person did.',
@@ -607,9 +722,9 @@ function ShelfCaption({ deltas }: { deltas: ExperimentSessionEventDeltaResponseA
     return (
         <div className="flex items-center gap-1 text-xs text-secondary">
             <span>
-                These highlight which recordings might be worth watching. They don't say which variant is doing better,
-                the way metrics do. From about {span} of recorded sessions, between{' '}
-                {dayjs(deltas.date_from).format(format)} and {dayjs(deltas.date_to).format(format)}.
+                {hasCards &&
+                    "These highlight which recordings might be worth watching. They don't say which variant is doing better, the way metrics do. "}
+                From about {covered.span} of recorded sessions, between {covered.from} and {covered.to}.
             </span>
             <Tooltip
                 title={

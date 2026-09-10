@@ -17,8 +17,9 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
-from ee.models.rbac.access_control import AccessControl
 
 TEST_PARTNER_CLIENT_ID = "test_partner_client_id"
 # Stored hashed by ClientSecretField.pre_save, so the plaintext has to live here for

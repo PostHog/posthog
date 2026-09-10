@@ -272,12 +272,7 @@ export function LogsServices(): JSX.Element {
                 }
                 return (
                     <div className="w-24 h-6">
-                        <Sparkline
-                            data={sparkline.values}
-                            labels={sparkline.labels}
-                            className="w-full h-full"
-                            maximumIndicator={false}
-                        />
+                        <Sparkline data={sparkline.values} labels={sparkline.labels} className="w-full h-full" />
                     </div>
                 )
             },

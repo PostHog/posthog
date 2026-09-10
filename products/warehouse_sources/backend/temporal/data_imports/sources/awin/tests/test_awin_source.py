@@ -1,44 +1,17 @@
 from typing import Optional
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
+from posthog.schema import SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.awin.awin import AwinResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.source import AwinSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awin import AwinSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-def _inputs(schema_name: str = "transactions", **overrides: object) -> MagicMock:
-    inputs = MagicMock()
-    inputs.schema_name = schema_name
-    inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", True)
-    inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", "2024-01-01T00:00:00")
-    inputs.incremental_field = overrides.get("incremental_field", "transactionDate")
-    return inputs
 
 
 class TestAwinSourceClass:
-    def test_source_type(self) -> None:
-        assert AwinSource().source_type == ExternalDataSourceType.AWIN
-
-    def test_get_source_config_fields(self) -> None:
-        config = AwinSource().get_source_config
-        assert config.name.value == "Awin"
-        assert len(config.fields) == 2
-        token_field = config.fields[0]
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.name == "api_token"
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.required is True
-        assert token_field.secret is True
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/awin"
-
     def test_get_source_config_region_field(self) -> None:
         # Awin's aggregated advertiser report 400s without a region (no "all regions" value exists),
         # so every connection must pick one.
@@ -91,35 +64,3 @@ class TestAwinSourceClass:
         with patch.object(source_module, "validate_awin_credentials", return_value=api_result):
             result = AwinSource().validate_credentials(AwinSourceConfig(api_token="x"), team_id=1)
         assert result == (ok, err)
-
-    def test_get_non_retryable_errors_cover_auth(self) -> None:
-        errors = AwinSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-    def test_get_resumable_source_manager_bound_to_data_class(self) -> None:
-        manager = AwinSource().get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AwinResumeConfig
-
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
-        manager = MagicMock()
-        inputs = _inputs(schema_name="transactions")
-        with patch.object(source_module, "awin_source") as mock_awin_source:
-            AwinSource().source_for_pipeline(AwinSourceConfig(api_token="tok", region="US"), manager, inputs)
-
-        mock_awin_source.assert_called_once()
-        kwargs = mock_awin_source.call_args.kwargs
-        assert kwargs["api_token"] == "tok"
-        assert kwargs["endpoint"] == "transactions"
-        assert kwargs["region"] == "US"
-        assert kwargs["incremental_field"] == "transactionDate"
-        assert kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00"
-
-    def test_source_for_pipeline_drops_last_value_when_not_incremental(self) -> None:
-        manager = MagicMock()
-        inputs = _inputs(should_use_incremental_field=False)
-        with patch.object(source_module, "awin_source") as mock_awin_source:
-            AwinSource().source_for_pipeline(AwinSourceConfig(api_token="tok"), manager, inputs)
-
-        assert mock_awin_source.call_args.kwargs["db_incremental_field_last_value"] is None

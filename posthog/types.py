@@ -3,6 +3,7 @@ from typing import Union
 from posthog.schema import (
     AccountCustomPropertyFilter,
     ActionsNode,
+    BehavioralPropertyFilter,
     CohortPropertyFilter,
     DataWarehouseNode,
     DataWarehousePersonPropertyFilter,
@@ -92,6 +93,7 @@ type AnyPropertyFilter = Union[
     MetricPropertyFilter,
     SpanPropertyFilter,
     WorkflowVariablePropertyFilter,
+    BehavioralPropertyFilter,
 ]
 
 type EntityNode = Union[

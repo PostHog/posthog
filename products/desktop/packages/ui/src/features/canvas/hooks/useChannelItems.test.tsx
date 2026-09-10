@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
     channels: [] as {
       id: string;
       name: string;
-      channelType: "public" | "personal";
+      channelType: "public" | "personal" | "private";
       starred: boolean;
     }[],
     isLoading: true,
@@ -129,6 +129,8 @@ function taskItem(id: string): ChannelItemModel {
     authorName: null,
     authorUuid: null,
     templateId: null,
+    repository: null,
+    branch: null,
     task: null,
   };
 }

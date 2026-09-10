@@ -61,7 +61,13 @@ then
                     case "$trunk_out" in
                         # Deterministic auth/config errors: retrying cannot help, and most
                         # devs without a login would otherwise pay the retries on every push.
-                        *"not logged in"*|*"trunk login"*|*"trunk init"*) break ;;
+                        *"not logged in"*|*"trunk login"*|*"trunk init"*)
+                            if [ -z "$trunk_login_hint_shown" ]
+                            then
+                                trunk_login_hint_shown=1
+                                echo "pre-push: trunk CLI is not logged in, so the merge-queue push guard is off. Run 'trunk login' once to enable it."
+                            fi
+                            break ;;
                     esac
                     sleep 1
                 done

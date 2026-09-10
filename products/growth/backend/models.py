@@ -37,11 +37,7 @@ class ProductPushCampaign(UUIDModel, UpdatedMetaFields):
         db_constraint=False,
     )
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     # A ProductKey value. Plain CharField (like ProductIntent.product_type) so the
@@ -178,11 +174,7 @@ class EnrichmentPromptConfig(UUIDModel):
     # The version the batch runner computes; at most one active row per label (enforced below).
     is_active = models.BooleanField(default=False)
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -273,6 +265,48 @@ class EnrichmentLabelResult(UUIDModel):
 
     def __str__(self) -> str:
         return f"{self.organization_id} {self.label_name} {self.prompt_version}"
+
+
+class IcpScoringConfig(UUIDModel):
+    """A versioned snapshot of the RevOps-curated lists behind the ICP fit score.
+
+    Rails are code; brains are rows (the EnrichmentPromptConfig precedent): the scoring
+    formula and weights live in code (the fit scorer, landing separately), but the curated
+    tag buckets and quality-investor names it matches against live here, so RevOps'
+    quarterly review lands without a deploy — and the internal sheets never get committed
+    to this public repo. A list change is always a new row (new version) activated
+    explicitly, never an in-place edit; scores stamp the row's version as
+    `icp_fit_lists_version`, so a list update is distinguishable from a formula change
+    (`icp_fit_version`) in every stored score.
+
+    Rows are written by the `sync_icp_scoring_lists` management command from the RevOps
+    sheet exports; see enrichment/icp_lists.py for the row shapes and the loader.
+    """
+
+    # Human-readable list version, e.g. "2026-08-13".
+    version = models.CharField(max_length=128, unique=True)
+    # Tag curation rows: [{"tag", "type", "recommendation", "reason", "note"}]. recommendation
+    # is "+"-joined bucket names (ai_positive, capital_quality, software_positive,
+    # software_negative, dq, ignore).
+    tags = models.JSONField(default=list)
+    # Quality investor rows: [{"investor", "aliases": [...], "notes"}].
+    quality_investors = models.JSONField(default=list)
+    # The row the scorer loads; at most one active row (enforced below).
+    is_active = models.BooleanField(default=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["is_active"], condition=Q(is_active=True), name="growth_icp_lists_one_active"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"icp lists {self.version}{' (active)' if self.is_active else ''}"
 
 
 class EnrichmentSignupSnapshot(UUIDModel):

@@ -10,6 +10,7 @@
  * The drop-rule form validates non-empty before submit; this is defense in
  * depth at the worker boundary.
  */
+import { decodeLogAttributeValue } from '~/logs/attribute-value'
 import type { LogRecord } from '~/logs/log-record-avro'
 
 import { type PropertyFilterLeaf, matchPropertyFilter } from './property-filter-match'
@@ -79,7 +80,7 @@ function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): strin
         // (underscore) is only the in-memory Avro field name, never an OTel
         // resource attribute. Looking up `resource_attributes['service_name']`
         // would silently miss real data.
-        return record.service_name ?? record.resource_attributes?.['service.name']
+        return record.service_name ?? decodedAttr(record.resource_attributes, 'service.name')
     }
     if (key === 'severity_text' || key === 'level' || key === 'severity_level') {
         // First-class column wins. Otherwise fall back to attribute storage,
@@ -91,17 +92,32 @@ function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): strin
         // attribute names is populated). `severity_level` is the logs UI / HogQL
         // alias and the key the drop-rule builder writes; without this branch it
         // falls through to the `type: 'log'` body fallback and never matches.
-        return record.severity_text ?? record.attributes?.['level'] ?? record.attributes?.['severity_text']
+        return (
+            record.severity_text ??
+            decodedAttr(record.attributes, 'level') ??
+            decodedAttr(record.attributes, 'severity_text')
+        )
     }
     if (key === 'message' || filter.type === PROPERTY_FILTER_TYPE_LOG) {
         return record.body ?? undefined
     }
 
     if (filter.type === PROPERTY_FILTER_TYPE_LOG_RESOURCE_ATTRIBUTE) {
-        return record.resource_attributes?.[key]
+        return decodedAttr(record.resource_attributes, key)
     }
     if (filter.type === PROPERTY_FILTER_TYPE_LOG_ATTRIBUTE) {
-        return record.attributes?.[key]
+        return decodedAttr(record.attributes, key)
     }
-    return record.attributes?.[key] ?? record.resource_attributes?.[key]
+    return decodedAttr(record.attributes, key) ?? decodedAttr(record.resource_attributes, key)
+}
+
+/**
+ * Attribute map values are JSON-encoded on the Avro wire (a string arrives as
+ * `"production"`, quotes included), while filter values and first-class columns
+ * are plain. Decode at the read so every operator compares like against like —
+ * the same decoding the ClickHouse sink applies before the preview queries it.
+ */
+function decodedAttr(map: Record<string, string> | null | undefined, key: string): string | undefined {
+    const raw = map?.[key]
+    return raw === undefined ? undefined : decodeLogAttributeValue(raw)
 }

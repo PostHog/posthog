@@ -10,22 +10,22 @@ const sha = (seed) => seed.repeat(64).slice(0, 64);
 const releaseChecksums = () =>
   new Map(
     [
-      "PostHog-Code-0.56.90-arm64-mac.dmg",
-      "PostHog-Code-0.56.90-arm64-mac.dmg.blockmap",
-      "PostHog-Code-0.56.90-arm64-mac.zip",
-      "PostHog-Code-0.56.90-arm64-mac.zip.blockmap",
-      "PostHog-Code-0.56.90-x64-mac.dmg",
-      "PostHog-Code-0.56.90-x64-mac.dmg.blockmap",
-      "PostHog-Code-0.56.90-x64-mac.zip",
-      "PostHog-Code-0.56.90-x64-mac.zip.blockmap",
-      "PostHog-Code-0.56.90-x64-win.exe",
-      "PostHog-Code-0.56.90-x64-win.exe.blockmap",
-      "PostHog-Code-0.56.90-x86_64-linux.AppImage",
-      "PostHog-Code-0.56.90-arm64-linux.AppImage",
-      "PostHog-Code-0.56.90-amd64-linux.deb",
-      "PostHog-Code-0.56.90-arm64-linux.deb",
-      "PostHog-Code-0.56.90-x86_64-linux.rpm",
-      "PostHog-Code-0.56.90-aarch64-linux.rpm",
+      "PostHog-Desktop-0.56.90-arm64-mac.dmg",
+      "PostHog-Desktop-0.56.90-arm64-mac.dmg.blockmap",
+      "PostHog-Desktop-0.56.90-arm64-mac.zip",
+      "PostHog-Desktop-0.56.90-arm64-mac.zip.blockmap",
+      "PostHog-Desktop-0.56.90-x64-mac.dmg",
+      "PostHog-Desktop-0.56.90-x64-mac.dmg.blockmap",
+      "PostHog-Desktop-0.56.90-x64-mac.zip",
+      "PostHog-Desktop-0.56.90-x64-mac.zip.blockmap",
+      "PostHog-Desktop-0.56.90-x64-win.exe",
+      "PostHog-Desktop-0.56.90-x64-win.exe.blockmap",
+      "PostHog-Desktop-0.56.90-x86_64-linux.AppImage",
+      "PostHog-Desktop-0.56.90-arm64-linux.AppImage",
+      "PostHog-Desktop-0.56.90-amd64-linux.deb",
+      "PostHog-Desktop-0.56.90-arm64-linux.deb",
+      "PostHog-Desktop-0.56.90-x86_64-linux.rpm",
+      "PostHog-Desktop-0.56.90-aarch64-linux.rpm",
     ].map((name, index) => [name, sha(`${index % 10}`)]),
   );
 
@@ -47,14 +47,14 @@ describe("parseChecksums", () => {
   it.each([
     [
       "sha256sum text mode (two spaces)",
-      `${sha("a")}  PostHog-Code-1.2.3-arm64-mac.dmg`,
-      "PostHog-Code-1.2.3-arm64-mac.dmg",
+      `${sha("a")}  PostHog-Desktop-1.2.3-arm64-mac.dmg`,
+      "PostHog-Desktop-1.2.3-arm64-mac.dmg",
       sha("a"),
     ],
     [
       "shasum binary mode (space + asterisk)",
-      `${sha("b")} *PostHog-Code-1.2.3-x64-win.exe`,
-      "PostHog-Code-1.2.3-x64-win.exe",
+      `${sha("b")} *PostHog-Desktop-1.2.3-x64-win.exe`,
+      "PostHog-Desktop-1.2.3-x64-win.exe",
       sha("b"),
     ],
   ])("parses %s output, ignoring other lines", (_label, line, name, hash) => {
@@ -86,17 +86,17 @@ describe("buildDownloadTables", () => {
     const markdown = buildDownloadTables(releaseChecksums());
 
     expect(downloadCells(markdown)).toEqual([
-      "[PostHog-Code-0.56.90-arm64-mac.dmg](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-arm64-mac.dmg)",
-      "[PostHog-Code-0.56.90-arm64-mac.zip](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-arm64-mac.zip)",
-      "[PostHog-Code-0.56.90-x64-mac.dmg](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-x64-mac.dmg)",
-      "[PostHog-Code-0.56.90-x64-mac.zip](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-x64-mac.zip)",
-      "[PostHog-Code-0.56.90-x64-win.exe](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-x64-win.exe)",
-      "[PostHog-Code-0.56.90-x86_64-linux.AppImage](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-x86_64-linux.AppImage)",
-      "[PostHog-Code-0.56.90-arm64-linux.AppImage](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-arm64-linux.AppImage)",
-      "[PostHog-Code-0.56.90-amd64-linux.deb](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-amd64-linux.deb)",
-      "[PostHog-Code-0.56.90-arm64-linux.deb](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-arm64-linux.deb)",
-      "[PostHog-Code-0.56.90-x86_64-linux.rpm](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-x86_64-linux.rpm)",
-      "[PostHog-Code-0.56.90-aarch64-linux.rpm](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-aarch64-linux.rpm)",
+      "[PostHog-Desktop-0.56.90-arm64-mac.dmg](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-arm64-mac.dmg)",
+      "[PostHog-Desktop-0.56.90-arm64-mac.zip](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-arm64-mac.zip)",
+      "[PostHog-Desktop-0.56.90-x64-mac.dmg](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-x64-mac.dmg)",
+      "[PostHog-Desktop-0.56.90-x64-mac.zip](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-x64-mac.zip)",
+      "[PostHog-Desktop-0.56.90-x64-win.exe](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-x64-win.exe)",
+      "[PostHog-Desktop-0.56.90-x86_64-linux.AppImage](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-x86_64-linux.AppImage)",
+      "[PostHog-Desktop-0.56.90-arm64-linux.AppImage](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-arm64-linux.AppImage)",
+      "[PostHog-Desktop-0.56.90-amd64-linux.deb](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-amd64-linux.deb)",
+      "[PostHog-Desktop-0.56.90-arm64-linux.deb](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-arm64-linux.deb)",
+      "[PostHog-Desktop-0.56.90-x86_64-linux.rpm](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-x86_64-linux.rpm)",
+      "[PostHog-Desktop-0.56.90-aarch64-linux.rpm](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-aarch64-linux.rpm)",
     ]);
   });
 
@@ -104,7 +104,7 @@ describe("buildDownloadTables", () => {
     [
       "links the blockmap when present",
       "arm64-mac.dmg](",
-      "[blockmap](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-arm64-mac.dmg.blockmap)",
+      "[blockmap](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-arm64-mac.dmg.blockmap)",
     ],
     ["shows a dash when the blockmap is absent", "amd64-linux.deb](", "| — |"],
   ])("%s", (_label, rowFragment, expected) => {
@@ -120,10 +120,10 @@ describe("buildDownloadTables", () => {
     const exeRow = markdown
       .split("\n")
       .find((line) => line.includes("x64-win.exe]("));
-    const fullSha = checksums.get("PostHog-Code-0.56.90-x64-win.exe");
+    const fullSha = checksums.get("PostHog-Desktop-0.56.90-x64-win.exe");
 
     expect(exeRow).toContain(
-      `[\`${fullSha.slice(0, 6)}\`](https://desktop-releases.posthog.com/stable/PostHog-Code-0.56.90-x64-win.exe "${fullSha}")`,
+      `[\`${fullSha.slice(0, 6)}\`](https://desktop-releases.posthog.com/stable/PostHog-Desktop-0.56.90-x64-win.exe "${fullSha}")`,
     );
     expect(exeRow).not.toContain(`\`${fullSha}\``);
   });
@@ -135,14 +135,14 @@ describe("buildDownloadTables", () => {
 
     expect(markdown).not.toContain("latest-mac.yml");
     expect(markdown).not.toContain(
-      "[PostHog-Code-0.56.90-arm64-mac.dmg.blockmap](",
+      "[PostHog-Desktop-0.56.90-arm64-mac.dmg.blockmap](",
     );
   });
 
   it("labels macOS architectures and skips empty sections", () => {
     const macOnly = new Map([
-      ["PostHog-Code-1.2.3-arm64-mac.dmg", sha("a")],
-      ["PostHog-Code-1.2.3-x64-mac.dmg", sha("b")],
+      ["PostHog-Desktop-1.2.3-arm64-mac.dmg", sha("a")],
+      ["PostHog-Desktop-1.2.3-x64-mac.dmg", sha("b")],
     ]);
 
     const markdown = buildDownloadTables(macOnly);

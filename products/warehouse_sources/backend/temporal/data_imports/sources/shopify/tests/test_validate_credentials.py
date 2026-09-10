@@ -3,6 +3,7 @@ from typing import Any
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
+    ShopifyAuthMethodConfig,
     ShopifySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
@@ -40,7 +41,12 @@ def _post_returning(deny_if_query_contains: dict[str, dict[str, Any]]):
 
 
 def _config() -> ShopifySourceConfig:
-    return ShopifySourceConfig(shopify_store_id="my-store", shopify_client_id="cid", shopify_client_secret="secret")
+    return ShopifySourceConfig(
+        shopify_store_id="my-store",
+        auth_method=ShopifyAuthMethodConfig(
+            selection="client_credentials", shopify_client_id="cid", shopify_client_secret="secret"
+        ),
+    )
 
 
 def _patches(post):
@@ -129,3 +135,21 @@ def test_endpoint_permissions_survive_a_throttle_on_one_table():
     assert result["orders"] is None
     assert result["products"] is None
     assert "read_product_listings" in (result["collections"] or "")
+
+
+def test_a_configured_access_token_authenticates_without_minting_one():
+    # The store id and the access token reach `shopify.py` from different config fields, so a
+    # token that is never threaded through would silently fall back to the minting path and fail
+    # for the stores this option exists to serve.
+    config = ShopifySourceConfig(
+        shopify_store_id="my-store",
+        auth_method=ShopifyAuthMethodConfig(selection="access_token", shopify_access_token="shpat_supplied"),
+    )
+    session = mock.MagicMock(post=mock.MagicMock(side_effect=_post_returning({})))
+
+    with mock.patch(_TOKEN_PATH) as mint, mock.patch(_SESSION_PATH, return_value=session) as session_factory:
+        valid, error = ShopifySource().validate_credentials(config, team_id=1)
+
+    assert (valid, error) == (True, None)
+    mint.assert_not_called()
+    assert session_factory.call_args.kwargs["headers"]["X-Shopify-Access-Token"] == "shpat_supplied"

@@ -26,6 +26,7 @@ import {
   SIDES,
   SWITCHER_WIDTH_PX,
 } from "@posthog/ui/features/navigation/rightPanelSide";
+import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import {
   useSessionArtifactCount,
@@ -36,7 +37,6 @@ import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useIsCloudTask } from "@posthog/ui/features/workspace/useWorkspace";
 import { useParentWidth } from "@posthog/ui/primitives/hooks/useObservedWidth";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
 import {
   memo,
   type ReactNode,
@@ -218,8 +218,8 @@ function useDrawnSide(
 }
 
 /** Every side belongs to a session, so nothing below this runs elsewhere. */
-export function RightPanel() {
-  const taskId = useParams({ strict: false }).taskId;
+function RightPanelImpl() {
+  const { taskId } = useActiveSession();
   // Keyed by session: carrying per-session state across a navigation draws the
   // previous session's panel over the new one for a frame.
   return taskId ? <SessionRightPanel key={taskId} taskId={taskId} /> : null;
@@ -319,3 +319,6 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
     </>
   );
 }
+
+// The root layout re-renders on every navigation; this keeps that from cascading here.
+export const RightPanel = memo(RightPanelImpl);

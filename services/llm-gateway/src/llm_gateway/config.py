@@ -95,6 +95,11 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
 # runs are far shorter than this, so in practice each task gets one budget for its lifetime.
 DEFAULT_SANDBOX_TASK_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "signals_interactive": ProductCostLimit(limit_usd=50.0, window_seconds=604800),
+    # Slack runs had no cost circuit breaker beyond the duration cap. A Slack task is the thread,
+    # so the budget covers every reply in it; the one-day window lets an old thread recover sooner
+    # than the week-long Signals window. Accounting happens after each call, so parallel requests
+    # can overshoot this threshold by their in-flight spend.
+    "slack_app": ProductCostLimit(limit_usd=200.0, window_seconds=86400),
 }
 
 _COST_LIMIT_KEY_ALIASES: dict[str, str] = {
@@ -236,12 +241,12 @@ class Settings(BaseSettings):
     default_fallback_cost_usd: float = 0.01
 
     posthog_api_base_url: str = "https://us.posthog.com"
-    plan_cache_ttl: int = 900  # 15 minutes
 
     desktop_access_gate_enabled: bool = True
-    desktop_access_cache_ttl: int = 900
-    desktop_access_denied_cache_ttl: int = 60
-    desktop_access_request_timeout: float = 2.0
+    desktop_access_cache_ttl: int = 60
+    desktop_access_denied_cache_ttl: int = 30
+    desktop_access_request_timeout: float = 6.0
+    desktop_access_max_connections: int = 10
 
     # Billing recomputes quota at most hourly, so we tolerate slight overage rather than
     # a Django roundtrip on every billable request.

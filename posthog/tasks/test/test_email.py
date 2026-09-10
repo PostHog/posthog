@@ -12,13 +12,13 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
-from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.scoping import team_scope
 from posthog.tasks.email import (
     get_members_to_notify_for_pipeline_error,
     login_from_new_device_notification,
@@ -28,7 +28,7 @@ from posthog.tasks.email import (
     send_canary_email,
     send_discussions_mentioned,
     send_email_change_emails,
-    send_email_verification,
+    send_email_verification_code,
     send_external_data_failure_digest,
     send_fatal_plugin_error,
     send_hog_function_disabled,
@@ -49,7 +49,12 @@ from posthog.tasks.email import (
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
@@ -515,15 +520,14 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         task.refresh_from_db()
         assert task.pr_ready_email_sent_at is not None
 
-    @patch("posthoganalytics.capture")
-    def test_send_email_verification(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_send_email_verification_code(self, mock_scoped_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
-        token = email_verification_token_generator.make_token(self.user)
-        send_email_verification(user.id, token)
+        send_email_verification_code(user.id, "123456")
 
-        mock_capture.assert_called_once_with(
-            event="verification email sent",
+        mock_scoped_capture.return_value.__enter__.return_value.assert_called_once_with(
+            event="verification code sent",
             distinct_id=user.distinct_id,
             groups={"organization": str(user.current_organization_id)},
         )
@@ -586,6 +590,25 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    def test_does_not_send_batch_export_run_failure_for_on_demand_export(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        with team_scope(team_id=self.team.pk, canonical=True):
+            on_demand_export = BatchExportOnDemand.objects.create(team=self.team, destination=destination)
+        now = dt.datetime.now()
+        batch_export_run = BatchExportRun.objects.create(
+            batch_export_on_demand=on_demand_export,
+            status=BatchExportRun.Status.FAILED,
+            data_interval_start=now - dt.timedelta(hours=1),
+            data_interval_end=now,
+        )
+
+        send_batch_export_run_failure(batch_export_run.id)
+
+        assert mocked_email_messages == []
 
     def test_send_batch_export_run_failure_with_settings(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

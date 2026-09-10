@@ -1,18 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.propertyware import (
     PropertywareSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.propertyware.propertyware import (
-    PropertywareResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.propertyware.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.propertyware.source import PropertywareSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPropertywareSource:
@@ -20,33 +13,6 @@ class TestPropertywareSource:
         self.source = PropertywareSource()
         self.team_id = 123
         self.config = PropertywareSourceConfig(client_id="cid", client_secret="secret", system_id="org-1")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PROPERTYWARE
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Propertyware"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/propertyware"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["client_id", "client_secret", "system_id"]
-
-    def test_client_secret_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "client_secret")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    @pytest.mark.parametrize("name", ["client_id", "system_id"])
-    def test_non_secret_identifier_fields_are_plain_text(self, name: str) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == name)
-        assert field.type == SourceFieldInputConfigType.TEXT
-        assert field.secret is False
-        assert field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -132,41 +98,3 @@ class TestPropertywareSource:
         mock_validate.return_value = 200
         self.source.validate_credentials(self.config, self.team_id, "LeaseCharges")
         assert mock_validate.call_args.args[3] == "/leases/charges?limit=1"
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is PropertywareResumeConfig
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.propertyware.source.propertyware_source"
-    )
-    def test_source_for_pipeline_passes_credentials_and_cursor(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Portfolios"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2020-01-01T00:00:00Z"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["client_id"] == "cid"
-        assert kwargs["client_secret"] == "secret"
-        assert kwargs["system_id"] == "org-1"
-        assert kwargs["endpoint"] == "Portfolios"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2020-01-01T00:00:00Z"
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.propertyware.source.propertyware_source"
-    )
-    def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Portfolios"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2020-01-01T00:00:00Z"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None

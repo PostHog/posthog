@@ -1,4 +1,5 @@
 import secrets
+import datetime
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ExternalWebhookInfo,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
@@ -48,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     _ORG_PERMISSION_REASON,
     ORG_SCOPED_ENDPOINTS,
+    REPOSITORY_NOT_ACCESSIBLE_REASON,
     GithubEgressIdentity,
     GithubResumeConfig,
     check_org_endpoint_permission,
@@ -131,6 +134,17 @@ GITHUB_WEBHOOK_EVENT_CHECKLIST: str = "\n".join(
 # needs its own reshaping branch before its webhook rows would match what the poll path writes.
 
 
+_REPOSITORY_ACCESS_GUIDANCE = "Check the spelling and that your token has read access."
+
+
+def _join_validation_failures(failures: list[str]) -> str:
+    """Join the per-repository failures, with one next step for the whole list rather than one each."""
+    joined = "; ".join(failures)
+    if any(REPOSITORY_NOT_ACCESSIBLE_REASON in failure for failure in failures):
+        return f"{joined}. {_REPOSITORY_ACCESS_GUIDANCE}"
+    return joined
+
+
 @SourceRegistry.register
 class GithubSource(
     ResumableSource[GithubSourceConfig, GithubResumeConfig],
@@ -141,6 +155,10 @@ class GithubSource(
     supported_versions = ("2022-11-28", "2026-03-10")
     default_version = "2026-03-10"
     api_docs_url = "https://docs.github.com/en/rest/about-the-rest-api/api-versions"
+    # GitHub keeps a REST API version answerable for at least 24 months after the next one ships,
+    # then returns 410 Gone. 2022-11-28 is superseded by the 2026-03-10 default, so its earliest
+    # sunset is 2028-03-10 (24 months after that release).
+    deprecated_versions = (VersionDeprecation(version="2022-11-28", sunset_at=datetime.date(2028, 3, 10)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -309,6 +327,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # deleted repository or one the connection can no longer see.
             "GitHub repository is not accessible": "This repository is no longer available on GitHub. It may have been deleted, or your connection may have lost access to it. Update the source with a repository you can still reach, or reconnect your GitHub account.",
             "404 Client Error": "GitHub couldn't find this repository. Check that it still exists and that your connection can access it.",
+            # Every GitHub call carries the source's pinned version in the X-GitHub-Api-Version
+            # header, and GitHub answers 410 Gone once a version is sunset (2022-11-28 reaches this
+            # 24 months after the 2026-03-10 release). 410 is permanent, so retrying loops forever;
+            # disable the schema and point the user at the version repin instead.
+            "410 Client Error": "GitHub no longer serves the API version this source is pinned to. Update the source to a supported version, then sync again.",
             "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
             # The GitHub App isn't configured on this PostHog instance, so an OAuth source can't mint
             # the App JWT to refresh its installation token. Deterministic — retrying never resolves it.
@@ -634,9 +657,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 # A 401 is token-level — probing further repos yields the same answer.
                 if message == "Invalid personal access token":
                     return False, message
-                failures.append(message or f"Repository '{repository}' not found or not accessible")
+                failures.append(message or f"Repository '{repository}' {REPOSITORY_NOT_ACCESSIBLE_REASON}")
             if failures:
-                return False, "; ".join(failures)
+                return False, _join_validation_failures(failures)
             return True, None
         except Exception as e:
             # `_get_access_token` and the OAuth mixin raise deterministic config/credential errors

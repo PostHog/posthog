@@ -7,6 +7,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
 from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
+from ee.api.agentic_provisioning.ratelimits import RATE_LIMITED_MESSAGE
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
 
 
@@ -38,7 +39,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert res.json() == {
             "status": "error",
             "id": "",
-            "error": {"code": "rate_limited", "message": "Rate limit exceeded for this partner. Try again later."},
+            "error": {"code": "rate_limited", "message": RATE_LIMITED_MESSAGE},
         }
 
     @patch("ee.api.agentic_provisioning.views.resources.capture_provisioning_event")
@@ -75,6 +76,29 @@ class TestProvisioningResources(ProvisioningTestBase):
             "/api/agentic/provisioning/resources/99999",
             token=token,
         )
+        assert res.status_code == 403
+
+    @parameterized.expand(
+        [
+            ("read_access_control_revoked", "read", "access_control"),
+            ("read_org_membership_removed", "read", "membership"),
+            ("create_access_control_revoked", "create", "access_control"),
+            ("create_org_membership_removed", "create", "membership"),
+        ]
+    )
+    def test_resource_endpoints_rejected_after_team_access_lost(self, _name: str, endpoint: str, revocation: str):
+        token = self._get_bearer_token()
+
+        if revocation == "access_control":
+            self._restrict_team_access(self.team)
+        else:
+            self.organization_membership.delete()
+
+        if endpoint == "read":
+            res = self._get_with_bearer(f"/api/agentic/provisioning/resources/{self.team.id}", token=token)
+        else:
+            res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
+
         assert res.status_code == 403
 
     def test_get_resource_invalid_id_returns_400(self):
@@ -442,7 +466,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -533,7 +557,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},

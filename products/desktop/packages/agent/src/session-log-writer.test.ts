@@ -57,6 +57,7 @@ describe("SessionLogWriter", () => {
           jsonrpc: "2.0",
           method: "session/new",
           params: {
+            output: "sk-ant-oat01-fake-test-token",
             mcpServers: [
               {
                 name: "posthog",
@@ -73,7 +74,11 @@ describe("SessionLogWriter", () => {
 
       const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
       expect(JSON.stringify(entries)).not.toContain("protocol-secret");
+      expect(JSON.stringify(entries)).not.toContain(
+        "sk-ant-oat01-fake-test-token",
+      );
       expect(entries[0].notification.params).toEqual({
+        output: "[REDACTED]",
         mcpServers: [
           {
             name: "posthog",
@@ -84,6 +89,24 @@ describe("SessionLogWriter", () => {
           },
         ],
       });
+    });
+
+    it("persists the event id it was appended with", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+
+      logWriter.appendRawLine(
+        sessionId,
+        JSON.stringify({ method: "test" }),
+        "boot-7",
+      );
+      logWriter.appendRawLine(sessionId, JSON.stringify({ method: "test2" }));
+
+      await logWriter.flush(sessionId);
+
+      const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+      expect(entries[0].event_id).toBe("boot-7");
+      expect(entries[1].event_id).toBeUndefined();
     });
 
     it("ignores unregistered sessions", async () => {
@@ -190,7 +213,48 @@ describe("SessionLogWriter", () => {
   });
 
   describe("agent_message_chunk coalescing", () => {
-    it("coalesces consecutive chunks into a single agent_message", async () => {
+    it.each([
+      ["Hello ", "world", "Hello world"],
+      ["Token: sk-ant-", "oat01-fake-test-token", "Token: [REDACTED]"],
+    ])(
+      "coalesces and redacts message chunks",
+      async (first, second, expected) => {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_message_chunk", {
+            content: { type: "text", text: first },
+          }),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_message_chunk", {
+            content: { type: "text", text: second },
+          }),
+        );
+        // Non-chunk event triggers flush of chunks
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
+        );
+
+        await logWriter.flush(sessionId);
+
+        const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+        expect(entries).toHaveLength(2); // coalesced message + tool_call
+
+        const coalesced = entries[0].notification;
+        expect(coalesced.params?.update).toEqual({
+          sessionUpdate: "agent_message",
+          content: { type: "text", text: expected },
+        });
+        expect(logWriter.getLastAgentMessage(sessionId)).toBe(expected);
+      },
+    );
+
+    it("stamps the coalesced entry with the covered chunk id range", async () => {
       const sessionId = "s1";
       logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
 
@@ -199,30 +263,28 @@ describe("SessionLogWriter", () => {
         makeSessionUpdate("agent_message_chunk", {
           content: { type: "text", text: "Hello " },
         }),
+        "boot-3",
       );
       logWriter.appendRawLine(
         sessionId,
         makeSessionUpdate("agent_message_chunk", {
           content: { type: "text", text: "world" },
         }),
+        "boot-4",
       );
-      // Non-chunk event triggers flush of chunks
       logWriter.appendRawLine(
         sessionId,
         makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
+        "boot-5",
       );
 
       await logWriter.flush(sessionId);
 
       const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
-      expect(entries).toHaveLength(2); // coalesced message + tool_call
-
-      const coalesced = entries[0].notification;
-      expect(coalesced.params?.update).toEqual({
-        sessionUpdate: "agent_message",
-        content: { type: "text", text: "Hello world" },
-      });
-      expect(logWriter.getLastAgentMessage(sessionId)).toBe("Hello world");
+      expect(entries[0].first_event_id).toBe("boot-3");
+      expect(entries[0].event_id).toBe("boot-4");
+      expect(entries[1].event_id).toBe("boot-5");
+      expect(entries[1].first_event_id).toBeUndefined();
     });
 
     it("tracks direct agent_message updates", async () => {
@@ -555,12 +617,14 @@ describe("SessionLogWriter", () => {
         makeSessionUpdate("agent_message_chunk", {
           content: { type: "text", text: "partial" },
         }),
+        "boot-1",
       );
       logWriter.appendRawLine(
         sessionId,
         makeSessionUpdate("agent_message", {
           content: { type: "text", text: "complete" },
         }),
+        "boot-2",
       );
 
       await logWriter.flush(sessionId);
@@ -574,6 +638,8 @@ describe("SessionLogWriter", () => {
         sessionUpdate: "agent_message",
         content: { type: "text", text: "complete" },
       });
+      expect(entries[0].first_event_id).toBe("boot-1");
+      expect(entries[0].event_id).toBe("boot-2");
     });
   });
 
@@ -895,6 +961,25 @@ describe("SessionLogWriter — local-cache tool_call_update coalescing", () => {
     expect(log).toHaveLength(2);
     expect(sessionUpdateOf(log[0]).content).toBe("a3");
     expect(sessionUpdateOf(log[1]).sessionUpdate).toBe("agent_message");
+  });
+
+  it("redacts buffered updates before writing the local cache", async () => {
+    writer.appendRawLine(
+      RUN,
+      update({ rawInput: { token: "sk-ant-oat01-fake-test-token" } }),
+    );
+    writer.appendRawLine(
+      RUN,
+      update({
+        status: "completed",
+        rawOutput: [{ name: "Authorization", value: "fake-bearer" }],
+      }),
+    );
+    const log = await readLog();
+    expect(sessionUpdateOf(log[0])).toMatchObject({
+      rawInput: { token: "[REDACTED]" },
+      rawOutput: [{ name: "Authorization", value: "[REDACTED]" }],
+    });
   });
 
   it("a terminal update merges into buffered snapshots, later fields winning", async () => {

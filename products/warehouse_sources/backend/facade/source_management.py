@@ -76,10 +76,13 @@ _LAZY = {
     "SSL_REQUIRED_AFTER_DATE": "sources.postgres.postgres",
     "_get_sslmode": "sources.postgres.postgres",
     "get_primary_key_columns": "sources.postgres.postgres",
+    "new_source_requires_ssl": "sources.postgres.postgres",
     "source_requires_ssl": "sources.postgres.postgres",
     "PostgresSource": "sources.postgres.source",
     "RedshiftSource": "sources.redshift.source",
     "SnowflakeSource": "sources.snowflake.source",
+    "connect_trino": "sources.trino.trino",
+    "trino_error_to_message": "sources.trino.trino",
 }
 
 __all__ = sorted(_LAZY)

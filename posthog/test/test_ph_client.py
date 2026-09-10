@@ -1,10 +1,10 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
 import posthoganalytics
 
-from posthog.ph_client import ScopedCapture, get_client
+from posthog.ph_client import ScopedCapture, get_client, ph_scoped_capture
 
 
 class TestAILaneOptIn(SimpleTestCase):
@@ -31,6 +31,19 @@ class TestScopedCaptureFlush(SimpleTestCase):
         client = MagicMock()
         ScopedCapture(client).flush()
         client.flush.assert_called_once_with(timeout_seconds=None)
+
+    @override_settings(CLOUD_DEPLOYMENT="EU")
+    @patch("posthog.ph_client.get_client")
+    def test_scoped_capture_uses_requested_region(self, get_client_mock: MagicMock) -> None:
+        client = MagicMock()
+        get_client_mock.return_value = client
+
+        with ph_scoped_capture(region="EU") as capture:
+            capture(distinct_id="person", event="event")
+
+        get_client_mock.assert_called_once_with("EU")
+        client.capture.assert_called_once_with(distinct_id="person", event="event")
+        client.shutdown.assert_called_once()
 
 
 class TestGetClientTestGuard(SimpleTestCase):

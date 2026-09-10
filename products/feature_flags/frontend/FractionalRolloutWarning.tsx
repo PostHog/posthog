@@ -22,7 +22,7 @@ export function fractionalRolloutPercentages(filterGroups: FeatureFlagGroupType[
  *  precision than the editor's two decimal places, and 33.333333333333336 reads as a bug rather
  *  than a warning. Significant digits rather than fixed decimals, so a sub-0.01 rollout such as
  *  0.00015 doesn't render as 0. */
-function formatPercentage(percentage: number): string {
+export function formatPercentage(percentage: number): string {
     return `${Number(percentage.toPrecision(4))}%`
 }
 

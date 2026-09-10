@@ -79,13 +79,12 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
 
 
 # Instagram API with Facebook Login: the professional account is reached through the Facebook Page
-# it is linked to, so the grant needs the page permissions as well as the Instagram ones. Meta
-# replaced the legacy `instagram_*` permission names with `instagram_business_*`; the old names are
-# rejected at the OAuth dialog ("This app needs at least one supported permission").
+# it is linked to, so the grant needs the page permissions as well as the Instagram ones. These are
+# the Facebook Login permission names. The `instagram_business_*` names belong to Instagram Login, a
+# separate flow with its own authorize host, so the dialog rejects them as invalid scopes here.
 # https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login
 INSTAGRAM_OAUTH_SCOPE = (
-    "instagram_business_basic instagram_business_manage_insights instagram_business_manage_comments"
-    " pages_show_list pages_read_engagement"
+    "instagram_basic instagram_manage_insights instagram_manage_comments pages_show_list pages_read_engagement"
 )
 
 
@@ -728,8 +727,13 @@ class OauthIntegration:
             # to read the warehouse resources (emails/audiences/contacts/domains/broadcasts).
             # The token response carries no account identifier, so id/name are derived from the
             # access-token JWT below (see the resend branch in integration_from_oauth_response).
+            # Every OAuth endpoint lives on api.resend.com, including the authorize endpoint that
+            # the user's browser opens. This is what Resend publishes at
+            # https://api.resend.com/.well-known/oauth-authorization-server. The dashboard host
+            # resend.com has no /oauth/authorize route and answers with its own 404 page, so do
+            # not move the authorize URL there to match the address users see in the dashboard.
             return OauthConfig(
-                authorize_url="https://resend.com/oauth/authorize",
+                authorize_url="https://api.resend.com/oauth/authorize",
                 token_url="https://api.resend.com/oauth/token",
                 token_revoke_url="https://api.resend.com/oauth/revoke",
                 client_id=settings.RESEND_APP_CLIENT_ID,

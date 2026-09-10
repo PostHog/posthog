@@ -6,8 +6,10 @@ import {
     LibrdKafkaError,
     Message,
     Metadata,
+    PartitionMetadata,
     KafkaConsumer as RdKafkaConsumer,
     TopicPartitionOffset,
+    WatermarkOffsets,
 } from 'node-rdkafka'
 import { hostname } from 'os'
 
@@ -31,6 +33,7 @@ import {
     consumerBatchUtilization,
     consumerDrainDuration,
     consumerDrainTimeouts,
+    consumerPolls,
     consumerStaleStoreOffsetsSkipped,
     kafkaConsumerAssignment,
 } from './metrics'
@@ -51,6 +54,9 @@ export type KafkaConsumerV2Config = {
     autoOffsetStore?: boolean
     autoCommit?: boolean
     enablePartitionEof?: boolean
+    fetchBatchSize?: number
+    maxBackgroundTasks?: number
+    rebalanceTimeoutMs?: number
 }
 
 export type RdKafkaConsumerOverrides = Omit<
@@ -133,11 +139,11 @@ export class KafkaConsumerV2 {
             .toString(36)
             .substring(2, 8)}`
 
-        this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
+        this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
         this.batchTimeoutMs = this.config.batchTimeoutMs ?? DEFAULT_BATCH_TIMEOUT_MS
-        this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
+        this.maxBackgroundTasks = config.maxBackgroundTasks ?? defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.backgroundTaskTimeoutMs = defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS
-        this.drainTimeoutMs = defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS
+        this.drainTimeoutMs = config.rebalanceTimeoutMs ?? defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS
         this.loopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS || LOOP_STALL_THRESHOLD_MS_DEFAULT
         this.logStatsLevel = defaultConfig.CONSUMER_LOG_STATS_LEVEL
 
@@ -203,6 +209,46 @@ export class KafkaConsumerV2 {
 
     public assignments(): Assignment[] {
         return this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
+    }
+
+    public async queryWatermarkOffsets(topic: string, partition: number, timeout = 10000): Promise<[number, number]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            throw new Error('Not connected')
+        }
+
+        const offsets = await promisifyCallback<WatermarkOffsets>((cb) =>
+            this.rdKafkaConsumer.queryWatermarkOffsets(topic, partition, timeout, cb)
+        ).catch((err) => {
+            captureException(err)
+            logger.error('🔥', 'Failed to query kafka watermark offsets', err)
+            throw err
+        })
+
+        return [offsets.lowOffset, offsets.highOffset]
+    }
+
+    public async committedOffsets(timeout = 10000): Promise<TopicPartitionOffset[]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            return []
+        }
+
+        return await promisifyCallback<TopicPartitionOffset[]>((cb) => this.rdKafkaConsumer.committed(timeout, cb))
+    }
+
+    public async getPartitionsForTopic(topic: string): Promise<PartitionMetadata[]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            throw new Error('Not connected')
+        }
+
+        const meta = await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.getMetadata({ topic }, cb)).catch(
+            (err) => {
+                captureException(err)
+                logger.error('🔥', 'Failed to get partition metadata', err)
+                throw err
+            }
+        )
+
+        return meta.topics.find((entry) => entry.name === topic)?.partitions ?? []
     }
 
     public offsetsStore(offsets: TopicPartitionOffset[]): void {
@@ -299,6 +345,41 @@ export class KafkaConsumerV2 {
         } finally {
             // Drain whatever is left before letting the caller's disconnect() return.
             await this.drainAll('shutdown')
+            this.answerPendingRebalances()
+        }
+    }
+
+    /**
+     * Answer rebalance events that were queued but never handled because the loop stopped.
+     * librdkafka blocks disconnect() until the application responds to a pending cooperative
+     * rebalance, so leaving one unanswered hangs shutdown. Nothing polls any more, so an
+     * assignment answered here delivers no messages and is released by the final REVOKE that
+     * disconnect() routes through rebalanceCallback.
+     */
+    private answerPendingRebalances(): void {
+        while (this.rebalanceQueue.length > 0) {
+            const event = this.rebalanceQueue.shift()!
+            if (event.type === 'ERROR') {
+                continue
+            }
+            try {
+                if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                    if (event.type === 'ASSIGN') {
+                        this.rdKafkaConsumer.incrementalAssign(event.partitions)
+                    } else {
+                        this.rdKafkaConsumer.incrementalUnassign(event.partitions)
+                    }
+                } else if (event.type === 'ASSIGN') {
+                    this.rdKafkaConsumer.assign(event.partitions)
+                } else {
+                    this.rdKafkaConsumer.unassign()
+                }
+            } catch (error) {
+                logger.warn('🔁', 'kafka_consumer_v2_pending_rebalance_answer_failed', {
+                    type: event.type,
+                    error: String(error),
+                })
+            }
         }
     }
 
@@ -307,6 +388,7 @@ export class KafkaConsumerV2 {
             promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
         )
 
+        consumerPolls.labels(this.config.topic, this.config.groupId).inc()
         consumerBatchSize.observe(messages.length)
         consumerBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
         consumerBatchUtilization.labels({ groupId: this.config.groupId }).set(messages.length / this.fetchBatchSize)

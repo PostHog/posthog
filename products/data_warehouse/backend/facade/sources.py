@@ -31,6 +31,11 @@ from products.data_warehouse.backend.direct_snowflake import (
     DIRECT_SNOWFLAKE_SCHEMA_OPTION,
     DIRECT_SNOWFLAKE_TABLE_OPTION,
 )
+from products.data_warehouse.backend.direct_trino import (
+    DIRECT_TRINO_CATALOG_OPTION,
+    DIRECT_TRINO_SCHEMA_OPTION,
+    DIRECT_TRINO_TABLE_OPTION,
+)
 
 __all__ = [
     "DIRECT_CLICKHOUSE_DATABASE_OPTION",
@@ -49,4 +54,7 @@ __all__ = [
     "DIRECT_SNOWFLAKE_CATALOG_OPTION",
     "DIRECT_SNOWFLAKE_SCHEMA_OPTION",
     "DIRECT_SNOWFLAKE_TABLE_OPTION",
+    "DIRECT_TRINO_CATALOG_OPTION",
+    "DIRECT_TRINO_SCHEMA_OPTION",
+    "DIRECT_TRINO_TABLE_OPTION",
 ]

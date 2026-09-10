@@ -4,8 +4,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.management import CommandError, call_command
-from django.test import override_settings
 
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
@@ -21,8 +21,11 @@ def _window() -> dict[str, str]:
     }
 
 
-@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True)
 class TestBackfillSignupEnrichment(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.enterContext(override_instance_config("GROWTH_SIGNUP_ENRICHMENT_ENABLED", True))
+
     def _org(
         self,
         *,
@@ -64,7 +67,7 @@ class TestBackfillSignupEnrichment(BaseTest):
         assert inputs.distinct_id == target.memberships.get().user.distinct_id
 
     def test_refuses_when_kill_switch_off(self):
-        with override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=False):
+        with override_instance_config("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False):
             with self.assertRaises(CommandError):
                 call_command("backfill_signup_enrichment", **_window())
 

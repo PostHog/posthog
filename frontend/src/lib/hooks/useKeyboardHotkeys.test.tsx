@@ -79,9 +79,21 @@ describe('useKeyboardHotkeys', () => {
         })
     })
 
-    it('does not capture held-key repeats but still runs the action', () => {
+    it('runs the action once when a key is held, ignoring OS repeats', () => {
         const action = jest.fn()
-        renderHook(() => useKeyboardHotkeys({ arrowleft: { action, willHandleEvent: true } }))
+        renderHook(() => useKeyboardHotkeys({ s: { action } }))
+
+        press('s')
+        press('s', { repeat: true })
+        press('s', { repeat: true })
+
+        expect(action).toHaveBeenCalledTimes(1)
+        expect(mockPosthog.capture).toHaveBeenCalledTimes(1)
+    })
+
+    it('re-runs the action on repeats for allowRepeat hotkeys but still captures once', () => {
+        const action = jest.fn()
+        renderHook(() => useKeyboardHotkeys({ arrowleft: { action, willHandleEvent: true, allowRepeat: true } }))
 
         press('ArrowLeft')
         press('ArrowLeft', { repeat: true })

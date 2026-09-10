@@ -10,9 +10,9 @@ import time
 import datetime as dt
 from typing import Any
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.utils import GenericEmails, get_instance_region
 
@@ -43,7 +43,7 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         # The kill switch is the master control for sending org data to the provider; a backfill
         # must not defeat it if it was turned off for a compliance, cost, or vendor reason.
-        if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED:
+        if not get_instance_setting("GROWTH_SIGNUP_ENRICHMENT_ENABLED"):
             raise CommandError("Signup enrichment is disabled (GROWTH_SIGNUP_ENRICHMENT_ENABLED); refusing to dispatch")
         # Cloud only, mirrors the signup-path region gate (products/growth/backend/temporal/signup_enrichment/trigger.py).
         if get_instance_region() not in ("US", "EU"):

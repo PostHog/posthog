@@ -2,7 +2,6 @@ import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeDashboard'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
 import '../Nodes/NotebookNodeSQLV2'
-import '../Nodes/NotebookNodeDuckSQL'
 import '../Nodes/NotebookNodeEarlyAccessFeature'
 import '../Nodes/NotebookNodeEmbed'
 import '../Nodes/NotebookNodeExperiment'
@@ -11,7 +10,6 @@ import '../Nodes/NotebookNodeFlag'
 import '../Nodes/NotebookNodeFlagCodeExample'
 import '../Nodes/NotebookNodeGroup'
 import '../Nodes/NotebookNodeGroupProperties'
-import '../Nodes/NotebookNodeHogQL'
 import '../Nodes/NotebookNodeImage'
 import '../Nodes/NotebookNodeIssues'
 import '../Nodes/NotebookNodeLatex'
@@ -21,7 +19,6 @@ import '../Nodes/NotebookNodePerson'
 import '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import '../Nodes/NotebookNodePersonProperties'
 import '../Nodes/NotebookNodePlaylist'
-import '../Nodes/NotebookNodePython'
 import '../Nodes/NotebookNodePythonV2'
 import '../Nodes/NotebookNodeQuery'
 import '../Nodes/NotebookNodeRecording'
@@ -46,6 +43,7 @@ import {
     useMemo,
     useRef,
 } from 'react'
+import { useInView } from 'react-intersection-observer'
 
 import { IconComment, IconImage } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
@@ -66,16 +64,21 @@ import {
     NotebookComponentRegistry,
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
-import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
+import { getSerializableProps, isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookNodeGeneratedWidget'
+import { NotebookGeneratedWidgetRunButton } from 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookGeneratedWidgetRunButton'
+
 import { NODE_ICONS } from '../nodeIcons'
+import { NotebookCodeCellRunButton } from '../Nodes/components/NotebookCodeCellRunButton'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { getNotebookWidgetViewMenuItem } from '../notebookWidgetMenu'
@@ -164,11 +167,9 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     Dashboard: NotebookNodeType.Dashboard,
     Action: NotebookNodeType.Action,
     Workflow: NotebookNodeType.Workflow,
-    Python: NotebookNodeType.Python,
     PythonV2: NotebookNodeType.PythonV2,
-    DuckSQL: NotebookNodeType.DuckSQL,
-    HogQLSQL: NotebookNodeType.HogQLSQL,
     SQLV2: NotebookNodeType.SQLV2,
+    Widget: NotebookNodeType.GeneratedWidget,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -227,16 +228,16 @@ function getMarkdownNodeOptions(tagName: string): CreatePostHogWidgetNodeOptions
     return nodeType ? KNOWN_NODES[nodeType] : null
 }
 
-// A code cell's `filters` panel is its code editor, and the shell leaves that panel closed
-// unless the node carries `showFilters`. A cell the user just inserted holds no code and no
-// result, so without this it renders as an empty box with nothing to type into.
-const CODE_CELL_EDITOR_OPEN_PROPS: NotebookComponentProps = { showFilters: true }
+// The notebook shell closes input panels unless the node carries `showFilters`. New programmable
+// blocks need immediate input, so opening the panel avoids an empty block with no visible next step.
+const INPUT_PANEL_OPEN_PROPS: NotebookComponentProps = { showFilters: true }
 
 export const MARKDOWN_NODE_DEFINITIONS: {
     tagName: string
     category: string
     label?: string
     EditComponent?: NotebookComponentDefinition['EditComponent']
+    ToolbarComponent?: NotebookComponentDefinition['ToolbarComponent']
     exclusiveEditPanel?: boolean
     insertCommand?: NotebookComponentDefinition['insertCommand']
 }[] = [
@@ -245,34 +246,28 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'Dashboard', category: 'Insight' },
     { tagName: 'Action', category: 'Data' },
     { tagName: 'Workflow', category: 'PostHog' },
-    // Legacy in-browser-kernel Python cell: still renders where it exists, but new cells
-    // are always the revamped PythonV2 below, so it has no insertCommand.
-    { tagName: 'Python', category: 'Code' },
-    // The revamped (sandbox-kernel) Python cell; insertion gated like SQLV2 in
-    // getMarkdownRegistryForFeatureFlags.
+    // The sandbox-kernel Python cell; insertion gated like SQLV2 in getMarkdownRegistryForFeatureFlags.
     {
         tagName: 'PythonV2',
         category: 'Code',
         label: 'Python',
+        ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
             aliases: ['python', 'py'],
             defaultProps: () => ({
                 ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
-                ...CODE_CELL_EDITOR_OPEN_PROPS,
+                ...INPUT_PANEL_OPEN_PROPS,
                 nodeId: uuid(),
             }),
         },
     },
-    { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
-    { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
     // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
     // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
     {
         tagName: 'SQLV2',
         category: 'SQL',
-        // The single SQL node once the legacy SQL cells are deprecated (they render but
-        // are not insertable), so it reads as plain "SQL" in the insert menu.
         label: 'SQL',
+        ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
             // Sits in the menu's top group, where the built-in SQL command it replaces used to be,
             // so SQL stays where people already reach for it. Only the menu grouping moves; the
@@ -284,7 +279,22 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             // writes runId/result) would orphan the cell's run history and cross-cell refs.
             defaultProps: () => ({
                 ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
-                ...CODE_CELL_EDITOR_OPEN_PROPS,
+                ...INPUT_PANEL_OPEN_PROPS,
+                nodeId: uuid(),
+            }),
+        },
+    },
+    {
+        tagName: 'Widget',
+        category: 'Code',
+        label: 'Widget',
+        ToolbarComponent: NotebookGeneratedWidgetRunButton,
+        insertCommand: {
+            category: COMMON_INSERT_COMMAND_CATEGORY,
+            aliases: ['visualization', 'widget', '3d'],
+            defaultProps: () => ({
+                ...getDefaultPropsForNodeType(NotebookNodeType.GeneratedWidget),
+                ...INPUT_PANEL_OPEN_PROPS,
                 nodeId: uuid(),
             }),
         },
@@ -337,6 +347,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             defaultProps: () => getDefaultPropsForNodeType(nodeType),
             ViewComponent: RealNotebookNodeView,
             EditComponent: definition.EditComponent ?? RealNotebookNodeEdit,
+            ToolbarComponent: definition.ToolbarComponent,
             exclusiveEditPanel: definition.exclusiveEditPanel,
             editableTitle: options?.editableTitle,
             // Nodes with a Settings panel keep their filters toggle on read-only canvases
@@ -378,6 +389,9 @@ export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet
     const hiddenTags: string[] = []
     if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
         hiddenTags.push('SQLV2', 'PythonV2')
+    }
+    if (!featureFlags[FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]) {
+        hiddenTags.push('Widget')
     }
 
     if (hiddenTags.length === 0) {
@@ -436,13 +450,7 @@ export function getMarkdownNotebookNodeTitle(
             fallback
         )
     }
-    if (
-        nodeType === NotebookNodeType.Python ||
-        nodeType === NotebookNodeType.PythonV2 ||
-        nodeType === NotebookNodeType.SQLV2 ||
-        nodeType === NotebookNodeType.DuckSQL ||
-        nodeType === NotebookNodeType.HogQLSQL
-    ) {
+    if (nodeType === NotebookNodeType.PythonV2 || nodeType === NotebookNodeType.SQLV2) {
         // Never suggest the code/SQL body itself as a title — fall back to the language label
         return fallback
     }
@@ -773,6 +781,17 @@ export function MountedRealNotebookNodeComponent({
 }): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const contentRef = useRef<HTMLDivElement | null>(null)
+    const { ref: inViewRef, inView } = useInView({
+        triggerOnce: !options.unmountWhenOutOfView,
+        fallbackInView: true,
+    })
+    const setContentRefs = useCallback(
+        (element: HTMLDivElement | null): void => {
+            contentRef.current = element
+            inViewRef(element)
+        },
+        [inViewRef]
+    )
     const attributes = useMemo(
         () => getNodeAttributes(node.props, node.id, options, notebookNodeType, forceEditing),
         [forceEditing, node.id, node.props, notebookNodeType, options]
@@ -927,7 +946,7 @@ export function MountedRealNotebookNodeComponent({
                     ) : null}
                     {showContent ? (
                         <div
-                            ref={contentRef}
+                            ref={setContentRefs}
                             className={clsx(
                                 'MarkdownNotebook__real-node-content',
                                 isResizeable && 'MarkdownNotebook__real-node-content--resizeable'
@@ -935,7 +954,11 @@ export function MountedRealNotebookNodeComponent({
                             style={contentStyle}
                             onMouseDown={handleResizeStart}
                         >
-                            <Component attributes={attributes} updateAttributes={updateAttributes} />
+                            {!options.unmountWhenOutOfView || inView ? (
+                                <Component attributes={attributes} updateAttributes={updateAttributes} />
+                            ) : (
+                                <LemonSkeleton className="h-full w-full" />
+                            )}
                             {isResizeable ? (
                                 <div
                                     className="MarkdownNotebook__real-node-resize-handle"
@@ -1132,20 +1155,6 @@ export function getSerializableAttributeInputValue(
     }
 
     return trimmedValue
-}
-
-export function getSerializableProps(attributes: Partial<NotebookNodeAttributes<any>>): NotebookComponentProps {
-    return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
-        // Normalize before validating, mirroring how the legacy notebook flow synced attributes.
-        // Otherwise isNotebookPropValue rejects an object with a single nested `undefined` property and—
-        // it gets ignored. e.g. a person-property filter's absent `label`/`group_type_index` inside
-        // `query.source.properties` — fails isNotebookPropValue and the whole `query` prop is dropped
-        const normalized = toSerializablePropValue(value)
-        if (normalized !== undefined && isNotebookPropValue(normalized)) {
-            props[key] = normalized
-        }
-        return props
-    }, {})
 }
 
 export function splitTagName(tagName: string): string {

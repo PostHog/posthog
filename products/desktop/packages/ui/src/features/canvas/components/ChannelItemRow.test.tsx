@@ -1,13 +1,28 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
+import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import {
+  beginSidebarPeek,
+  cancelSidebarPeek,
+  endSidebarPeek,
+  useSidebarPeekStore,
+} from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import {
   TASK_DRAG_TYPE,
   TASK_IDS_DRAG_TYPE,
 } from "@posthog/ui/features/sidebar/taskDrag";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { Theme } from "@radix-ui/themes";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,9 +33,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   status: null as TaskStatusInput | null,
   currentUserId: 999 as number | undefined,
+  currentUserUuid: "u-1" as string | undefined,
+  analysis: {
+    canAnalyze: false,
+    isPending: false,
+    run: vi.fn(),
+  },
+  openBrowserTab: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
-  useCurrentUser: () => ({ data: { id: mocks.currentUserId } }),
+  useCurrentUser: () => ({
+    data: { id: mocks.currentUserId, uuid: mocks.currentUserUuid },
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useChannelTaskStatus: () => mocks.status,
@@ -33,9 +57,18 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => vi.fn(),
 }));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => mocks.openBrowserTab,
+}));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => true,
 }));
+vi.mock(
+  "@posthog/ui/features/task-detail/components/TaskAnalysisButton",
+  () => ({
+    useTaskAnalysis: () => mocks.analysis,
+  }),
+);
 // The handoff dialog is tested on its own; here it only opens.
 vi.mock(
   "@posthog/ui/features/task-detail/components/HandoffTaskDialog",
@@ -45,6 +78,7 @@ vi.mock(
 );
 
 import { usePendingCanvasDeleteStore } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelItemPreviewCardProvider } from "./ChannelItemHoverCard";
 import { ChannelItemRow } from "./ChannelItemRow";
 
@@ -54,6 +88,7 @@ const actions = {
   setPinned: () => {},
   archive: () => {},
   remove: () => {},
+  fileCanvas: () => {},
 };
 
 function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
@@ -74,6 +109,8 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     authorName: null,
     authorUuid: "user-uuid",
     templateId: null,
+    repository: null,
+    branch: null,
     task: null,
     ...overrides,
   };
@@ -99,7 +136,14 @@ function renderRow(model: ChannelItemModel) {
 
 beforeEach(() => {
   mocks.status = null;
+  mocks.analysis = { canAnalyze: false, isPending: false, run: vi.fn() };
+  mocks.openBrowserTab.mockClear();
+  useSidebarStore.setState({ listItemMetadataFields: [] });
   usePendingCanvasDeleteStore.setState({ pending: {} });
+  useArchivingTasksStore.setState({
+    archivingTaskIds: new Set(),
+    hiddenArchivingTaskIds: new Set(),
+  });
   useTaskSelectionStore.setState({
     selectedTaskIds: [],
     lastClickedId: null,
@@ -107,20 +151,73 @@ beforeEach(() => {
 });
 
 describe("ChannelItemRow", () => {
-  // The dot vocabulary in one table: what the row's leading mark says for each
-  // state a task can be in. Only the states a reader can act on get a voice —
-  // run mechanics (queued, failed) resolve to a dot that describes the work
-  // rather than the status: starting, live but stalled, or something to read.
+  it("dims an archiving task and blocks its row actions", () => {
+    const pendingActions = {
+      ...actions,
+      open: vi.fn(),
+      togglePin: vi.fn(),
+      archive: vi.fn(),
+    };
+    useArchivingTasksStore.getState().startArchiving("task-1");
+    renderInList(
+      <ChannelItemRow
+        actions={pendingActions}
+        isActive={false}
+        isEditing
+        item={item()}
+      />,
+    );
+
+    const row = screen.getByRole("button");
+    expect(row.className).toContain("opacity-50");
+    expect(row.draggable).toBe(false);
+    expect(row).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByText("Archiving")).toHaveClass("sr-only");
+    expect(screen.queryByRole("textbox")).toBeNull();
+
+    fireEvent.click(row);
+    fireEvent.contextMenu(row);
+    expect(pendingActions.open).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it.each([
     ["a permission prompt", { needsPermission: true }, "Needs your input"],
+    [
+      "a new run starting with a stale permission prompt",
+      { needsPermission: true, isAgentSessionStarting: true },
+      "Loading",
+    ],
+    [
+      "an agent session being created",
+      { isAgentSessionStarting: true },
+      "Loading",
+    ],
     ["a streaming agent", { isGenerating: true }, "Working"],
     [
-      // A background run is one-shot and unattended, so its in_progress really
-      // is a claim that the agent is still on it. Live, but nothing streaming —
-      // the still dot, not the spinner.
-      "a background run claiming progress with nothing in flight",
+      "a streaming agent with stale queued status",
+      {
+        isGenerating: true,
+        taskRunStatus: "queued" as const,
+        workspaceMode: "cloud" as const,
+      },
+      "Working",
+    ],
+    [
+      // Persisted run status can outlive the work. Without a live stream it
+      // must not look like unread attention that opening the session can clear.
+      "a background run left in progress with nothing in flight",
       { taskRunStatus: "in_progress" as const, runMode: "background" as const },
-      "Pending — no work in flight",
+      "All caught up",
+    ],
+    [
+      "a running cloud session restored after an app restart",
+      {
+        taskRunStatus: "in_progress" as const,
+        workspaceMode: "cloud" as const,
+        isGenerating: true,
+      },
+      "Working",
     ],
     [
       // The backend leaves an interactive run in_progress after it succeeds, so
@@ -135,18 +232,35 @@ describe("ChannelItemRow", () => {
       "All caught up",
     ],
     [
+      "a cloud run waiting to be queued",
+      {
+        taskRunStatus: "not_started" as const,
+        workspaceMode: "cloud" as const,
+      },
+      "Loading",
+    ],
+    [
       // Launching: a sandbox is being claimed and the backend leaves this state
       // on its own, so the motion is honest.
       "a queued cloud run",
       { taskRunStatus: "queued" as const, workspaceMode: "cloud" as const },
-      "Starting",
+      "Loading",
     ],
     [
       // A background run's status is never advanced once it parks, so queued
       // here means "was launched at some point", not "is starting".
       "a local background run parked at queued",
       { taskRunStatus: "queued" as const, runMode: "background" as const },
-      "Pending — no work in flight",
+      "All caught up",
+    ],
+    [
+      "unread output on a background run with stale status",
+      {
+        taskRunStatus: "in_progress" as const,
+        runMode: "background" as const,
+        isUnread: true,
+      },
+      "Unread — something to read",
     ],
     [
       // A PR outranks a run that only claims to be working, but not one that is
@@ -159,12 +273,26 @@ describe("ChannelItemRow", () => {
         workspaceMode: "cloud" as const,
         prState: "open" as const,
       },
-      "Starting",
+      "Loading",
+    ],
+    [
+      "a new run starting after a failed run",
+      {
+        taskRunStatus: "failed" as const,
+        isAgentSessionStarting: true,
+        isUnread: true,
+      },
+      "Loading",
+    ],
+    [
+      "a working run with stale failed metadata",
+      { taskRunStatus: "failed" as const, isGenerating: true },
+      "Working",
     ],
     [
       "a broken run with unseen output",
       { taskRunStatus: "failed" as const, isUnread: true },
-      "Unread — something to read",
+      "Failed",
     ],
     ["a suspended task", { isSuspended: true }, "Suspended — parked"],
     [
@@ -282,6 +410,32 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
   });
 
+  it.each([
+    ["task", "u-1", "You were here recently"],
+    ["task", "u-2", "Ada Lovelace was here recently"],
+    ["canvas", "u-1", "You were here recently"],
+    ["canvas", "u-2", "Ada Lovelace was here recently"],
+  ] as const)("labels recent %s presence for %s", (kind, uuid, label) => {
+    renderRow(
+      item({
+        kind,
+        ts: Date.now() - 5 * 60_000,
+        authorUuid: uuid,
+        authorUser: {
+          id: 1,
+          uuid,
+          email: "ada@example.com",
+          first_name: "Ada",
+          last_name: "Lovelace",
+        },
+      }),
+    );
+
+    expect(screen.getByRole("img", { name: label }).textContent).toContain(
+      "AL",
+    );
+  });
+
   // A pinned row offering only `move` resolves against the Command Center's
   // `copy` as no drop, so the tile stops accepting it with nothing to show why.
   it.each([{ pinned: false }, { pinned: true }])(
@@ -316,7 +470,7 @@ describe("ChannelItemRow", () => {
     expect(dataTransfer.effectAllowed).toBe("copyMove");
   });
 
-  it("does not make canvases draggable into the Command Center", () => {
+  it("makes canvases draggable into the Command Center", () => {
     renderRow(
       item({
         key: "canvas:canvas-1",
@@ -324,8 +478,13 @@ describe("ChannelItemRow", () => {
         id: "canvas-1",
       }),
     );
+    const setData = vi.fn();
+    const dataTransfer = { setData, effectAllowed: "none" };
 
-    expect(screen.getByRole("button")).not.toHaveAttribute("draggable", "true");
+    fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
+
+    expect(setData).toHaveBeenCalledWith(CANVAS_DRAG_TYPE, "canvas-1");
+    expect(dataTransfer.effectAllowed).toBe("copy");
   });
 
   // The hover card and right-click render the same item list from one
@@ -333,7 +492,7 @@ describe("ChannelItemRow", () => {
   const MENU_ITEMS = [
     "Pin",
     "Rename",
-    "Add to Command Center",
+    "Add to Command Center…",
     "File to…",
     "Archive",
   ];
@@ -377,6 +536,96 @@ describe("ChannelItemRow", () => {
     for (const label of MENU_ITEMS) {
       expect(screen.getByRole("menuitem", { name: label })).not.toBeNull();
     }
+  });
+
+  it("opens a task in a new tab from the context menu", () => {
+    renderWithMenu({});
+
+    fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new tab" }));
+
+    expect(mocks.openBrowserTab).toHaveBeenCalledWith("/tasks/task-1");
+  });
+
+  it("opens a canvas in a new tab at its space's URL", () => {
+    const canvas = item({
+      key: "canvas:c1",
+      kind: "canvas",
+      id: "c1",
+      title: "Web analytics overview",
+      authorUuid: "u-1",
+    });
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={canvas}
+        channelId="channel-1"
+        onAddToCommandCenter={() => {}}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText("Web analytics overview"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new tab" }));
+
+    expect(mocks.openBrowserTab).toHaveBeenCalledWith(
+      "/spaces/channel-1/dashboards/c1",
+    );
+  });
+
+  it("keeps the hover sidebar open while the context menu is open", () => {
+    vi.useFakeTimers();
+    try {
+      beginSidebarPeek();
+      renderWithMenu({});
+
+      fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+      endSidebarPeek(0);
+      act(() => vi.runAllTimers());
+
+      expect(useSidebarPeekStore.getState().peek).toBe(true);
+
+      fireEvent.keyDown(document, { key: "Escape" });
+      act(() => vi.runAllTimers());
+
+      expect(useSidebarPeekStore.getState().peek).toBe(false);
+    } finally {
+      cleanup();
+      cancelSidebarPeek();
+      vi.useRealTimers();
+    }
+  });
+
+  it("offers Run analysis for a task with a terminal run", () => {
+    const run = vi.fn();
+    mocks.analysis = { canAnalyze: true, isPending: false, run };
+    const task = {
+      id: "task-1",
+      task_number: 1,
+      slug: "task-1",
+      title: "Investigate signup drop-off",
+      description: "",
+      created_at: "2026-07-16T12:00:00.000Z",
+      updated_at: "2026-07-16T12:00:00.000Z",
+      origin_product: "user_created",
+      latest_run: { id: "run-1", status: "completed" },
+    } as Task;
+
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={item({ task })}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+
+    const analysisItem = screen.getByRole("menuitem", {
+      name: "Run analysis",
+    });
+    expect(analysisItem).not.toBeNull();
+    fireEvent.click(analysisItem);
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("offers Hand off… only to the task's owner", async () => {
@@ -423,7 +672,7 @@ describe("ChannelItemRow", () => {
     // Quill keeps a disabled button focusable, so the state is aria-disabled
     // rather than the native attribute.
     expect(
-      screen.getByRole("button", { name: "Add to Command Center" }),
+      screen.getByRole("button", { name: "Add to Command Center…" }),
     ).toHaveAttribute("aria-disabled", "true");
   });
 
@@ -452,12 +701,43 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "All caught up" })).toBeNull();
   });
 
-  it("gives a canvas the actions it has: pin and delete, not archive or filing", async () => {
+  it("lets a canvas be filed to another space", async () => {
     const canvas = item({
       key: "canvas:c1",
       kind: "canvas",
       id: "c1",
       title: "Web analytics overview",
+      authorUuid: "u-1",
+    });
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={canvas}
+        onAddToCommandCenter={() => {}}
+      />,
+    );
+
+    await userEvent.hover(screen.getByText("Web analytics overview"));
+
+    expect(
+      await screen.findByRole("button", { name: "Pin" }, { timeout: 2000 }),
+    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Delete…" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Add to Command Center…" }),
+    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: "File to…" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+  });
+
+  it("does not offer filing for another user's canvas", async () => {
+    const canvas = item({
+      key: "canvas:c1",
+      kind: "canvas",
+      id: "c1",
+      title: "Web analytics overview",
+      authorUuid: "u-2",
     });
     renderInList(
       <ChannelItemRow actions={actions} isActive={false} item={canvas} />,
@@ -468,12 +748,7 @@ describe("ChannelItemRow", () => {
     expect(
       await screen.findByRole("button", { name: "Pin" }, { timeout: 2000 }),
     ).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Delete…" })).not.toBeNull();
-    // A canvas can't be archived, filed to a space, or given a command-centre
-    // cell, so those items aren't drawn at all rather than drawn dead.
-    for (const absent of ["Archive", "File to…", "Add to Command Center"]) {
-      expect(screen.queryByRole("button", { name: absent })).toBeNull();
-    }
+    expect(screen.queryByRole("button", { name: "File to…" })).toBeNull();
   });
 
   it("confirms before deleting a canvas — it goes for the whole space", async () => {
@@ -504,5 +779,53 @@ describe("ChannelItemRow", () => {
     );
 
     expect(remove).toHaveBeenCalledWith(canvas);
+  });
+
+  it("shows the metadata fields the appearance settings ask for, in that order", () => {
+    useSidebarStore.setState({
+      listItemMetadataFields: ["branch", "repository"],
+    });
+    renderRow(
+      item({
+        authorName: "Ada Lovelace",
+        repository: { key: "posthog/code", label: "PostHog/code" },
+        branch: "posthog/session-list",
+      }),
+    );
+
+    // Order is the segment builder's job and is tested there; a row's job is
+    // to show what the settings asked for.
+    expect(screen.getByText("posthog/session-list")).toBeInTheDocument();
+    expect(screen.getByText("PostHog/code")).toBeInTheDocument();
+  });
+
+  // A session carries its creator as a user, not a name, so reading the name
+  // alone left every session row without one.
+  it("names the creator of a session, which carries a user rather than a name", () => {
+    useSidebarStore.setState({ listItemMetadataFields: ["creator"] });
+    renderRow(
+      item({
+        authorUser: {
+          id: 1,
+          uuid: "user-uuid",
+          first_name: "Ada",
+          last_name: "Lovelace",
+          email: "ada@example.com",
+        },
+      }),
+    );
+
+    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
+  });
+
+  it("leaves a row single-line when no metadata fields are chosen", () => {
+    renderRow(
+      item({
+        authorName: "Ada Lovelace",
+        repository: { key: "posthog/code", label: "PostHog/code" },
+      }),
+    );
+
+    expect(screen.queryByText(/PostHog\/code/)).not.toBeInTheDocument();
   });
 });

@@ -39,7 +39,6 @@ function canvas(over: Partial<DashboardRecord> = {}): DashboardRecord {
     kind: "freeform" as const,
     description: "",
     templateId: "freeform",
-    context: "",
     createdAt: 0,
     updatedAt: 1_000,
     ...over,
@@ -72,12 +71,13 @@ function build(options: Partial<Parameters<typeof buildChannelItems>[0]> = {}) {
 describe("buildChannelItems", () => {
   it("merges canvases and tasks newest-first", () => {
     const items = build({
-      dashboards: [canvas({ id: "old", updatedAt: 1_000 })],
+      dashboards: [canvas({ id: "old", updatedAt: 1_000, createdByUser: ME })],
       feedTasks: [
         task({ id: "new", updated_at: new Date(5_000).toISOString() }),
       ],
     });
     expect(items.map((i) => i.key)).toEqual(["task:new", "canvas:old"]);
+    expect(items.map((item) => item.authorUser)).toEqual([ME, ME]);
   });
 
   it("drops archived tasks but keeps canvases", () => {
@@ -179,10 +179,44 @@ describe("buildChannelItems", () => {
       sessionFacts: {
         needsInputTaskIds: NONE,
         viewedTimestamps: {},
-        workspaceModeByTaskId: new Map(mode ? [["t1", mode]] : []),
+        workspaceByTaskId: new Map(mode ? [["t1", { mode }]] : []),
       },
     });
     expect(item.environment).toBe(expected);
+  });
+
+  it("resolves a session's repository and branch once, checkout first", () => {
+    const [item] = build({
+      feedTasks: [task({ id: "t1", repository: "PostHog/code" })],
+      sessionFacts: {
+        needsInputTaskIds: NONE,
+        viewedTimestamps: {},
+        workspaceByTaskId: new Map([
+          ["t1", { folderPath: "/src/code", branch: "posthog/session-list" }],
+        ]),
+      },
+    });
+
+    expect(item.repository).toEqual({
+      key: "posthog/code",
+      label: "PostHog/code",
+    });
+    expect(item.branch).toBe("posthog/session-list");
+  });
+
+  it("does not treat a scratch workspace's folder as a repository", () => {
+    const [item] = build({
+      feedTasks: [task({ id: "t1" })],
+      sessionFacts: {
+        needsInputTaskIds: NONE,
+        viewedTimestamps: {},
+        workspaceByTaskId: new Map([
+          ["t1", { folderPath: "/scratch/t1", isScratch: true }],
+        ]),
+      },
+    });
+
+    expect(item.repository).toBeNull();
   });
 
   it("reads a filed session's source, and none for one started here", () => {
@@ -209,7 +243,7 @@ describe("buildChannelItems", () => {
         viewedTimestamps: {
           unread: { lastViewedAt: 1_000, lastActivityAt: null },
         },
-        workspaceModeByTaskId: new Map(),
+        workspaceByTaskId: new Map(),
       },
     });
     expect(items.map((i) => [i.id, i.needsInput, i.unread])).toEqual([
@@ -233,7 +267,7 @@ describe("buildChannelItems", () => {
         viewedTimestamps: {
           streamed: { lastViewedAt: 2_000, lastActivityAt: null },
         },
-        workspaceModeByTaskId: new Map(),
+        workspaceByTaskId: new Map(),
       },
     });
     expect(item.unread).toBe(true);
@@ -298,6 +332,8 @@ function model(over: Partial<ChannelItemModel> = {}): ChannelItemModel {
     authorName: null,
     authorUuid: ME.uuid,
     templateId: null,
+    repository: null,
+    branch: null,
     task: null,
     ...over,
   };
@@ -449,6 +485,33 @@ describe("groupChannelItems", () => {
       (section) => [section.label, ...section.items.map((i) => i.id)],
     );
   }
+
+  it("files rows under their repository, unnamed ones last, when asked to", () => {
+    const withRepo = (id: string, key: string | null, label = "") =>
+      model({
+        id,
+        ts: at(29, 9),
+        repository: key ? { key, label } : null,
+      });
+
+    expect(
+      groupChannelItems(
+        [
+          withRepo("code-1", "posthog/code", "PostHog/code"),
+          withRepo("loose", null),
+          withRepo("code-2", "posthog/code", "posthog/code"),
+          withRepo("web", "posthog/posthog", "PostHog/posthog"),
+        ],
+        "recent",
+        NOW,
+        "repository",
+      ).map((section) => [section.label, ...section.items.map((i) => i.id)]),
+    ).toEqual([
+      ["PostHog/code", "code-1", "code-2"],
+      ["PostHog/posthog", "web"],
+      ["No repository", "loose"],
+    ]);
+  });
 
   it("runs a day's items under one header", () => {
     expect(

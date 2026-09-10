@@ -4,12 +4,12 @@ import { Fragment } from 'react'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
@@ -23,7 +23,6 @@ import { areObjectValuesEmpty } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { HogQLQuery, InsightQueryNode, QuerySchema } from '~/queries/schema/schema-general'
 import {
     isDataTableNodeWithHogQLQuery,
@@ -83,11 +82,10 @@ const insightActionsMapping: Record<
     filters: function onChangedFilter(change) {
         const filtersAfter = change?.after as Partial<FilterType>
 
-        return areObjectValuesEmpty(filtersAfter)
-            ? null
-            : summarizeQueryChanges(
-                  filtersToQueryNode(filtersAfter, { source: 'saved_insights_activity_descriptions' })
-              )
+        // Only an insight written before queries logs this field, so these entries are years old and
+        // no new one can be written. Summarizing the definition would mean converting legacy filters,
+        // which no other read path still does, and the headline reads the same either way.
+        return areObjectValuesEmpty(filtersAfter) ? null : { description: ['changed query definition'] }
     },
     query: function onChangedQuery(change) {
         if (change?.action === 'deleted') {
@@ -259,6 +257,9 @@ const insightActionsMapping: Record<
     view_count: () => null,
     is_cached: () => null,
     filter_override_context: () => null,
+    columns: () => null,
+    types: () => null,
+    resolved_date_range: () => null,
 }
 
 function summarizeQueryChanges(query: InsightQueryNode | HogQLQuery): ChangeMapping {
@@ -284,7 +285,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the insight:{' '}
+                    <ActivityLogUserName logItem={logItem} /> created the insight:{' '}
                     {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
                 </>
             ),
@@ -295,8 +296,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted{' '}
-                    {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}
+                    <ActivityLogUserName logItem={logItem} /> deleted {asNotification ? 'your' : 'the'} insight:{' '}
+                    {logItem.detail.name}
                 </>
             ),
         }
@@ -317,8 +318,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> shared{' '}
-                    {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}.
+                    <ActivityLogUserName logItem={logItem} /> shared {asNotification ? 'your' : 'the'} insight:{' '}
+                    {logItem.detail.name}.
                 </>
             ),
         }
@@ -328,8 +329,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted shared link for{' '}
-                    {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}.
+                    <ActivityLogUserName logItem={logItem} /> deleted shared link for {asNotification ? 'your' : 'the'}{' '}
+                    insight: {logItem.detail.name}.
                 </>
             ),
         }
@@ -379,7 +380,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        prefix={<ActivityLogUserName logItem={logItem} />}
                         suffix={changeSuffix}
                     />
                 ),
@@ -397,7 +398,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> exported{' '}
+                    <ActivityLogUserName logItem={logItem} /> exported{' '}
                     {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} as a {exportType}
                 </>
             ),
