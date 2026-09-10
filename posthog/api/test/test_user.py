@@ -2603,22 +2603,25 @@ class TestToolbarAccessControl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("feature_absent", [], False),
+            ("cloud_feature_absent", True, [], False),
             (
-                "feature_available",
+                "cloud_feature_available",
+                True,
                 [{"key": AvailableFeature.TOOLBAR_HEATMAPS, "name": AvailableFeature.TOOLBAR_HEATMAPS}],
                 True,
             ),
+            ("self_hosted_feature_absent", False, [], True),
         ]
     )
-    def test_get_toolbar_entitlements_reflects_org_features(self, _name, extra_features, expected):
+    def test_get_toolbar_entitlements_reflects_org_features(self, _name, cloud, extra_features, expected):
         self.organization.available_product_features = [
             *(self.organization.available_product_features or []),
             *extra_features,
         ]
         self.organization.save()
 
-        response = self.client.get("/api/user/toolbar_entitlements/")
+        with self.is_cloud(cloud):
+            response = self.client.get("/api/user/toolbar_entitlements/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["entitlements"]["toolbar_heatmaps"], expected)

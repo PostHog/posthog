@@ -77,6 +77,7 @@ from posthog.auth import (
     SessionAuthentication,
     session_auth_required,
 )
+from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, AvailableFeature
 from posthog.email import is_email_available
 from posthog.event_usage import (
@@ -1983,6 +1984,13 @@ TOOLBAR_ENTITLEMENT_FEATURES: list[AvailableFeature] = [
 ]
 
 
+def _toolbar_entitlements(organization: Organization) -> dict[str, bool]:
+    """Gated toolbar tools are a Cloud plan entitlement, so every self-hosted deployment keeps them."""
+    if not is_cloud():
+        return {feature.value: True for feature in TOOLBAR_ENTITLEMENT_FEATURES}
+    return {feature.value: organization.is_feature_available(feature) for feature in TOOLBAR_ENTITLEMENT_FEATURES}
+
+
 class ToolbarEntitlementsSerializer(serializers.Serializer):
     entitlements = serializers.DictField(
         child=serializers.BooleanField(),
@@ -2016,12 +2024,7 @@ class ToolbarEntitlementsView(APIView):
         if not _user_can_access_toolbar(user, team):
             return JsonResponse({"error": "Unauthorized"}, status=403)
 
-        organization = team.organization
-        entitlements = {
-            feature.value: organization.is_feature_available(feature) for feature in TOOLBAR_ENTITLEMENT_FEATURES
-        }
-
-        return JsonResponse({"entitlements": entitlements})
+        return JsonResponse({"entitlements": _toolbar_entitlements(team.organization)})
 
 
 get_toolbar_entitlements = session_auth_required(ToolbarEntitlementsView.as_view())
