@@ -828,16 +828,10 @@ export type ScoutSuggestionClickVia = 'button' | 'card'
 /** How a suggestion became a scout: the create API in place, or a chat the person drove. */
 export type ScoutSuggestionCreatedVia = 'api' | 'chat'
 
-/**
- * How a refresh request ended. `accepted` and `running` come from the endpoint's answer;
- * `resumed` is a scan this client picked back up after a reload, which sent no request at all.
- */
+/** How a refresh ended. All but `resumed` come from the endpoint; a resume sends no request at all. */
 export type ScoutSuggestionsRefreshOutcome = 'accepted' | 'running' | 'capped' | 'failed' | 'resumed'
 
-/**
- * What put the scan on screen. A scan outlives the tab, so `reload` rows are a client resuming one
- * it had already paid for — without this they read as duplicate presses that the endpoint refused.
- */
+/** What put the scan on screen. Without it, a client resuming a paid scan reads as a refused duplicate. */
 export type ScoutSuggestionsRefreshSource = 'strip' | 'reload'
 
 /**
@@ -917,11 +911,7 @@ export function captureScoutSuggestionsRefreshed(params: {
     })
 }
 
-/**
- * "Suggest a scout" opened the authoring chat because the project had no picks to reopen. The
- * chat and a headless scan are both ways to get a suggestion, so this separates the cold-start
- * press from the refresh of a batch that already exists.
- */
+/** "Suggest a scout" opened the chat, having no picks to reopen. Separates cold start from refresh. */
 export function captureScoutSuggestionsChatOpened(params: { batchStatus: string }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_CHAT_OPENED, { batch_status: params.batchStatus })
 }

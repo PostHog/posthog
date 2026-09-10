@@ -42,17 +42,13 @@ const REFRESH_POLL_INTERVAL_MS = 15_000
  * both rather than giving up while the workflow is still allowed to finish.
  */
 const REFRESH_POLL_TIMEOUT_MS = 60 * 60_000
-/** How often the "scanning for N min" line is redrawn. Minutes are the unit, so seconds-precision buys nothing. */
+/** How often the elapsed line is redrawn. Minutes are the unit, so seconds-precision buys nothing. */
 const REFRESH_ELAPSED_TICK_MS = 10_000
 
 /**
- * A scan this client is waiting on. Persisted per user and project, because the scan runs on the
- * server for minutes and outlives the tab: a reload has to resume the wait rather than send a
- * second request, which the endpoint answers with a 409.
- *
- * The baseline is part of it. Settling is "the batch is no longer the one the scan started from",
- * so a resumed wait needs the row as it was before the press, not as the first read after the
- * reload finds it.
+ * A scan this client is waiting on, persisted because the scan outlives the tab. The baseline is
+ * part of it: settling means the batch is no longer the one the scan started from, so a resumed
+ * wait needs the row as it was before the press, not as the first read after the reload finds it.
  */
 export interface ScoutSuggestionsRefreshScan {
     startedAt: number
@@ -63,7 +59,6 @@ export interface ScoutSuggestionsRefreshScan {
 const suggestionKind = (item: ScoutSuggestionItemApi): ScoutSuggestionKind =>
     item.kind === 'canonical' ? 'canonical' : 'custom'
 
-/** A scan starting now, against the batch it has to replace before the wait counts as over. */
 const scanFromBatch = (suggestionSet: ScoutSuggestionSetApi | null): ScoutSuggestionsRefreshScan => ({
     startedAt: Date.now(),
     baselineGeneratedAt: suggestionSet?.generated_at ?? null,
@@ -194,11 +189,11 @@ export interface scoutSuggestionsLogicActions {
     refreshRequestRefused: () => {
         value: true
     }
-    reportSuggestionsShown: (surface: ScoutSuggestionSurface) => {
-        surface: ScoutSuggestionSurface
-    }
     refreshTick: (elapsedMs: number) => {
         elapsedMs: number
+    }
+    reportSuggestionsShown: (surface: ScoutSuggestionSurface) => {
+        surface: ScoutSuggestionSurface
     }
     requestRefresh: (source: ScoutSuggestionsRefreshSource) => {
         source: ScoutSuggestionsRefreshSource
@@ -246,8 +241,8 @@ export interface scoutSuggestionsLogicMeta {
             isRefreshing: boolean
         ) => boolean
         suggestButtonVisible: (hasPicks: boolean, suggestionsEnabled: boolean, stripHidden: boolean) => boolean
-        collapsed: (collapsedOverride: boolean | null) => boolean
         refreshElapsedLabel: (isRefreshing: boolean, refreshElapsedMs: number) => string | null
+        collapsed: (collapsedOverride: boolean | null) => boolean
     }
 }
 
@@ -264,8 +259,7 @@ export type scoutSuggestionsLogicType = MakeLogicType<
  *
  * A scan does cost a wait, of minutes, so only the strip's Refresh starts one: the strip is where
  * an existing batch stays readable while it runs. With no batch to refresh, "Suggest a scout"
- * opens the authoring chat instead. The scan outlives the tab, so the wait is persisted and a
- * reload resumes it rather than sending a request the endpoint answers with a 409.
+ * opens the authoring chat instead.
  *
  * The batch shrinks on its own — the read hides picks whose scout has since been turned on or
  * created — so every surface has to look right with one card, and `stale` is the steady state
@@ -384,9 +378,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 refreshFinished: () => false,
             },
         ],
-        // Survives a reload, so the wait resumes instead of the press being sent again. Scoped to
-        // the user and project for the same reason the strip's own state is: the scan belongs to
-        // this project, and the person who paid for it is the one owed the progress line.
+        // Survives a reload, so the wait resumes instead of the request being sent a second time.
         refreshScan: [
             null as ScoutSuggestionsRefreshScan | null,
             buildUserScopedPersistenceConfig(),
@@ -496,8 +488,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             (hasPicks: boolean, suggestionsEnabled: boolean, stripHidden: boolean): boolean =>
                 suggestionsEnabled && (!hasPicks || stripHidden),
         ],
-        // Minutes, not seconds: the scan takes minutes, and a seconds counter on a five-minute
-        // wait reads as a stopwatch on something the person cannot hurry.
+        // Minutes, not seconds: a stopwatch on a five-minute wait nobody can hurry reads badly.
         refreshElapsedLabel: [
             (s) => [s.isRefreshing, s.refreshElapsedMs],
             (isRefreshing: boolean, refreshElapsedMs: number): string | null => {
@@ -638,18 +629,15 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
             if (values.suggestions.length > 0) {
                 return
             }
-            // Nothing to reopen. A scan would take minutes with nothing on screen to read while it
-            // ran, so the press opens the authoring chat — which is what the button used to do, and
-            // what someone pressing it expects. The paid scan stays behind the strip's Refresh,
-            // where a batch already exists to keep the person company while it runs.
+            // Nothing to reopen, and a scan would take minutes with nothing on screen to read, so
+            // the press opens the chat. The scan stays behind Refresh, where picks fill the wait.
             captureScoutSuggestionsChatOpened({ batchStatus: values.batchStatus })
             actions.startScoutChatTask('author_scout', 'scout authoring task')
         },
         requestRefresh: async ({ source }) => {
             const teamId = values.currentTeamId
             // The reducer already shows the button as busy; this non-reactive flag is what keeps a
-            // second press from sending a second request, and `refreshScan` covers the press that
-            // lands on a scan this client is already waiting on, including one it resumed.
+            // second press from sending a second request. `refreshScan` covers a resumed scan too.
             if (!teamId || cache.refreshInFlight || values.refreshScan) {
                 return
             }
@@ -745,9 +733,8 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         if (!scan) {
             return
         }
-        // The scan runs on the server, so a reload lands back here with it still going. Resume the
-        // wait from the persisted baseline: pressing Refresh again would only earn a 409, and the
-        // person would be told a scan is running by an error rather than by the strip.
+        // Resume from the persisted baseline. Pressing Refresh again would only earn a 409, which
+        // tells the person a scan is running through an error rather than through the strip.
         if (Date.now() - scan.startedAt >= REFRESH_POLL_TIMEOUT_MS) {
             actions.refreshFinished()
             return

@@ -213,8 +213,7 @@ describe('scoutSuggestionsLogic', () => {
         expect(mockRefresh).not.toHaveBeenCalled()
     })
 
-    // A scan takes minutes and puts nothing on screen while it runs, so a project with no batch
-    // gets the chat the button used to open rather than a silent wait.
+    // A scan would take minutes with nothing on screen, so a project with no batch gets the chat.
     it('opens the authoring chat instead of scanning when there is nothing to reopen', async () => {
         await mountWithBatch(suggestionSet({ items: [] }))
 
@@ -392,8 +391,6 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.isRefreshing).toBe(false)
     })
 
-    // The scan replaces the picks it finds, so taking them away for placeholders costs minutes of
-    // cards the person can still act on.
     it('keeps the current picks readable while a scan runs, and says how long it has been going', async () => {
         await mountWithBatch()
 
@@ -414,7 +411,6 @@ describe('scoutSuggestionsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(mockRefresh).toHaveBeenCalledTimes(1)
 
-        // A reload keeps only what was persisted, which is the scan and its baseline.
         logic.unmount()
         logic = scoutSuggestionsLogic()
         logic.mount()
@@ -423,7 +419,6 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.isRefreshing).toBe(true)
         expect(mockRefresh).toHaveBeenCalledTimes(1)
 
-        // And the resumed wait still ends on the batch the scan started from being replaced.
         mockList.mockResolvedValue(suggestionSet({ generated_at: '2026-09-03T00:00:00Z' }))
         logic.actions.loadSuggestions()
         await expectLogic(logic).toFinishAllListeners()

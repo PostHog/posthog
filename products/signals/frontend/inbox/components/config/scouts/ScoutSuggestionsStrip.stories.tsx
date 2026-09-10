@@ -150,15 +150,13 @@ export const NothingLeft: Story = {
     ],
 }
 
-// A scan running over a batch that already has picks. They stay readable until it replaces them,
-// with a line saying how long it has been going and that leaving the page is fine.
+// A scan over a batch that already has picks: they stay readable until it replaces them.
 export const Scanning: Story = {
     parameters: { stripRefreshing: true },
     decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
 }
 
-// The only case skeletons are left for: a scan with no picks to keep on screen, which happens when
-// every pick in the batch was acted on while the scan ran.
+// The one case skeletons are left for: every pick was acted on while the scan ran.
 export const ScanningWithNothingToShow: Story = {
     parameters: { stripRefreshing: true },
     decorators: [

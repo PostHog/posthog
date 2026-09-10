@@ -20,9 +20,6 @@ const COLLAPSED_TITLE_PREVIEW = 2
  * The "Suggested for this project" strip above the roster: a pre-computed batch of scouts worth
  * running here, each ready to turn on or create without waiting for a scan.
  *
- * Refresh pays for a new scan, which takes minutes. The picks it will replace stay on screen while
- * it runs, next to a line saying how long it has been going and that leaving the page is fine.
- *
  * Nothing renders without picks to read, so a project with an empty batch sees the roster exactly
  * as it was. `stale` is a footer note rather than an error: any fleet change flips it and the picks
  * stay valid.
@@ -100,8 +97,6 @@ function StripBody(): JSX.Element {
     if (collapsed) {
         return <CollapsedLine titles={suggestions.map((item) => item.title)} />
     }
-    // Skeletons only when there is genuinely nothing to read. A scan replaces the picks it finds,
-    // so throwing the current ones away for placeholders costs minutes of usable cards.
     if (suggestions.length === 0 && (isRefreshing || suggestionSetLoading)) {
         return (
             <>
@@ -168,10 +163,7 @@ function SuggestionGrid({ surface, columns = 3 }: { surface: ScoutSuggestionSurf
     )
 }
 
-/**
- * What a running scan looks like from the strip. The cards it will replace are still the ones on
- * screen, so without this line a press has no visible effect at all.
- */
+/** The cards a scan will replace are still on screen, so without this line a press looks ignored. */
 function ScanningNote(): JSX.Element {
     const { refreshElapsedLabel } = useValues(scoutSuggestionsLogic)
     return (

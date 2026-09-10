@@ -31,17 +31,14 @@ export function ScoutsRosterActions(): JSX.Element {
 
 /**
  * Takes the "Suggest a scout" spot whenever the strip has no picks to show. With picks waiting it
- * reopens the closed strip; with none it opens the authoring chat, exactly as the button did
- * before the strip existed. It never starts a headless scan: that would spend minutes with an
- * empty roster on screen, and the person pressing this asked for a suggestion, not a wait.
+ * reopens the closed strip; with none it opens the authoring chat.
  */
 function ShowSuggestionsButton(): JSX.Element | null {
     const { suggestButtonVisible, hasPicks, isRefreshing, suggestionSetLoading, aiConsentDisabledReason } =
         useValues(scoutSuggestionsLogic)
     const { runningChatType } = useValues(scoutFleetLogic)
     const { askForSuggestions } = useActions(scoutSuggestionsLogic)
-    // Opening the chat ends in a skill write, so this press carries the same editor gate as the
-    // other authoring paths. Reopening a strip that already has picks needs neither gate.
+    // Opening the chat ends in a skill write, so it carries the editor gate. Reopening needs neither.
     const creationDisabledReason = useScoutCreateDisabledReason()
     if (!suggestButtonVisible) {
         return null
@@ -63,7 +60,6 @@ function ShowSuggestionsButton(): JSX.Element | null {
     )
 }
 
-/** Why a press would land nowhere right now, which is also what makes the button spin. */
 function showSuggestionsBusyReason({
     hasPicks,
     isRefreshing,
