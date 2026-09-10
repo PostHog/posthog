@@ -93,6 +93,7 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                                 maxLength={4000}
                                 rows={4}
                                 autoFocus
+                                data-1p-ignore
                                 actions={[
                                     <span key="shortcut" className="text-xs text-tertiary">
                                         Enter to implement, Shift + Enter for a new line

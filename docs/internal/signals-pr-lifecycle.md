@@ -1,5 +1,9 @@
 # Signals implementation PR lifecycle
 
+The **Implement** menu focuses a plain text area for optional agent instructions.
+This field uses `data-1p-ignore` to exclude 1Password autofill without removing
+keyboard focus or changing instruction submission.
+
 Report PR lookups use `fetch_implementation_pr_state_for_reports` in
 `products/signals/backend/implementation_pr.py`. A non-empty assignment PR takes
 precedence. Otherwise, lookup falls back to associated task-run artefacts and
