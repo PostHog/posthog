@@ -3,23 +3,27 @@ from pathlib import Path
 
 import pytest
 
-from products.reaperhog.backend.facade.enums import RootKind, ScoutName
+from products.reaperhog.backend.facade.enums import ClusterStatus, RootKind, ScoutName
 from products.reaperhog.backend.logic.artefacts import Hit, Note
 from products.reaperhog.backend.logic.scan import ScanRequest, run_scan
 from products.reaperhog.backend.logic.scouts.base import ScoutContext
-from products.reaperhog.backend.models import ReaperArtefact, ReaperInventory
+from products.reaperhog.backend.models import ReaperArtefact, ReaperCluster, ReaperInventory
 from products.reaperhog.backend.tests.conftest import PRODUCT_DATABASES
 
 
 class StubScout:
     name = ScoutName.FLAGS
 
+    def __init__(self, roots: tuple[str, ...] = ("k",)) -> None:
+        self.roots = roots
+
     def applies_to(self, scope: str) -> bool:
         return True
 
     def run(self, context: ScoutContext) -> list[Hit]:
         return [
-            Hit(scout=self.name, root_kind=RootKind.FLAG, root="k", files=["a.py"], decisive=True, summary="dead"),
+            Hit(scout=self.name, root_kind=RootKind.FLAG, root=root, files=["a.py"], decisive=True, summary="dead")
+            for root in self.roots
         ]
 
 
@@ -63,6 +67,16 @@ def test_run_scan_records_clusters_and_a_summary_note(team, repo_path: Path) -> 
     assert "- `k` (flag, 1 files, scouts: flags)" in result.note
     assert result.failed_scouts == ("archaeology",)
     assert "Scouts that failed this run (their roots are missing above): archaeology." in result.note
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_run_scan_with_a_failed_scout_keeps_a_root_it_did_not_see(team, repo_path: Path) -> None:
+    request = ScanRequest(team_id=team.id, repository="o/r", scope="flags", repo_path=repo_path)
+    run_scan(request, scouts=(StubScout(),))
+
+    run_scan(request, scouts=(StubScout(roots=()), BrokenScout()))
+
+    assert ReaperCluster.objects.get(root="k").status == ClusterStatus.CANDIDATE
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

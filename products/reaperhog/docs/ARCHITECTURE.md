@@ -31,6 +31,7 @@ A failing scout is reported in the run summary and skipped; the scan only fails 
 Scouts read production data through facades: `list_flag_summaries` (feature_flags), `list_concluded_experiments` (experiments), `$pageview` and `$feature_flag_called` counts over HogQL.
 Convergence (`logic/converge.py`) groups hits by root, ranks them (decisive hit or two scouts = strong), blocks oversize clusters and assigns a CODEOWNERS owner.
 `logic/inventory.py` upserts clusters idempotently: a re-scan refreshes rows, reopens `declined` clusters whose files changed and marks missing roots `vanished`.
+A `declined` root is never vanished, so one absent scan cannot turn a pull request a human closed back into a fresh candidate.
 Only a complete scan can vanish a root: when a scout failed, absence proves nothing, so every cluster keeps its status.
 
 **Verify** (`logic/verification.py`) loads unblocked strong candidates, opens one warm sandbox session through the Tasks facade (`MultiTurnSession`) and judges one cluster per turn against the `reaperhog-verification-criteria` skill, which `logic/skill.py` seeds into `LLMSkill` rows.
