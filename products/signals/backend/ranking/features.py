@@ -51,7 +51,11 @@ FEATURE_NAMES: tuple[str, ...] = (
 # report's age at the scoring moment, derived from the snapshot's own clock, and the caller adds
 # it to the rows of every set.
 TABULAR_STATE_COLUMNS: tuple[str, ...] = (
-    *(name for name in NUMERIC_FEATURES if name != "age_hours"),
+    "signal_count",
+    "total_weight",
+    "run_count",
+    "title_chars",
+    "summary_chars",
     "priority",
     "actionability",
 )

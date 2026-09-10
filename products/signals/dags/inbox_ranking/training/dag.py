@@ -583,6 +583,7 @@ def load_family_models(
             context.log.warning(f"no {model_name} {role} metadata to score the unseen pool with")
             continue
         mismatch = model_mismatch(metadata)
+        # A set the mismatch check accepted always resolves; the None arm is there to narrow it.
         feature_set = model_feature_set(metadata)
         if mismatch is not None or feature_set is None:
             context.log.warning(f"{model_name} {role} {metadata.get('model_version')} not scored: {mismatch}")
