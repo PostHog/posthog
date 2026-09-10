@@ -52,18 +52,17 @@ export function useTaskArchive(
     currentPromptId,
     cloudStatus,
     agentIdleForRunId,
-  } =
-    useSessionSelector(
-      taskId,
-      (session) => ({
-        taskRunId: session?.taskRunId,
-        isPromptPending: session?.isPromptPending ?? false,
-        currentPromptId: session?.currentPromptId,
-        cloudStatus: session?.cloudStatus ?? null,
-        agentIdleForRunId: session?.agentIdleForRunId,
-      }),
-      shallow,
-    );
+  } = useSessionSelector(
+    taskId,
+    (session) => ({
+      taskRunId: session?.taskRunId,
+      isPromptPending: session?.isPromptPending ?? false,
+      currentPromptId: session?.currentPromptId,
+      cloudStatus: session?.cloudStatus ?? null,
+      agentIdleForRunId: session?.agentIdleForRunId,
+    }),
+    shallow,
+  );
   const piSessionController = useService<PiSessionController>(
     PI_SESSION_CONTROLLER,
   );
