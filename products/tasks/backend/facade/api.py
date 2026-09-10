@@ -1420,6 +1420,7 @@ def create_and_run_task(
         # auto-start pipeline, whose over-quota hits must not pollute the manual-path
         # dark-launch bucket.
         enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
+        enforce_self_driving_free_trial(team, report_id=signal_report_id, stage="task_create")
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     if channel is None and not internal and origin_product not in TEAM_READABLE_ORIGIN_PRODUCTS:
         channel = _ensure_personal_channel(team.id, user_id)[0]
@@ -2642,6 +2643,25 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
         transaction.on_commit(_dispatch)
     except Exception:
         logger.warning("self_driving_quota_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
+
+
+def enforce_self_driving_free_trial(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
+    """Refuse to create a PR-opening self-driving task while the team's org is on a Self-driving
+    free trial: a trial org gets reports, not pull requests, on any path (the auto-start gate in
+    products/signals/backend/auto_start.py holds the pipeline back the same way). Emits
+    `signal_report_free_trial_paused` at ``stage``. Raises ``FreeTrialPullRequestRefused`` (402,
+    code ``self_driving_free_trial``) so clients can show the trial message.
+    """
+    from products.signals.backend.free_trial import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        FreeTrialPullRequestRefused,
+        capture_signal_report_free_trial_paused,
+        self_driving_free_trial_enabled,
+    )
+
+    if not self_driving_free_trial_enabled(team):
+        return
+    capture_signal_report_free_trial_paused(team, report_id=report_id, stage=stage)
+    raise FreeTrialPullRequestRefused()
 
 
 def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
@@ -6095,6 +6115,10 @@ def create_task(
     )
     if signal_report_id:
         enforce_self_driving_pr_quota(team, report_id=signal_report_id)
+        # Only Create PR is held back on a trial. Discuss keeps working: a discussion run that
+        # opens a PR by itself is the rare paid case the trial accepts.
+        if signal_report_task_relationship in (None, "implementation"):
+            enforce_self_driving_free_trial(team, report_id=signal_report_id)
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
