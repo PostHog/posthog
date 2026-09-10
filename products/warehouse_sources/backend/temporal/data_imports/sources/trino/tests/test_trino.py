@@ -167,10 +167,12 @@ def test_connect_trino_closes_tracked_session_when_connect_fails() -> None:
 
 def test_discover_trino_schemas_groups_columns_and_filters_names() -> None:
     cursor = MagicMock()
-    cursor.fetchall.return_value = [
-        ("analytics", "events", "id", "bigint", "NO"),
-        ("analytics", "events", "properties", "map(varchar, varchar)", "YES"),
-        ("sales", "orders", "id", "bigint", "NO"),
+    cursor.fetchall.side_effect = [
+        [("analytics", "events"), ("sales", "orders")],
+        [
+            ("analytics", "events", "id", "bigint", "NO"),
+            ("analytics", "events", "properties", "map(varchar, varchar)", "YES"),
+        ],
     ]
 
     discovered = discover_trino_schemas(cursor, _config(), names=["analytics.events"])
@@ -186,7 +188,34 @@ def test_discover_trino_schemas_groups_columns_and_filters_names() -> None:
             ),
         )
     ]
-    assert 'FROM "hive".information_schema.columns' in cursor.execute.call_args.args[0]
+    assert cursor.execute.call_count == 2
+    assert 'FROM "hive".information_schema.tables' in cursor.execute.call_args_list[0].args[0]
+    assert 'FROM "hive".information_schema.columns' in cursor.execute.call_args_list[1].args[0]
+    assert cursor.execute.call_args_list[1].args[1] == ["analytics", "events"]
+
+
+def test_discover_trino_schemas_fetches_columns_in_bounded_batches() -> None:
+    cursor = MagicMock()
+    analytics_tables = [("analytics", f"table_{index}") for index in range(101)]
+    cursor.fetchall.side_effect = [
+        [*analytics_tables, ("sales", "orders")],
+        [("analytics", f"table_{index}", "id", "bigint", "NO") for index in range(100)],
+        [("analytics", "table_100", "id", "bigint", "NO")],
+        [("sales", "orders", "id", "bigint", "NO")],
+    ]
+
+    discovered = discover_trino_schemas(cursor, _config())
+
+    assert len(discovered) == 102
+    assert {(table.schema, table.name) for table in discovered} == {
+        *analytics_tables,
+        ("sales", "orders"),
+    }
+    column_calls = cursor.execute.call_args_list[1:]
+    assert len(column_calls) == 3
+    assert all("table_schema = ?" in call.args[0] for call in column_calls)
+    assert all("table_name IN" in call.args[0] for call in column_calls)
+    assert all(len(call.args[1]) <= 101 for call in column_calls)
 
 
 def test_trino_source_is_direct_only() -> None:
