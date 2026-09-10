@@ -128,6 +128,10 @@ class SubscriptionTriggerType:
     MANUAL = "manual"  # User clicked "Test delivery"
 
 
+DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN = 300
+MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN = 1_000
+
+
 @dataclasses.dataclass
 class DueSubscription:
     subscription_id: int
@@ -142,11 +146,15 @@ class DueSubscription:
 @dataclasses.dataclass
 class FetchDueSubscriptionsActivityInputs:
     buffer_minutes: int = 15
+    max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
+    region: str = "local"
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
         return {
             "buffer_minutes": self.buffer_minutes,
+            "max_subscriptions_per_run": self.max_subscriptions_per_run,
+            "region": self.region,
         }
 
 
@@ -389,9 +397,13 @@ class SnapshotInsightsResult:
 @dataclasses.dataclass
 class ScheduleAllSubscriptionsWorkflowInputs:
     buffer_minutes: int = 15
+    max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
+    region: str = "local"
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
         return {
             "buffer_minutes": self.buffer_minutes,
+            "max_subscriptions_per_run": self.max_subscriptions_per_run,
+            "region": self.region,
         }

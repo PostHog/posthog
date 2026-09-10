@@ -1,18 +1,58 @@
+from datetime import timedelta
+
 import pytest
 from unittest import mock
 
 from django.conf import settings
 from django.test import override_settings
 
-from temporalio.client import Schedule, ScheduleActionStartWorkflow
+from temporalio.client import Schedule, ScheduleActionStartWorkflow, ScheduleOverlapPolicy
 
 from posthog.temporal.ai_observability.trace_clustering import constants as trace_clustering_constants
 from posthog.temporal.ai_observability.trace_summarization import constants as trace_summarization_constants
 from posthog.temporal.schedule import (
     cleanup_non_cloud_ai_observability_schedules,
+    create_schedule_all_subscriptions_schedule,
     create_wa_digest_notification_schedule,
     create_wa_weekly_digest_schedule,
 )
+
+from products.exports.backend.temporal.subscriptions.types import (
+    DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
+    ScheduleAllSubscriptionsWorkflowInputs,
+)
+
+
+@pytest.mark.asyncio
+@override_settings(CLOUD_DEPLOYMENT="EU", ANALYTICS_PLATFORM_TASK_QUEUE="analytics-platform-under-test")
+async def test_subscription_schedule_has_bounded_inputs_and_explicit_recovery_policy() -> None:
+    captured: list[Schedule] = []
+
+    with (
+        mock.patch("posthog.temporal.schedule.a_schedule_exists", new=mock.AsyncMock(return_value=False)),
+        mock.patch(
+            "posthog.temporal.schedule.a_create_schedule",
+            new=mock.AsyncMock(side_effect=lambda client, schedule_id, schedule, **kwargs: captured.append(schedule)),
+        ),
+    ):
+        await create_schedule_all_subscriptions_schedule(mock.MagicMock())
+
+    assert len(captured) == 1
+    schedule = captured[0]
+    assert isinstance(schedule.action, ScheduleActionStartWorkflow)
+    assert schedule.action.task_queue == settings.ANALYTICS_PLATFORM_TASK_QUEUE
+    assert schedule.action.execution_timeout == timedelta(minutes=10)
+    assert schedule.action.retry_policy is not None
+    assert schedule.action.retry_policy.maximum_attempts == 1
+    assert schedule.action.args == [
+        ScheduleAllSubscriptionsWorkflowInputs(
+            max_subscriptions_per_run=DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
+            region="eu",
+        )
+    ]
+    assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
+    assert schedule.policy.catchup_window == timedelta(minutes=30)
+    assert schedule.policy.pause_on_failure is False
 
 
 # Both WA digest schedules pin their task queue, and the worker registers those workflows on

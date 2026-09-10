@@ -26,7 +26,7 @@ from posthog.hogql.errors import QueryError
 
 from posthog.email import EmailDeliveryError
 from posthog.errors import CHQueryErrorS3Error
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, Team
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
@@ -65,6 +65,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.delivery_common import deliver_email
 from products.exports.backend.temporal.subscriptions.types import (
+    DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
@@ -101,6 +102,15 @@ _IS_OVER_BUDGET = (
     "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget"
 )
 _CREDIT_LIMITED_EMAIL = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.EmailMessage"
+
+
+async def _wait_for_scheduled_subscription(client: Client, subscription: Subscription) -> None:
+    prefix = (
+        "process-ai-subscription"
+        if subscription.resource_type == Subscription.ResourceType.AI_PROMPT
+        else "process-subscription"
+    )
+    await client.get_workflow_handle(f"{prefix}-{subscription.id}").result()
 
 
 class CustomQueryError(QueryError):
@@ -350,6 +360,8 @@ async def test_subscription_delivery_scheduling(
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
+            await _wait_for_scheduled_subscription(activity_environment.client, subscriptions[0])
+            await _wait_for_scheduled_subscription(activity_environment.client, subscriptions[1])
 
     # Each subscription has 2 recipients -> 4 emails expected (only first two subs within buffer)
     assert mock_send_email.call_count == 4
@@ -2929,6 +2941,7 @@ async def test_schedule_ai_subscription_over_credit_budget_lands_skipped(
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
+            await _wait_for_scheduled_subscription(env.client, sub)
 
     mock_generate.assert_not_called()  # no LLM spend while over budget
     mock_send_report.assert_not_called()  # delivery skipped
@@ -2981,6 +2994,7 @@ async def test_schedule_routes_ai_subscription_through_full_workflow(
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
+            await _wait_for_scheduled_subscription(env.client, sub)
 
     # The LLM ran once, the report was shipped, and the delivery record landed COMPLETED.
     mock_generate.assert_called_once()
@@ -3005,3 +3019,109 @@ async def test_fetch_due_subscriptions_includes_ai_with_resource_type(team, user
     match = next((s for s in fetched if s.subscription_id == sub.id), None)
     assert match is not None, "due AI subscription must be picked up by the shared scheduler fetch"
     assert match.resource_type == Subscription.ResourceType.AI_PROMPT
+
+
+async def test_fetch_due_subscriptions_is_bounded_and_fair_across_teams(team, user):
+    other_team = await sync_to_async(Team.objects.create)(organization=team.organization, name="Other team")
+    first_insight = await sync_to_async(Insight.objects.create)(
+        team=team, short_id="fair-one", name="First team insight"
+    )
+    other_insight = await sync_to_async(Insight.objects.create)(
+        team=other_team, short_id="fair-two", name="Other team insight"
+    )
+    subscriptions = [
+        *[
+            await sync_to_async(create_subscription)(team=team, insight=first_insight, created_by=user)
+            for _ in range(4)
+        ],
+        await sync_to_async(create_subscription)(team=other_team, insight=other_insight, created_by=user),
+    ]
+    due_at = datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    await sync_to_async(Subscription.objects.filter(id__in=[sub.id for sub in subscriptions]).update)(
+        next_delivery_date=due_at
+    )
+
+    fetched = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(buffer_minutes=15, max_subscriptions_per_run=3),
+    )
+
+    assert len(fetched) == 3
+    assert {item.team_id for item in fetched} == {team.id, other_team.id}
+    assert [item.team_id for item in fetched[:2]] == sorted([team.id, other_team.id])
+
+
+async def test_fetch_due_subscriptions_fairness_is_not_defeated_by_one_teams_older_backlog(team, user):
+    other_team = await sync_to_async(Team.objects.create)(organization=team.organization, name="Other team")
+    first_insight = await sync_to_async(Insight.objects.create)(
+        team=team, short_id="noisy-team", name="Noisy team insight"
+    )
+    other_insight = await sync_to_async(Insight.objects.create)(
+        team=other_team, short_id="quiet-team", name="Quiet team insight"
+    )
+    page_size = 3
+    noisy_subscriptions = [
+        await sync_to_async(create_subscription)(team=team, insight=first_insight, created_by=user)
+        for _ in range(page_size * 10)
+    ]
+    quiet_subscription = await sync_to_async(create_subscription)(
+        team=other_team, insight=other_insight, created_by=user
+    )
+    await sync_to_async(Subscription.objects.filter(id__in=[sub.id for sub in noisy_subscriptions]).update)(
+        next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    )
+    await sync_to_async(Subscription.objects.filter(id=quiet_subscription.id).update)(
+        next_delivery_date=datetime(2020, 1, 2, tzinfo=ZoneInfo("UTC"))
+    )
+
+    fetched = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(buffer_minutes=15, max_subscriptions_per_run=page_size),
+    )
+
+    assert quiet_subscription.id in {item.subscription_id for item in fetched}
+
+
+async def test_fetch_due_subscriptions_rotates_tenant_page_across_runs(team, user):
+    teams = [
+        team,
+        *[
+            await sync_to_async(Team.objects.create)(organization=team.organization, name=f"Rotation team {index}")
+            for index in range(3)
+        ],
+    ]
+    due_at = datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    for index, subscription_team in enumerate(teams):
+        insight = await sync_to_async(Insight.objects.create)(
+            team=subscription_team,
+            short_id=f"rotate-{index}",
+            name=f"Rotation insight {index}",
+        )
+        subscription = await sync_to_async(create_subscription)(
+            team=subscription_team,
+            insight=insight,
+            created_by=user,
+        )
+        await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(next_delivery_date=due_at)
+
+    first_page = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(buffer_minutes=15, max_subscriptions_per_run=2),
+    )
+    second_page = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(buffer_minutes=15, max_subscriptions_per_run=2),
+    )
+
+    assert [item.team_id for item in first_page] == sorted(subscription_team.id for subscription_team in teams)[:2]
+    assert [item.team_id for item in second_page] == sorted(subscription_team.id for subscription_team in teams)[2:]
+
+
+async def test_fetch_due_subscriptions_rejects_limit_above_hard_maximum() -> None:
+    with pytest.raises(ValueError, match="max_subscriptions_per_run"):
+        await ActivityEnvironment().run(
+            fetch_due_subscriptions_activity,
+            FetchDueSubscriptionsActivityInputs(
+                max_subscriptions_per_run=DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN * 4,
+            ),
+        )

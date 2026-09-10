@@ -1,18 +1,23 @@
 import json
+import math
 import uuid
 import typing
 import datetime as dt
 import dataclasses
 from datetime import datetime
 
-from django.db.models import Q
+from django.db import connection, transaction
+from django.db.models import Case, Q, Value, When
 from django.utils import timezone as tz
 
 import temporalio.activity
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.models.temporal_scheduler import TemporalSchedulerState
 from posthog.sync import database_sync_to_async
+from posthog.temporal.scheduler.metrics import DEFAULT_SCHEDULER_METRICS, record_scheduler_metrics_safely
+from posthog.temporal.scheduler.payload import select_items_within_temporal_payload
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -29,6 +34,7 @@ from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_insight_delivery_snapshot,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     CreateExportAssetsResult,
@@ -61,6 +67,8 @@ from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 from ee.tasks.subscriptions.teams_subscriptions import build_teams_subscription_card
 
 LOGGER = get_logger(__name__)
+
+_SUBSCRIPTION_SCHEDULER_NAME = "subscriptions"
 
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
 # (it indicates a transient resolve failure that retries can recover from).
@@ -187,12 +195,163 @@ async def _persist_content_snapshot(
 
 @temporalio.activity.defn
 async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[DueSubscription]:
+    if not 1 <= inputs.max_subscriptions_per_run <= MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN:
+        raise ValueError(f"max_subscriptions_per_run must be between 1 and {MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN}")
+    if not 0 <= inputs.buffer_minutes <= 60:
+        raise ValueError("buffer_minutes must be between 0 and 60")
+    if not inputs.region.strip() or len(inputs.region) > 32:
+        raise ValueError("region must contain between 1 and 32 characters")
+
     now_with_buffer = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
-    await LOGGER.ainfo("Fetching due subscriptions", deadline=now_with_buffer)
+    await LOGGER.ainfo(
+        "Fetching due subscriptions",
+        deadline=now_with_buffer,
+        max_subscriptions_per_run=inputs.max_subscriptions_per_run,
+    )
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_subscriptions() -> list[DueSubscription]:
-        return [
+    def get_subscriptions() -> tuple[list[DueSubscription], int, dt.datetime | None]:
+        due_subscriptions = (
+            Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
+            .exclude(dashboard__deleted=True)
+            .exclude(insight__deleted=True)
+            # Skip relationless subs — resource type derivation raises on them, and one bad row
+            # must not fail the whole bounded page.
+            .exclude(
+                Q(insight_id__isnull=True) & Q(dashboard_id__isnull=True) & (Q(prompt__isnull=True) | Q(prompt=""))
+            )
+        )
+        oldest_due_at = (
+            due_subscriptions.order_by("next_delivery_date", "id").values_list("next_delivery_date", flat=True).first()
+        )
+        with transaction.atomic():
+            state, _ = TemporalSchedulerState.objects.get_or_create(
+                scheduler=_SUBSCRIPTION_SCHEDULER_NAME,
+                region=inputs.region,
+            )
+            state = TemporalSchedulerState.objects.select_for_update().get(pk=state.pk)
+            try:
+                team_cursor = int(state.discovery_cursor or 0)
+            except ValueError:
+                team_cursor = 0
+
+            teams_after_cursor = list(
+                due_subscriptions.filter(team_id__gt=team_cursor)
+                .order_by("team_id")
+                .values_list("team_id", flat=True)
+                .distinct()[: inputs.max_subscriptions_per_run + 1]
+            )
+            selected_team_ids = teams_after_cursor[: inputs.max_subscriptions_per_run]
+            deferred_teams = len(teams_after_cursor) > inputs.max_subscriptions_per_run
+            remaining_team_slots = inputs.max_subscriptions_per_run - len(selected_team_ids)
+            if remaining_team_slots:
+                teams_before_cursor = list(
+                    due_subscriptions.filter(team_id__lte=team_cursor)
+                    .order_by("team_id")
+                    .values_list("team_id", flat=True)
+                    .distinct()[: remaining_team_slots + 1]
+                )
+                selected_team_ids.extend(teams_before_cursor[:remaining_team_slots])
+                deferred_teams = deferred_teams or len(teams_before_cursor) > remaining_team_slots
+
+            if not selected_team_ids:
+                return [], 0, oldest_due_at
+
+            # Each selected tenant contributes an equally bounded number of candidates. The
+            # LATERAL limit is applied before the global fair ordering, so even a pathological
+            # tenant backlog cannot make Postgres rank or hydrate an unbounded number of rows.
+            candidate_limit = inputs.max_subscriptions_per_run + 1
+            candidates_per_team = math.ceil(candidate_limit / len(selected_team_ids))
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    WITH selected_teams(team_id, team_order) AS (
+                        SELECT * FROM unnest(%s::bigint[]) WITH ORDINALITY
+                    ),
+                    bounded_candidates AS (
+                        SELECT
+                            selected_teams.team_id,
+                            selected_teams.team_order,
+                            candidate.id,
+                            candidate.next_delivery_date
+                        FROM selected_teams
+                        CROSS JOIN LATERAL (
+                            SELECT subscription.id, subscription.next_delivery_date
+                            FROM posthog_subscription AS subscription
+                            LEFT JOIN posthog_dashboard AS dashboard ON dashboard.id = subscription.dashboard_id
+                            LEFT JOIN posthog_insight AS insight ON insight.id = subscription.insight_id
+                            WHERE subscription.team_id = selected_teams.team_id
+                              AND subscription.next_delivery_date <= %s
+                              AND subscription.deleted = FALSE
+                              AND subscription.enabled = TRUE
+                              AND (subscription.dashboard_id IS NULL OR dashboard.deleted = FALSE)
+                              AND (subscription.insight_id IS NULL OR insight.deleted = FALSE)
+                              AND (
+                                  subscription.insight_id IS NOT NULL
+                                  OR subscription.dashboard_id IS NOT NULL
+                                  OR NULLIF(subscription.prompt, '') IS NOT NULL
+                              )
+                            ORDER BY subscription.next_delivery_date, subscription.id
+                            LIMIT %s
+                        ) AS candidate
+                    ),
+                    ranked_candidates AS (
+                        SELECT
+                            id,
+                            next_delivery_date,
+                            team_order,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY team_id
+                                ORDER BY next_delivery_date, id
+                            ) AS team_rank
+                        FROM bounded_candidates
+                    )
+                    SELECT id
+                    FROM ranked_candidates
+                    ORDER BY team_rank, next_delivery_date, team_order, id
+                    LIMIT %s
+                    """,
+                    [selected_team_ids, now_with_buffer, candidates_per_team, candidate_limit],
+                )
+                bounded_candidate_ids = [row[0] for row in cursor.fetchall()]
+
+            state.discovery_cursor = str(selected_team_ids[-1])
+            state.save(update_fields=["discovery_cursor", "updated_at"])
+
+            deferred_candidates = len(bounded_candidate_ids) > inputs.max_subscriptions_per_run
+            candidate_ids = bounded_candidate_ids[: inputs.max_subscriptions_per_run]
+
+        if not candidate_ids:
+            return [], 0, oldest_due_at
+
+        subscriptions_by_id = {
+            sub["id"]: sub
+            for sub in (
+                due_subscriptions.filter(id__in=candidate_ids)
+                .annotate(
+                    _resource_type=Case(
+                        When(insight_id__isnull=False, then=Value(Subscription.ResourceType.INSIGHT)),
+                        When(dashboard_id__isnull=False, then=Value(Subscription.ResourceType.DASHBOARD)),
+                        default=Value(Subscription.ResourceType.AI_PROMPT),
+                    ),
+                )
+                .values(
+                    "id",
+                    "team_id",
+                    "created_by__distinct_id",
+                    "next_delivery_date",
+                    "_resource_type",
+                )
+            )
+        }
+        # A subscription can be disabled or deleted after the bounded ID query. Treat that as
+        # normal concurrent state change instead of letting one vanished row fail the page.
+        subscriptions = [
+            subscriptions_by_id[subscription_id]
+            for subscription_id in candidate_ids
+            if subscription_id in subscriptions_by_id
+        ]
+        results = [
             DueSubscription(
                 subscription_id=sub["id"],
                 team_id=sub["team_id"],
@@ -200,24 +359,51 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 if sub["created_by__distinct_id"]
                 else str(sub["team_id"]),
                 next_delivery_date=sub["next_delivery_date"].isoformat() if sub["next_delivery_date"] else None,
-                resource_type=Subscription.derive_resource_type(sub["insight_id"], sub["dashboard_id"], sub["prompt"]),
+                resource_type=sub["_resource_type"],
             )
-            for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
-            .exclude(dashboard__deleted=True)
-            .exclude(insight__deleted=True)
-            # Skip relationless subs — derive_resource_type raises on them, and one bad row would fail the whole batch.
-            .exclude(
-                Q(insight_id__isnull=True) & Q(dashboard_id__isnull=True) & (Q(prompt__isnull=True) | Q(prompt=""))
-            )
-            .values(
-                "id", "team_id", "created_by__distinct_id", "next_delivery_date", "insight_id", "dashboard_id", "prompt"
-            )
+            for sub in subscriptions
         ]
+        due_items_lower_bound = len(subscriptions) + int(deferred_teams or deferred_candidates)
+        return results, due_items_lower_bound, oldest_due_at
 
-    subscriptions = await get_subscriptions()
-    await LOGGER.ainfo("Fetched due subscriptions", count=len(subscriptions))
+    subscriptions, due_items_lower_bound, oldest_due_at = await get_subscriptions()
+    selection = await select_items_within_temporal_payload(
+        subscriptions,
+        build_payload=lambda items: list(items),
+        max_items=inputs.max_subscriptions_per_run,
+    )
+    limited_by = (
+        "item_limit"
+        if selection.limited_by == "none" and due_items_lower_bound > len(selection.items)
+        else selection.limited_by
+    )
+    oldest_age_seconds = max((dt.datetime.now(dt.UTC) - oldest_due_at).total_seconds(), 0) if oldest_due_at else 0
+    record_scheduler_metrics_safely(
+        lambda: DEFAULT_SCHEDULER_METRICS.observe_payload(
+            _SUBSCRIPTION_SCHEDULER_NAME,
+            inputs.region,
+            "discovery",
+            selection.encoded_size_bytes,
+        )
+    )
+    record_scheduler_metrics_safely(
+        lambda: DEFAULT_SCHEDULER_METRICS.set_backlog(
+            _SUBSCRIPTION_SCHEDULER_NAME,
+            inputs.region,
+            due_items_lower_bound=due_items_lower_bound,
+            oldest_age_seconds=oldest_age_seconds,
+        )
+    )
+    await LOGGER.ainfo(
+        "Fetched due subscriptions",
+        due_items_lower_bound=due_items_lower_bound,
+        selected_count=len(selection.items),
+        encoded_size_bytes=selection.encoded_size_bytes,
+        limited_by=limited_by,
+        oldest_age_seconds=oldest_age_seconds,
+    )
 
-    return subscriptions
+    return list(selection.items)
 
 
 @temporalio.activity.defn
