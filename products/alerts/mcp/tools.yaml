@@ -145,7 +145,10 @@ tools:
         scopes:
             - alert:read
         annotations:
-            readOnly: true
+            # A statistical simulation only reads, but the llm type makes a charged model call,
+            # so the tool as a whole is not read-only. That mode needs alert:write; the endpoint
+            # refuses it on a read-only token.
+            readOnly: false
             destructive: false
             idempotent: false
         title: Simulate detector on insight
@@ -157,8 +160,9 @@ tools:
             detector_config with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca,
             ensemble, or llm). Always send the type explicitly: a config with no type is read as a z-score detector, and
             any llm-only field you sent with it is dropped without an error. The llm type makes a real model call per
-            simulation, is rate limited per project, and takes the same instructions, threshold (default 0.7), and
-            window (default 90) as an llm alert; its scores are the model's confidence, not a statistical probability.
+            simulation, so it needs the alert:write scope, is rate limited per project, and takes the same
+            instructions, threshold (default 0.7), and window (default 90) as an llm alert; its scores are the model's
+            confidence, not a statistical probability.
             Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to simulate, and series_index to
             pick which series to analyze. Returns data values, anomaly scores per point, triggered indices and dates,
             and for ensemble detectors, per-sub-detector score breakdowns.

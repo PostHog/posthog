@@ -119,10 +119,38 @@ def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> 
     return [date for i in triggered_indices if i < len(series.points) and (date := series.points[i].date) is not None]
 
 
-def _metric_description(insight: Insight | None, series_index: int) -> str:
+def _metric_description(
+    insight: Insight | None, series_index: int, effective_date_range: tuple[str, str] | None = None
+) -> str:
     """Render the insight's query definition once per check, not once per breakdown value."""
     query = insight.query if insight is not None else None
-    return describe_metric_definition(query, series_index=series_index) if query else ""
+    if not query:
+        return ""
+    return describe_metric_definition(query, series_index=series_index, effective_date_range=effective_date_range)
+
+
+def _effective_date_range(result: ExtractionResult) -> tuple[str, str] | None:
+    """First and last date of the points the detector scores.
+
+    Extraction widens the insight's saved range when the detector needs more buckets than it
+    holds, so the saved range would describe a shorter span than the points beside it.
+    """
+    for series in result.series:
+        dates = [point.date for point in series.points if point.date]
+        if dates:
+            return dates[0], dates[-1]
+    return None
+
+
+def _evaluation_id(alert: AlertConfiguration | None) -> str | None:
+    """Names the check being run, the same across every retry of that one check.
+
+    Only the check's own transaction advances ``next_check_at``, so a retried attempt reads the
+    slot it started on and the following check never reads the same one.
+    """
+    if alert is None or alert.next_check_at is None:
+        return None
+    return f"{alert.id}:{alert.next_check_at.isoformat()}"
 
 
 def _detection_context(
@@ -133,6 +161,7 @@ def _detection_context(
     user: User | None,
     interval: str | None,
     metric_description: str,
+    evaluation_id: str | None = None,
 ) -> DetectionContext:
     """Everything about the series a detector cannot read off the values array.
 
@@ -151,6 +180,7 @@ def _detection_context(
         instructions=str(detector_config.get("instructions") or ""),
         team=insight.team if insight is not None else None,
         user=user,
+        evaluation_id=evaluation_id,
     )
 
 
@@ -235,7 +265,8 @@ def evaluate_with_detector(
         value: float | None = 0 if result.empty_query_result else None
         return AlertEvaluationResult(value=value, breaches=[], interval=interval_value)
 
-    metric_description = _metric_description(insight, series_index)
+    metric_description = _metric_description(insight, series_index, _effective_date_range(result))
+    evaluation_id = _evaluation_id(alert)
 
     def score(series: ComparableSeries) -> tuple[np.ndarray, DetectionResult]:
         data = np.array([p.value for p in series.points])
@@ -246,6 +277,7 @@ def evaluate_with_detector(
             user=alert.created_by if alert is not None else None,
             interval=interval_value,
             metric_description=metric_description,
+            evaluation_id=evaluation_id,
         )
         return data, get_detector(detector_config).detect_in_context(data, context)
 

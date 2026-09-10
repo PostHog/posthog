@@ -12,7 +12,7 @@ from parameterized import parameterized
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.facade.models import Insight
@@ -446,6 +446,32 @@ class TestUpsertAlertTool(BaseTest):
         tool = self._setup_tool()
 
         content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True))
+
+        assert "not enabled for your account" in content
+        assert artifact["error"] == "validation_failed"
+        await disabled.arefresh_from_db()
+        assert disabled.enabled is False
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_rejects_re_enabling_an_ai_alert_its_creator_cannot_use(self):
+        # Scheduled checks attribute their model calls to the creator, so an editor inside the
+        # rollout must not re-enable a teammate's alert into checks that can only error.
+        self.organization.is_ai_data_processing_approved = True
+        await sync_to_async(self.organization.save)()
+        insight = await self._create_insight()
+        disabled = await self._create_alert(insight, name="Disabled", enabled=False)
+        creator = await sync_to_async(User.objects.create_and_join)(self.organization, "creator@posthog.com", None)
+        await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id=disabled.id).update)(
+            detector_config={"type": "llm", "threshold": 0.7, "window": 90}, created_by=creator
+        )
+        tool = self._setup_tool()
+
+        def _rolled_out_for_the_editor_only(_key, distinct_id, **kwargs):
+            return distinct_id == str(self.user.distinct_id)
+
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_rolled_out_for_the_editor_only):
+            content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True))
 
         assert "not enabled for your account" in content
         assert artifact["error"] == "validation_failed"

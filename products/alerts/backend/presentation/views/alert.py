@@ -371,6 +371,25 @@ def _token_lacks_metrics_scope(request) -> bool:
     return not any(scope in key_scopes for scope in ("metrics:read", "metrics:write"))
 
 
+def _require_write_scope_for_charged_simulation(request, detector_config: Any) -> None:
+    """An AI simulation makes a real model call, so a read-only token must not start one.
+
+    Every other mode of this endpoint only reads: a statistical simulation is a ClickHouse
+    query. This one spends the organization's model budget, which is a side effect a token
+    scoped to read alerts and insights was never granted.
+    """
+    if not is_llm_detector_config(detector_config):
+        return
+    key_scopes = get_authenticator_scopes(request.successful_authenticator)
+    # Session auth carries no scopes; it is gated by team membership and access control.
+    if key_scopes is None or "*" in key_scopes or "alert:write" in key_scopes:
+        return
+    raise PermissionDenied(
+        "Simulating the AI detector makes a model call, so it needs the 'alert:write' scope. "
+        "A statistical detector simulates with 'alert:read'."
+    )
+
+
 def _require_metrics_scope_for_programmatic_auth(context: dict[str, Any], insight: Insight) -> None:
     # An alert on a metrics insight executes the query as `created_by` and delivers the computed
     # value and labels in notifications, so a programmatic token must also carry the metrics data
@@ -1706,11 +1725,15 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             200: AlertSimulateResponseSerializer,
             503: OpenApiResponse(description="The AI detector could not reach the model."),
         },
-        description="Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.",
+        description=(
+            "Simulate a detector on an insight's historical data. No AlertCheck records are created. "
+            "The AI detector makes a real model call, so that mode needs the 'alert:write' scope."
+        ),
     )
     # Returns an insight's computed result series, so it requires insight read in addition to
     # alert read — an alert-scoped token must not read insight/query data it isn't scoped for.
     # (Object-level insight viewer access is enforced separately in AlertSimulateSerializer.)
+    # An llm detector_config needs alert:write on top of these; see the guard in the handler.
     @action(
         detail=False,
         methods=["POST"],
@@ -1732,6 +1755,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         insight = serializer.validated_data["insight"]
         detector_config = serializer.validated_data["detector_config"]
+        _require_write_scope_for_charged_simulation(request, detector_config)
         series_index = serializer.validated_data["series_index"]
         date_from = serializer.validated_data.get("date_from")
         config = serializer.validated_data.get("config")

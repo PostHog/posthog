@@ -415,7 +415,7 @@ class UpsertAlertTool(MaxTool):
             if is_llm_alert and (interval_msg := llm_detector_interval_error(new_interval)):
                 return interval_msg, {"error": "validation_failed"}
             enabling_llm_alert = is_llm_alert and new_enabled and not alert.enabled
-            if enabling_llm_alert and (access_msg := await self._llm_detector_access_error()):
+            if enabling_llm_alert and (access_msg := await self._llm_detector_access_error(principal=alert.created_by)):
                 return access_msg, {"error": "validation_failed"}
 
             update_fields: list[str] = []
@@ -495,16 +495,27 @@ class UpsertAlertTool(MaxTool):
         if not alert_id:
             return None
         try:
-            return await AlertConfiguration.objects.select_related("threshold", "insight").aget(
+            return await AlertConfiguration.objects.select_related("threshold", "insight", "created_by").aget(
                 id=alert_id, team=self._team
             )
         except Exception:
             return None
 
-    async def _llm_detector_access_error(self) -> str | None:
+    async def _llm_detector_access_error(self, *, principal: User | None) -> str | None:
+        """Refuse an AI detector the principal its checks will run as cannot use.
+
+        A scheduled check attributes its model calls to the alert's creator, not to whoever
+        edits the alert. An editor with the rollout could otherwise re-enable a teammate's
+        alert and leave it erroring on every check.
+        """
+        if principal is None:
+            return (
+                "This alert has no creator to attribute AI detector calls to, which happens when that "
+                "person was deleted. Recreate the alert to use the AI detector."
+            )
         team = self._team
         org = await sync_to_async(lambda: team.organization)()
-        return await sync_to_async(llm_detector_access_error)(distinct_id=str(self._user.distinct_id), organization=org)
+        return await sync_to_async(llm_detector_access_error)(distinct_id=str(principal.distinct_id), organization=org)
 
     @staticmethod
     def _update_threshold(alert: AlertConfiguration, action: UpdateAlertAction) -> list[str]:

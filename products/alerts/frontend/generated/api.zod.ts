@@ -56,7 +56,7 @@ export const AlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
+ * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
  */
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`

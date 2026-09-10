@@ -19,6 +19,10 @@ INSTRUCTIONS_FENCE_END = "AUTHOR_INSTRUCTIONS>>>"
 
 MAX_INSTRUCTIONS_CHARS = 2000
 
+# A SQL alert's series label is a cell from the query result, so it can hold a URL or a whole
+# JSON value. Unbounded it crowds out the series the model is asked to judge.
+MAX_SERIES_LABEL_CHARS = 120
+
 SYSTEM_PROMPT = """You judge one time series for a monitoring alert. A person set this alert up and \
 will be paged by whatever you decide, so be conservative: only report an anomaly when a person \
 looking at this chart would agree something needs attention.
@@ -86,7 +90,7 @@ def _recent_points(*, data: np.ndarray, context: DetectionContext, window: int) 
 def _build_text(*, context: DetectionContext, points: list[tuple[str, float]], judge_every_point: bool) -> str:
     sections = [
         f"Insight: {context.insight_name or 'unnamed insight'}",
-        f"Series: {context.series_label or 'unnamed series'}",
+        f"Series: {(context.series_label or 'unnamed series')[:MAX_SERIES_LABEL_CHARS]}",
     ]
     if context.metric_description:
         sections.append(context.metric_description)

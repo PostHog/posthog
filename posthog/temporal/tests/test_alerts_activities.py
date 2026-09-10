@@ -463,6 +463,27 @@ class TestEvaluateAlert:
 
         assert thread_names[0].startswith("insight-alert-llm-evaluate") is uses_llm_detector
 
+    async def test_executor_follows_the_current_detector_type(self, alert, ateam) -> None:
+        # prepare_alert read the type in an earlier activity. An alert converted to the AI
+        # detector since then still has to keep its model call off the shared pool.
+        await sync_to_async(AlertConfiguration.objects.filter(team=ateam, id=alert.id).update)(
+            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
+        )
+        thread_names: list[str] = []
+
+        def _record_thread(_alert):
+            thread_names.append(threading.current_thread().name)
+            return AlertEvaluationResult(value=5.0, breaches=None)
+
+        with patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_record_thread):
+            env = ActivityEnvironment()
+            await env.run(
+                evaluate_alert,
+                EvaluateAlertActivityInputs(alert_id=str(alert.id), uses_llm_detector=False, team_id=ateam.id),
+            )
+
+        assert thread_names[0].startswith("insight-alert-llm-evaluate")
+
     async def test_evaluate_not_firing_no_breaches(self, alert) -> None:
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",

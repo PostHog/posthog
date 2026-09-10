@@ -1,8 +1,11 @@
 from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import pytest
 from unittest.mock import patch
+
+from django.core.cache import cache
 
 import numpy as np
 from parameterized import parameterized
@@ -10,7 +13,12 @@ from parameterized import parameterized
 from posthog.tasks.alerts.detectors.base import DetectionContext, DetectionResult
 from posthog.tasks.alerts.detectors.llm.detector import MAX_RATIONALE_CHARS, LLMDetector
 from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorMisconfiguredError, LLMDetectorUnavailableError
-from posthog.tasks.alerts.detectors.llm.prompt import INSTRUCTIONS_FENCE, SYSTEM_PROMPT, build_human_message
+from posthog.tasks.alerts.detectors.llm.prompt import (
+    INSTRUCTIONS_FENCE,
+    MAX_SERIES_LABEL_CHARS,
+    SYSTEM_PROMPT,
+    build_human_message,
+)
 from posthog.tasks.alerts.detectors.llm.verdict import LLMDetectionVerdict
 
 SERIES = np.array([100.0, 104.0, 98.0, 101.0, 99.0, 103.0, 40.0])
@@ -299,3 +307,67 @@ class TestLLMDetectorPrompt:
         assert isinstance(message, str)
         assert "point under judgment" not in message
         assert "Return every index in this table you consider anomalous" in message
+
+    def test_a_sql_series_label_is_bounded(self) -> None:
+        # A SQL alert's label is a cell from the query result, so it can be arbitrarily long.
+        label = "https://example.com/" + "x" * 4000
+        with patch("posthog.tasks.alerts.detectors.llm.prompt.render_series_chart", return_value=None):
+            message = build_human_message(
+                data=SERIES, context=_context(series_label=label), window=90, judge_every_point=False
+            )
+
+        assert isinstance(message, str)
+        assert label not in message
+        assert label[:MAX_SERIES_LABEL_CHARS] in message
+
+
+_SLOT = "b8f3a1e0-0000-0000-0000-000000000001:2026-01-07T00:00:00+00:00"
+_NEXT_SLOT = "b8f3a1e0-0000-0000-0000-000000000001:2026-01-07T00:15:00+00:00"
+
+
+@contextmanager
+def _mocked_model(verdict: LLMDetectionVerdict) -> Iterator[Any]:
+    with (
+        patch("posthog.tasks.alerts.detectors.llm.prompt.render_series_chart", return_value=None),
+        patch("posthog.tasks.alerts.detectors.llm.detector.posthoganalytics.default_client", None),
+        patch("ee.hogai.llm.MaxChatAnthropic") as chat,
+    ):
+        invoke = chat.return_value.with_structured_output.return_value.invoke
+        invoke.return_value = verdict
+        yield invoke
+
+
+@pytest.fixture
+def _memo_cache(settings: Any) -> Iterator[None]:
+    settings.CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+    cache.clear()
+    yield
+    cache.clear()
+
+
+@pytest.mark.usefixtures("_memo_cache")
+class TestLLMDetectorVerdictMemo:
+    @parameterized.expand(
+        [
+            ("the same check retried", _SLOT, _SLOT, SERIES, 1),
+            ("the same check on different numbers", _SLOT, _SLOT, SERIES * 2, 2),
+            ("the next scheduled check", _SLOT, _NEXT_SLOT, SERIES, 2),
+            ("a simulation, which carries no slot", None, None, SERIES, 2),
+        ]
+    )
+    def test_only_a_retry_of_the_same_check_reuses_a_verdict(
+        self,
+        _name: str,
+        first_id: str | None,
+        second_id: str | None,
+        second_data: np.ndarray,
+        expected_calls: int,
+    ) -> None:
+        # The activity that pays for a verdict also writes the AlertCheck, and it retries as a
+        # whole, so without the memo one check can buy a verdict once per attempt.
+        detector = LLMDetector({"type": "llm"})
+        with _mocked_model(_verdict()) as invoke:
+            detector.detect_in_context(SERIES, _context(evaluation_id=first_id))
+            detector.detect_in_context(second_data, _context(evaluation_id=second_id))
+
+        assert invoke.call_count == expected_calls

@@ -2438,6 +2438,46 @@ class TestAlertAPIKeyAccess(TrendsInsightAPITest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
 
+    @parameterized.expand(
+        [
+            (["alert:read", "insight:read"], status.HTTP_403_FORBIDDEN),
+            (["alert:write", "insight:read"], status.HTTP_200_OK),
+        ]
+    )
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_an_ai_simulation_needs_a_write_scope(self, scopes, expected_status, _flag, mock_simulate) -> None:
+        # Every other mode of this endpoint only reads. The AI one spends the organization's
+        # model budget, which a token scoped to read alerts and insights was never granted.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        mock_simulate.return_value = {
+            "data": [],
+            "dates": [],
+            "scores": [],
+            "triggered_indices": [],
+            "triggered_dates": [],
+            "interval": "day",
+            "total_points": 0,
+            "anomaly_count": 0,
+        }
+        api_key = self._create_api_key(scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate/",
+            data={
+                "insight": self.insight["id"],
+                "detector_config": {"type": "llm", "threshold": 0.7, "window": 90},
+            },
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert "alert:write" in response.json()["detail"]
+        assert mock_simulate.called is (expected_status == status.HTTP_200_OK)
+
 
 class TestAlertRealTimeInterval(TrendsInsightAPITest):
     def setUp(self):

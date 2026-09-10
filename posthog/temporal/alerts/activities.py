@@ -418,9 +418,30 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             investigation_user_id=alert.created_by_id if should_start_investigation else None,
         )
 
-    executor = _LLM_EVALUATE_EXECUTOR if inputs.uses_llm_detector else None
+    # prepare_alert read the detector type in an earlier activity, and _evaluate reloads the
+    # alert. An alert switched to the AI detector in between would make its model call on the
+    # shared pool, holding a thread other alerts' database work needs for the model timeout.
+    uses_llm_detector = await _alert_uses_llm_detector_now(inputs)
+    executor = _LLM_EVALUATE_EXECUTOR if uses_llm_detector else None
     async with Heartbeater():
         return await database_sync_to_async(_evaluate, thread_sensitive=False, executor=executor)()
+
+
+@database_sync_to_async(thread_sensitive=False)
+def _alert_uses_llm_detector_now(inputs: EvaluateAlertActivityInputs) -> bool:
+    """The alert's current detector type, for executor routing only.
+
+    Falls back to what prepare_alert saw when the row cannot be read: routing to the wrong
+    pool is the only consequence, and _evaluate raises for an alert that is gone.
+    """
+    if inputs.team_id is None:
+        return inputs.uses_llm_detector
+    row = AlertConfiguration.objects.filter(id=inputs.alert_id, team_id=inputs.team_id).values_list(
+        "detector_config", flat=True
+    )[:1]
+    if not row:
+        return inputs.uses_llm_detector
+    return is_llm_detector_config(row[0])
 
 
 @temporalio.activity.defn

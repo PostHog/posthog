@@ -88,22 +88,29 @@ _OPERATOR_LABELS = {
 _VALUELESS_OPERATORS = frozenset({"is_set", "is_not_set"})
 
 
-def describe_metric_definition(query: Any, *, series_index: int = 0) -> str:
+def describe_metric_definition(
+    query: Any, *, series_index: int = 0, effective_date_range: tuple[str, str] | None = None
+) -> str:
     """A plain-text block naming what the alerted series measures.
+
+    ``effective_date_range`` is the span of the points the caller actually supplies, for
+    readers that fetch a different range than the insight's saved one. Given it, the block
+    describes that span instead of the saved range, which would otherwise contradict the
+    dates alongside it.
 
     Never raises: this only enriches the agent's context, so an unrecognized or
     malformed query degrades to a "couldn't read it" line rather than failing an
     investigation that would otherwise have run.
     """
     try:
-        described = _describe(query, series_index)
+        described = _describe(query, series_index, effective_date_range)
     except Exception:
         logger.warning("alerts.metric_definition_failed", exc_info=True)
         return UNAVAILABLE
     return described[:MAX_DEFINITION_CHARS]
 
 
-def _describe(query: Any, series_index: int) -> str:
+def _describe(query: Any, series_index: int, effective_date_range: tuple[str, str] | None = None) -> str:
     source = unwrap_query_source(query)
     if not source:
         return UNAVAILABLE
@@ -128,7 +135,7 @@ def _describe(query: Any, series_index: int) -> str:
     else:
         lines.append("- Series: could not be read from the stored query.")
 
-    lines.extend(_describe_query_scope(source))
+    lines.extend(_describe_query_scope(source, effective_date_range))
     return "\n".join(lines)
 
 
@@ -246,7 +253,7 @@ def _describe_clauses(clauses: list[Any]) -> list[str]:
     return lines
 
 
-def _describe_query_scope(source: dict[str, Any]) -> list[str]:
+def _describe_query_scope(source: dict[str, Any], effective_date_range: tuple[str, str] | None = None) -> list[str]:
     lines: list[str] = []
 
     global_filters = _describe_filters(source.get("properties"))
@@ -257,11 +264,15 @@ def _describe_query_scope(source: dict[str, Any]) -> list[str]:
     if breakdown:
         lines.append(f"- Breakdown: {breakdown}")
 
-    date_range = source.get("dateRange")
-    if isinstance(date_range, dict) and (date_range.get("date_from") or date_range.get("date_to")):
-        lines.append(
-            f"- Insight date range: {date_range.get('date_from') or 'default'} to {date_range.get('date_to') or 'now'}"
-        )
+    if effective_date_range:
+        lines.append(f"- The points below cover: {effective_date_range[0]} to {effective_date_range[1]}")
+    else:
+        date_range = source.get("dateRange")
+        if isinstance(date_range, dict) and (date_range.get("date_from") or date_range.get("date_to")):
+            lines.append(
+                f"- Insight date range: {date_range.get('date_from') or 'default'} to "
+                f"{date_range.get('date_to') or 'now'}"
+            )
 
     interval = source.get("interval")
     if interval:
