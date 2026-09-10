@@ -96,6 +96,7 @@ export class CanvasDataService {
       const node = isTyped
         ? (input.query as Record<string, unknown>)
         : { kind: "HogQLQuery", query: input.hogql as string };
+      // Typed results are series objects. Wrapping them makes their values read as zero.
       const shaped = (results: unknown[]): unknown[] =>
         isTyped ? results : normalizeHogQLRows(results);
 
