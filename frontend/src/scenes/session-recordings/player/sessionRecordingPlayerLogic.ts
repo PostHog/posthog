@@ -83,6 +83,7 @@ import {
     GroupedAssetErrors,
     ResourceErrorDetails,
 } from './utils/asset-error-grouping'
+import { parseDeepLinkTime } from './utils/deep-link-time'
 import { makeLogger, makeNoOpLogger } from './utils/player-logging'
 import { deleteRecording } from './utils/playerUtils'
 import { initialFrameState, resolveFrameTimestamp } from './utils/resolve-frame-timestamp'
@@ -132,6 +133,13 @@ export interface RecordingViewedSummaryAnalytics {
 export interface Player {
     replayer: Replayer
     windowId: number
+}
+
+// WebKit can leave the replay iframe document without a <head> while rrweb rebuilds a full
+// snapshot. rrweb then throws synchronously ("null is not an object") when it sets an attribute
+// on the missing head. Detect that state so a seek can re-init the replayer instead of failing.
+function isReplayerDocumentUnavailable(replayer: Replayer | undefined): boolean {
+    return !!replayer && !replayer.iframe?.contentDocument?.head
 }
 
 export enum SessionRecordingPlayerMode {
@@ -619,6 +627,7 @@ export interface sessionRecordingPlayerLogicValues {
     playNextRecording: ((automatic: boolean) => void) | undefined
     player: Player | null
     playerError: string | null
+    playerFrameDocumentFailed: boolean
     playerSpeed: number
     playingState: SessionPlayerState.PLAY | SessionPlayerState.PAUSE
     playingTimeTracking: PlayerTimeTracking
@@ -856,6 +865,9 @@ export interface sessionRecordingPlayerLogicActions {
     }
     playerErrorSeen: (error: any) => {
         error: any
+    }
+    playerFrameDocumentLoadFailed: () => {
+        value: true
     }
     restartIframePlayback: () => {
         value: true
@@ -1263,6 +1275,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementClickCount: true,
         // the error is emitted from code we don't control in rrweb, so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
+        playerFrameDocumentLoadFailed: true,
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
         setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
@@ -1449,6 +1462,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
+        // The frame's src never changes, so a second load never arrives on its own, and nothing resets this.
+        playerFrameDocumentFailed: [false, { playerFrameDocumentLoadFailed: () => true }],
         playerError: [
             null as string | null,
             {
@@ -1674,7 +1689,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return 0
                 }
                 const time = currentTimestamp - sessionPlayerData.start.valueOf()
-                return clamp(time, 0, sessionPlayerData.durationMs || Infinity)
+                // durationMs is 0 until the recording loads; the clock must read 0 then, not run unbounded
+                return clamp(time, 0, sessionPlayerData.durationMs)
             },
         ],
 
@@ -1868,7 +1884,24 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return 0
                 }
                 const renderability = seekRenderability(firstWindowSegment.startTimestamp)
-                return renderability.kind === 'clampToFullSnapshot' ? Math.max(0, renderability.timestamp - start) : 0
+                if (renderability.kind !== 'clampToFullSnapshot') {
+                    return 0
+                }
+                // A backdated `sessionIdle` Custom event pulls `start` back over the idle span, and the SDK
+                // drops everything else while idle, so a Custom-only span is empty rather than lost.
+                // Anything else before the recovery point means the FullSnapshot was dropped.
+                const recoveryTimestamp = renderability.timestamp
+                for (const events of Object.values(sessionPlayerData.snapshotsByWindowId)) {
+                    for (const event of events) {
+                        if (event.timestamp >= recoveryTimestamp) {
+                            break
+                        }
+                        if (event.type !== EventType.Custom) {
+                            return recoveryTimestamp - start
+                        }
+                    }
+                }
+                return 0
             },
         ],
 
@@ -2085,6 +2118,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             } else {
                 actions.setPlay()
             }
+        },
+        playerFrameDocumentLoadFailed: () => {
+            // The player still works from the app document, so the only sign of this is the report.
+            posthog.captureException(new Error('Replay player frame loaded without its mount node'), {
+                feature: 'session-recording-player-frame',
+                sessionRecordingId: props.sessionRecordingId,
+            })
         },
         playerErrorSeen: ({ error }) => {
             const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)
@@ -2435,6 +2475,27 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // endBuffer first, so the pause/play decision below reads the user's play intent rather than the buffering state that outranks it.
             actions.endBuffer()
             actions.stopAnimation()
+
+            // WebKit can leave the replay iframe without a <head>, so rrweb throws synchronously while
+            // rebuilding a full snapshot. Re-init the replayer once so it rebuilds against a fresh
+            // document, rather than a hard playback failure. The re-init seeks back here via setPlayer.
+            const recoverStaleReplayer = (): boolean => {
+                if (
+                    !isReplayerDocumentUnavailable(values.player?.replayer) ||
+                    (cache.replayerRecoveryAttempts ?? 0) >= 1
+                ) {
+                    return false
+                }
+                cache.replayerRecoveryAttempts = (cache.replayerRecoveryAttempts ?? 0) + 1
+                actions.tryInitReplayer()
+                return true
+            }
+
+            // Guard before the seek, so rrweb never reaches the throw on a known-broken document.
+            if (recoverStaleReplayer()) {
+                return
+            }
+
             // rrweb throws synchronously on malformed events it replays through — surface an error
             // state rather than letting the throw escape the listener and wedge the state machine.
             try {
@@ -2443,13 +2504,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // in very large recordings this call to pause
                     // can consume 100% CPU and freeze the entire page
                     values.player?.replayer?.pause(values.toRRWebPlayerTime(timestamp))
-                    actions.clearPlayerError()
                 } else {
                     values.player?.replayer?.play(values.toRRWebPlayerTime(timestamp))
                     actions.updateAnimation()
-                    actions.clearPlayerError()
                 }
+                cache.replayerRecoveryAttempts = 0
+                actions.clearPlayerError()
             } catch (error) {
+                // The same failure can still slip through mid-play — recover rather than report it.
+                if (recoverStaleReplayer()) {
+                    return
+                }
                 posthog.captureException(error, {
                     feature: 'session-recording-replayer-playback',
                     sessionRecordingId: props.sessionRecordingId,
@@ -2475,13 +2540,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     if (searchParams.fullscreen) {
                         actions.setIsFullScreen(true)
                     }
-                    const timestampParam = Number(searchParams.timestamp)
-                    const tParam = Number(searchParams.t) * 1000
-                    if (searchParams.timestamp && Number.isFinite(timestampParam)) {
-                        actions.seekToTimestamp(timestampParam, true)
-                    } else if (searchParams.t && Number.isFinite(tParam)) {
-                        actions.seekToTime(tParam)
+                    const deepLinkTime = parseDeepLinkTime(searchParams.timestamp, searchParams.t)
+                    if (deepLinkTime?.kind === 'timestamp') {
+                        actions.seekToTimestamp(deepLinkTime.valueMs, true)
+                    } else if (deepLinkTime?.kind === 'offset') {
+                        actions.seekToTime(deepLinkTime.valueMs)
                     } else {
+                        if (searchParams.timestamp || searchParams.t) {
+                            lemonToast.warning(
+                                "Couldn't read the time in this link, so the recording starts from the beginning."
+                            )
+                        }
                         actions.setSkipToFirstMatchingEvent(true)
                     }
                 }
@@ -3422,21 +3491,28 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     }),
 
     urlToAction(({ actions, values }) => ({
-        '*': (_, searchParams, hashParams) => {
+        '*': (_, searchParams, hashParams, { pathname, search, hash }, previousLocation) => {
             const shouldPause = searchParams.pause || hashParams.pause
             if (shouldPause && !values.pauseForced) {
                 actions.forcePause()
             }
-            if (searchParams.timestamp) {
-                const desiredStartTime = Number(searchParams.timestamp)
-                if (!isNaN(desiredStartTime)) {
-                    actions.seekToTimestamp(desiredStartTime, true)
-                }
-            } else if (searchParams.t) {
-                const desiredStartTime = Number(searchParams.t) * 1000
-                if (!isNaN(desiredStartTime)) {
-                    actions.seekToTime(desiredStartTime)
-                }
+            // Unrelated param changes (inspector toggle, sidebar tab) keep `t`. Seek only when the
+            // linked time changed, or the same URL was pushed again so a repeat click still seeks.
+            const linkedTimeUnchanged =
+                previousLocation.searchParams.timestamp === searchParams.timestamp &&
+                previousLocation.searchParams.t === searchParams.t
+            const sameUrl =
+                previousLocation.pathname === pathname &&
+                previousLocation.search === search &&
+                previousLocation.hash === hash
+            if (linkedTimeUnchanged && !sameUrl) {
+                return
+            }
+            const deepLinkTime = parseDeepLinkTime(searchParams.timestamp, searchParams.t)
+            if (deepLinkTime?.kind === 'timestamp') {
+                actions.seekToTimestamp(deepLinkTime.valueMs, true)
+            } else if (deepLinkTime?.kind === 'offset') {
+                actions.seekToTime(deepLinkTime.valueMs)
             }
         },
     })),

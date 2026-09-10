@@ -275,6 +275,17 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         pass
 
 
+def increment_sandbox_wedge_probe(verdict: str, write_stage: str) -> None:
+    try:
+        meter = _metric_meter({"verdict": verdict, "write_stage": write_stage})
+        meter.create_counter(
+            "tasks_sandbox_wedge_probe",
+            "Sandbox pressure probe results after credential file write failures",
+        ).add(1)
+    except Exception:
+        pass
+
+
 def increment_pr_babysit_decision(decision: str) -> None:
     try:
         meter = workflow.metric_meter().with_additional_attributes({"decision": decision})
@@ -351,6 +362,36 @@ def record_agent_server_session_init_ms(
             "Latency for get_sandbox_for_repository sub-steps",
             unit="ms",
         ).record(dt.timedelta(milliseconds=session_init_ms))
+    except Exception:
+        pass
+
+
+def record_agent_server_step_ms(
+    step: str,
+    duration_ms: int,
+    boot_path: str,
+    *,
+    status: str = "COMPLETED",
+    used_snapshot: bool | None = None,
+    origin_product: str | None = None,
+    runtime: str | None = None,
+) -> None:
+    try:
+        attributes: Attributes = {
+            "step": step,
+            "used_snapshot": _bool_label(used_snapshot),
+            "status": status,
+            "boot_path": boot_path,
+        }
+        if origin_product is not None:
+            attributes["origin_product"] = origin_product
+        if runtime is not None:
+            attributes["runtime"] = runtime
+        _metric_meter(attributes).create_histogram_timedelta(
+            "tasks_process_sandbox_step_latency",
+            "Latency for get_sandbox_for_repository sub-steps",
+            unit="ms",
+        ).record(dt.timedelta(milliseconds=duration_ms))
     except Exception:
         pass
 

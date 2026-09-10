@@ -2146,6 +2146,29 @@ def direct_connection_information_schema_node() -> TableNode:
     return node
 
 
+def static_column_rows() -> list[list[Any]]:
+    """`columns` rows for the statically-defined schema, resolved without a team or any database
+    access, so build-time tooling can render exactly what `system.information_schema.columns`
+    serves at query time.
+
+    Team-scoped inputs (warehouse tables, semantic-layer annotations, column statistics) resolve
+    empty at `team_id=None` — the static schema is all that's left, which is the point.
+
+    Row layout matches `_Introspection.column_rows()`:
+    `[table_schema, table_name, column_name, ordinal, data_type, is_nullable, is_array, field_kind,
+    description, null_fraction, min_value, max_value]`.
+    """
+    # Deferred: `Database` imports the schema package, so a module-level import would cycle.
+    from posthog.hogql.context import HogQLContext  # noqa: PLC0415
+    from posthog.hogql.database.database import Database  # noqa: PLC0415
+
+    database = Database()
+    # `enable_select_queries` lets expression columns be typed by the value they evaluate to
+    # (`deleted` → `Integer`) instead of falling back to the generic "Expression".
+    context = HogQLContext(team_id=None, database=database, enable_select_queries=True)
+    return _Introspection(database, context).column_rows()
+
+
 def disable_data_catalog(info_schema: TableNode) -> None:
     info_schema.children.pop("metrics", None)
     info_schema.children.pop("certifications", None)

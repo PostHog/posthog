@@ -1,3 +1,4 @@
+import re
 import uuid
 import datetime as dt
 import contextlib
@@ -244,7 +245,7 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     connect.assert_called_once_with(
         "postgresql://duckgres",
         autocommit=True,
-        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi",
+        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=32Gi",
     )
     assert s3.copy_calls == [
         (
@@ -350,7 +351,7 @@ def test_production_register_connection_requests_right_sized_duckgres_worker(
         password="example-password",
         autocommit=True,
         application_name="ducklake-register",
-        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi",
+        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=32Gi",
     )
 
 
@@ -1174,6 +1175,24 @@ def _mock_activity_workload_metrics(monkeypatch):
         metrics.bytes_getter,
     )
     return metrics
+
+
+def test_register_worker_memory_stays_above_the_oom_floor() -> None:
+    """Registration workers must keep enough memory to materialize a generation.
+
+    The exact-string assertions elsewhere in this module pin whatever value is
+    configured; they pass just as happily on a value too small to run. This
+    pins the floor instead. Registration reads a whole generation through
+    read_parquet, and a duckgres worker's RSS ratchets across the sequential
+    sessions one run opens, so dropping this below 32Gi reintroduces the
+    OOM-kill that shows up as a lost connection mid-registration.
+    """
+    options = registration_module._DUCKGRES_REGISTER_WORKER_OPTIONS
+    match = re.search(r"duckgres\.worker_memory=(\d+)Gi", options)
+    assert match is not None, f"worker_memory must be set in Gi: {options!r}"
+    assert int(match.group(1)) >= 32, (
+        f"registration worker memory is {match.group(1)}Gi, below the 32Gi floor: {options!r}"
+    )
 
 
 def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:

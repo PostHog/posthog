@@ -10,7 +10,7 @@ from posthog.schema import DateRange, EventsNode, FunnelsFilter, FunnelsQuery
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
-from posthog.hogql_queries.insights.utils.aggregations import FirstTimeForUserDataWarehouseConfig
+from posthog.hogql_queries.utils.aggregations import FirstTimeForUserDataWarehouseConfig
 
 from products.product_analytics.backend.hogql_queries.funnels.funnel_aggregation_operations import (
     FirstTimeForUserAggregationQuery,

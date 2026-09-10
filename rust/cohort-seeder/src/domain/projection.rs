@@ -217,6 +217,10 @@ impl Demand {
             | GlobalRoot::DollarGroup(_)
             | GlobalRoot::Group(_)
             | GlobalRoot::Variables => {}
+            // Absent from the behavioral globals entirely, so a behavioral condition naming it
+            // raises however the scan was narrowed, and a person run never reaches a projection.
+            // Either way it claims no column.
+            GlobalRoot::Project => {}
         }
     }
 

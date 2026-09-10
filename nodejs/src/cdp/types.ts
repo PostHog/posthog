@@ -382,7 +382,10 @@ export type CyclotronJobInvocationHogFunctionContext = {
     // version (a retry's scheduled time) and lose the original.
     firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
+    actionStepCount?: number
 }
+
+export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
 
 export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
     state: CyclotronJobInvocationHogFunctionContext
@@ -474,6 +477,9 @@ export type HogFlowInvocationContext = {
         // the cdp_hogflow_wait_poll_only_advance metric — the signal that proves whether the poll
         // ever catches a wake the subscription streams missed, gating its eventual removal.
         pollReparked?: boolean
+        // A step parked on an external run: cleared when the matcher writes a matching `resumeResult`.
+        awaitingResume?: { key: string; deadlineAt: string; dispatch: Record<string, unknown>; label?: string }
+        resumeResult?: { key: string; status: WorkflowStepResumeStatus; result?: Record<string, unknown> }
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
@@ -520,6 +526,7 @@ export type HogFunctionInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'task_skills'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -535,6 +542,12 @@ export type HogFunctionInputSchemaType = {
     requires_field?: string
     integration_field?: string
     platform?: 'android' | 'ios'
+    /**
+     * Space-separated OAuth scopes. On an `integration` input these are the scopes the connection
+     * must grant, and a connection missing one gets an error banner. On any other input, paired
+     * with `integration_key`, they are the scopes only that field needs — a connection without them
+     * still works, so the field just says what it is missing. Neither is enforced at runtime.
+     */
     requiredScopes?: string
     /**
      * templating: true indicates the field supports templating. Alternatively

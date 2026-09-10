@@ -33,7 +33,7 @@ import { DelayHandler } from './actions/delay'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
-import { TriggerHandler } from './actions/trigger.handler'
+import { SlackAppLookup, TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { buildConversionWatcher } from './conversion-watcher'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
@@ -117,8 +117,10 @@ export class HogFlowExecutorService {
         recipientPreferencesService: RecipientPreferencesService,
         emailValidationService: EmailValidationService,
         cohortMembershipRepository: CohortMembershipRepository,
+        integrationManager: SlackAppLookup,
         duplicateObserver?: HogFlowDuplicateObserverService,
-        usageReporter?: CdpUsageReporterService
+        usageReporter?: CdpUsageReporterService,
+        options: { awaitedStepsEnabled?: boolean } = {}
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.duplicateObserver = duplicateObserver ?? null
@@ -127,7 +129,8 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'fetch',
-            usageReporter
+            usageReporter,
+            options
         )
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -145,7 +148,7 @@ export class HogFlowExecutorService {
         )
 
         this.actionHandlers = {
-            trigger: new TriggerHandler(),
+            trigger: new TriggerHandler(integrationManager),
             conditional_branch: new ConditionalBranchHandler(cohortMembershipRepository),
             wait_until_condition: new ConditionalBranchHandler(cohortMembershipRepository),
             delay: new DelayHandler(),
@@ -1000,6 +1003,9 @@ export class HogFlowExecutorService {
                 wakeEventUuid && wakeEventTimestamp
                     ? ` (woken by [Event:${wakeEventUuid}|${wakeEvent.replaceAll('|', '')}|${wakeEventTimestamp}])`
                     : ` (woken by event: ${wakeEvent.replaceAll('|', '')})`
+        }
+        if (hasCurrentAction && invocation.state.currentAction?.resumeResult) {
+            triggeredByEvent += ' (woken by the run finishing)'
         }
 
         return {

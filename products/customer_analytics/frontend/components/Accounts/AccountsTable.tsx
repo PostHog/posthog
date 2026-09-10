@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconPencil, IconX } from '@posthog/icons'
+import { IconCheck, IconInfo, IconPencil, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonColorGlyph,
@@ -60,6 +60,9 @@ const COLUMN_WIDTHS = {
     notebook_count: '80px',
     relationship: '220px',
 } as const
+
+// Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
+const ignoreDataTableQueryChange = (): void => {}
 
 function useGetCell(): (record: unknown, column: string) => unknown {
     const { accountsTableQueryPlan } = useValues(accountsLogic)
@@ -354,7 +357,7 @@ function CanonicalTimestampCell({
 }
 
 export function isCustomPropertyEditable(definition: CustomPropertyDefinitionApi): boolean {
-    return !definition.is_canonical && !definition.source && definition.references.length === 0
+    return !definition.is_canonical && !definition.source
 }
 
 type CustomPropertyDraft = boolean | string
@@ -640,6 +643,11 @@ function CustomPropertyCell({
     return (
         <div className="flex min-w-0 items-center gap-1">
             <span className="min-w-0 truncate">{renderedValue}</span>
+            {definition.has_workflow_reference && (
+                <Tooltip title="A workflow is configured to update this property. If it runs again, it will overwrite any value you set manually.">
+                    <IconInfo className="text-warning shrink-0" />
+                </Tooltip>
+            )}
             {isEditable && accountId && (
                 <LemonButton
                     type="tertiary"
@@ -886,13 +894,26 @@ export function AccountsTable(): JSX.Element {
     const { responseLoading, response } = useValues(
         dataNodeLogic({
             key: ACCOUNTS_TABLE_DATA_NODE_KEY,
-            query: accountsQuerySource ?? accountsDataTableQuery.source,
+            query: accountsQuerySource,
         } as DataNodeLogicProps)
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
     const accountSceneEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
+    const dataTableContext = useMemo<QueryContext<DataTableNode>>(
+        () => ({
+            columns: contextColumns,
+            tableLayout: 'fixed',
+            tableStyle: Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
+            expandable,
+            dataTableRowsTransformer: sortedRowsTransformer,
+            dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,
+            emptyStateHeading: 'There are no matching accounts for this query',
+            emptyStateDetail: 'Try adjusting the filters or refreshing',
+        }),
+        [contextColumns, columnWidths, expandable, sortedRowsTransformer]
+    )
     // A null source means the query is still waiting on the relationship
     // definitions — same skeleton as the initial fetch, not an empty table.
     if ((responseLoading || !accountsQuerySource) && !response) {
@@ -903,19 +924,8 @@ export function AccountsTable(): JSX.Element {
             <DataTable
                 uniqueKey="customer-analytics-accounts-table"
                 query={accountsDataTableQuery}
-                setQuery={() => {
-                    // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
-                }}
-                context={{
-                    columns: contextColumns,
-                    tableLayout: 'fixed',
-                    tableStyle: Object.keys(columnWidths).length > 0 ? { width: 'max-content' } : undefined,
-                    expandable,
-                    dataTableRowsTransformer: sortedRowsTransformer,
-                    dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,
-                    emptyStateHeading: 'There are no matching accounts for this query',
-                    emptyStateDetail: 'Try adjusting the filters or refreshing',
-                }}
+                setQuery={ignoreDataTableQueryChange}
+                context={dataTableContext}
                 readOnly
             />
         </div>
