@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSwitch, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -356,6 +356,23 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
                     </AccessControlAction>
                 </div>
             </div>
+
+            {/* The table's own empty state carries this error when there is nothing to list, so the
+                banner covers the rows-on-screen case: a failing poll leaves stale progress with
+                the table still drawn, and without this the user reads a live run as stalled. */}
+            {backfillsError && backfills.length > 0 && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Retry',
+                        onClick: () => loadBackfills(),
+                        loading: backfillsLoading,
+                        'data-attr': 'llma-eval-backfill-retry',
+                    }}
+                >
+                    {backfillsError}
+                </LemonBanner>
+            )}
 
             <LemonTable
                 dataSource={backfills}
