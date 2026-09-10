@@ -42,7 +42,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { getFirstTeam, resetBehavioralCohortsDatabase, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, getFirstTeam, resetBehavioralCohortsDatabase, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../src/types'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
@@ -3607,6 +3607,155 @@ describe('Workflows E2E (email queue)', () => {
         // (dequeue + park) is at most 4 transitions. Anything higher means a
         // denied send went around the loop again.
         for (const job of parkedA) {
+            expect(job.transition_count).toBeLessThanOrEqual(4)
+        }
+    })
+
+    it("a team over its tier cap does not hold up another team's emails", async () => {
+        // Two teams, each with one email workflow. Team A sits on a tier that allows
+        // 2 emails per hour and gets 6 sends queued; team B is on a high tier with 3
+        // sends. The whole pipeline is real and the tier caps are enforced: B's emails
+        // must all go out while A's over-cap sends park on future slots from A's own
+        // refill, without cycling.
+        //
+        // The default email worker was built with the caps off, so swap in one that
+        // enforces them. Tier 0 allows 2/hour, tier 1 is effectively unlimited.
+        await emailWorker.stop()
+        hub.EMAIL_TEAM_SENDING_CAP_MODE = 'enforce'
+        hub.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER = '2,10000'
+        hub.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER = '48,240000'
+        const enforcedQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        emailWorker = new CdpCyclotronWorkerEmail(hub, deps, enforcedQueue)
+        await emailWorker.start()
+
+        // The tier buckets are keyed by team id and the test Redis keeps data between
+        // runs, so team A's bucket must start full or a previous run drains this one.
+        const capValkey = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
+        await deleteKeysWithPrefix(capValkey, '@posthog/team-email-rate-hour')
+        await deleteKeysWithPrefix(capValkey, '@posthog/team-email-rate-day')
+
+        // Team A has no config row and defaults to tier 0. Team B gets tier 1.
+        const teamBId = await createTeam(hub.postgres, team.organization_id)
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO workflows_teamworkflowsconfig
+                (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                 email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+             VALUES ($1, false, 'off', '', '', 1)`,
+            [teamBId],
+            'set-team-email-tier'
+        )
+        await insertIntegration(hub.postgres, teamBId, {
+            id: 2,
+            kind: 'email',
+            config: {
+                email: 'sender@posthog.com',
+                name: 'Test Sender',
+                domain: 'posthog.com',
+                verified: true,
+                provider: 'maildev',
+            },
+        })
+
+        const buildFlow = (teamId: number, integrationId: number, triggerEvent: string, recipient: string): HogFlow =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(teamId)
+                .withStatus('active')
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', ...eventNameFilter(triggerEvent) },
+                        },
+                        email_1: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-workflows-e2e-email',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: recipient, name: 'Recipient' },
+                                            from: { integrationId, email: 'sender@posthog.com' },
+                                            subject: `To ${recipient}`,
+                                            text: 'Test text',
+                                            html: '<p>Test html</p>',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+        const flowA = buildFlow(team.id, 1, 'tier_a', 'recipient-tier-a@example.com')
+        const flowB = buildFlow(teamBId, 2, 'tier_b', 'recipient-tier-b@example.com')
+        await insertHogFlow(hub.postgres, flowA)
+        await insertHogFlow(hub.postgres, flowB)
+
+        const teamBGlobals = (i: number): HogFunctionInvocationGlobals =>
+            createHogExecutionGlobals({
+                project: { id: teamBId } as any,
+                event: {
+                    uuid: new UUIDT().toString(),
+                    event: 'tier_b',
+                    distinct_id: `person_tier_b_${i}`,
+                    properties: {},
+                    timestamp: '2024-09-03T09:00:00Z',
+                } as any,
+            })
+        const events = [
+            ...Array.from({ length: 6 }, (_, i) =>
+                createGlobals({
+                    event: 'tier_a',
+                    uuid: new UUIDT().toString(),
+                    distinct_id: `person_tier_a_${i}`,
+                } as any)
+            ),
+            ...Array.from({ length: 3 }, (_, i) => teamBGlobals(i)),
+        ]
+        const { backgroundTask } = await eventsConsumer.processBatch(events)
+        await backgroundTask
+
+        // Team B's 3 runs finish end to end; team A gets its 2 in-budget sends out.
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            const bJobs = jobs.filter((j: any) => j.function_id === flowB.id)
+            expect(bJobs.length).toBe(3)
+            expect(bJobs.every((j: any) => j.status === 'completed')).toBe(true)
+
+            const sent = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
+                .filter((m: any) => m.value.metric_name === 'email_sent')
+                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+            expect(sent).toBe(5)
+        }, 15000)
+
+        // Team A's 4 over-cap sends are parked far in the future (its refill is one
+        // token per 30 minutes), each dequeued once on the email queue.
+        const jobs = await queryCyclotronJobs()
+        const parkedA = jobs.filter(
+            (j: any) => j.function_id === flowA.id && j.queue_name === 'email' && j.status === 'available'
+        )
+        expect(parkedA.length).toBe(4)
+        for (const job of parkedA) {
+            expect(new Date(job.scheduled).getTime()).toBeGreaterThan(Date.now() + 25 * 60 * 1000)
             expect(job.transition_count).toBeLessThanOrEqual(4)
         }
     })

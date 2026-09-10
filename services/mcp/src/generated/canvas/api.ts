@@ -1505,7 +1505,8 @@ export const CanvasesValidateCreateBody = () => zod
  * List the connector catalog: every provider and tool a canvas may declare, with the caller's connection state.
  *
  * Authoring agents read this to write ph.connectors.call sites and the
- * matching capabilities.connectors declarations.
+ * matching capabilities.connectors declarations. Sandbox tokens receive
+ * only static native tools, with no connection lookup or MCP installation data.
  */
 export const CanvasesConnectorsRetrieveParams = () => zod.object({
     project_id: zod

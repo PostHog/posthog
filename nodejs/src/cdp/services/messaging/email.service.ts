@@ -118,18 +118,6 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
 const CAP_RETRY_MIN_MS = 1_000
 const CAP_RETRY_MAX_MS = 60 * 60 * 1_000
 
-function pickCapRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number): number {
-    // A denial with no horizon means the limiter itself failed, not that the cap was reached.
-    // Valkey recovers in seconds, but a daily cap paces in hours, so that bucket's refill is the
-    // wrong clock for this wake. Use the token-bucket cadence, which has a much shorter ceiling.
-    if (retryAfterMs === null) {
-        return pickTokenBucketRetryDelayMs(refillPerSecond)
-    }
-    // The 1x-2x jitter spreads re-claims so a parked backlog does not wake on the same instant.
-    const clampedMs = Math.min(Math.max(retryAfterMs, CAP_RETRY_MIN_MS), CAP_RETRY_MAX_MS)
-    return Math.floor(clampedMs * (1 + Math.random()))
-}
-
 // How far denied sends park. Everything at or below the top bucket is a real slot.
 // Above the top bucket is overflow: the backlog is deeper than one hour of refill.
 // A sustained rate up there means a team queues more email than its limit can send.
@@ -665,14 +653,20 @@ export class EmailService {
             // Both buckets in one atomic claim, granted whole or not at all. A denial consumes
             // nothing, so a rescheduled multi-recipient send cannot burn the partial refill on
             // every retry and starve the team's other emails while never sending itself.
-            const claim = await this.teamEmailRateLimiter.claimAllOrNothingPair([buckets[0], buckets[1]], requested)
+            const claim = await this.teamEmailRateLimiter.claimAllOrNothingPair(
+                [buckets[0], buckets[1]],
+                requested,
+                CAP_RETRY_MAX_MS
+            )
             if (claim.granted) {
                 return null
             }
             const denied = buckets[claim.deniedIndex ?? 1]
             teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: denied.name, mode })
+            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, denied.refillPerSecond, claim.reserved)
+            emailReservedParkMs.labels('team-email').observe(retryDelayMs)
             return {
-                retryDelayMs: pickCapRetryDelayMs(claim.retryAfterMs, denied.refillPerSecond),
+                retryDelayMs,
                 label: denied.label,
             }
         }
