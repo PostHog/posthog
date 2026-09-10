@@ -23,11 +23,7 @@ from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
     RelaySlackMessageInput,
     _append_unconfirmed_attachment_notice,
-    _markdown_to_slack_mrkdwn,
-    _neutralize_approx_tildes,
-    _repair_link_trailing_markers,
     _split_markdown_for_slack,
-    _wrap_bare_urls_in_emphasis,
     relay_slack_message,
 )
 
@@ -138,59 +134,43 @@ class TestRelaySlackMessage(TestCase):
 
     _RICH_ANSWER = "## Heading\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [ ] todo"
 
-    @parameterized.expand(
-        [
-            ("mrkdwn", False, "*Heading*\n\n```\na  b\n1  2\n```\n\n\u2022 \u2610 todo"),
-            ("markdown", True, _RICH_ANSWER),
-        ]
-    )
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    def test_the_gate_decides_whether_the_answer_is_converted(
-        self, _name, markdown, expected, mock_delete_progress, mock_post
-    ):
-        # The conversion exists to survive Slack's own mrkdwn, and it costs the answer its
-        # headings, its tables, and its task lists. A markdown block renders all three, so
-        # running the conversion under the gate would throw away what the gate is for.
-        with patch(
-            "products.slack_app.backend.slack_thread.SlackThreadHandler.renders_markdown", return_value=markdown
-        ):
-            relay_slack_message(
-                RelaySlackMessageInput(
-                    run_id=str(self.task_run.id),
-                    relay_id=f"relay-conversion-{markdown}",
-                    text=self._RICH_ANSWER,
-                )
+    def test_the_answer_reaches_slack_unconverted(self, mock_delete_progress, mock_post):
+        # A `markdown` block renders headings, tables, and task lists on its own. Converting
+        # the answer first would cost it all three.
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-conversion",
+                text=self._RICH_ANSWER,
             )
+        )
 
-        assert mock_post.call_args.args[0].endswith(expected)
+        assert mock_post.call_args.args[0].endswith(self._RICH_ANSWER)
+        assert mock_post.call_args.kwargs["markdown"] is True
 
     @parameterized.expand(
         [
-            # The converter turns the heading into inline bold, which survives an inline mention.
-            ("mrkdwn_heading", False, "## Heading\n\nBody text.", "<@U123> *Heading*"),
-            ("markdown_heading", True, "## Heading\n\nBody text.", "<@U123>\n\n## Heading"),
-            ("markdown_prose", True, "Done. Your model is set.", "<@U123> Done."),
+            ("heading", "## Heading\n\nBody text.", "<@U123>\n\n## Heading"),
+            ("prose", "Done. Your model is set.", "<@U123> Done."),
         ]
     )
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
     def test_the_mention_leaves_the_answers_opening_line_only_where_markdown_needs_it(
-        self, _name, markdown, text, expected_opening, mock_delete_progress, mock_post
+        self, _name, text, expected_opening, mock_delete_progress, mock_post
     ):
         # Markdown reads a heading only at the start of a line, so a mention glued to the front of
         # that answer renders the `##` as literal text. An answer that opens with prose has no such
         # constraint, and reads as one message with the mention in its first line.
-        with patch(
-            "products.slack_app.backend.slack_thread.SlackThreadHandler.renders_markdown", return_value=markdown
-        ):
-            relay_slack_message(
-                RelaySlackMessageInput(
-                    run_id=str(self.task_run.id),
-                    relay_id=f"relay-mention-{_name}",
-                    text=text,
-                )
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id=f"relay-mention-{_name}",
+                text=text,
             )
+        )
 
         assert mock_post.call_args.args[0].startswith(expected_opening)
 
@@ -199,14 +179,13 @@ class TestRelaySlackMessage(TestCase):
     def test_the_mention_comes_out_of_the_chunk_budget(self, mock_delete_progress, mock_post):
         # The mention is added after splitting, so without a reserved allowance the chunk it
         # lands on exceeds the block cap and posts as plain text, showing the Markdown source.
-        with patch("products.slack_app.backend.slack_thread.SlackThreadHandler.renders_markdown", return_value=True):
-            relay_slack_message(
-                RelaySlackMessageInput(
-                    run_id=str(self.task_run.id),
-                    relay_id="relay-mention-budget",
-                    text="word " * 4000,  # 20,000 chars, so the first chunk fills the block
-                )
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-mention-budget",
+                text="word " * 4000,  # 20,000 chars, so the first chunk fills the block
             )
+        )
 
         assert all(len(call.args[0]) <= SLACK_MARKDOWN_TEXT_MAX_LEN for call in mock_post.call_args_list)
 
@@ -625,206 +604,7 @@ class TestRelaySlackMessage(TestCase):
         artifact.refresh_from_db()
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
         self.assertEqual(artifact.location["delivery_status"], "pending")
-        mock_post.assert_called_once_with("<@U123> Here's the trend.", with_footer=True, markdown=False)
-
-
-class TestMarkdownToSlackMrkdwn(unittest.TestCase):
-    @parameterized.expand(
-        [
-            ("bold", "**hello**", "*hello*"),
-            ("italic_asterisk", "*italic*", "_italic_"),
-            ("italic_underscore", "_italic_", "_italic_"),
-            ("bold_italic", "***boldit***", "*_boldit_*"),
-            ("strikethrough", "~~removed~~", "~removed~"),
-            # "Approximately" tildes in front of a quantity would otherwise pair up as
-            # Slack strikethrough delimiters and strike through the text between them.
-            # The tilde operator (∼) looks the same but carries no formatting meaning.
-            (
-                "approx_tildes_do_not_strike_through",
-                "**~$36.0k**, averaging **~$5.1k/day** by ~2pm",
-                "*∼$36.0k*, averaging *∼$5.1k/day* by ∼2pm",
-            ),
-            ("link", "[Click here](https://example.com)", "<https://example.com|Click here>"),
-            ("h1", "# Title", "*Title*"),
-            ("h3", "### Section", "*Section*"),
-            ("dash_bullets", "- one\n- two", "• one\n• two"),
-            ("ordered_list_preserved", "1. one\n2. two", "1. one\n2. two"),
-            ("task_list", "- [ ] todo\n- [x] done", "• ☐ todo\n• ☑ done"),
-            ("horizontal_rule", "---", "──────────"),
-            ("blockquote_preserved", "> quote", "> quote"),
-            ("nested_bold_in_dash_list", "- **MIT** is permissive", "• *MIT* is permissive"),
-            (
-                "bold_markdown_link",
-                "**[pr-shepherd](https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd)**",
-                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd>*",
-            ),
-            # Agent emits double-asterisk closing markers inside the angle brackets
-            # (`**<url**>`). Without the repair pass the converter would halve those
-            # asterisks in place and produce `*<url*>`, which Slack renders as
-            # literal text with no link and no bold.
-            (
-                "agent_typo_double_asterisk_autolink",
-                "**<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd**>",
-                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd>*",
-            ),
-            (
-                "agent_typo_double_asterisk_labeled_link",
-                "**<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd**>",
-                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd>*",
-            ),
-            # Bare URL wrapped directly in markdown bold. Without the pre-wrap pass the
-            # converter halves the markers in place and emits ``*https://x.com*``, which
-            # Slack renders as literal asterisks around an auto-linked URL — the exact
-            # papercut on the PR-completion message that prompted this repair.
-            (
-                "agent_typo_bare_url_in_bold",
-                "Draft PR opened: **https://github.com/PostHog/posthog.com/pull/17450**",
-                "Draft PR opened: *<https://github.com/PostHog/posthog.com/pull/17450>*",
-            ),
-            (
-                "agent_typo_bare_url_in_italic_asterisk",
-                "see *https://example.com*",
-                "see _<https://example.com>_",
-            ),
-            ("plain_text_unchanged", "Hello world", "Hello world"),
-            ("inline_code_preserved", "Use `git commit`", "Use `git commit`"),
-        ]
-    )
-    def test_inline_conversions(self, _name, markdown, expected):
-        assert _markdown_to_slack_mrkdwn(markdown) == expected
-
-    def test_empty_string_returns_unchanged(self):
-        assert _markdown_to_slack_mrkdwn("") == ""
-
-    def test_table_renders_as_fenced_code_block_with_aligned_columns(self):
-        md = "| License | Key Points |\n|---|---|\n| MIT | Permissive |\n| GPL | Copyleft |"
-        # Widest cells per column: 'License' (7) and 'Key Points' (10). Two-space gutter.
-        # Trailing whitespace is rstripped, so the GPL row's narrower last cell isn't padded.
-        expected = "```\nLicense  Key Points\nMIT      Permissive\nGPL      Copyleft\n```"
-        assert _markdown_to_slack_mrkdwn(md) == expected
-
-    def test_table_strips_inline_markdown_from_cells(self):
-        md = "| Name | Note |\n|---|---|\n| **MIT** | [docs](https://x.com) |"
-        result = _markdown_to_slack_mrkdwn(md)
-        # Bold markers and link syntax don't render inside a code block, so we strip them.
-        assert "**" not in result
-        assert "MIT" in result
-        assert "docs" in result
-        assert "https://x.com" not in result
-
-    def test_pipe_rows_without_separator_are_not_treated_as_a_table(self):
-        # No separator row → likely incidental pipes, not a table. Leave alone.
-        md = "| a | b |\n| c | d |"
-        result = _markdown_to_slack_mrkdwn(md)
-        assert "```" not in result
-
-
-class TestRepairLinkTrailingMarkers(unittest.TestCase):
-    @parameterized.expand(
-        [
-            ("autolink_double_asterisk", "**<https://x.com**>", "**<https://x.com>**"),
-            ("autolink_single_asterisk", "*<https://x.com*>", "*<https://x.com>*"),
-            ("autolink_underscore", "_<https://x.com_>", "_<https://x.com>_"),
-            ("autolink_strikethrough", "~<https://x.com~>", "~<https://x.com>~"),
-            (
-                "labeled_link_double_asterisk",
-                "**<https://x.com|label**>",
-                "**<https://x.com|label>**",
-            ),
-            (
-                "two_broken_links_in_one_line",
-                "**<https://a.com**> and **<https://b.com**>",
-                "**<https://a.com>** and **<https://b.com>**",
-            ),
-            ("well_formed_autolink_unchanged", "**<https://x.com>**", "**<https://x.com>**"),
-            ("plain_text_unchanged", "Hello world", "Hello world"),
-            # Mismatched openers/closers shouldn't be rewritten — leave alone so we
-            # don't silently corrupt content that looks vaguely link-shaped.
-            ("mismatched_markers_unchanged", "**<https://x.com*>", "**<https://x.com*>"),
-        ]
-    )
-    def test_repair(self, _name, text, expected):
-        assert _repair_link_trailing_markers(text) == expected
-
-
-class TestWrapBareUrlsInEmphasis(unittest.TestCase):
-    @parameterized.expand(
-        [
-            ("bold_bare_url", "**https://x.com**", "**<https://x.com>**"),
-            ("italic_bare_url", "*https://x.com*", "*<https://x.com>*"),
-            ("underscore_bare_url", "_https://x.com_", "_<https://x.com>_"),
-            ("strike_bare_url", "~~https://x.com~~", "~~<https://x.com>~~"),
-            (
-                "url_with_path_and_query",
-                "**https://github.com/PostHog/posthog.com/pull/17450?foo=bar**",
-                "**<https://github.com/PostHog/posthog.com/pull/17450?foo=bar>**",
-            ),
-            (
-                "two_bare_urls_in_one_line",
-                "**https://a.com** and *https://b.com*",
-                "**<https://a.com>** and *<https://b.com>*",
-            ),
-            # Surrounded by sentence text — only the wrapped URL should be touched.
-            (
-                "url_inside_sentence",
-                "Draft PR opened: **https://x.com/pr/1**",
-                "Draft PR opened: **<https://x.com/pr/1>**",
-            ),
-            # Already bracketed — leave alone so we don't double-wrap.
-            ("autolink_already_bracketed", "**<https://x.com>**", "**<https://x.com>**"),
-            # Standard markdown link — handled correctly by the converter as-is.
-            ("markdown_link_in_bold_unchanged", "**[label](https://x.com)**", "**[label](https://x.com)**"),
-            # Non-URL bold spans must not be rewritten.
-            ("plain_bold_unchanged", "**hello world**", "**hello world**"),
-            ("plain_text_unchanged", "Visit https://x.com without bolding", "Visit https://x.com without bolding"),
-            # A bare URL not directly adjacent to the marker shouldn't be wrapped — the
-            # surrounding text means the emphasis already flanks whitespace and Slack
-            # renders it correctly without help.
-            (
-                "url_inside_bold_span_with_surrounding_text",
-                "**check https://x.com later**",
-                "**check https://x.com later**",
-            ),
-        ]
-    )
-    def test_wrap(self, _name, text, expected):
-        assert _wrap_bare_urls_in_emphasis(text) == expected
-
-
-class TestNeutralizeApproxTildes(unittest.TestCase):
-    @parameterized.expand(
-        [
-            ("dollar", "~$36.0k", "∼$36.0k"),
-            ("bare_number", "~5.1k/day", "∼5.1k/day"),
-            ("time", "roughly ~2pm PT", "roughly ∼2pm PT"),
-            ("percent", "up ~10% MoM", "up ∼10% MoM"),
-            ("euro", "~€40", "∼€40"),
-            ("multiple_on_one_line", "~$5k then ~$9k", "∼$5k then ∼$9k"),
-            # A genuine ``~~strikethrough~~`` run must survive untouched — its tildes are
-            # adjacent to each other, not to a quantity.
-            ("strikethrough_run_preserved", "~~$5 off~~", "~~$5 off~~"),
-            # A tilde glued to a preceding word is a git ref or range, not "approximately".
-            ("git_ref_left_alone", "rebase onto HEAD~2", "rebase onto HEAD~2"),
-            ("numeric_range_left_alone", "5~10 items", "5~10 items"),
-            # Paths, standalone tildes, and non-quantity tildes are literal characters that
-            # never form an accidental strikethrough, so they are left alone.
-            ("path_left_alone", "see ~/notes/report.md", "see ~/notes/report.md"),
-            ("tilde_before_letter_left_alone", "~foo", "~foo"),
-            ("tilde_before_space_left_alone", "~ $5", "~ $5"),
-            ("plain_text_unchanged", "no tildes here", "no tildes here"),
-            # Code spans/fences hold literal content Slack never strikes through, so a tilde
-            # there stays ASCII even when it looks like an approximation.
-            ("inline_code_left_alone", "run `git reset HEAD~1` and `~$5`", "run `git reset HEAD~1` and `~$5`"),
-            (
-                "fenced_block_left_alone",
-                "```\ninstall foo@~1.2.0\ncost ~$5\n```",
-                "```\ninstall foo@~1.2.0\ncost ~$5\n```",
-            ),
-            ("approx_outside_code_still_converted", "about ~$5 for `~$9`", "about ∼$5 for `~$9`"),
-        ]
-    )
-    def test_neutralize(self, _name, text, expected):
-        assert _neutralize_approx_tildes(text) == expected
+        mock_post.assert_called_once_with("<@U123> Here's the trend.", with_footer=True, markdown=True)
 
 
 class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):
@@ -904,40 +684,6 @@ class TestSplitTextForSlack(TestCase):
         joined = "\n\n".join(chunks)
         assert "```js\n" in joined
         assert joined.count("```") % 2 == 0
-
-    def test_paragraph_split_preserves_markdown_for_per_chunk_conversion(self):
-        # Each chunk must stay a valid markdown document on its own so that the
-        # per-chunk mrkdwn conversion produces correctly-rendered output.
-        paragraph_a = "This **bold** and [link](https://example.com) " * 50
-        paragraph_b = "Another **bold** and [link](https://example.com) " * 50
-        text = f"{paragraph_a.strip()}\n\n{paragraph_b.strip()}"
-        chunks = _split_markdown_for_slack(text)
-        assert len(chunks) == 2
-        for chunk in chunks:
-            converted = _markdown_to_slack_mrkdwn(chunk)
-            assert "*bold*" in converted
-            assert "<https://example.com|link>" in converted
-            assert "**" not in converted  # inline bold markers must be fully converted
-
-    def test_hard_char_break_leaves_broken_inline_span_as_literal(self):
-        # A single line longer than the limit forces a hard char break. Doing it
-        # before conversion means a halved ``**bold**`` simply fails to match the
-        # converter regex on either side, so both chunks keep the literal ``**``
-        # rather than ending up with a dangling unbalanced ``*`` in Slack mrkdwn.
-        prefix = "x" * (SLACK_MESSAGE_TEXT_LIMIT - 4)
-        line = prefix + "**bold**" + "y" * 100
-        chunks = _split_markdown_for_slack(line)
-        assert len(chunks) == 2
-        converted_first = _markdown_to_slack_mrkdwn(chunks[0])
-        converted_second = _markdown_to_slack_mrkdwn(chunks[1])
-        # Neither chunk should contain a valid Slack-mrkdwn ``*bold*`` because
-        # the span was halved; both should preserve the raw asterisks instead.
-        assert "*bold*" not in converted_first
-        assert "*bold*" not in converted_second
-        # And, critically, no chunk leaks a lone unbalanced ``*`` that would
-        # turn the rest of the message italic.
-        for chunk in (converted_first, converted_second):
-            assert chunk.count("*") % 2 == 0
 
 
 class TestRelaySlackMessageChunking(TestCase):
@@ -1079,5 +825,5 @@ class TestRelaySlackMessageChunking(TestCase):
             )
         )
 
-        mock_post.assert_called_once_with("<@U456> Here you go.", with_footer=True, markdown=False)
+        mock_post.assert_called_once_with("<@U456> Here you go.", with_footer=True, markdown=True)
         mock_post_footer.assert_not_called()

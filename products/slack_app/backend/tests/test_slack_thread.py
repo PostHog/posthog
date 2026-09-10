@@ -675,9 +675,3 @@ class TestMarkdownAnswerBlocks(SimpleTestCase):
         retry = mock_client.chat_postMessage.call_args_list[1].kwargs
         assert retry["text"] == "the answer"
         assert not retry.get("blocks")
-
-    @patch.object(SlackThreadHandler, "_get_integration", side_effect=Integration.DoesNotExist)
-    def test_the_gate_closes_rather_than_raising_when_the_integration_is_gone(self, _mock_get_integration) -> None:
-        # The relay reads this gate outside any try block of its own, so a raise here would fail
-        # the activity and make Temporal replay a relay that can never succeed.
-        assert self._handler().renders_markdown() is False

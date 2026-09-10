@@ -9,7 +9,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled, is_slack_app_markdown_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
@@ -159,7 +159,6 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
-        self._markdown_flag: bool | None = None
         self._code_access: bool | None = None
 
     def _get_integration(self) -> Integration:
@@ -180,24 +179,6 @@ class SlackThreadHandler:
         if self._code_access is None:
             self._code_access = viewer_has_code_access(self._get_integration(), self.actor_slack_user_id)
         return bool(self._code_access)
-
-    def renders_markdown(self) -> bool:
-        """Whether an answer is delivered as a Slack `markdown` block rather than converted to
-        `mrkdwn` first. Memoized like the sibling gates, because the flag is evaluated remotely.
-
-        The one place the gate is read. The relay asks before it prepares the answer, because
-        the conversion it runs and the size it chunks to both depend on the block the answer
-        lands in, and then passes the result to `post_thread_message`. That call sits outside
-        the try blocks the posting methods wrap themselves in, so a failed integration lookup
-        is answered here rather than left to fail the relay.
-        """
-        if self._markdown_flag is None:
-            try:
-                self._markdown_flag = is_slack_app_markdown_enabled(self._get_integration())
-            except Exception as e:
-                logger.warning("slack_app_markdown_gate_failed", error=str(e))
-                self._markdown_flag = False
-        return bool(self._markdown_flag)
 
     def reader_footer(self) -> RunFooter:
         """`run_footer` with the desktop link withheld where this reply's reader can't
@@ -654,9 +635,9 @@ class SlackThreadHandler:
         chunk of a non-streamed answer — the streamed path appends its own instead.
         `_answer_blocks` decides what the answer is carried in.
 
-        ``markdown`` says the text is the agent's Markdown, for a caller that already read
-        `renders_markdown`. It defaults off so a message of our own wording, which carries no
-        Markdown worth rendering, never reaches the flag lookup behind that gate.
+        ``markdown`` says the text is the agent's Markdown, which Slack renders from a
+        `markdown` block. It defaults off because a message of our own wording carries no
+        Markdown worth rendering.
         """
         # Text past the block's character cap can only be posted as plain text, which carries
         # no blocks at all. Dropping the footer there costs a line of provenance, while keeping
