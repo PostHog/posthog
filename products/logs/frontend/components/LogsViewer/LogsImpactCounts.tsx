@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonButton, LemonDropdown, Tooltip } from '@posthog/lemon-ui'
 
@@ -34,13 +34,15 @@ export function LogsImpactCounts({
 }: LogsImpactCountsProps): JSX.Element | null {
     const { activeSessionRecording } = useValues(sessionPlayerModalLogic)
     const [sessionsDropdownVisible, setSessionsDropdownVisible] = useState(false)
+    const [usersDropdownVisible, setUsersDropdownVisible] = useState(false)
 
-    // The player modal renders below the popover layer, so an open drill-down would cover the recording.
-    useEffect(() => {
-        if (activeSessionRecording) {
-            setSessionsDropdownVisible(false)
-        }
-    }, [activeSessionRecording])
+    // The player modal renders below the popover layer, so an open drill-down would cover the
+    // recording. Closing the state during render hides the drill-downs from the first modal frame,
+    // and they stay closed after the modal goes away.
+    if (activeSessionRecording && (sessionsDropdownVisible || usersDropdownVisible)) {
+        setSessionsDropdownVisible(false)
+        setUsersDropdownVisible(false)
+    }
 
     if (impact.total === 0) {
         return null
@@ -117,6 +119,8 @@ export function LogsImpactCounts({
                 <LemonDropdown
                     placement="bottom-start"
                     closeOnClickInside={false}
+                    visible={usersDropdownVisible}
+                    onVisibilityChange={setUsersDropdownVisible}
                     overlay={
                         <TopValuesOverlay
                             caption={usersCaption}

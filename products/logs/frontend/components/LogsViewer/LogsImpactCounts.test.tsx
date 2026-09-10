@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { Provider } from 'kea'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
@@ -14,10 +13,6 @@ import { LogsImpactCounts } from './LogsImpactCounts'
 describe('LogsImpactCounts', () => {
     beforeEach(() => {
         initKeaTests()
-    })
-
-    afterEach(() => {
-        cleanup()
     })
 
     const impact: _LogsImpactResponseApi = {
@@ -33,11 +28,7 @@ describe('LogsImpactCounts', () => {
     }
 
     it('closes the sessions drill-down when the session player modal opens', async () => {
-        render(
-            <Provider>
-                <LogsImpactCounts impact={impact} />
-            </Provider>
-        )
+        render(<LogsImpactCounts impact={impact} />)
 
         fireEvent.click(screen.getByText('sessions'))
         expect(screen.getByText(/Estimated unique session IDs/)).toBeInTheDocument()
@@ -50,5 +41,11 @@ describe('LogsImpactCounts', () => {
         await waitFor(() => {
             expect(screen.queryByText(/Estimated unique session IDs/)).not.toBeInTheDocument()
         })
+
+        // The drill-down stays closed after the modal closes; it must not pop back open.
+        act(() => {
+            sessionPlayerModalLogic.actions.closeSessionPlayer()
+        })
+        expect(screen.queryByText(/Estimated unique session IDs/)).not.toBeInTheDocument()
     })
 })
