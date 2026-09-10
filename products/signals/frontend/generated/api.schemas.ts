@@ -3315,6 +3315,7 @@ export type SignalScoutRunSummaryApiMetadata = {
     model?: string
     runtime_adapter?: string
     reasoning_effort?: string
+    service_tier?: string
     network_access?: string
     write_scopes?: string[]
     triggered_by?: string
@@ -3431,6 +3432,7 @@ export type SignalScoutRunDetailApiMetadata = {
     model?: string
     runtime_adapter?: string
     reasoning_effort?: string
+    service_tier?: string
     network_access?: string
     write_scopes?: string[]
     triggered_by?: string

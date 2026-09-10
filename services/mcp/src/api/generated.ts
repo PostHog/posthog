@@ -25297,6 +25297,9 @@ export namespace Schemas {
      * * `Tenjin` - Tenjin
      * * `Folk` - Folk
      * * `Cybersource` - Cybersource
+     * * `GoogleAdSense` - GoogleAdSense
+     * * `Sequenzy` - Sequenzy
+     * * `Skio` - Skio
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -26634,6 +26637,9 @@ export namespace Schemas {
       Tenjin: 'Tenjin',
       Folk: 'Folk',
       Cybersource: 'Cybersource',
+      GoogleAdSense: 'GoogleAdSense',
+      Sequenzy: 'Sequenzy',
+      Skio: 'Skio',
     } as const;
 
     /**
@@ -27984,7 +27990,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28330,6 +28339,14 @@ export namespace Schemas {
     export interface DeliveryConfig {
       /** Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. */
       post_all_insights_in_main_message?: boolean;
+      /** AI prompt subscriptions only: include generated chart images. Defaults to true when omitted. */
+      include_images?: boolean;
+      /** AI prompt subscriptions only: include report feedback links. Defaults to true when omitted. */
+      include_feedback?: boolean;
+      /** AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. */
+      include_manage_link?: boolean;
+      /** AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted. */
+      include_posthog_hint?: boolean;
     }
 
     /**
@@ -30018,7 +30035,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -38831,7 +38851,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -40202,7 +40225,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -44194,6 +44220,7 @@ export namespace Schemas {
      * * `site_app` - Site App
      * * `transformation` - Transformation
      * * `transformation_log` - Transformation Log
+     * * `legacy_destination` - Legacy Destination
      */
     export type HogFunctionTypeEnum = typeof HogFunctionTypeEnum[keyof typeof HogFunctionTypeEnum];
 
@@ -44207,6 +44234,7 @@ export namespace Schemas {
       SiteApp: 'site_app',
       Transformation: 'transformation',
       TransformationLog: 'transformation_log',
+      LegacyDestination: 'legacy_destination',
     } as const;
 
     /**
@@ -44418,7 +44446,8 @@ export namespace Schemas {
        * * `warehouse_source_webhook` - Warehouse Source Webhook
        * * `site_app` - Site App
        * * `transformation` - Transformation
-       * * `transformation_log` - Transformation Log */
+       * * `transformation_log` - Transformation Log
+       * * `legacy_destination` - Legacy Destination */
       type?: HogFunctionTypeEnum | null;
       /**
          * Display name for the function.
@@ -65548,7 +65577,8 @@ export namespace Schemas {
        * * `warehouse_source_webhook` - Warehouse Source Webhook
        * * `site_app` - Site App
        * * `transformation` - Transformation
-       * * `transformation_log` - Transformation Log */
+       * * `transformation_log` - Transformation Log
+       * * `legacy_destination` - Legacy Destination */
       type?: HogFunctionTypeEnum | null;
       /**
          * Display name for the function.
@@ -80042,6 +80072,7 @@ export namespace Schemas {
       model?: string;
       runtime_adapter?: string;
       reasoning_effort?: string;
+      service_tier?: string;
       network_access?: string;
       write_scopes?: string[];
       triggered_by?: string;
@@ -80139,6 +80170,7 @@ export namespace Schemas {
       model?: string;
       runtime_adapter?: string;
       reasoning_effort?: string;
+      service_tier?: string;
       network_access?: string;
       write_scopes?: string[];
       triggered_by?: string;
@@ -81865,7 +81897,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -83252,7 +83287,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -84621,7 +84659,10 @@ export namespace Schemas {
        * * `RecallAI` - RecallAI
        * * `Tenjin` - Tenjin
        * * `Folk` - Folk
-       * * `Cybersource` - Cybersource */
+       * * `Cybersource` - Cybersource
+       * * `GoogleAdSense` - GoogleAdSense
+       * * `Sequenzy` - Sequenzy
+       * * `Skio` - Skio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
