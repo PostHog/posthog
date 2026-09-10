@@ -16,6 +16,7 @@
 {% block breadcrumbs %}
     <div class="breadcrumbs">
         <a href="{% url 'admin:index' %}">{% translate "Home" %}</a>
+        &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
         &rsaquo; <a href="{% url 'admin:security_securityrule_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
         &rsaquo; Look up
     </div>
@@ -30,8 +31,13 @@
                autofocus>
         <input type="submit" value="Look up">
     </form>
-    {% if query %}
-        <p class="lookup-read-as">Read as {{ read_as }}. Only rules in the {{ region }} region were checked.</p>
+    {% if unreadable %}
+        <p class="errornote">
+            That doesn't read as any of these. Enter an email address, email domain, IP address, user ID, organization ID or project ID.
+        </p>
+    {% endif %}
+    {% if read_as %}
+        <p class="lookup-read-as">Read as {{ read_as }}. Only rules in {{ region }} were checked.</p>
         <h2>What happens</h2>
         <table class="lookup-table">
             <thead>

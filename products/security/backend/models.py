@@ -5,20 +5,33 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .facade.enums import Effect, Scope, TargetType
+from .logic.targets import TARGETS
+
+EFFECT_LABELS = {
+    Effect.BLOCK: "Block",
+    Effect.EXEMPT: "Exempt",
+    Effect.LIMIT: "Limit",
+}
+
+SCOPE_LABELS = {
+    Scope.ALL_ACCESS: "All access",
+    Scope.SIGNUP: "Signup",
+    Scope.AI_GATEWAY: "AI gateway",
+}
 
 
 # Callables, so a new member adds no migration. Django resolves them lazily and the
 # migration records only the function path, so keep these names and this module.
 def target_type_choices() -> list[tuple[str, str]]:
-    return [(target_type.value, target_type.value) for target_type in TargetType]
+    return [(target_type.value, TARGETS[target_type].label) for target_type in TargetType]
 
 
 def effect_choices() -> list[tuple[str, str]]:
-    return [(effect.value, effect.value) for effect in Effect]
+    return [(effect.value, label) for effect, label in EFFECT_LABELS.items()]
 
 
 def scope_choices() -> list[tuple[str, str]]:
-    return [(scope.value, scope.value) for scope in Scope]
+    return [(scope.value, label) for scope, label in SCOPE_LABELS.items()]
 
 
 class SecurityRuleQuerySet(models.QuerySet):
@@ -63,7 +76,10 @@ class SecurityRule(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.effect} {self.scope}: {self.target_type} {self.target_value}"
+        return (
+            f"{self.get_effect_display()} {self.get_scope_display().lower()}: "
+            f"{self.get_target_type_display()} {self.target_value}"
+        )
 
     @property
     def is_active(self) -> bool:

@@ -1,6 +1,6 @@
 import uuid
 import ipaddress
-from typing import Any, cast
+from typing import Any
 
 from django import forms
 from django.conf import settings
@@ -19,24 +19,12 @@ from .logic.decisions import decide, matching_rules
 from .logic.guards import RuleDraft, check_rule
 from .logic.impact import preview
 from .logic.targets import TARGETS, InvalidTarget, Subject
-from .models import SecurityRule
-
-SCOPE_LABELS = {
-    Scope.ALL_ACCESS: "All access",
-    Scope.SIGNUP: "Signup",
-    Scope.AI_GATEWAY: "AI gateway",
-}
+from .models import SCOPE_LABELS, SecurityRule
 
 SURFACE_LABELS = {
     Surface.SIGNUP: "Signup",
     Surface.APP_ACCESS: "App access and login",
     Surface.AI_GATEWAY: "AI gateway",
-}
-
-EFFECT_LABELS = {
-    Effect.BLOCK: "Block",
-    Effect.EXEMPT: "Exempt",
-    Effect.LIMIT: "Limit",
 }
 
 # Present on the second submit only, so the first submit shows the preview instead of saving.
@@ -56,15 +44,6 @@ class SecurityRuleForm(forms.ModelForm):
             ),
             "expires_at": "Leave empty to keep the rule until someone revokes it.",
         }
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        cast(forms.ChoiceField, self.fields["target_type"]).choices = [
-            (target.value, TARGETS[target].label) for target in TargetType
-        ]
-        cast(forms.ChoiceField, self.fields["scope"]).choices = [
-            (scope.value, label) for scope, label in SCOPE_LABELS.items()
-        ]
 
     def clean(self) -> dict[str, Any]:
         super().clean()
@@ -134,8 +113,8 @@ class SecurityRuleAdmin(admin.ModelAdmin):
     form = SecurityRuleForm
     list_display = (
         "target",
-        "effect_label",
-        "scope_label",
+        "effect",
+        "scope",
         "reason",
         "status",
         "expires_at",
@@ -152,6 +131,7 @@ class SecurityRuleAdmin(admin.ModelAdmin):
         "target_value",
         "effect",
         "scope",
+        "status",
         "reason",
         "expires_at",
         "created_by",
@@ -189,6 +169,10 @@ class SecurityRuleAdmin(admin.ModelAdmin):
 
         return RequestAwareForm
 
+    def changelist_view(self, request: HttpRequest, extra_context: dict[str, Any] | None = None) -> HttpResponse:
+        # Without change permission Django titles the list "Select security rule to view".
+        return super().changelist_view(request, {"title": "Security rules", **(extra_context or {})})
+
     def add_view(
         self, request: HttpRequest, form_url: str = "", extra_context: dict[str, Any] | None = None
     ) -> HttpResponse:
@@ -197,6 +181,20 @@ class SecurityRuleAdmin(admin.ModelAdmin):
             if form.is_valid():
                 return self._confirm_response(request, form)
         return super().add_view(request, form_url, extra_context)
+
+    def render_change_form(
+        self,
+        request: HttpRequest,
+        context: dict[str, Any],
+        add: bool = False,
+        change: bool = False,
+        form_url: str = "",
+        obj: SecurityRule | None = None,
+    ) -> HttpResponse:
+        # Every submit of the add form goes to the preview first, so the variants that
+        # promise to save and continue would act exactly like the plain submit.
+        context.update({"show_save_and_add_another": False, "show_save_and_continue": False})
+        return super().render_change_form(request, context, add, change, form_url, obj)
 
     def save_model(self, request: HttpRequest, obj: SecurityRule, form: forms.ModelForm, change: bool) -> None:
         if not change:
@@ -230,10 +228,13 @@ class SecurityRuleAdmin(admin.ModelAdmin):
             "opts": self.model._meta,
             "title": "Look up",
             "query": query,
-            "region": settings.CLOUD_DEPLOYMENT or "this",
+            "region": _region_label(),
         }
-        if query:
-            subject, read_as = subject_from_query(query)
+        subject_and_reading = subject_from_query(query) if query else None
+        if query and subject_and_reading is None:
+            context["unreadable"] = True
+        elif subject_and_reading is not None:
+            subject, read_as = subject_and_reading
             context["read_as"] = read_as
             context["matches"] = [_rule_row(rule) for rule in matching_rules(subject)]
             context["decisions"] = [
@@ -260,21 +261,13 @@ class SecurityRuleAdmin(admin.ModelAdmin):
             "reason": form.cleaned_data["reason"],
             "expires_at": form.cleaned_data.get("expires_at"),
             "impact": preview(draft),
-            "region": settings.CLOUD_DEPLOYMENT or "this",
+            "region": _region_label(),
         }
         return TemplateResponse(request, "admin/security/securityrule/confirm_add.html", context)
 
     @admin.display(description="Target", ordering="target_value")
     def target(self, rule: SecurityRule) -> str:
-        return f"{_target_label(rule.target_type)}: {rule.target_value}"
-
-    @admin.display(description="Effect", ordering="effect")
-    def effect_label(self, rule: SecurityRule) -> str:
-        return _label(EFFECT_LABELS, Effect, rule.effect)
-
-    @admin.display(description="Scope", ordering="scope")
-    def scope_label(self, rule: SecurityRule) -> str:
-        return _label(SCOPE_LABELS, Scope, rule.scope)
+        return f"{rule.get_target_type_display()}: {rule.target_value}"
 
     @admin.display(description="Status")
     def status(self, rule: SecurityRule) -> str:
@@ -287,8 +280,11 @@ class SecurityRuleAdmin(admin.ModelAdmin):
         return rule.created_by.email if rule.created_by else "Unknown"
 
 
-def subject_from_query(query: str) -> tuple[Subject, str]:
-    """Read a lookup query as the kind of thing it looks like, and say how it was read."""
+def subject_from_query(query: str) -> tuple[Subject, str] | None:
+    """Read a lookup query as the kind of thing it looks like, and say how it was read.
+
+    None when the query reads as none of them.
+    """
     if "@" in query:
         user = User.objects.filter(email__iexact=query).first()
         if user is None:
@@ -313,7 +309,11 @@ def subject_from_query(query: str) -> tuple[Subject, str]:
     if query.isdigit():
         return Subject(team_ids=frozenset({int(query)})), "a project ID"
 
-    return Subject(domain=query.lower().removeprefix("@")), "an email domain"
+    try:
+        domain = TARGETS[TargetType.EMAIL_DOMAIN].normalize(query)
+    except InvalidTarget:
+        return None
+    return Subject(domain=domain), "an email domain"
 
 
 def _subject_for_user(user: User) -> Subject:
@@ -332,22 +332,12 @@ def _subject_for_user(user: User) -> Subject:
 def _rule_row(rule: SecurityRule) -> dict[str, Any]:
     return {
         "id": rule.id,
-        "target": f"{_target_label(rule.target_type)}: {rule.target_value}",
-        "effect": _label(EFFECT_LABELS, Effect, rule.effect),
-        "scope": _label(SCOPE_LABELS, Scope, rule.scope),
+        "target": f"{rule.get_target_type_display()}: {rule.target_value}",
+        "effect": rule.get_effect_display(),
+        "scope": rule.get_scope_display(),
         "reason": rule.reason,
     }
 
 
-def _target_label(target_type: str) -> str:
-    try:
-        return TARGETS[TargetType(target_type)].label
-    except ValueError:
-        return target_type
-
-
-def _label(labels: dict[Any, str], enum: type, value: str) -> str:
-    try:
-        return labels[enum(value)]
-    except ValueError:
-        return value
+def _region_label() -> str:
+    return f"the {settings.CLOUD_DEPLOYMENT} region" if settings.CLOUD_DEPLOYMENT else "this region"

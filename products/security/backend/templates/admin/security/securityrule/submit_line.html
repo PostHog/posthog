@@ -1,0 +1,8 @@
+{% extends "admin/submit_line.html" %}
+{% block submit-row %}
+    {% if add %}
+        <input type="submit" value="Review rule" class="default" name="_save">
+    {% else %}
+        {{ block.super }}
+    {% endif %}
+{% endblock %}

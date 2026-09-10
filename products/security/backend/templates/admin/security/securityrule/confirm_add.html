@@ -7,17 +7,19 @@
     .confirm-summary dt { font-weight: bold; margin-top: 10px; }
     .confirm-summary dd { margin-left: 0; }
     .confirm-impact { background: #f8f8f8; border: 1px solid #ddd; padding: 12px 16px; margin-bottom: 20px; }
+    .submit-row a.start-over { display: inline-flex; align-items: center; height: 2.1875rem; padding: 0 15px; box-sizing: border-box; }
     </style>
 {% endblock %}
 {% block breadcrumbs %}
     <div class="breadcrumbs">
         <a href="{% url 'admin:index' %}">{% translate "Home" %}</a>
+        &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
         &rsaquo; <a href="{% url 'admin:security_securityrule_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
         &rsaquo; Confirm the rule
     </div>
 {% endblock %}
 {% block content %}
-    <p>Check what this rule reaches before you save it. It applies in the {{ region }} region only.</p>
+    <p>Check what this rule reaches before you save it. It applies in {{ region }} only.</p>
     <dl class="confirm-summary">
         <dt>Block</dt>
         <dd>
@@ -56,7 +58,7 @@
         <div class="submit-row">
             <input type="submit" class="default" value="Save rule">
             <a href="{% url 'admin:security_securityrule_add' %}"
-               class="button cancel-link">Start over</a>
+               class="button start-over">Start over</a>
         </div>
     </form>
 {% endblock %}
