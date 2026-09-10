@@ -26,6 +26,7 @@ describe('early data derivations', () => {
             showCount: true,
             showDateRange: true,
             showPropertyFilter: expect.any(Array),
+            showTestAccountFilters: true,
             source: {
                 events: ['$mcp_tool_call'],
                 limit: 100,
