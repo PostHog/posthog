@@ -96,6 +96,13 @@ export function resolveNavigationSource(
   };
 }
 
+/** For callers holding a location as a string, not a parsed one. */
+export function reportSourceHrefFromHref(href: string): string | undefined {
+  const [path, query] = href.split(/[?#]/, 2);
+  if (!isReportPath(path) || !query) return undefined;
+  return validSourceHref(new URLSearchParams(query).get("from") ?? undefined);
+}
+
 export function sourceHrefFromSearch(
   location: SourceLocation,
 ): string | undefined {

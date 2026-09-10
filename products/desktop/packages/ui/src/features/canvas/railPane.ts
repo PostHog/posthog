@@ -1,4 +1,5 @@
 import { getCurrentMatches } from "@posthog/ui/router/navigationBridge";
+import { reportSourceHrefFromHref } from "@posthog/ui/router/reportNavigation";
 
 /**
  * Which rail destination the app is on, and whether that destination owns the
@@ -66,6 +67,15 @@ export function railPaneForPath(fullPath: string): NavRailPane {
   return "spaces";
 }
 
+/**
+ * A report page belongs to the list it was opened from rather than to its own
+ * path, so `/reports/$id` under `?from=/inbox` is Self-driving.
+ */
+export function railPaneForHref(href: string): NavRailPane {
+  const path = href.replace(/[?#].*$/, "");
+  return railPaneForPath(reportSourceHrefFromHref(href) ?? path);
+}
+
 export function railPaneForMatches(
   matches: readonly { fullPath: string }[],
 ): NavRailPane {
@@ -96,7 +106,7 @@ export function isRestorableVisitHref(
     (root) => path === root || path.startsWith(`${root}/`),
   );
   if (blocked) return false;
-  return railPaneForPath(path) === pane;
+  return railPaneForHref(href) === pane;
 }
 
 const PANES_WITH_SIDEBAR = new Set<NavRailPane>([

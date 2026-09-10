@@ -56,7 +56,7 @@ vi.mock("@tanstack/react-router", () => ({
     select,
   }: {
     select: (s: {
-      location: { pathname: string };
+      location: { pathname: string; href: string };
       matches: {
         routeId: string;
         fullPath: string;
@@ -65,7 +65,10 @@ vi.mock("@tanstack/react-router", () => ({
     }) => unknown;
   }) =>
     select({
-      location: { pathname: "/spaces/chan-1/tasks/task-1" },
+      location: {
+        pathname: "/spaces/chan-1/tasks/task-1",
+        href: "/spaces/chan-1/tasks/task-1",
+      },
       matches: [
         {
           routeId: "/spaces/$channelId/tasks/$taskId",

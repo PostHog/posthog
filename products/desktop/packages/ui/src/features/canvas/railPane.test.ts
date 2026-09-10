@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isRestorableVisitHref,
   RAIL_PANE_ROOT,
+  railPaneForHref,
   railPaneForPath,
   railPaneHasSidebar,
 } from "./railPane";
@@ -48,6 +49,18 @@ describe("railPaneForPath", () => {
   });
 });
 
+describe("railPaneForHref", () => {
+  it.each([
+    ["/reports/report-1?from=%2Finbox", "inbox"],
+    ["/reports/report-1?from=%2Finbox%2Ftriage", "inbox"],
+    ["/reports/report-1?from=%2Fspaces%2Fchan-1", "spaces"],
+    ["/reports/report-1", "reports"],
+    ["/inbox?item=1", "inbox"],
+  ] as const)("puts %s on %s", (href, pane) => {
+    expect(railPaneForHref(href)).toBe(pane);
+  });
+});
+
 describe("isRestorableVisitHref", () => {
   it.each([
     ["spaces", "/spaces/chan-1/tasks/task-1"],
@@ -55,6 +68,8 @@ describe("isRestorableVisitHref", () => {
     ["spaces", "/new"],
     ["activity", "/activity?task=task-1"],
     ["inbox", "/inbox/pulls/report-1"],
+    ["inbox", "/inbox/triage"],
+    ["inbox", "/reports/report-1?from=%2Finbox"],
     ["home", "/"],
   ] as const)("lets %s replay %s", (pane, href) => {
     expect(isRestorableVisitHref(pane, href)).toBe(true);
@@ -71,6 +86,8 @@ describe("isRestorableVisitHref", () => {
     ["inbox", "/inbox/agents"],
     ["spaces", "/activity"],
     ["activity", "/spaces/chan-1"],
+    ["activity", "/reports/report-1?from=%2Finbox"],
+    ["reports", "/reports/report-1?from=%2Finbox"],
   ] as const)("does not let %s replay %s", (pane, href) => {
     expect(isRestorableVisitHref(pane, href)).toBe(false);
   });

@@ -1,10 +1,9 @@
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
   type NavRailPane,
-  railPaneForPath,
+  railPaneForHref,
   railPaneHasSidebar,
 } from "@posthog/ui/features/canvas/railPane";
-import { reportSourceHrefFromLocation } from "@posthog/ui/router/reportNavigation";
 import { useRouterState } from "@tanstack/react-router";
 
 export interface RailSurface {
@@ -25,12 +24,7 @@ export function useRailPane(): NavRailPane {
     // `matches` gave "reports" for the frames after the matches arrived and
     // before the settled location caught up, which took the column off screen
     // and put it back.
-    select: (state) => {
-      const source = reportSourceHrefFromLocation(state.location);
-      return railPaneForPath(
-        (source ?? state.location.pathname).split(/[?#]/)[0],
-      );
-    },
+    select: (state) => railPaneForHref(state.location.href),
   });
 }
 
