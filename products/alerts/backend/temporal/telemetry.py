@@ -1,6 +1,5 @@
 import time
 import asyncio
-from typing import Any
 
 from django.conf import settings
 
@@ -20,7 +19,7 @@ def _monotonic_time() -> float | None:
         return None
 
 
-def _log_activity_event(
+async def _log_activity_event(
     event: str,
     *,
     started_at: float | None = None,
@@ -28,7 +27,7 @@ def _log_activity_event(
     exception_type: str | None = None,
 ) -> None:
     try:
-        fields: dict[str, Any] = {}
+        fields: dict[str, str | float] = {}
         if outcome is not None:
             fields["outcome"] = outcome
         if started_at is not None:
@@ -39,8 +38,8 @@ def _log_activity_event(
         if span_context.is_valid:
             fields["trace_id"] = trace.format_trace_id(span_context.trace_id)
             fields["span_id"] = trace.format_span_id(span_context.span_id)
-        log = LOGGER.warning if outcome == "failure" else LOGGER.info
-        log(event, **fields)
+        log = LOGGER.awarning if outcome == "failure" else LOGGER.ainfo
+        await log(event, **fields)
     except Exception:
         pass
 
@@ -53,12 +52,12 @@ class AlertsProductTelemetryInterceptor(Interceptor):
 
 
 class _AlertsProductActivityInterceptor(ActivityInboundInterceptor):
-    async def execute_activity(self, input: ExecuteActivityInput) -> Any:
+    async def execute_activity(self, input: ExecuteActivityInput) -> object:
         started_at = _monotonic_time()
-        _log_activity_event("alerts_product_activity_started")
         outcome = "success"
         exception_type = None
         try:
+            await _log_activity_event("alerts_product_activity_started")
             return await super().execute_activity(input)
         except (asyncio.CancelledError, CancelledError):
             outcome = "cancellation"
@@ -68,9 +67,12 @@ class _AlertsProductActivityInterceptor(ActivityInboundInterceptor):
             exception_type = type(error).__name__
             raise
         finally:
-            _log_activity_event(
-                "alerts_product_activity_finished",
-                started_at=started_at,
-                outcome=outcome,
-                exception_type=exception_type,
-            )
+            try:
+                await _log_activity_event(
+                    "alerts_product_activity_finished",
+                    started_at=started_at,
+                    outcome=outcome,
+                    exception_type=exception_type,
+                )
+            except asyncio.CancelledError:
+                pass

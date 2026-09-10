@@ -49,6 +49,7 @@ Schedule registration will set the evaluation workflow's 50-second execution tim
 ## Activity logs
 
 Both Alerts queues use an activity-only interceptor that emits `alerts_product_activity_started` and `alerts_product_activity_finished` through the shared write-only logger.
+The shared logger's async methods keep log processing and writes off the activity event loop.
 Each retry emits its own start and finish events.
 The shared logger supplies `activity_id`, `activity_type`, `attempt`, `task_queue`, `workflow_id`, `workflow_namespace`, `workflow_run_id`, and `workflow_type`.
 Finish events add a monotonic `duration_ms` and an `outcome` of `success`, `failure`, or `cancellation`.
@@ -58,6 +59,7 @@ A failed attempt does not mean the workflow has exhausted its retries.
 When a valid OpenTelemetry span is active, both events include hexadecimal `trace_id` and `span_id` fields.
 The interceptor does not log inputs, headers, exception messages, or locals, and does not capture exceptions separately.
 Telemetry errors cannot replace an activity's result, exception, or cancellation.
+Cancellation before the activity starts still propagates; cancellation while writing its finish log cannot replace the completed activity's outcome.
 Workflow logging and workflow bodies are unchanged.
 
 ## Metrics
