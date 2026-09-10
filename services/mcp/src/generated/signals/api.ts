@@ -1670,7 +1670,9 @@ export const SignalsScoutEditReportBody = () => zod
                             .string()
                             .max(signalsScoutEditReportBodyMetricsItemCaptionMax)
                             .nullish()
-                            .describe('Optional context shown below the measurement.'),
+                            .describe(
+                                'Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.'
+                            ),
                         comparison: zod
                             .union([
                                 zod.object({
@@ -2016,7 +2018,9 @@ export const SignalsScoutEmitReportBody = () => zod
                             .string()
                             .max(signalsScoutEmitReportBodyMetricsItemCaptionMax)
                             .nullish()
-                            .describe('Optional context shown below the measurement.'),
+                            .describe(
+                                'Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.'
+                            ),
                         comparison: zod
                             .union([
                                 zod.object({

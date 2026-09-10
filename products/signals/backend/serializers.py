@@ -738,7 +738,10 @@ class ReportMetricSerializer(serializers.Serializer):
         required=False,
         default=None,
         max_length=MAX_METRIC_CAPTION_LENGTH,
-        help_text="Optional context shown below the measurement.",
+        help_text=(
+            "Optional context the tile cannot show, such as a filter that narrows the count or a "
+            "caveat on the data. Omit it rather than restate the title, unit, or window."
+        ),
     )
     comparison = ReportMetricComparisonSerializer(
         allow_null=True,

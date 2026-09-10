@@ -216,7 +216,13 @@ class ReportMetric(BaseModel):
             "one report metric represents one measurement."
         ),
     )
-    caption: str | None = Field(default=None, description="Optional context shown below the measurement.")
+    caption: str | None = Field(
+        default=None,
+        description=(
+            "Optional context the tile cannot show, such as a filter that narrows the count or a "
+            "caveat on the data. Omit it rather than restate the title, unit, or window."
+        ),
+    )
     comparison: ReportMetricComparison | None = Field(
         default=None,
         description="Optional baseline or previous-period value shown with the current value.",

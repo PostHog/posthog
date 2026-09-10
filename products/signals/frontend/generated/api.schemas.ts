@@ -223,7 +223,7 @@ export interface ReportMetricListApi {
      */
     unit?: string | null
     /**
-     * Optional context shown below the measurement.
+     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
      * @maxLength 500
      * @nullable
      */
@@ -535,7 +535,7 @@ export interface ReportMetricApi {
     /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
     query?: unknown
     /**
-     * Optional context shown below the measurement.
+     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
      * @maxLength 500
      * @nullable
      */
@@ -3918,7 +3918,7 @@ export interface ReportMetricWriteApi {
     /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
     query: unknown
     /**
-     * Optional context shown below the measurement.
+     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
      * @maxLength 500
      * @nullable
      */
