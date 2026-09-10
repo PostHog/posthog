@@ -292,7 +292,7 @@ export function buildSqlTooltipConfig(
 }
 
 /** Returns a tooltip label formatter for date/datetime x-axes, or undefined for non-date axes. */
-function buildSqlDateLabelFormatter(
+export function buildSqlDateLabelFormatter(
     xData: AxisSeries<string>,
     timezone: string
 ): ((label: string) => string) | undefined {

@@ -78,8 +78,6 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import type { DashboardAddTileType } from 'products/dashboards/frontend/types'
-
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
 
@@ -89,7 +87,6 @@ export enum DashboardEventSource {
     DashboardHeaderSaveDashboard = 'dashboard_header_save_dashboard',
     DashboardHeaderDiscardChanges = 'dashboard_header_discard_changes',
     DashboardHeaderExitFullscreen = 'dashboard_header_exit_fullscreen',
-    DashboardHeaderOverridesBanner = 'dashboard_header_overrides_banner',
     Hotkey = 'hotkey',
     InputEnter = 'input_enter',
     Toast = 'toast',
@@ -785,11 +782,11 @@ export interface eventUsageLogicActions {
         stepCount: number
     }
     reportDashboardAddMenuOpened: (
-        source: 'header' | 'inline',
+        source: 'header',
         dashboardId: number
     ) => {
         dashboardId: number
-        source: 'header' | 'inline'
+        source: 'header'
     }
     reportDashboardBreakdownColorsSaved: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -1022,21 +1019,6 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         ignored: boolean
         insightId: number | null
-    }
-    reportDashboardTileInsertedInline: (
-        tileType: DashboardAddTileType,
-        dashboardId: number,
-        tileId: number,
-        column: number,
-        row: number,
-        fullWidth: boolean
-    ) => {
-        column: number
-        dashboardId: number
-        fullWidth: boolean
-        row: number
-        tileId: number
-        tileType: DashboardAddTileType
     }
     reportDashboardTileRefreshed: (
         dashboardId: number,
@@ -1798,6 +1780,13 @@ export interface eventUsageLogicActions {
         selfDriving: boolean | undefined
         surface: IntegrationConnectSurface
     }
+    reportIntegrationConnectRejected: (
+        kind: string,
+        error: string
+    ) => {
+        error: string
+        kind: string
+    }
     reportInviteMembersButtonClicked: () => {
         value: true
     }
@@ -2379,6 +2368,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             surface,
             selfDriving,
         }),
+        reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
         reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
@@ -2662,15 +2652,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
-        reportDashboardAddMenuOpened: (source: 'header' | 'inline', dashboardId: number) => ({ source, dashboardId }),
-        reportDashboardTileInsertedInline: (
-            tileType: DashboardAddTileType,
-            dashboardId: number,
-            tileId: number,
-            column: number,
-            row: number,
-            fullWidth: boolean
-        ) => ({ tileType, dashboardId, tileId, column, row, fullWidth }),
+        reportDashboardAddMenuOpened: (source: 'header', dashboardId: number) => ({ source, dashboardId }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -3338,6 +3320,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 self_driving: selfDriving,
             })
         },
+        // Counts connect attempts the provider sent back without a code. `integration_connect_clicked`
+        // only says the user started, so without this the drop-off is invisible outside session
+        // recordings — and `access_denied` in particular hides a workspace waiting on an admin.
+        reportIntegrationConnectRejected: ({ kind, error }) => {
+            posthog.capture('integration_connect_rejected', {
+                integration_kind: kind,
+                error,
+            })
+        },
         // Personal integrations are a separate table with their own connect surface, so they get
         // their own event: saved insights already count `integration_connect_clicked` unfiltered and
         // would silently start including personal links.
@@ -3836,16 +3827,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardAddMenuOpened: async ({ source, dashboardId }) => {
             posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
-        },
-        reportDashboardTileInsertedInline: async ({ tileType, dashboardId, tileId, column, row, fullWidth }) => {
-            posthog.capture('dashboard tile inserted inline', {
-                tile_type: tileType,
-                dashboard_id: dashboardId,
-                tile_id: tileId,
-                column,
-                row,
-                full_width: fullWidth,
-            })
         },
         reportWebDashboardCreatedFromTemplate: async (payload) => {
             posthog.capture('dashboard created from template', {
