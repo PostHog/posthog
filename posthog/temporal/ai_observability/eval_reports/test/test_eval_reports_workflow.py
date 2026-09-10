@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import temporalio.workflow
 from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.ai_observability.eval_reports.activities import (
     deliver_report_activity,
@@ -68,6 +69,48 @@ async def test_scheduled_coordinator_only_waits_for_child_start_acceptance() -> 
         assert call.kwargs["parent_close_policy"] == temporalio.workflow.ParentClosePolicy.ABANDON
         assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
     execute_child_workflow.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_scheduled_coordinator_starts_every_report_and_counts_start_outcomes() -> None:
+    report_ids = ["report-a", "report-b", "report-c"]
+
+    async def fake_execute_activity(*_args, **_kwargs):
+        return FetchDueEvalReportsOutput(report_ids=report_ids)
+
+    async def fake_start_child_workflow(*_args, **kwargs):
+        if kwargs["id"] == "eval-report-report-b":
+            raise WorkflowAlreadyStartedError(kwargs["id"], "eval-report")
+        if kwargs["id"] == "eval-report-report-c":
+            raise RuntimeError("boom")
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow",
+            new_callable=AsyncMock,
+            side_effect=fake_start_child_workflow,
+        ) as start_child_workflow,
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            return_value=True,
+        ),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger") as workflow_logger,
+    ):
+        await ScheduleAllEvalReportsWorkflow().run(ScheduleAllEvalReportsWorkflowInputs())
+
+    assert [call.kwargs["id"] for call in start_child_workflow.await_args_list] == [
+        "eval-report-report-a",
+        "eval-report-report-b",
+        "eval-report-report-c",
+    ]
+    warning = workflow_logger.warning.call_args
+    assert warning.kwargs["extra"]["already_started_count"] == 1
+    assert warning.kwargs["extra"]["failed_count"] == 1
+    assert warning.kwargs["extra"]["failure_samples"] == [("report-c", "RuntimeError: boom")]
 
 
 @pytest.mark.asyncio

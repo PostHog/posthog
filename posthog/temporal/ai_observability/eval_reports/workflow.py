@@ -277,27 +277,25 @@ async def _start_report_workflows(kind: str, workflow_id_prefix: str, report_ids
     one slow child. ABANDON keeps accepted children running after this coordinator closes.
     """
 
+    # An awaited start resolves only after the server records the child, so starting them
+    # one at a time spends a workflow task per report and leaves the tail unstarted when the
+    # coordinator's execution timeout lands mid-dispatch. Gathering emits every start command
+    # in one workflow task, which is what the pre-batching path this replaces already did.
+    results = await asyncio.gather(
+        *(_start_report_workflow(workflow_id_prefix, report_id) for report_id in report_ids),
+        return_exceptions=True,
+    )
+
     already_started = 0
     failed_count = 0
     failure_samples: list[tuple[str, str]] = []
-    for report_id in report_ids:
-        try:
-            await temporalio.workflow.start_child_workflow(
-                GenerateAndDeliverEvalReportWorkflow.run,
-                GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
-                id=f"{workflow_id_prefix}-{report_id}",
-                task_queue=settings.LLMA_TASK_QUEUE,
-                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
-            )
-        except WorkflowAlreadyStartedError:
-            # A previous coordinator already launched this report and it is still open.
-            already_started += 1
-        except Exception as error:
+    for report_id, result in zip(report_ids, results):
+        if isinstance(result, BaseException):
             failed_count += 1
             if len(failure_samples) < 20:
-                failure_samples.append((report_id, f"{type(error).__name__}: {error}"))
+                failure_samples.append((report_id, f"{type(result).__name__}: {result}"))
+        elif result is False:
+            already_started += 1
 
     if already_started or failed_count:
         temporalio.workflow.logger.warning(
@@ -308,6 +306,24 @@ async def _start_report_workflows(kind: str, workflow_id_prefix: str, report_ids
                 "failure_samples": failure_samples,
             },
         )
+
+
+async def _start_report_workflow(workflow_id_prefix: str, report_id: str) -> bool:
+    """Start one report child. False means a previous coordinator's run is still open."""
+
+    try:
+        await temporalio.workflow.start_child_workflow(
+            GenerateAndDeliverEvalReportWorkflow.run,
+            GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
+            id=f"{workflow_id_prefix}-{report_id}",
+            task_queue=settings.LLMA_TASK_QUEUE,
+            parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
+        )
+        return True
+    except WorkflowAlreadyStartedError:
+        return False
 
 
 def _log_legacy_fan_out_failures(kind: str, report_ids: list[str], results: list) -> None:
