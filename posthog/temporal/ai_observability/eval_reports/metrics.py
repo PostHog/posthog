@@ -161,7 +161,7 @@ def record_coordinator_candidate_inventory(count: int, trigger_type: str, region
     meter.create_gauge(
         "llma_eval_reports_coordinator_candidate_snapshot_unixtime",
         "Unix time when this worker sampled count-triggered candidate inventory",
-    ).set(time.time())
+    ).set(int(time.time()))
 
 
 # ---------------------------------------------------------------------------
