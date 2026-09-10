@@ -467,7 +467,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                             <colgroup>
                                 {
                                     isRowExpansionToggleShown && (
-                                        <col style={{ width: '1%' }} />
+                                        <col className="LemonTable__toggle" />
                                     ) /* Expand/collapse column */
                                 }
                                 {columns
@@ -792,6 +792,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                         .fill(null)
                                         .map((_, rowIndex) => (
                                             <tr key={`LemonTable-tr-${rowIndex} ph-no-capture`}>
+                                                {isRowExpansionToggleShown && <td className="LemonTable__toggle" />}
                                                 {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                                     columnGroup.children.map((column, columnIndex) => (
                                                         <td

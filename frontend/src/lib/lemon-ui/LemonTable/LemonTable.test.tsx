@@ -188,6 +188,24 @@ describe('LemonTable', () => {
         expect(document.querySelector('tbody tr.LemonTable__empty-state > td')).toHaveAttribute('colspan', '1')
     })
 
+    it('keeps loading skeleton rows aligned with the header when rows are expandable', () => {
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={[]}
+                loading
+                columns={COLUMNS}
+                expandable={{ expandedRowRender: () => <div>Expanded</div> }}
+            />
+        )
+
+        const headerCells = document.querySelectorAll('thead tr:not(.LemonTable__loader-row) th')
+        const skeletonCells = document.querySelectorAll('tbody tr:first-child > td')
+
+        expect(skeletonCells).toHaveLength(headerCells.length)
+        expect(skeletonCells[0]).toHaveClass('LemonTable__toggle')
+    })
+
     it('keeps group headers aligned when the sticky first group has a single column', () => {
         // The sticky-first-group header is rendered as a title cell plus a filler cell. With one child
         // the filler's colSpan would be 0, which the DOM clamps to 1, adding a phantom column that
