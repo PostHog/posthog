@@ -156,6 +156,13 @@ export const Scanning: Story = {
     decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
 }
 
+// The strip opens collapsed, so this is where most Refresh presses land: the picks stay named and
+// the scan says how long it has been going.
+export const ScanningCollapsed: Story = {
+    parameters: { stripCollapsed: true, stripRefreshing: true },
+    decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
+}
+
 // The one case skeletons are left for: every pick was acted on while the scan ran.
 export const ScanningWithNothingToShow: Story = {
     parameters: { stripRefreshing: true },

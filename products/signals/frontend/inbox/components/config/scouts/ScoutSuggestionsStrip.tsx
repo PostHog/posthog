@@ -95,7 +95,14 @@ function StripBody(): JSX.Element {
     const { suggestions, collapsed, batchStatus, isRefreshing, suggestionSetLoading } = useValues(scoutSuggestionsLogic)
 
     if (collapsed) {
-        return <CollapsedLine titles={suggestions.map((item) => item.title)} />
+        // The strip opens collapsed, so most Refresh presses land here. Without titles the strip is
+        // only up because a scan is running, so the note is all there is to show.
+        return (
+            <>
+                {suggestions.length > 0 && <CollapsedLine titles={suggestions.map((item) => item.title)} />}
+                {isRefreshing && <ScanningNote />}
+            </>
+        )
     }
     if (suggestions.length === 0 && (isRefreshing || suggestionSetLoading)) {
         return (
@@ -163,7 +170,7 @@ function SuggestionGrid({ surface, columns = 3 }: { surface: ScoutSuggestionSurf
     )
 }
 
-/** The cards a scan will replace are still on screen, so without this line a press looks ignored. */
+/** The picks a scan will replace are still on screen, so without this line a press looks ignored. */
 function ScanningNote(): JSX.Element {
     const { refreshElapsedLabel } = useValues(scoutSuggestionsLogic)
     return (
@@ -178,10 +185,6 @@ function ScanningNote(): JSX.Element {
 }
 
 function CollapsedLine({ titles }: { titles: string[] }): JSX.Element {
-    // The strip only stays up without titles while a scan runs, so that is what this line means.
-    if (titles.length === 0) {
-        return <span className="text-xs text-muted">Scanning the project…</span>
-    }
     const named = titles.slice(0, COLLAPSED_TITLE_PREVIEW).join(', ')
     const rest = titles.length - COLLAPSED_TITLE_PREVIEW
     return (
