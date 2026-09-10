@@ -16,12 +16,10 @@ import {
   TONE_ICON_VAR,
   taskBadges,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
-import { DotRingSpinner } from "@posthog/ui/primitives/DotRingSpinner";
+import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import type { ReactElement, ReactNode } from "react";
 
 const DOT_SIZE = 8;
-// The row-icon size, not the dot's own 8px: eight dots in an 8px box are 1.6px
-// across and read as a smudge.
 const SPINNER_SIZE = 12;
 // Keep the status column stable when a dot changes to a larger spinner.
 const SPINNER_BOX = DOT_SIZE;
@@ -83,7 +81,7 @@ function dotMark(dot: TaskDot, decorative = false): ReactElement {
           height: SPINNER_BOX,
         }}
       >
-        <DotRingSpinner
+        <DotsCircleSpinner
           size={SPINNER_SIZE}
           className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2"
         />

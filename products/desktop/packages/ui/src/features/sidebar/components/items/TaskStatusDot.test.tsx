@@ -19,7 +19,7 @@ const idle: TaskDot = {
 };
 
 describe("TaskStatusDot", () => {
-  it("draws the working ring larger than the column it sits in", () => {
+  it("uses the braille spinner without changing the status column width", () => {
     render(
       <>
         <TaskStatusDot dot={working} />
@@ -30,11 +30,9 @@ describe("TaskStatusDot", () => {
     const column = screen.getByRole("img", { name: "All caught up" }).style
       .width;
     const mark = screen.getByRole("img", { name: "Loading" });
-    const ring = mark.firstElementChild as HTMLElement;
 
     expect(mark.style.width).toBe(column);
-    expect(Number.parseFloat(ring.style.width)).toBeGreaterThan(
-      Number.parseFloat(column),
-    );
+    expect(mark.querySelector(".ph-dots-frame")).toHaveTextContent("⠋");
+    expect(mark.querySelector("svg")).not.toBeInTheDocument();
   });
 });
