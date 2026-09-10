@@ -375,14 +375,14 @@ Note: docs.appdynamics.com now serves an SPA shell and presents a broken TLS cha
 
 ## Appfigures — gaps
 
-Today (4): `products`, `revenue_report`, `reviews`, `sales_report`
+Today (10): `categories`, `countries`, `products`, `ranks`, `ratings_report`, `revenue_report`, `reviews`, `sales_report`, `stores`, `subscriptions_report`
 
 Diffed against: <https://docs.appfigures.com/api/reference/v2>
 
-- [ ] `/ranks` — app store category rank history — the vendor's headline ASO metric (high)
-- [ ] `/reports/subscriptions` — subscription metrics (new, renewals, churn) that sales/revenue reports do not break out (high)
-- [ ] `/reports/ratings` — rating counts and averages over time, the current supported replacement for /ratings (high)
-- [ ] `/data/stores, /data/categories, /data/countries` — lookup tables resolving the store, category and country codes on every synced report row (high)
+- [x] `/ranks` — app store category rank history — the vendor's headline ASO metric (high)
+- [x] `/reports/subscriptions` — subscription metrics (new, renewals, churn) that sales/revenue reports do not break out (high)
+- [x] `/reports/ratings` — rating counts and averages over time, the current supported replacement for /ratings (high)
+- [x] `/data/stores, /data/categories, /data/countries` — lookup tables resolving the store, category and country codes on every synced report row (high)
 - [ ] `/aso (keyword ranks and stats)` — tracked keyword positions, the other half of the ASO story with /ranks (high)
 - [ ] `/reports/adspend` — campaign spend by network, needed for ROAS against revenue_report (medium)
 - [ ] `/reports/ads` — ad publishing revenue by network, a revenue stream missing from sales_report (medium)
