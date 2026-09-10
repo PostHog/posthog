@@ -3185,6 +3185,31 @@ class TestTriggerFailureDoesNotPaintRunning(APIBaseTest):
         schema.refresh_from_db()
         assert schema.status == ExternalDataSchema.Status.FAILED
 
+    @parameterized.expand([("reload",), ("resync",)])
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+    )
+    def test_missing_schedule_is_created_so_the_sync_starts(self, endpoint, mock_trigger, mock_create_schedule):
+        # A schema with no schedule behind it can't be triggered, and retrying never fixes it. The
+        # source-level reload already recovers by creating the schedule; one table must too.
+        from temporalio.service import RPCError
+
+        schema = self._create_schema()
+        mock_trigger.side_effect = RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/{endpoint}/",
+        )
+
+        assert response.status_code == 200
+        mock_create_schedule.assert_called_once_with(schema, create=True, should_sync=True)
+
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.RUNNING
+
 
 class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
     def _make_api_key(self, scopes: list[str]) -> str:
