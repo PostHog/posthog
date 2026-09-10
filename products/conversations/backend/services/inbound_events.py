@@ -8,7 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import Case, DateTimeField, F, Q, QuerySet, When
+from django.db.models import Q, QuerySet
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -53,6 +53,13 @@ class InboundClaim:
     event: ConversationInboundEvent
     allow_retry: bool
     expired_reclaim: bool
+
+
+@frozen
+class InboundQueueMetrics:
+    pending_count: int
+    processing_count: int
+    oldest_ready_age_seconds: float
 
 
 def slack_retry_metadata(request: HttpRequest) -> tuple[int | None, str]:
@@ -215,6 +222,24 @@ def claim_inbound_event(inbound_event_id: str) -> InboundClaim | None:
         if row is None:
             INBOUND_LEASES_TOTAL.labels(result="busy").inc()
             return None
+        if row.attempts >= INBOUND_MAX_ATTEMPTS:
+            row.status = ConversationInboundEvent.Status.FAILED
+            row.terminal_at = now
+            row.lease_expires_at = None
+            row.last_error_code = "max_attempts"
+            row.last_error = f"Exceeded {INBOUND_MAX_ATTEMPTS} processing attempts"
+            row.save(
+                update_fields=[
+                    "status",
+                    "terminal_at",
+                    "lease_expires_at",
+                    "last_error_code",
+                    "last_error",
+                    "updated_at",
+                ]
+            )
+            transaction.on_commit(lambda: INBOUND_ATTEMPTS_TOTAL.labels(source=row.source, result="failed").inc())
+            return None
         expired_reclaim = row.status == ConversationInboundEvent.Status.PROCESSING
         row.status = ConversationInboundEvent.Status.PROCESSING
         row.lease_expires_at = lease_until
@@ -287,67 +312,85 @@ def schedule_inbound_retry(claim: InboundClaim, *, error_code: str, error: str) 
     return delay
 
 
-def _ready_inbound_events(*, now: datetime) -> QuerySet[ConversationInboundEvent]:
-    return (
-        ConversationInboundEvent.objects.unscoped()
-        .filter(
-            Q(status=ConversationInboundEvent.Status.PENDING, due_at__lte=now)
-            | Q(status=ConversationInboundEvent.Status.PROCESSING, lease_expires_at__lte=now)
-        )
-        .annotate(
-            ready_at=Case(
-                When(
-                    status=ConversationInboundEvent.Status.PROCESSING,
-                    then=F("lease_expires_at"),
-                ),
-                default=F("due_at"),
-                output_field=DateTimeField(),
-            )
-        )
+def _pending_inbound_events(*, now: datetime) -> QuerySet[ConversationInboundEvent]:
+    return ConversationInboundEvent.objects.unscoped().filter(
+        status=ConversationInboundEvent.Status.PENDING,
+        due_at__lte=now,
+    )
+
+
+def _expired_inbound_events(*, now: datetime) -> QuerySet[ConversationInboundEvent]:
+    return ConversationInboundEvent.objects.unscoped().filter(
+        status=ConversationInboundEvent.Status.PROCESSING,
+        lease_expires_at__lte=now,
     )
 
 
 def due_inbound_event_ids(*, limit: int, now: datetime) -> list[tuple[UUID, str]]:
-    return list(_ready_inbound_events(now=now).order_by("ready_at").values_list("id", "source")[:limit])
+    pending = list(_pending_inbound_events(now=now).order_by("due_at").values_list("id", "source", "due_at")[:limit])
+    expired = list(
+        _expired_inbound_events(now=now)
+        .order_by("lease_expires_at")
+        .values_list("id", "source", "lease_expires_at")[:limit]
+    )
+    ready = sorted([*pending, *expired], key=lambda row: row[2])
+    return [(event_id, source) for event_id, source, _ in ready[:limit]]
 
 
-def cleanup_inbound_payloads(now: datetime) -> int:
+def cleanup_inbound_payloads(now: datetime, *, limit: int = INBOUND_SWEEP_BATCH_SIZE) -> int:
     cutoff = now - INBOUND_PAYLOAD_TTL
-    return (
+    event_ids = list(
         ConversationInboundEvent.objects.unscoped()
         .filter(
             status__in=ConversationInboundEvent.TERMINAL_STATUSES,
             payload__isnull=False,
             terminal_at__lte=cutoff,
         )
-        .update(payload=None, updated_at=now)
+        .order_by("terminal_at")
+        .values_list("id", flat=True)[:limit]
     )
+    return ConversationInboundEvent.objects.unscoped().filter(id__in=event_ids).update(payload=None, updated_at=now)
 
 
-def delete_inbound_tombstones(now: datetime) -> int:
+def delete_inbound_tombstones(now: datetime, *, limit: int = INBOUND_SWEEP_BATCH_SIZE) -> int:
     cutoff = now - INBOUND_TOMBSTONE_TTL
-    deleted, _ = (
+    event_ids = list(
         ConversationInboundEvent.objects.unscoped()
         .filter(
             status__in=ConversationInboundEvent.TERMINAL_STATUSES,
             terminal_at__lte=cutoff,
         )
-        .delete()
+        .order_by("terminal_at")
+        .values_list("id", flat=True)[:limit]
     )
+    deleted, _ = ConversationInboundEvent.objects.unscoped().filter(id__in=event_ids).delete()
     return deleted
 
 
-def record_inbound_queue_metrics(now: datetime) -> float:
+def record_inbound_queue_metrics(now: datetime) -> InboundQueueMetrics:
     oldest_age = 0.0
+    counts = {
+        ConversationInboundEvent.Status.PENDING: 0,
+        ConversationInboundEvent.Status.PROCESSING: 0,
+    }
     for source in ConversationInboundEventSource.values:
         for status in (ConversationInboundEvent.Status.PENDING, ConversationInboundEvent.Status.PROCESSING):
             count = ConversationInboundEvent.objects.unscoped().filter(source=source, status=status).count()
             INBOUND_BACKLOG.labels(status=status, source=source).set(count)
-    oldest = _ready_inbound_events(now=now).order_by("ready_at").values_list("ready_at", flat=True).first()
+            counts[status] += count
+    oldest_pending = _pending_inbound_events(now=now).order_by("due_at").values_list("due_at", flat=True).first()
+    oldest_expired = (
+        _expired_inbound_events(now=now).order_by("lease_expires_at").values_list("lease_expires_at", flat=True).first()
+    )
+    oldest = min((ready_at for ready_at in (oldest_pending, oldest_expired) if ready_at is not None), default=None)
     if oldest is not None:
         oldest_age = max((now - oldest).total_seconds(), 0.0)
     INBOUND_OLDEST_READY_AGE_SECONDS.set(oldest_age)
-    return oldest_age
+    return InboundQueueMetrics(
+        pending_count=counts[ConversationInboundEvent.Status.PENDING],
+        processing_count=counts[ConversationInboundEvent.Status.PROCESSING],
+        oldest_ready_age_seconds=oldest_age,
+    )
 
 
 def emit_inbound_sweep_event(

@@ -29,6 +29,7 @@ from products.conversations.backend.models.inbound_event import INBOUND_ERROR_MA
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
 from products.conversations.backend.services.inbound_events import (
+    INBOUND_LEASE_SECONDS,
     INBOUND_SWEEP_BATCH_SIZE,
     InboundClaim,
     TransientInboundError,
@@ -138,7 +139,7 @@ def _process_event_from_receipt(inbound_event_id: str) -> None:
         receipt_team_id=claim.event.team_id,
     )
     if not config:
-        fail_inbound_event(claim, error_code="no_team", error="slack workspace is not connected")
+        _retry_inbound_claim(claim, error_code="no_team", error="slack workspace is not connected")
         return
     team = config.team
     if not (team.conversations_settings or {}).get("slack_enabled"):
@@ -160,6 +161,8 @@ def _process_event_from_receipt(inbound_event_id: str) -> None:
 @shared_task(
     name="products.conversations.backend.tasks.process_supporthog_event_receipt",
     ignore_result=True,
+    soft_time_limit=INBOUND_LEASE_SECONDS - 30,
+    time_limit=INBOUND_LEASE_SECONDS - 15,
 )
 @skip_team_scope_audit
 def process_supporthog_event_receipt(inbound_event_id: str) -> None:
@@ -276,20 +279,20 @@ def _handle_supporthog_interactivity(
     is_retry: bool,
     allow_retry: bool,
     receipt_team_id: int | None = None,
-) -> None:
+) -> bool:
     """Handle a button click from the opt-in "open a ticket?" confirmation prompt."""
     config = _slack_config_for_workspace(slack_team_id, receipt_team_id=receipt_team_id)
     if not config:
         logger.warning("supporthog_interactivity_no_team", slack_team_id=slack_team_id)
-        return
+        return receipt_team_id is None
 
     team = config.team
     support_settings = team.conversations_settings or {}
     if not support_settings.get("slack_enabled"):
-        return
+        return True
 
     if payload.get("type") != "block_actions":
-        return
+        return True
 
     # The prompt message to delete: where the button was clicked.
     container = payload.get("container") or {}
@@ -324,7 +327,7 @@ def _handle_supporthog_interactivity(
             if clicker:
                 suppress_nudge(team.pk, prompt_channel, clicker, NUDGE_DISMISS_TTL)
             capture_nudge_event(team, "support nudge dismissed", click_properties)
-            return
+            return True
         if action_id == TICKET_CONFIRM_ACTION_OPEN:
             ticket = None
             if source_channel and source_message_ts:
@@ -373,7 +376,8 @@ def _handle_supporthog_interactivity(
                 emoji = get_safe_ticket_emoji(support_settings)
                 text = f":warning: Couldn't open a ticket — react with :{emoji}: or @mention us to try again."
             final_update_ok = _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
-            if not final_update_ok and prompt_channel and prompt_ts:
+            prompt_can_be_updated = bool(prompt_channel and prompt_ts)
+            if not final_update_ok and prompt_can_be_updated:
                 # The progress placeholder must never be the prompt's last word — if the
                 # final update fails transiently, retry the task (creation is idempotent,
                 # the re-run re-attempts just this update). Once retries are exhausted,
@@ -390,7 +394,8 @@ def _handle_supporthog_interactivity(
                     "ticket_id": str(ticket.id) if ticket else None,
                 },
             )
-            return
+            return ticket is not None and (final_update_ok or not prompt_can_be_updated)
+    return True
 
 
 def _process_interactivity_from_receipt(inbound_event_id: str) -> None:
@@ -403,15 +408,29 @@ def _process_interactivity_from_receipt(inbound_event_id: str) -> None:
             claim, error_code="poison_payload", error="inbound interactivity payload is missing or not an object"
         )
         return
+    config = _slack_config_for_workspace(
+        claim.event.provider_account_id,
+        receipt_team_id=claim.event.team_id,
+    )
+    if not config:
+        _retry_inbound_claim(claim, error_code="no_team", error="slack workspace is not connected")
+        return
     try:
-        _handle_supporthog_interactivity(
+        resolved = _handle_supporthog_interactivity(
             payload,
             claim.event.provider_account_id,
             is_retry=claim.event.attempts > 1,
             allow_retry=claim.allow_retry,
             receipt_team_id=claim.event.team_id,
         )
-        complete_inbound_event(claim)
+        if resolved:
+            complete_inbound_event(claim)
+        else:
+            fail_inbound_event(
+                claim,
+                error_code="interactivity_failed",
+                error="Slack interactivity could not be completed",
+            )
     except TransientInboundError:
         _retry_inbound_claim(claim, error_code="transient", error="interactivity work needs another attempt")
     except Exception as exc:
@@ -422,6 +441,8 @@ def _process_interactivity_from_receipt(inbound_event_id: str) -> None:
 @shared_task(
     name="products.conversations.backend.tasks.process_supporthog_interactivity_receipt",
     ignore_result=True,
+    soft_time_limit=INBOUND_LEASE_SECONDS - 30,
+    time_limit=INBOUND_LEASE_SECONDS - 15,
 )
 @skip_team_scope_audit
 def process_supporthog_interactivity_receipt(inbound_event_id: str) -> None:
@@ -482,20 +503,14 @@ def sweep_inbound_events() -> None:
 
     payload_gc_count = cleanup_inbound_payloads(now)
     tombstone_delete_count = delete_inbound_tombstones(now)
-    oldest_ready_age_seconds = record_inbound_queue_metrics(now)
-    pending_count = (
-        ConversationInboundEvent.objects.unscoped().filter(status=ConversationInboundEvent.Status.PENDING).count()
-    )
-    processing_count = (
-        ConversationInboundEvent.objects.unscoped().filter(status=ConversationInboundEvent.Status.PROCESSING).count()
-    )
+    queue_metrics = record_inbound_queue_metrics(now)
     emit_inbound_sweep_event(
-        pending_count=pending_count,
-        processing_count=processing_count,
+        pending_count=queue_metrics.pending_count,
+        processing_count=queue_metrics.processing_count,
         dispatched_count=dispatched,
         payload_gc_count=payload_gc_count,
         tombstone_delete_count=tombstone_delete_count,
-        oldest_ready_age_seconds=oldest_ready_age_seconds,
+        oldest_ready_age_seconds=queue_metrics.oldest_ready_age_seconds,
     )
     if dispatched or payload_gc_count or tombstone_delete_count:
         logger.info(

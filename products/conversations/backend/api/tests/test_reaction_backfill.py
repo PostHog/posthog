@@ -472,7 +472,7 @@ class TestHandleSupportReactionBackfill(BaseTest):
 
 
 class TestSlackTicketCreateLockDedup(BaseTest):
-    """Verify that the Redis lock in create_or_update_slack_ticket prevents duplicate tickets."""
+    """Verify that the Slack thread lock prevents duplicate tickets."""
 
     def setUp(self):
         super().setUp()
@@ -509,6 +509,103 @@ class TestSlackTicketCreateLockDedup(BaseTest):
         assert ticket2 is None
         # Only one confirmation message posted (second call short-circuits)
         assert mock_client.return_value.chat_postMessage.call_count == 1
+
+    @patch("products.conversations.backend.cache.cache.add", side_effect=ConnectionError("redis down"))
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": "a@x.com", "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_postgres_lock_allows_creation_when_redis_is_unavailable(
+        self,
+        _files: MagicMock,
+        _user: MagicMock,
+        mock_client: MagicMock,
+        _cache_add: MagicMock,
+    ) -> None:
+        mock_client.return_value = MagicMock()
+        kwargs: dict[str, Any] = {
+            "team": self.team,
+            "slack_channel_id": CHANNEL,
+            "thread_ts": PARENT_TS,
+            "slack_user_id": "U_SOMEONE",
+            "text": "Help me please",
+            "is_thread_reply": False,
+            "slack_team_id": SLACK_TEAM,
+            "channel_detail": ChannelDetail.SLACK_EMOJI_REACTION,
+        }
+
+        first = create_or_update_slack_ticket(**kwargs)
+        second = create_or_update_slack_ticket(**kwargs)
+
+        assert first is not None
+        assert second is None
+        assert Ticket.objects.filter(team=self.team, slack_channel_id=CHANNEL, slack_thread_ts=PARENT_TS).count() == 1
+
+    @patch(f"{MODULE}.Comment.objects.create", side_effect=RuntimeError("comment insert failed"))
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": "a@x.com", "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_comment_failure_rolls_back_new_ticket(
+        self,
+        _files: MagicMock,
+        _user: MagicMock,
+        mock_client: MagicMock,
+        _comment_create: MagicMock,
+    ) -> None:
+        mock_client.return_value = MagicMock()
+
+        with self.assertRaisesRegex(RuntimeError, "comment insert failed"):
+            create_or_update_slack_ticket(
+                team=self.team,
+                slack_channel_id=CHANNEL,
+                thread_ts=PARENT_TS,
+                slack_user_id="U_SOMEONE",
+                text="Help me please",
+                is_thread_reply=False,
+                slack_team_id=SLACK_TEAM,
+                channel_detail=ChannelDetail.SLACK_EMOJI_REACTION,
+            )
+
+        assert not Ticket.objects.filter(
+            team=self.team,
+            slack_channel_id=CHANNEL,
+            slack_thread_ts=PARENT_TS,
+        ).exists()
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": "a@x.com", "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_replayed_thread_message_does_not_duplicate_comment(
+        self,
+        _files: MagicMock,
+        _user: MagicMock,
+        mock_client: MagicMock,
+    ) -> None:
+        mock_client.return_value = MagicMock()
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id=CHANNEL,
+            slack_thread_ts=PARENT_TS,
+        )
+        kwargs: dict[str, Any] = {
+            "team": self.team,
+            "slack_channel_id": CHANNEL,
+            "thread_ts": PARENT_TS,
+            "slack_user_id": "U_SOMEONE",
+            "text": "More context",
+            "is_thread_reply": True,
+            "slack_team_id": SLACK_TEAM,
+            "slack_message_ts": "1700000000.000200",
+        }
+
+        create_or_update_slack_ticket(**kwargs)
+        create_or_update_slack_ticket(**kwargs)
+
+        comments = Comment.objects.filter(scope="conversations_ticket", item_id=str(ticket.id))
+        assert comments.count() == 1
+        assert comments.get().item_context["slack_message_ts"] == "1700000000.000200"
 
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Bob", "email": "b@x.com", "avatar": None})

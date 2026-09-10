@@ -18,6 +18,7 @@ from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import F
 
 import structlog
@@ -400,6 +401,7 @@ def create_or_update_slack_ticket(
     slack_team_id: str | None = None,
     channel_detail: ChannelDetail | None = None,
     post_confirmation: bool = True,
+    slack_message_ts: str | None = None,
 ) -> Ticket | None:
     """
     Core function: create a new ticket or add a message to an existing one.
@@ -465,6 +467,17 @@ def create_or_update_slack_ticket(
         if slack_team_id and not ticket.slack_team_id:
             Ticket.objects.filter(id=ticket.id, team=team).update(slack_team_id=slack_team_id)
 
+        if (
+            slack_message_ts
+            and Comment.objects.filter(
+                team=team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                item_context__slack_message_ts=slack_message_ts,
+            ).exists()
+        ):
+            return ticket
+
         # Allow messages with only attachments (no text)
         if not cleaned_text and not attachments.images and not attachments.files:
             logger.warning(
@@ -480,30 +493,31 @@ def create_or_update_slack_ticket(
             cleaned_text, rich_content, attachments.images, attachments.files
         )
 
-        Comment.objects.create(
-            team=team,
-            scope="conversations_ticket",
-            item_id=str(ticket.id),
-            content=content,
-            rich_content=rich_content,
-            created_by=posthog_user,
-            item_context={
-                "author_type": "support" if is_team_member else "customer",
-                "is_private": False,
-                "from_slack": True,
-                "slack_user_id": slack_user_id,
-                "slack_author_name": user_info["name"],
-                "slack_author_email": user_info.get("email"),
-                "slack_author_avatar": user_info.get("avatar"),
-                "slack_images": attachments.images if attachments.images else None,
-                "slack_files": attachments.files if attachments.files else None,
-            },
-        )
-
-        if not is_team_member:
-            Ticket.objects.filter(id=ticket.id, team=team).update(
-                unread_team_count=F("unread_team_count") + 1,
+        with transaction.atomic():
+            Comment.objects.create(
+                team=team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=content,
+                rich_content=rich_content,
+                created_by=posthog_user,
+                item_context={
+                    "author_type": "support" if is_team_member else "customer",
+                    "is_private": False,
+                    "from_slack": True,
+                    "slack_message_ts": slack_message_ts,
+                    "slack_user_id": slack_user_id,
+                    "slack_author_name": user_info["name"],
+                    "slack_author_email": user_info.get("email"),
+                    "slack_author_avatar": user_info.get("avatar"),
+                    "slack_images": attachments.images if attachments.images else None,
+                    "slack_files": attachments.files if attachments.files else None,
+                },
             )
+            if not is_team_member:
+                Ticket.objects.filter(id=ticket.id, team=team).update(
+                    unread_team_count=F("unread_team_count") + 1,
+                )
 
         return ticket
 
@@ -521,9 +535,7 @@ def create_or_update_slack_ticket(
 
     content, rich_content = build_content_with_images(cleaned_text, rich_content, attachments.images, attachments.files)
 
-    # Serialize concurrent ticket creation for the same Slack thread via Redis lock.
-    # Without this, two reaction_added events from different users race through the
-    # .exists() checks above and both create a ticket.
+    # Serialize concurrent ticket creation for the same Slack thread.
     with slack_ticket_create_lock(team_id, slack_channel_id, thread_ts) as acquired:
         # Return None (not the existing ticket) on every dedup path: the winning worker
         # owns the create-side effects (first comment, confirmation message, and the
@@ -538,49 +550,54 @@ def create_or_update_slack_ticket(
             )
             return None
 
-        # Re-check after acquiring — the winner may have committed between our earlier
-        # .exists() call and now.
-        if Ticket.objects.filter(team=team, slack_channel_id=slack_channel_id, slack_thread_ts=thread_ts).exists():
-            return None
+        with transaction.atomic():
+            # Re-check after acquiring because the winner can commit before this worker enters.
+            if Ticket.objects.filter(
+                team=team,
+                slack_channel_id=slack_channel_id,
+                slack_thread_ts=thread_ts,
+            ).exists():
+                return None
 
-        ticket = Ticket.objects.create_with_number(
-            team=team,
-            channel_source=Channel.SLACK,
-            channel_detail=channel_detail,
-            widget_session_id="",  # Not used for Slack tickets
-            distinct_id=user_info.get("email") or "",
-            status=Status.NEW,
-            anonymous_traits={
-                "name": user_info["name"],
-                **({"email": user_info["email"]} if user_info["email"] else {}),
-            },
-            slack_channel_id=slack_channel_id,
-            slack_thread_ts=thread_ts,
-            slack_team_id=slack_team_id,
-            unread_team_count=0 if is_team_member else 1,
-            # Created from a signature-validated Slack webhook — platform-attested identity.
-            identity_verified=True,
-        )
+            ticket = Ticket.objects.create_with_number(
+                team=team,
+                channel_source=Channel.SLACK,
+                channel_detail=channel_detail,
+                widget_session_id="",  # Not used for Slack tickets
+                distinct_id=user_info.get("email") or "",
+                status=Status.NEW,
+                anonymous_traits={
+                    "name": user_info["name"],
+                    **({"email": user_info["email"]} if user_info["email"] else {}),
+                },
+                slack_channel_id=slack_channel_id,
+                slack_thread_ts=thread_ts,
+                slack_team_id=slack_team_id,
+                unread_team_count=0 if is_team_member else 1,
+                # Created from a signature-validated Slack webhook — platform-attested identity.
+                identity_verified=True,
+            )
 
-    Comment.objects.create(
-        team=team,
-        scope="conversations_ticket",
-        item_id=str(ticket.id),
-        content=content,
-        rich_content=rich_content,
-        created_by=posthog_user,
-        item_context={
-            "author_type": "support" if is_team_member else "customer",
-            "is_private": False,
-            "from_slack": True,
-            "slack_user_id": slack_user_id,
-            "slack_author_name": user_info["name"],
-            "slack_author_email": user_info.get("email"),
-            "slack_author_avatar": user_info.get("avatar"),
-            "slack_images": attachments.images if attachments.images else None,
-            "slack_files": attachments.files if attachments.files else None,
-        },
-    )
+            Comment.objects.create(
+                team=team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=content,
+                rich_content=rich_content,
+                created_by=posthog_user,
+                item_context={
+                    "author_type": "support" if is_team_member else "customer",
+                    "is_private": False,
+                    "from_slack": True,
+                    "slack_message_ts": slack_message_ts or thread_ts,
+                    "slack_user_id": slack_user_id,
+                    "slack_author_name": user_info["name"],
+                    "slack_author_email": user_info.get("email"),
+                    "slack_author_avatar": user_info.get("avatar"),
+                    "slack_images": attachments.images if attachments.images else None,
+                    "slack_files": attachments.files if attachments.files else None,
+                },
+            )
 
     # Post a confirmation reply in the Slack thread. Skipped when the caller will surface
     # the confirmation itself (e.g. the confirm-prompt flow updates its prompt in place).
@@ -732,6 +749,7 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
             files=files,
             is_thread_reply=True,
             slack_team_id=slack_team_id,
+            slack_message_ts=message_ts,
         )
         return
 
@@ -781,6 +799,7 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         is_thread_reply=False,
         slack_team_id=slack_team_id,
         channel_detail=ChannelDetail.SLACK_CHANNEL_MESSAGE,
+        slack_message_ts=message_ts,
     )
 
 

@@ -20,10 +20,12 @@ INBOUND_BACKLOG = Gauge(
     "posthog_conversations_inbound_backlog",
     "Non-terminal inbound callback receipts by status and source",
     labelnames=["status", "source"],
+    multiprocess_mode="mostrecent",
 )
 INBOUND_OLDEST_READY_AGE_SECONDS = Gauge(
     "posthog_conversations_inbound_oldest_ready_age_seconds",
     "Age in seconds of the oldest due or expired-lease inbound receipt",
+    multiprocess_mode="mostrecent",
 )
 INBOUND_ATTEMPTS_TOTAL = Counter(
     "posthog_conversations_inbound_attempts_total",

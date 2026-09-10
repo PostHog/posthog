@@ -12,6 +12,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 
 from django.core.cache import cache
+from django.db import connection
 
 import structlog
 
@@ -305,29 +306,50 @@ RESOLVED_GROUPS_CACHE_TTL = 12 * 60 * 60  # 12 hours
 RESOLVED_GROUPS_NEGATIVE_CACHE_TTL = 60 * 60  # 1 hour
 
 
-# Slack Ticket Creation Lock
-# Serializes concurrent ticket creation for the same Slack thread so two reaction_added
-# events from different users can't both pass the existence checks and create duplicate
-# tickets. cache.add is atomic (Redis SETNX): only one worker acquires. Short TTL is a
-# safety net so a crashed worker can't wedge a thread permanently.
+# Slack ticket creation lock
+# PostgreSQL provides correctness when Redis is unavailable. The Redis lock keeps
+# workers from the previous deployment coordinated with workers that use PostgreSQL.
 
 SLACK_TICKET_CREATE_LOCK_TTL = 30  # seconds
 
 
 @contextmanager
 def slack_ticket_create_lock(team_id: int, channel: str, thread_ts: str) -> Generator[bool]:
-    """Atomic Redis lock to serialize ticket creation for a Slack thread.
+    """Serialize ticket creation for a Slack thread.
 
     Yields True if the lock was acquired, False if another worker holds it.
     Releases the lock on exit when acquired.
     """
     key = _make_cache_key("slack_ticket_create_lock", str(team_id), channel, thread_ts)
-    acquired = cache.add(key, True, timeout=SLACK_TICKET_CREATE_LOCK_TTL)
+    redis_acquired = False
+    redis_available = True
     try:
-        yield acquired
+        redis_acquired = cache.add(key, True, timeout=SLACK_TICKET_CREATE_LOCK_TTL)
+    except Exception:
+        redis_available = False
+        logger.warning("slack_ticket_create_redis_lock_error", key=key)
+
+    if redis_available and not redis_acquired:
+        yield False
+        return
+
+    lock_id = int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], byteorder="big", signed=True)
+    postgres_acquired = False
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", [lock_id])
+            result = cursor.fetchone()
+            postgres_acquired = bool(result and result[0])
+        yield postgres_acquired
     finally:
-        if acquired:
-            cache.delete(key)
+        if postgres_acquired:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", [lock_id])
+        if redis_acquired:
+            try:
+                cache.delete(key)
+            except Exception:
+                logger.warning("slack_ticket_create_redis_unlock_error", key=key)
 
 
 def _resolved_groups_cache_key(team_id: int, distinct_ids: list[str]) -> str:

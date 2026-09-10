@@ -1,10 +1,10 @@
+import json
 from datetime import timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
 from django.db import IntegrityError
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -20,6 +20,8 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.inbound_event import INBOUND_PAYLOAD_TTL, INBOUND_TOMBSTONE_TTL
 from products.conversations.backend.services.inbound_events import (
+    INBOUND_LEASE_SECONDS,
+    INBOUND_MAX_ATTEMPTS,
     accept_inbound_event,
     claim_inbound_event,
     complete_inbound_event,
@@ -28,7 +30,12 @@ from products.conversations.backend.services.inbound_events import (
     slack_events_source_id,
     slack_interactivity_source_id,
 )
-from products.conversations.backend.tasks.slack import process_supporthog_event_receipt, sweep_inbound_events
+from products.conversations.backend.slack import TICKET_CONFIRM_ACTION_OPEN
+from products.conversations.backend.tasks.slack import (
+    process_supporthog_event_receipt,
+    process_supporthog_interactivity_receipt,
+    sweep_inbound_events,
+)
 
 
 class TestInboundEventSourceId(SimpleTestCase):
@@ -60,6 +67,14 @@ class TestInboundEventSourceId(SimpleTestCase):
         )
 
 
+class TestInboundEventTaskLimits(SimpleTestCase):
+    def test_receipt_tasks_time_out_before_the_lease_expires(self) -> None:
+        for task in (process_supporthog_event_receipt, process_supporthog_interactivity_receipt):
+            assert task.soft_time_limit is not None
+            assert task.time_limit is not None
+            assert task.soft_time_limit < task.time_limit < INBOUND_LEASE_SECONDS
+
+
 class TestInboundEventProcessing(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -71,11 +86,17 @@ class TestInboundEventProcessing(BaseTest):
             defaults={"slack_team_id": "T123", "slack_bot_token": "xoxb-test"},
         )
 
-    def _create_pending(self, *, source_id: str = "Ev1", **kwargs: object) -> ConversationInboundEvent:
+    def _create_pending(
+        self,
+        *,
+        source: str = ConversationInboundEventSource.SLACK_EVENTS,
+        source_id: str = "Ev1",
+        **kwargs: object,
+    ) -> ConversationInboundEvent:
         payload = kwargs.pop("payload", {"type": "event_callback", "event": {"type": "message", "channel": "C1"}})
         return ConversationInboundEvent.objects.for_team(self.team.id).create(
             team=self.team,
-            source=ConversationInboundEventSource.SLACK_EVENTS,
+            source=source,
             source_id=source_id,
             provider_account_id="T123",
             payload=payload,
@@ -133,6 +154,20 @@ class TestInboundEventProcessing(BaseTest):
         row.refresh_from_db()
         assert row.status == ConversationInboundEvent.Status.PENDING
 
+    def test_expired_receipt_is_failed_after_max_attempts(self) -> None:
+        row = self._create_pending(
+            status=ConversationInboundEvent.Status.PROCESSING,
+            attempts=INBOUND_MAX_ATTEMPTS,
+            lease_expires_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        assert claim_inbound_event(str(row.id)) is None
+
+        row.refresh_from_db()
+        assert row.status == ConversationInboundEvent.Status.FAILED
+        assert row.last_error_code == "max_attempts"
+        assert row.terminal_at is not None
+
     def test_persist_check_violation_is_not_treated_as_duplicate(self) -> None:
         with self.assertRaises(IntegrityError):
             persist_inbound_event(
@@ -175,15 +210,6 @@ class TestInboundEventProcessing(BaseTest):
         mock_handle.assert_called_once()
 
     @patch("products.conversations.backend.tasks.slack.handle_support_message")
-    def test_processing_survives_redis_loss(self, mock_handle: MagicMock) -> None:
-        row = self._create_pending()
-        with patch.object(cache, "add", side_effect=ConnectionError("redis down")):
-            process_supporthog_event_receipt(inbound_event_id=str(row.id))
-        row.refresh_from_db()
-        assert row.status == ConversationInboundEvent.Status.PROCESSED
-        mock_handle.assert_called_once()
-
-    @patch("products.conversations.backend.tasks.slack.handle_support_message")
     def test_receipt_uses_workspace_config_from_child_environment(self, mock_handle: MagicMock) -> None:
         TeamConversationsSlackConfig.objects.filter(team=self.team).update(slack_team_id=None)
         child_team = Team.objects.create(
@@ -218,9 +244,36 @@ class TestInboundEventProcessing(BaseTest):
         process_supporthog_event_receipt(inbound_event_id=str(row.id))
 
         row.refresh_from_db()
-        assert row.status == ConversationInboundEvent.Status.FAILED
+        assert row.status == ConversationInboundEvent.Status.PENDING
         assert row.last_error_code == "no_team"
         mock_handle.assert_not_called()
+
+    @patch("products.conversations.backend.tasks.slack._update_supporthog_prompt", return_value=True)
+    @patch("products.conversations.backend.tasks.slack.create_ticket_from_confirmation", return_value=None)
+    def test_exhausted_interactivity_is_failed(self, mock_create: MagicMock, mock_update: MagicMock) -> None:
+        row = self._create_pending(
+            source=ConversationInboundEventSource.SLACK_INTERACTIVITY,
+            attempts=INBOUND_MAX_ATTEMPTS - 1,
+            payload={
+                "type": "block_actions",
+                "team": {"id": "T123"},
+                "container": {"channel_id": "C1", "message_ts": "1.0"},
+                "actions": [
+                    {
+                        "action_id": TICKET_CONFIRM_ACTION_OPEN,
+                        "value": json.dumps({"channel": "C1", "message_ts": "1.0"}),
+                    }
+                ],
+            },
+        )
+
+        process_supporthog_interactivity_receipt(inbound_event_id=str(row.id))
+
+        row.refresh_from_db()
+        assert row.status == ConversationInboundEvent.Status.FAILED
+        assert row.last_error_code == "interactivity_failed"
+        mock_create.assert_called_once()
+        mock_update.assert_called_once()
 
     @patch("products.conversations.backend.tasks.slack.handle_support_message")
     def test_poison_payload_is_terminal(self, mock_handle: MagicMock) -> None:
