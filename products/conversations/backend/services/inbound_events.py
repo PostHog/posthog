@@ -4,7 +4,7 @@ import random
 import hashlib
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -87,9 +87,11 @@ def slack_interactivity_source_id(*, payload: dict[str, Any], signed_body: bytes
     if not trigger_id:
         return hashlib.sha256(signed_body).hexdigest()
     actions = payload.get("actions") or []
-    action = actions[0] if actions and isinstance(actions[0], dict) else {}
+    raw_action = actions[0] if actions else None
+    action: dict[str, Any] = raw_action if isinstance(raw_action, dict) else {}
     action_id = str(action.get("action_id") or "")
-    container = payload.get("container") if isinstance(payload.get("container"), dict) else {}
+    raw_container = payload.get("container")
+    container: dict[str, Any] = raw_container if isinstance(raw_container, dict) else {}
     container_key = ":".join(str(container.get(key) or "") for key in ("type", "message_ts", "channel_id", "thread_ts"))
     composed = f"{trigger_id}:{action_id}:{container_key}"
     if len(composed) <= 512:
@@ -334,7 +336,7 @@ def due_inbound_event_ids(*, limit: int, now: datetime) -> list[tuple[UUID, str]
         .order_by("lease_expires_at")
         .values_list("id", "source", "lease_expires_at")[:limit]
     )
-    ready = sorted([*pending, *expired], key=lambda row: row[2])
+    ready = sorted([*pending, *expired], key=lambda row: cast(datetime, row[2]))
     return [(event_id, source) for event_id, source, _ in ready[:limit]]
 
 

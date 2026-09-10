@@ -100,7 +100,7 @@ class TestInboundEventProcessing(BaseTest):
             source_id=source_id,
             provider_account_id="T123",
             payload=payload,
-            **kwargs,  # type: ignore[arg-type]
+            **kwargs,
         )
 
     @patch("products.conversations.backend.tasks.slack.handle_support_message")
@@ -229,7 +229,11 @@ class TestInboundEventProcessing(BaseTest):
 
         row.refresh_from_db()
         assert row.status == ConversationInboundEvent.Status.PROCESSED
-        mock_handle.assert_called_once_with(row.payload["event"], child_team, "T123")
+        mock_handle.assert_called_once_with(
+            {"type": "message", "channel": "C1"},
+            child_team,
+            "T123",
+        )
 
     @patch("products.conversations.backend.tasks.slack.handle_support_message")
     def test_receipt_is_not_processed_after_workspace_moves_to_another_team(self, mock_handle: MagicMock) -> None:

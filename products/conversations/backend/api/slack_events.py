@@ -38,7 +38,8 @@ def _wake_slack_event(row: ConversationInboundEvent) -> None:
 
 
 def _accept_event_callback(request: HttpRequest, data: dict[str, Any]) -> HttpResponse:
-    event = data.get("event") if isinstance(data.get("event"), dict) else {}
+    raw_event = data.get("event")
+    event: dict[str, Any] = raw_event if isinstance(raw_event, dict) else {}
     slack_team_id = data.get("team_id", "") if isinstance(data.get("team_id"), str) else ""
     inner_event_type = event.get("type")
     retry_num, retry_reason = slack_retry_metadata(request)
