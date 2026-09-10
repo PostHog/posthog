@@ -4248,7 +4248,6 @@
                 "workflow_task_rate_limit_per_day": {
                     "anyOf": [
                         {
-                            "maximum": 500,
                             "minimum": 0,
                             "type": "number"
                         },
@@ -4261,7 +4260,6 @@
                 "workflow_task_team_rate_limit_per_day": {
                     "anyOf": [
                         {
-                            "maximum": 2500,
                             "minimum": 0,
                             "type": "number"
                         },

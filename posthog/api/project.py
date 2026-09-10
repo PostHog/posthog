@@ -53,6 +53,7 @@ from posthog.api.team import (
     team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
     validate_team_attrs,
+    validate_team_workflows_config,
 )
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
@@ -964,9 +965,8 @@ class ProjectBackwardCompatSerializer(
     def validate_customer_analytics_config(value):
         return TeamSerializer.validate_customer_analytics_config(value)
 
-    @staticmethod
-    def validate_workflows_config(value):
-        return TeamSerializer.validate_workflows_config(value)
+    def validate_workflows_config(self, value):
+        return validate_team_workflows_config(self.instance.passthrough_team if self.instance else None, value)
 
     @staticmethod
     def validate_feature_flag_policy_config(value):

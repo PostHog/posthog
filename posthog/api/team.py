@@ -871,7 +871,6 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         required=False,
         allow_null=True,
         min_value=0,
-        max_value=MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY,
         help_text=(
             "How many AI tasks one workflow can create in a rolling 24 hours. "
             f"Null uses the default of {WORKFLOW_TASK_RATE_CAP_PER_DAY}; zero pauses task creation "
@@ -883,7 +882,6 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         required=False,
         allow_null=True,
         min_value=0,
-        max_value=MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
         help_text=(
             "How many AI tasks all workflows in the project can create together in a rolling "
             f"24 hours. Null uses the default of {WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY}; zero pauses "
@@ -900,6 +898,37 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
         ]
+
+    def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
+        # As a nested field there is no stored row to compare against; the parent serializer
+        # re-runs this serializer bound to the row in validate_workflows_config.
+        if self.parent is not None:
+            return value
+        # Support raises a project past the ceiling in Django admin; clients that echo the whole
+        # config must be able to send that value back unchanged.
+        if value is not None and value > ceiling and (self.instance is None or getattr(self.instance, field) != value):
+            raise serializers.ValidationError(f"Contact support to go above {ceiling} tasks a day.")
+        return value
+
+    def validate_workflow_task_rate_limit_per_day(self, value: int | None) -> int | None:
+        return self._enforce_self_serve_ceiling(
+            "workflow_task_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY
+        )
+
+    def validate_workflow_task_team_rate_limit_per_day(self, value: int | None) -> int | None:
+        return self._enforce_self_serve_ceiling(
+            "workflow_task_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
+        )
+
+
+def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+
+    serializer = TeamWorkflowsConfigSerializer(team.workflows_config if team else None, data=value)
+    if not serializer.is_valid():
+        raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+    return serializer.validated_data
 
 
 class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -1354,15 +1383,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
 
-    @staticmethod
-    def validate_workflows_config(value):
-        if value is None:
-            return None
-
-        serializer = TeamWorkflowsConfigSerializer(data=value)
-        if not serializer.is_valid():
-            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
-        return serializer.validated_data
+    def validate_workflows_config(self, value):
+        return validate_team_workflows_config(self.instance, value)
 
     @staticmethod
     def validate_feature_flag_policy_config(value):

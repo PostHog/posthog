@@ -45,6 +45,7 @@ from posthog.utils import get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 
 def team_api_test_factory():
@@ -1158,6 +1159,31 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             assert self.team.workflows_config.workflow_task_rate_limit_per_day is None
             assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+
+        def test_support_raised_limit_survives_an_echoed_update(self) -> None:
+            TeamWorkflowsConfig.objects.update_or_create(
+                team=self.team, defaults={"workflow_task_rate_limit_per_day": 600}
+            )
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "workflows_config": {
+                        "capture_workflows_engagement_events": True,
+                        "workflow_task_rate_limit_per_day": 600,
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            row = TeamWorkflowsConfig.objects.get(team=self.team)
+            assert row.workflow_task_rate_limit_per_day == 600
+            assert row.capture_workflows_engagement_events is True
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"workflows_config": {"workflow_task_rate_limit_per_day": 700}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         def test_modifiers_are_merged_on_patch(self) -> None:
             # Set initial modifiers with personsOnEventsMode
