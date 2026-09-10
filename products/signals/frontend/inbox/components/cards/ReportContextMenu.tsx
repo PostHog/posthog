@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useRef } from 'react'
 
@@ -129,6 +129,7 @@ function ReportContextMenuItems({
     // Kept mounted by `ReportsTab` beyond this menu's lifetime, so the create-PR listener survives
     // the menu closing on click.
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
+    const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const hasOpenPr = hasOpenImplementationPr(report)
 
@@ -272,10 +273,13 @@ function ReportContextMenuItems({
             <ContextMenuGroup>
                 {canCreateImplementationPr(report) && (
                     <>
-                        <ContextMenuItem asChild>
+                        <ContextMenuItem asChild disabled={!!createPrDisabledReason}>
                             <ButtonPrimitive
                                 menuItem
                                 onClick={onCreatePr}
+                                disabledReasons={
+                                    createPrDisabledReason ? { [createPrDisabledReason]: true } : undefined
+                                }
                                 data-attr="inbox-report-context-menu-create-pr"
                             >
                                 <IconPullRequest />

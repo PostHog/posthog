@@ -7,6 +7,7 @@ never touches tasks internals.
 
 import json
 import uuid
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any
 
@@ -33,6 +34,7 @@ from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
     user_has_current_team_access,
 )
+from products.tasks.backend.logic.services.workflow_task_output import output_fields_sentence
 from products.tasks.backend.logic.services.workflow_task_skills import (
     AttachedSkill,
     render_skills_manifest,
@@ -147,6 +149,7 @@ def create_workflow_task(
     event: dict[str, Any] | None = None,
     slack_context: contracts.WorkflowTaskSlackContext | None = None,
     rate_limits: contracts.WorkflowTaskRateLimits | None = None,
+    output_schema: dict[str, Any] | None = None,
 ) -> contracts.WorkflowTaskDTO:
     """Create a workflow-origin task and start its agent run.
 
@@ -174,6 +177,9 @@ def create_workflow_task(
     is dropped, rather than failing the create, when it resolves to no Slack integration of
     this team, when the channel is externally shared without an approval, or when another
     live run already owns the thread.
+
+    `output_schema` is the schema `build_output_schema` made from the step's output fields. It
+    becomes `Task.json_schema`, which the agent runtime enforces at the end of the run.
     """
     replay = _find_replayed_task(team.id, hog_flow_id, origin_key)
     if replay is not None:
@@ -318,6 +324,7 @@ def create_workflow_task(
                 event,
                 skills,
                 slack_reply_context=slack_binding is not None,
+                output_schema=output_schema,
             )
             # Derived from the thread context rather than tested separately, because the two
             # must travel together: a context passed without an explicit origin defaults the
@@ -347,6 +354,7 @@ def create_workflow_task(
                 posthog_mcp_scopes=posthog_mcp_scopes,
                 hog_flow_id=hog_flow_id,
                 origin_key=origin_key,
+                output_schema=output_schema,
                 extra_run_state=extra_run_state,
                 runtime_adapter=runtime_adapter_for(model),
                 model=model,
@@ -451,6 +459,7 @@ def _render_run_message(
     skills: list[AttachedSkill] | None = None,
     *,
     slack_reply_context: bool = False,
+    output_schema: Mapping[str, Any] | None = None,
 ) -> str:
     # PostHog Code strips this established wrapper from user-message bubbles while still
     # sending its contents to the agent (same contract as render_loop_run_message).
@@ -458,6 +467,9 @@ def _render_run_message(
     # system-generated, and it must sit above <triggering_event>, which the framing text tells
     # the agent to read as data rather than instructions.
     instructions = [WORKFLOW_SLACK_FRAMING_BLOCK if slack_reply_context else WORKFLOW_FRAMING_BLOCK]
+    fields_sentence = output_fields_sentence(output_schema)
+    if fields_sentence:
+        instructions.append(fields_sentence)
     skills_manifest = render_skills_manifest(skills or [])
     if skills_manifest:
         instructions.append(skills_manifest)

@@ -130,11 +130,34 @@ class Migration(migrations.Migration):
                 migrations.DeleteModel(name='OldFeature'),
             ],
             database_operations=[
-                # If table has FKs to frequently-truncated tables (User, Team, Organization),
-                # drop those FK constraints to avoid blocking TransactionTestCase teardown.
-                # migrations.RunSQL(
-                #     sql="ALTER TABLE posthog_oldfeature DROP CONSTRAINT IF EXISTS posthog_oldfeature_team_id_fkey",
-                # ),
+                # Required when the table has an FK to a hot parent (Team, User, Organization,
+                # Project). Django stops cascading into a table it cannot see, so the child rows
+                # outlive a parent delete. The constraint is DEFERRABLE INITIALLY DEFERRED, so the
+                # parent delete completes its cascade and then fails at COMMIT.
+                # Django names foreign keys with a hash suffix, so never hardcode the name with
+                # IF EXISTS: a wrong guess drops nothing and the migration still succeeds. Read the
+                # name from the catalog. The loop drops nothing on a re-run, so bin/migrate can
+                # retry the migration safely.
+                migrations.RunSQL(
+                    sql="""
+                    DO $$
+                    DECLARE fk record;
+                    BEGIN
+                        FOR fk IN
+                            SELECT con.conname
+                            FROM pg_constraint con
+                            JOIN pg_class src ON src.oid = con.conrelid
+                            JOIN pg_class tgt ON tgt.oid = con.confrelid
+                            WHERE con.contype = 'f'
+                              AND src.relname = 'posthog_oldfeature'
+                              AND tgt.relname = 'posthog_team'
+                        LOOP
+                            EXECUTE format('ALTER TABLE posthog_oldfeature DROP CONSTRAINT %I', fk.conname);
+                        END LOOP;
+                    END $$;
+                    """,
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
             ],
         ),
     ]
@@ -142,12 +165,14 @@ class Migration(migrations.Migration):
 
 5. Deploy this PR and verify no errors in production
 
+**Deleting a parent becomes impossible if you skip that constraint drop.** Once the model leaves Django's state, a `Team.objects.delete()` cascade no longer reaches the table, so its rows keep referencing the team. Because the constraint is deferred, Postgres raises the violation at `COMMIT`, after the whole cascade has run, and the delete can never succeed. Team and organization deletion stay broken for every tenant with rows in that table until someone drops it. Run `python manage.py audit_orphan_hot_table_fks` against a long-lived database to list tables already in this state; a squashed history leaves no trace of them in the migration files.
+
 **Test infrastructure note:** If your table has foreign keys pointing TO frequently-truncated tables like `User`, `Team`, or `Organization`, you may see test failures like `cannot truncate a table referenced in a foreign key constraint`. This happens because:
 
 - Django's `TransactionTestCase` uses `TRUNCATE` to clean up between tests
 - PostgreSQL won't truncate a table that has FKs pointing to it
 - Since the model is removed from Django's state, Django doesn't know to include it in the truncate list
-- Fix: Drop the FK constraints in `database_operations` (see commented example above) - you're dropping the table soon anyway
+- Fix: Drop the FK constraints in `database_operations` (see the example above) - required anyway, because leaving them breaks parent deletion
 
 **Step 2: Wait for safety window**
 
@@ -159,6 +184,7 @@ class Migration(migrations.Migration):
 
 - Safe to leave unused tables temporarily, but long-term they can clutter schema introspection and slow migrations
 - Ensure no other models reference this table via foreign keys before dropping (Django won't cascade automatically)
+- `DROP TABLE` takes `ACCESS EXCLUSIVE` on every table its own foreign keys reference. If one of those is a hot parent, add `SET LOCAL lock_timeout` to bound the wait, because queries arriving while the lock request queues wait behind it
 - If you must drop it, use `RunSQL` with raw SQL (see example below)
 - In the PR description, reference the model removal PR (e.g., "Model removed in #12345, deployed X days ago") so reviewers can verify the safety window
 
