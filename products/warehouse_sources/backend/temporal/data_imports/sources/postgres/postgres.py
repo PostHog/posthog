@@ -65,6 +65,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     Table,
     ValidatedRowFilter,
     compute_projected_columns,
+    reconcile_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     EXTRACT_BATCH_MAX_BYTES,
@@ -3442,6 +3443,15 @@ def postgres_source(
                                     f"Table {schema}.{table_name} has no primary key, which xmin replication "
                                     "requires. Add a primary key or choose a different sync type."
                                 )
+
+                            enabled_columns = reconcile_enabled_columns(
+                                enabled_columns,
+                                {column.name for column in full_table.columns},
+                                incremental_field=incremental_field,
+                                should_use_incremental_field=should_use_incremental_field,
+                                table=f"{schema}.{table_name}",
+                                logger=logger,
+                            )
 
                             # Project both the Arrow schema and the SELECT clause so the cursor's row shape
                             # matches what downstream consumers expect.

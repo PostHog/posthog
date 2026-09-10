@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
 from psycopg import OperationalError
-from psycopg.errors import SqlclientUnableToEstablishSqlconnection
+from psycopg.errors import SqlclientUnableToEstablishSqlconnection, UndefinedColumn
 from sshtunnel import BaseSSHTunnelForwarderError
 
 if TYPE_CHECKING:
@@ -33,8 +33,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    MISSING_INCREMENTAL_FIELD_MATCH,
+    MISSING_INCREMENTAL_FIELD_MESSAGE,
+    MISSING_PROJECTED_COLUMN_MATCH,
+    MISSING_PROJECTED_COLUMN_MESSAGE,
+    ProjectedColumnMissingError,
+    resolve_detected_primary_keys,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.errors_psycopg import (
+    reader_without_dropped_columns,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import resolve_source_location
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
@@ -567,15 +577,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "dashboard for this branch's connection settings, then re-enable the sync."
             ),
             "FATAL: no such database": None,
-            # A relation or column the sync reads was dropped or renamed on the source, so the
-            # streaming query fails with SQLSTATE 42P01 ("relation ... does not exist") or 42703
-            # ("column ... does not exist"). The stored schema/query is fixed until the customer
-            # changes it, so every retry replays the same statement. Already non-retryable through
-            # this bucket; the actionable message replaces the raw psycopg text, which echoes the
+            # The table's incremental field is gone from the source catalog, raised by
+            # `reconcile_enabled_columns` before the first query runs. Every query puts that field
+            # in its WHERE and ORDER BY, so the sync cannot run until the customer picks another
+            # one. Listed above the broad "does not exist" bucket so its wording wins.
+            MISSING_INCREMENTAL_FIELD_MATCH: MISSING_INCREMENTAL_FIELD_MESSAGE,
+            # A relation the sync reads was dropped or renamed on the source, so the streaming
+            # query fails with SQLSTATE 42P01 ("relation ... does not exist"). The stored
+            # schema/query is fixed until the customer changes it, so every retry replays the same
+            # statement. The actionable message replaces the raw psycopg text, which echoes the
             # relation name and a SQL fragment back into `latest_error`. This key is a broad
             # substring match (case-insensitive `does not exist` anywhere in the driver text), so it
             # can also catch other dropped Postgres objects (e.g. a type or role); the message is
-            # worded to not overclaim it's always a table or column.
+            # worded to not overclaim it's always a table or column. A dropped *column* (42703) is
+            # worded the same way but must not disable the schema, so `source_for_pipeline`
+            # re-raises it as `ProjectedColumnMissingError`, clear of this key.
             "does not exist": (
                 "Something this sync depends on (a table, column, or other object) no longer exists in "
                 "your source database. Remove it from the source's selected tables, or reset and re-sync "
@@ -1036,6 +1052,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
             "conflict with recovery",
+            # A column the query names is gone from the table, re-raised as
+            # `ProjectedColumnMissingError` clear of the "does not exist" bucket. The stale column
+            # selection is dropped at the start of every run, so the next run recovers.
+            MISSING_PROJECTED_COLUMN_MATCH,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -1054,6 +1074,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             **dict.fromkeys(_SERVER_STARTING_UP_ERROR_SUBSTRINGS, _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
             "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
+            MISSING_PROJECTED_COLUMN_MATCH: MISSING_PROJECTED_COLUMN_MESSAGE,
         }
 
     def reconcile_schema_metadata(
@@ -1676,6 +1697,16 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # permanently disable the sync on a transient foreign-server blip. Re-raise clear of those
             # substrings so it stays retryable.
             raise ForeignServerUnreachableError(_FOREIGN_SERVER_UNREACHABLE_ERROR) from e
+        except UndefinedColumn as e:
+            # SQLSTATE 42703. The stale column selection is dropped against the catalog at the
+            # start of every run, so a column that reaches a query here vanished between that read
+            # and the query. libpq words it "column ... does not exist", which the non-retryable
+            # rules match on to catch a dropped relation, and that would disable a schema the next
+            # run recovers on its own. Re-raise clear of that substring so it stays retryable.
+            raise ProjectedColumnMissingError(MISSING_PROJECTED_COLUMN_MESSAGE) from e
+
+        response.items = reader_without_dropped_columns(response.items)
+
         # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
         # storage key when present, otherwise the row name) so HogQL reads from where we wrote.
         storage_schema_name = schema.resolved_s3_folder_name or inputs.schema_name

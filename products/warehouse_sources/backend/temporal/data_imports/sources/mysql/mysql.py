@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     compute_projected_columns,
     project_arrow_columns,
+    reconcile_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -1427,6 +1428,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         row_filters = inputs.row_filters
 
         def _discover_metadata() -> tuple[list[str] | None, pa.Schema, int, PartitionSettings | None, int]:
+            nonlocal enabled_columns
+
             with self.connect(config) as connection:
                 with connection.cursor() as cursor:
                     primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
@@ -1435,6 +1438,15 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     # Resolve PKs before the projection so probe/sample queries match the streaming SELECT.
                     if primary_keys is None and "id" in full_table:
                         primary_keys = ["id"]
+
+                    enabled_columns = reconcile_enabled_columns(
+                        enabled_columns,
+                        {column.name for column in full_table.columns},
+                        incremental_field=incremental_field,
+                        should_use_incremental_field=should_use_incremental_field,
+                        table=f"{schema}.{table_name}",
+                        logger=logger,
+                    )
 
                     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
                     table = project_arrow_columns(full_table, projected)

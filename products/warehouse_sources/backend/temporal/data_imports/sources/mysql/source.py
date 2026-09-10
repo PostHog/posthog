@@ -27,6 +27,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    MISSING_INCREMENTAL_FIELD_MATCH,
+    MISSING_INCREMENTAL_FIELD_MESSAGE,
+    MISSING_PROJECTED_COLUMN_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
@@ -289,17 +294,13 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
-            # MySQL/MariaDB error 1054 (ER_BAD_FIELD_ERROR): a column the sync query references no
-            # longer exists in the source table — almost always the configured incremental field
-            # after the column was renamed or dropped (schema drift). The streaming query reissues
-            # the same WHERE/ORDER BY on every attempt, so it fails identically forever; the COUNT(*)
-            # probe already swallows this same error expecting it to be classified here. Match on
-            # "Unknown column" alone (not anchored to a `(1054, "` prefix) so it also catches Vitess/
-            # PlanetScale's vtgate, which re-wraps the same 1054 error with its own gRPC preamble —
-            # e.g. `(1054, 'unknown: target: ...: vttablet: rpc error: code = NotFound desc = Unknown
-            # column ... (errno 1054) ...')` — where the message text sits well after `(1054, ` and
-            # behind a single quote rather than the double quote pymysql itself uses.
-            "Unknown column": "A column referenced during sync no longer exists in your source table (MySQL error 1054). This usually means a column was renamed or dropped — if it's the table's incremental field, update it to a column that exists (or switch to a full re-sync), then resync.",
+            # The table's incremental field is gone from the source catalog, raised by
+            # `reconcile_enabled_columns` before the first query runs. Every query puts that field
+            # in its WHERE and ORDER BY, so the sync cannot run until the customer picks another
+            # one. MySQL's own "Unknown column" (error 1054) is deliberately not listed here: for
+            # any other column the catalog read at the start of the next run picks up the new
+            # column list, so disabling the schema would stop a sync that recovers on its own.
+            MISSING_INCREMENTAL_FIELD_MATCH: MISSING_INCREMENTAL_FIELD_MESSAGE,
             # MySQL/MariaDB error 1130 (ER_HOST_NOT_PRIVILEGED): the server has no grant permitting
             # PostHog's connecting host, so the handshake is rejected before any credentials are
             # checked. Only a DB admin can fix this server-side (GRANT for the host, or allow our
@@ -415,6 +416,18 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # the rare case where it exhausts that budget so Temporal's own activity retry
             # can recover it rather than surfacing it as error-tracking noise.
             "TiProxy fails to connect to TiDB",
+            # MySQL/MariaDB error 1054 (ER_BAD_FIELD_ERROR): a column the query names is gone from
+            # the table. The stale column selection is dropped at the start of every run, so this
+            # only survives when the column disappears between that read and the streaming query.
+            # The next run reads the catalog again and recovers. Matched on "Unknown column" alone
+            # so it also catches Vitess/PlanetScale, whose vtgate re-wraps the same 1054 error
+            # behind its own gRPC preamble.
+            "Unknown column",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            "Unknown column": MISSING_PROJECTED_COLUMN_MESSAGE,
         }
 
     def reconcile_schema_metadata(

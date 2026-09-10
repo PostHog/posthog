@@ -3,10 +3,17 @@ from unittest.mock import MagicMock
 
 import pymssql
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    MISSING_INCREMENTAL_FIELD_MESSAGE,
+    Table,
+    TableStats,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    missing_incremental_field_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
@@ -699,9 +706,20 @@ class TestMSSQLSourceNonRetryableErrors:
             "Invalid column name 'created_at'.",
         ],
     )
-    def test_invalid_column_name_is_non_retryable(self, error_msg):
+    def test_invalid_column_name_does_not_disable_the_schema(self, error_msg):
+        # The stale column selection is dropped against the catalog at the start of every run, so
+        # a column error that still reaches here recovers on the next run. Disabling the schema
+        # would stop the table until a person re-enables it by hand.
+        source = MSSQLSource()
+        assert not any(pattern in error_msg for pattern in source.get_non_retryable_errors()), error_msg
+        assert any(pattern in error_msg for pattern in source.get_retryable_errors()), error_msg
+        assert any(pattern in error_msg for pattern in source.get_retry_exhausted_errors()), error_msg
+
+    def test_missing_incremental_field_is_non_retryable(self):
+        error_msg = missing_incremental_field_message("updated_at", "dbo.orders")
         non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+        friendly = [message for pattern, message in non_retryable.items() if pattern in error_msg]
+        assert friendly == [MISSING_INCREMENTAL_FIELD_MESSAGE]
 
     @pytest.mark.parametrize(
         "error_msg",

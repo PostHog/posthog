@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 from parameterized import parameterized
@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     InvalidIdentifierError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    MissingIncrementalFieldError,
     PrunedColumns,
     compute_projected_columns,
     filter_columns_by_enabled_columns,
@@ -22,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     format_projected_select_clause,
     project_arrow_columns,
     prune_enabled_columns,
+    reconcile_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.types import Column, Table
 
@@ -224,6 +226,44 @@ class TestPruneEnabledColumns:
     def test_preserves_caller_order(self) -> None:
         pruned = prune_enabled_columns(["email", "id", "name"], {"id", "email", "name"})
         assert pruned.kept == ["email", "id", "name"]
+
+
+class TestReconcileEnabledColumns:
+    def _reconcile(self, enabled_columns, available, **overrides):
+        kwargs: dict = {
+            "incremental_field": None,
+            "should_use_incremental_field": False,
+            "table": "public.orders",
+            "logger": MagicMock(),
+        }
+        kwargs.update(overrides)
+        return reconcile_enabled_columns(enabled_columns, available, **kwargs)
+
+    def test_drops_a_column_that_left_the_source(self) -> None:
+        assert self._reconcile(["id", "ghost"], {"id", "email"}) == ["id"]
+
+    def test_keeps_select_star_selections_untouched(self) -> None:
+        assert self._reconcile(None, {"id"}) is None
+
+    def test_reports_dropped_columns_to_the_job_log(self) -> None:
+        logger = MagicMock()
+        self._reconcile(["id", "ghost"], {"id"}, logger=logger)
+        assert "ghost" in logger.warning.call_args.args[0]
+
+    def test_raises_when_the_incremental_field_left_the_source(self) -> None:
+        with pytest.raises(MissingIncrementalFieldError, match="updated_at"):
+            self._reconcile(None, {"id"}, incremental_field="updated_at", should_use_incremental_field=True)
+
+    def test_keeps_the_selection_when_the_catalog_read_is_empty(self) -> None:
+        # An empty catalog says nothing about the table, so pruning against it would drop every
+        # selected column and raise on an incremental field that is still there.
+        assert self._reconcile(["id"], set(), incremental_field="updated_at", should_use_incremental_field=True) == [
+            "id"
+        ]
+
+    def test_ignores_a_missing_incremental_field_on_a_full_refresh(self) -> None:
+        # Full refresh never puts the field in a WHERE or ORDER BY, so it cannot break the query.
+        assert self._reconcile(["id"], {"id"}, incremental_field="updated_at") == ["id"]
 
 
 class TestProjectArrowColumns:

@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     compute_projected_columns,
     project_arrow_columns,
+    reconcile_enabled_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     fetch_row_batches,
@@ -1536,6 +1537,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         row_filters = inputs.row_filters
 
         def _discover_and_probe() -> RedshiftTableSetup:
+            nonlocal enabled_columns
+
             with self.connect(config) as connection:
                 # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
                 # that fails — a permission error, an EXPLAIN the cluster rejects, a cancelled COUNT(*) —
@@ -1563,6 +1566,15 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         if primary_keys is None and "id" in full_table:
                             logger.debug("Falling back to ['id'] for primary keys...")
                             primary_keys = ["id"]
+
+                        enabled_columns = reconcile_enabled_columns(
+                            enabled_columns,
+                            {column.name for column in full_table.columns},
+                            incremental_field=incremental_field,
+                            should_use_incremental_field=should_use_incremental_field,
+                            table=f"{schema}.{table_name}",
+                            logger=logger,
+                        )
 
                         projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
                         table = project_arrow_columns(full_table, projected)

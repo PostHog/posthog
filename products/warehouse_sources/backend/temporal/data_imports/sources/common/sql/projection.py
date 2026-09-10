@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import TypeVar
 
 import structlog
+from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 
@@ -192,3 +193,73 @@ def prune_enabled_columns(
         else:
             removed.append(column)
     return PrunedColumns(kept=kept, removed=removed)
+
+
+# Stable fragments of the two exceptions below, for a source's `get_non_retryable_errors` /
+# `get_retry_exhausted_errors` maps. The exceptions carry the field and table names, which the
+# maps match on as a substring, so the fragments leave both out.
+MISSING_INCREMENTAL_FIELD_MATCH = "no longer exists in the source table"
+MISSING_PROJECTED_COLUMN_MATCH = "was dropped or renamed in the source table"
+
+MISSING_INCREMENTAL_FIELD_MESSAGE = (
+    "The incremental field this table syncs on no longer exists in your source table. It was "
+    "renamed or dropped at the source. Pick a different incremental field in the table's sync "
+    "settings, or switch the table to full table replication, then re-enable the sync."
+)
+MISSING_PROJECTED_COLUMN_MESSAGE = (
+    f"A column this sync reads {MISSING_PROJECTED_COLUMN_MATCH}. PostHog reads the table's columns "
+    "again on every run, so the next sync uses the new column list. If the sync keeps failing, "
+    "check the columns selected for this table."
+)
+
+
+class MissingIncrementalFieldError(Exception):
+    """The table's incremental field is absent from the catalog read this run."""
+
+
+class ProjectedColumnMissingError(Exception):
+    """A column the sync query names is absent from the source table."""
+
+
+def missing_incremental_field_message(incremental_field: str, table: str) -> str:
+    return (
+        f'The incremental field "{incremental_field}" {MISSING_INCREMENTAL_FIELD_MATCH} {table}. '
+        "It was renamed or dropped at the source. Pick a different incremental field in the table's "
+        "sync settings, or switch the table to full table replication, then re-enable the sync."
+    )
+
+
+def reconcile_enabled_columns(
+    enabled_columns: list[str] | None,
+    available_column_names: set[str],
+    *,
+    incremental_field: str | None,
+    should_use_incremental_field: bool,
+    table: str,
+    logger: FilteringBoundLogger,
+) -> list[str] | None:
+    """Re-check a saved column selection against the catalog read this run.
+
+    `enabled_columns` is only reconciled when the source is reloaded (see
+    `reconcile_source_schema_metadata`), so a column dropped or renamed at the source stays in the
+    stored selection and every run fails on the same SELECT list. Dropping the stale names here
+    lets the sync carry on with the columns that still exist.
+
+    The incremental field is the exception: it sits in the WHERE and ORDER BY of every query, so
+    the sync cannot run without it.
+    """
+    if not available_column_names:
+        # A catalog read that came back empty says nothing about the table, so leave the stored
+        # selection alone rather than pruning every column against it.
+        return enabled_columns
+
+    if should_use_incremental_field and incremental_field and incremental_field not in available_column_names:
+        raise MissingIncrementalFieldError(missing_incremental_field_message(incremental_field, table))
+
+    pruned = prune_enabled_columns(enabled_columns, available_column_names)
+    if pruned.removed:
+        logger.warning(
+            f"Columns selected for {table} are no longer in the source table and were skipped for "
+            f"this sync: {', '.join(pruned.removed)}"
+        )
+    return pruned.kept

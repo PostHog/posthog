@@ -12,10 +12,18 @@ from sshtunnel import BaseSSHTunnelForwarderError
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     TemporaryFileSizeExceedsLimitException,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    MISSING_INCREMENTAL_FIELD_MESSAGE,
+    MISSING_PROJECTED_COLUMN_MESSAGE,
+    Table,
+    TableStats,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    missing_incremental_field_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
@@ -1252,6 +1260,21 @@ class TestRedshiftSourceNonRetryableErrors:
         non_retryable = RedshiftSource().get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable
+
+    def test_missing_incremental_field_is_non_retryable(self):
+        error_msg = missing_incremental_field_message("updated_at", "public.orders")
+        non_retryable = RedshiftSource().get_non_retryable_errors()
+        friendly = [message for pattern, message in non_retryable.items() if pattern in error_msg]
+        assert friendly == [MISSING_INCREMENTAL_FIELD_MESSAGE]
+
+    def test_a_dropped_projection_column_does_not_disable_the_schema(self):
+        # Redshift words SQLSTATE 42703 "column ... does not exist", which the non-retryable rules
+        # match on to catch a dropped relation. `source_for_pipeline` re-raises it clear of that
+        # substring, because the catalog read at the start of the next run recovers on its own.
+        source = RedshiftSource()
+        assert not any(pattern in MISSING_PROJECTED_COLUMN_MESSAGE for pattern in source.get_non_retryable_errors())
+        assert any(pattern in MISSING_PROJECTED_COLUMN_MESSAGE for pattern in source.get_retryable_errors())
+        assert any(pattern in MISSING_PROJECTED_COLUMN_MESSAGE for pattern in source.get_retry_exhausted_errors())
 
 
 class TestRedshiftValidateCredentials:
