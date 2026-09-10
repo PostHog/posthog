@@ -2146,11 +2146,16 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
         loadNotebookFailure: ({ errorObject }) => {
-            posthog.capture('notebook load failed', {
-                short_id: props.shortId,
-                mode: values.mode,
-                status: (errorObject as { status?: number } | null)?.status,
-            })
+            // Only a failure with nothing to fall back on reaches a person, and the same per-mount
+            // gate as above keeps a retry or a failed background refresh out of the count.
+            if (!values.notebook && !cache.hasCapturedLoadFailure) {
+                cache.hasCapturedLoadFailure = true
+                posthog.capture('notebook load failed', {
+                    short_id: props.shortId,
+                    mode: values.mode,
+                    status: (errorObject as { status?: number } | null)?.status,
+                })
+            }
             actions.processPendingMarkdownStreamEvents()
         },
 

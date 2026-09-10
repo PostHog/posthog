@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useLayoutEffect } from 'react'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -53,7 +54,15 @@ export function Notebook({
         cachedInlineQueryResultsByNodeId,
     }
     const logic = notebookLogic(logicProps)
-    const { notebook, notebookLoading, isEditable, isTemplate, notebookMissing, notebookLoadFailed } = useValues(logic)
+    const {
+        notebook,
+        notebookLoading,
+        isEditable,
+        isTemplate,
+        notebookMissing,
+        notebookLoadFailed,
+        accessDeniedToNotebook,
+    } = useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isMarkdownExpanded } = useValues(notebookSettingsLogic)
 
@@ -94,6 +103,8 @@ export function Notebook({
         <BindLogic logic={notebookLogic} props={logicProps}>
             {!notebook && notebookLoading ? (
                 <NotebookLoadingState />
+            ) : accessDeniedToNotebook ? (
+                <AccessDenied object="notebook" />
             ) : notebookLoadFailed ? (
                 <div className="px-8 py-4">
                     <LemonBanner
@@ -103,7 +114,7 @@ export function Notebook({
                             onClick: loadNotebook,
                         }}
                     >
-                        We couldn't load this notebook. Check your connection, then try again.
+                        We couldn't load this notebook.
                     </LemonBanner>
                 </div>
             ) : notebookMissing ? (

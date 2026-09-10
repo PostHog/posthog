@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
+import { notebookSceneLogic } from '../notebookSceneLogic'
 import { NotebookType } from '../types'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
 import { Notebook } from './Notebook'
@@ -119,6 +120,37 @@ describe('Notebook load states', () => {
 
         expect(await screen.findByText(/We couldn't load this notebook/)).toBeTruthy()
         expect(toast).not.toHaveBeenCalled()
+    })
+
+    it('shows the access-denied screen, not a retry that cannot succeed', async () => {
+        jest.spyOn(api.notebooks, 'get').mockRejectedValue({ status: 403, code: 'permission_denied' })
+
+        const { container, findByText } = render(<Notebook shortId={SHORT_ID} mode="notebook" />)
+
+        expect(await findByText('Access denied')).toBeTruthy()
+        expect(container.textContent).not.toContain("We couldn't load this notebook")
+    })
+
+    it('requests the notebook once when the scene mounts it', async () => {
+        const get = jest.spyOn(api.notebooks, 'get').mockResolvedValue(notebook)
+
+        const sceneLogic = notebookSceneLogic({ shortId: SHORT_ID })
+        sceneLogic.mount()
+        await expectLogic(notebookLogic({ shortId: SHORT_ID })).toDispatchActions(['loadNotebookSuccess'])
+
+        expect(get).toHaveBeenCalledTimes(1)
+        sceneLogic.unmount()
+    })
+
+    it('does not label a failed load as not found in the breadcrumbs', async () => {
+        jest.spyOn(api.notebooks, 'get').mockRejectedValue(new Error('network down'))
+
+        const sceneLogic = notebookSceneLogic({ shortId: SHORT_ID })
+        sceneLogic.mount()
+        await expectLogic(notebookLogic({ shortId: SHORT_ID })).toDispatchActions(['loadNotebookFailure'])
+
+        expect(sceneLogic.values.breadcrumbs.at(-1)?.name).toBeNull()
+        sceneLogic.unmount()
     })
 
     it('shows "not found" when the notebook does not exist', async () => {

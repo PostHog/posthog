@@ -22,6 +22,7 @@ export interface notebookSceneLogicValues {
     isLocalOnly: boolean // notebookLogic
     notebook: NotebookType | null // notebookLogic
     notebookLoading: boolean // notebookLogic
+    notebookMissing: boolean // notebookLogic
     notebooksLoading: boolean // notebooksModel
     breadcrumbs: Breadcrumb[]
     loading: boolean
@@ -53,7 +54,7 @@ export interface notebookSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         notebookId: (shortId: string) => string
         loading: (notebookLoading: boolean, notebooksLoading: boolean) => boolean
-        breadcrumbs: (notebook: NotebookType | null, loading: boolean) => Breadcrumb[]
+        breadcrumbs: (notebook: NotebookType | null, notebookMissing: boolean) => Breadcrumb[]
         projectTreeRef: (arg: string) => ProjectTreeRef | null
         sidePanelContext: (notebookId: string, isLocalOnly: boolean) => SidePanelSceneContext | null
     }
@@ -73,7 +74,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     connect((props: NotebookSceneLogicProps) => ({
         values: [
             notebookLogic(props),
-            ['notebook', 'notebookLoading', 'isLocalOnly'],
+            ['notebook', 'notebookLoading', 'notebookMissing', 'isLocalOnly'],
             notebooksModel,
             ['notebooksLoading'],
         ],
@@ -88,8 +89,8 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.notebook, s.loading],
-            (notebook: NotebookType | null, loading: boolean): Breadcrumb[] => {
+            (s) => [s.notebook, s.notebookMissing],
+            (notebook: NotebookType | null, notebookMissing: boolean): Breadcrumb[] => {
                 const parent: Breadcrumb =
                     notebook?.parent_resource?.type === 'account'
                         ? {
@@ -108,7 +109,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
                     parent,
                     {
                         key: [Scene.Notebook, notebook?.short_id || 'new'],
-                        name: notebook ? notebook?.title || 'Unnamed' : loading ? null : 'Notebook not found',
+                        name: notebook ? notebook?.title || 'Unnamed' : notebookMissing ? 'Notebook not found' : null,
                         iconType: 'notebook',
                     },
                 ]

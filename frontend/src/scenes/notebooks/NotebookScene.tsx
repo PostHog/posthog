@@ -49,7 +49,7 @@ export const scene: SceneExport<NotebookSceneLogicProps> = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
     const { createNotebook } = useActions(notebookSceneLogic)
-    const { notebook, accessDeniedToNotebook, notebookMissing } = useValues(
+    const { notebook, accessDeniedToNotebook, notebookMissing, notebookLoadFailed } = useValues(
         notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
     )
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
@@ -106,6 +106,11 @@ export function NotebookScene(): JSX.Element {
     // notebook view, which offers a retry instead of a dead end.
     if (notebookMissing && !loading) {
         return <NotFound object="notebook" />
+    }
+
+    // The toolbar and menus act on a notebook this scene does not hold, so show the retry alone.
+    if (notebookLoadFailed) {
+        return <Notebook key={notebookId} shortId={notebookId} />
     }
 
     if (visibility === 'visible' && selectedNotebook === notebookId) {
