@@ -43,6 +43,7 @@ export interface InboxSectionedReports {
   isError: boolean;
   isEmpty: boolean;
   isFetchingNextPage: boolean;
+  isFetching: boolean;
   hasNextPage: boolean;
   loadMore: () => void;
   retry: () => void;
@@ -182,6 +183,7 @@ export function useInboxSectionedReports(options?: {
       visibleReports.length === 0 && selected.some((query) => query.isError),
     isEmpty: isSuccess && reportCount === 0,
     isFetchingNextPage: selected.some((query) => query.isFetchingNextPage),
+    isFetching: selected.some((query) => query.isFetching),
     hasNextPage: selected.some(
       (query) =>
         query.hasNextPage && query.allReports.length >= AUTOPAGE_REPORT_LIMIT,
@@ -194,6 +196,7 @@ export function useInboxSectionedReports(options?: {
       }
     },
     retry: () => {
+      if (selected.some((query) => query.isFetching)) return;
       for (const query of selected) void query.refetch();
     },
     scope,

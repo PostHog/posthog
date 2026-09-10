@@ -65,12 +65,12 @@ const meta: Meta<typeof InboxDetailFrameView> = {
       </>
     ),
     showMetadata: true,
-    summarySection: { Icon: FileTextIcon, title: "Report summary" },
+    summarySection: { Icon: FileTextIcon, title: "Summary" },
     evidenceSection: { Icon: MagnifyingGlassIcon, title: "Evidence" },
     evidenceCount: signals.length,
     evidenceContent: <SignalsList signals={signals} />,
     belowSummary: (
-      <div className="flex flex-col gap-3 border-border border-t pt-4">
+      <div className="flex select-none flex-col gap-3 rounded-lg border border-(--amber-6) bg-(--amber-2) p-4">
         <div className="flex flex-col gap-1">
           <span className="font-semibold text-[15px] text-gray-12">
             Needs your decision
@@ -84,6 +84,14 @@ const meta: Meta<typeof InboxDetailFrameView> = {
           <Button type="button" variant="primary">
             <GitPullRequestIcon />
             Implement
+          </Button>
+          <Button type="button" variant="outline">
+            <ChatCircleIcon />
+            Ask about it
+          </Button>
+          <Button type="button" variant="outline">
+            <EyeSlashIcon />
+            Dismiss…
           </Button>
         </div>
       </div>
@@ -213,11 +221,11 @@ export const WithPullRequest: Story = {
     primaryAction: (
       <>
         <Button variant="outline" size="sm">
-          <ChatCircleIcon />
-          Chat
+          Open in GitHub
         </Button>
         <Button variant="outline" size="sm">
-          Open PR
+          <ChatCircleIcon />
+          Chat
         </Button>
         <Button variant="outline" size="sm">
           <EyeSlashIcon />

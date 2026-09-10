@@ -136,17 +136,20 @@ export function InboxDetailFrameView({
       <div className="mx-auto w-full max-w-[calc(160ch+5rem)]">
         <div className="flex @5xl:flex-row flex-col @5xl:items-start overflow-hidden">
           <main className="@5xl:order-none order-1 flex min-w-0 flex-1 flex-col">
-            {secondaryTab ? (
-              <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList
-                  variant="line"
-                  className="h-auto w-full justify-start gap-0.5 border-border border-b"
-                >
-                  <TabsTrigger value="overview" className="gap-1.5 px-2.5 py-2">
-                    <span className="font-bold text-[14px]">
-                      {summarySection.title}
-                    </span>
-                  </TabsTrigger>
+            <Tabs
+              value={secondaryTab ? activeTab : "overview"}
+              onValueChange={setActiveTab}
+            >
+              <TabsList
+                variant="line"
+                className="h-auto w-full justify-start gap-0.5 border-border border-b"
+              >
+                <TabsTrigger value="overview" className="gap-1.5 px-2.5 py-2">
+                  <span className="font-bold text-[14px]">
+                    {summarySection.title}
+                  </span>
+                </TabsTrigger>
+                {secondaryTab && (
                   <TabsTrigger
                     value="secondary"
                     className="gap-1.5 px-2.5 py-2"
@@ -155,9 +158,9 @@ export function InboxDetailFrameView({
                       {secondaryTab.label}
                     </span>
                   </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            ) : null}
+                )}
+              </TabsList>
+            </Tabs>
 
             {secondaryTab && activeTab === "secondary" ? (
               <div className="flex min-w-0 flex-col gap-5 p-4">
@@ -193,7 +196,6 @@ export function InboxDetailFrameView({
                 Icon={EvidenceIcon}
                 title={evidenceSection.title}
                 collapsible
-                defaultCollapsed
                 rightSlot={
                   <span className="cursor-default select-none text-[12px] text-gray-10 tabular-nums">
                     {evidenceCount} signal{evidenceCount === 1 ? "" : "s"}

@@ -132,12 +132,19 @@ export function FilterRadioSubMenu<Value extends string>({
   searchPlaceholder?: string;
 }): ReactElement {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const selected =
     valueLabel ?? options.find((option) => option.value === value)?.label ?? "";
 
   if (searchPlaceholder) {
     return (
-      <DropdownMenuSub open={open} onOpenChange={setOpen}>
+      <DropdownMenuSub
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          setSearch("");
+        }}
+      >
         <FilterSubMenuTrigger
           label={label}
           value={selected}
@@ -147,6 +154,11 @@ export function FilterRadioSubMenu<Value extends string>({
           <Combobox<FilterOption<Value>>
             autoHighlight
             items={options}
+            limit={20}
+            inputValue={search}
+            onInputValueChange={(next, details) => {
+              if (details.reason === "input-change") setSearch(next);
+            }}
             value={options.find((option) => option.value === value) ?? null}
             itemToStringLabel={(option) =>
               `${option.label} ${option.searchLabel ?? ""}`
@@ -156,6 +168,7 @@ export function FilterRadioSubMenu<Value extends string>({
               if (option) {
                 onChange(option.value);
                 setOpen(false);
+                setSearch("");
               }
             }}
           >

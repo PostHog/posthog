@@ -145,77 +145,74 @@ export function PrDecisionBlock({ prUrl }: PrDecisionBlockProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2.5">
-        {gate.draft ? (
+        <Button
+          type="button"
+          variant="outline"
+          loading={approve.isPending}
+          disabled={approveDisabled}
+          onClick={() => approve.mutate({ prUrl })}
+          className={BIG_BUTTON}
+        >
+          {approve.isPending ? (
+            <Spinner />
+          ) : approved ? (
+            <CheckCircleIcon size={15} className="text-(--green-9)" />
+          ) : (
+            <CheckIcon size={15} />
+          )}
+          {approved ? "Approved" : "Approve"}
+        </Button>
+        <ButtonGroup>
+          <Button
+            type="button"
+            variant="primary"
+            loading={merge.isPending}
+            disabled={mergeDisabled}
+            onClick={() => merge.mutate({ prUrl, method })}
+            className={BIG_BUTTON}
+          >
+            {merge.isPending ? <Spinner /> : <GitMergeIcon size={15} />}
+            {MERGE_METHOD_LABELS[method]}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="primary"
+                  aria-label="Choose merge method"
+                  disabled={mergeDisabled}
+                  className="h-9"
+                >
+                  <CaretDownIcon size={13} />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+              {MERGE_METHODS.map((m) => (
+                <DropdownMenuItem key={m} onClick={() => setMethod(m)}>
+                  {MERGE_METHOD_LABELS[m]}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </ButtonGroup>
+        {gate.draft && (
           <>
-            <Button
-              type="button"
-              variant="primary"
-              loading={markReady.isPending}
-              disabled={markReady.isPending}
-              onClick={() => markReady.mutate({ prUrl, action: "ready" })}
-              className={BIG_BUTTON}
-            >
-              <CheckCircleIcon />
-              Ready for review
-            </Button>
             <span className="text-[12px] text-gray-10">
-              This PR is a draft. Mark it ready to request a review.
+              Draft pull requests can't be merged.
             </span>
-          </>
-        ) : (
-          <>
             <Button
               type="button"
               variant="outline"
-              loading={approve.isPending}
-              disabled={approveDisabled}
-              onClick={() => approve.mutate({ prUrl })}
-              className={BIG_BUTTON}
+              size="sm"
+              loading={markReady.isPending}
+              disabled={markReady.isPending}
+              onClick={() => markReady.mutate({ prUrl, action: "ready" })}
+              className="gap-1.5"
             >
-              {approve.isPending ? (
-                <Spinner />
-              ) : approved ? (
-                <CheckCircleIcon size={15} className="text-(--green-9)" />
-              ) : (
-                <CheckIcon size={15} />
-              )}
-              {approved ? "Approved" : "Approve"}
+              Ready for review
             </Button>
-            <ButtonGroup>
-              <Button
-                type="button"
-                variant="primary"
-                loading={merge.isPending}
-                disabled={mergeDisabled}
-                onClick={() => merge.mutate({ prUrl, method })}
-                className={BIG_BUTTON}
-              >
-                {merge.isPending ? <Spinner /> : <GitMergeIcon size={15} />}
-                {MERGE_METHOD_LABELS[method]}
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="primary"
-                      aria-label="Choose merge method"
-                      disabled={mergeDisabled}
-                      className="h-9"
-                    >
-                      <CaretDownIcon size={13} />
-                    </Button>
-                  }
-                />
-                <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
-                  {MERGE_METHODS.map((m) => (
-                    <DropdownMenuItem key={m} onClick={() => setMethod(m)}>
-                      {MERGE_METHOD_LABELS[m]}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </ButtonGroup>
           </>
         )}
       </div>

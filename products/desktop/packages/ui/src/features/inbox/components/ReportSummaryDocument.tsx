@@ -15,7 +15,6 @@ export function ReportSummaryDocument({
   if (split.sections.length === 0) {
     return (
       <div className="flex flex-col gap-5">
-        <h2 className="m-0 font-semibold text-[18px] text-gray-12">Summary</h2>
         <SignalReportSummaryMarkdown
           content={report.summary}
           fallback="No summary yet. The agent is still investigating."
@@ -33,10 +32,7 @@ export function ReportSummaryDocument({
   return (
     <div className="flex flex-col gap-6">
       {split.lede && (
-        <section className="flex flex-col gap-2">
-          <h2 className="m-0 font-semibold text-[18px] text-gray-12">
-            Summary
-          </h2>
+        <div className="text-[16px] text-gray-12">
           <SignalReportSummaryMarkdown
             content={split.lede}
             fallback=""
@@ -44,7 +40,7 @@ export function ReportSummaryDocument({
             pending={report.status === "in_progress"}
             chartIds={chartIds}
           />
-        </section>
+        </div>
       )}
       {report.charts && report.charts.length > 0 && (
         <div className="flex flex-col gap-3">

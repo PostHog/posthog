@@ -56,9 +56,8 @@ describe("InboxDetailFrame", () => {
 
     expect(screen.getByText("feat(dashboards)")).toBeInTheDocument();
     expect(screen.getByText("Add compact legend controls")).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "Summary" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Summary" })).toBeInTheDocument();
+    expect(screen.getAllByText("Summary")).toHaveLength(1);
     expect(screen.queryByText("For you")).not.toBeInTheDocument();
     expect(screen.queryByText("P2")).not.toBeInTheDocument();
     expect(

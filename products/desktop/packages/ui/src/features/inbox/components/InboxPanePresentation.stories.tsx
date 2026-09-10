@@ -66,6 +66,8 @@ const meta: Meta<typeof InboxPanePresentation> = {
     reports,
     query: "",
     isLoading: false,
+    isRefreshing: false,
+    onRefresh: () => {},
     isFetchingNextPage: false,
     hasNextPage: false,
     hasActiveFilters: false,
@@ -83,6 +85,8 @@ export default meta;
 type Story = StoryObj<typeof InboxPanePresentation>;
 
 export const ReportList: Story = {};
+
+export const Refreshing: Story = { args: { isRefreshing: true } };
 
 export const NothingToReview: Story = {
   args: { reports: [] },

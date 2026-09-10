@@ -12,10 +12,10 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
-/** "t" from the reports list starts triage, which is where the list can go. */
+/** "t" from the reports list or an open report starts triage. */
 export function useInboxTriageHotkey(options: {
   enabled: boolean;
-  triageReportCount: number;
+  triageReportCount?: number;
 }): void {
   const { enabled, triageReportCount } = options;
   const navigate = useNavigate();
@@ -25,7 +25,7 @@ export function useInboxTriageHotkey(options: {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (isTypingTarget(event.target)) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key !== "t") return;
+      if (event.key.toLowerCase() !== "t") return;
       event.preventDefault();
       void navigate({ to: INBOX_TRIAGE_ROUTE });
     };

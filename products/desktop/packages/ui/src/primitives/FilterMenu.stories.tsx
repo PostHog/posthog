@@ -35,6 +35,11 @@ function SearchableScope(): React.JSX.Element {
               label: "Sam Sample",
               searchLabel: "sam@example.com",
             },
+            ...Array.from({ length: 30 }, (_, index) => ({
+              value: `user-${index}`,
+              label: `Example user ${index}`,
+              searchLabel: `user-${index}@example.com`,
+            })),
           ]}
         />
       </DropdownMenuContent>
