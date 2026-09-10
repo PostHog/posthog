@@ -5,7 +5,8 @@ BASELINE_SAMPLE_WINDOW_DAYS = 30
 # Fewer than this many days of history and the learned bar is noise; only the requester guard runs.
 BASELINE_MIN_HISTORY_DAYS = 14
 
-# Overflow past this cap stays eligible and rolls to the next tick.
+# Teams past this cap roll to the next tick: each tick takes the next page of them, wrapping at
+# the end, so a large fleet is covered over several ticks rather than the same teams every time.
 MAX_TEAMS_PER_RUN = 200
 
 MASTER_FLAG = "product-support-ticket-patterns"

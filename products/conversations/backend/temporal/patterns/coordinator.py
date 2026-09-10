@@ -7,6 +7,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 with workflow.unsafe.imports_passed_through():
+    import math
     from datetime import UTC, datetime, timedelta
 
     import structlog
@@ -52,11 +53,17 @@ def _collect_eligible_teams(now: datetime) -> list[TeamPatternInput]:
         .filter(conversations_enabled=True, conversations_settings__pattern_detection_enabled=True)
         .order_by("id")
     )
+    # A team stays eligible forever, so taking the lowest ids on every tick would leave everyone
+    # past the cap waiting for a turn that never comes. Each tick takes the next page and wraps at
+    # the end, which is what makes the overflow roll instead of starve.
+    total = teams.count()
+    if total > MAX_TEAMS_PER_RUN:
+        pages = math.ceil(total / MAX_TEAMS_PER_RUN)
+        page = int(floor_to_tick(now).timestamp()) // (COORDINATOR_INTERVAL_MINUTES * 60) % pages
+        teams = teams[page * MAX_TEAMS_PER_RUN : (page + 1) * MAX_TEAMS_PER_RUN]
     tick = tick_bucket(now)
     eligible: list[TeamPatternInput] = []
-    for team in teams.iterator(chunk_size=200):
-        if len(eligible) >= MAX_TEAMS_PER_RUN:
-            break
+    for team in teams.iterator(chunk_size=MAX_TEAMS_PER_RUN):
         if is_pattern_detection_enabled(team):
             eligible.append(TeamPatternInput(team_id=team.id, tick=tick))
     return eligible
