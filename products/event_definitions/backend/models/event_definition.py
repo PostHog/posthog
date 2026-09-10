@@ -62,6 +62,8 @@ class EventDefinition(UUIDTModel):
                 condition=models.Q(enforcement_mode="reject"),
             ),
             models.Index(fields=["team_id", "name"], name="posthog_eventdef_team_name_idx"),
+            # Makes `exclude_stale` searches an index range on a project's recent rows. The price is
+            # that the hourly `last_seen_at` refreshes from ingestion can no longer be HOT updates.
             models.Index(
                 Coalesce(F("project_id"), F("team_id")),
                 F("last_seen_at"),
