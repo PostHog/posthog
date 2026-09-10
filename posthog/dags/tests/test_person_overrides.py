@@ -4,7 +4,7 @@ from functools import partial
 from uuid import UUID
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
 
@@ -236,19 +236,14 @@ def _create_snapshot_with(cluster: ClickhouseCluster, rows: list[tuple]) -> Pers
     cluster.any_host(table.create).result()
 
     def insert(client: Client) -> None:
-        client.execute(
-            f"INSERT INTO {table.qualified_name} (team_id, distinct_id, person_id, version) VALUES",
-            rows,
-        )
+        client.execute(f"INSERT INTO {table.qualified_name} (team_id, distinct_id, person_id, version) VALUES", rows)
 
     cluster.any_host(insert).result()
     return PersonOverridesSnapshotDictionary(source=table)
 
 
 @pytest.mark.django_db
-def test_a_staged_snapshot_dictionary_holds_the_same_rows_as_the_snapshot_table(
-    cluster: ClickhouseCluster,
-):
+def test_a_staged_snapshot_dictionary_holds_the_same_rows_as_the_snapshot_table(cluster: ClickhouseCluster):
     # A cluster that shares no Keeper with the job's own never receives the replicated snapshot
     # table, so it builds the dictionary from a staged object. The squash is gated on both sides
     # checksumming alike, which only means something if every column round-trips exactly. This one
@@ -273,9 +268,7 @@ def test_a_staged_snapshot_dictionary_holds_the_same_rows_as_the_snapshot_table(
 
 
 @pytest.mark.django_db
-def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
-    cluster: ClickhouseCluster,
-):
+def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(cluster: ClickhouseCluster):
     # sharded_events_json and sharded_flag_evaluations may each sit on a cluster whose shards only
     # its own handle enumerates. Running one of those rewrites over the job's handle would skip its
     # rows, and the overrides that record the correct person_id are deleted in the very next op, so
@@ -288,22 +281,17 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         TargetPlacement(target=EVENTS_JSON, cluster=sibling),
         TargetPlacement(target=FLAG_EVALUATIONS, cluster=sibling),
     ]
-    phases: list[str] = []
-
-    def enqueue(runner: AlterTableMutationRunner, handle: ClickhouseCluster) -> dict:
-        phases.append("enqueue")
-        return {}
+    calls = Mock()
 
     with (
         patch("posthog.dags.person_overrides.resolve_placements", return_value=placements),
         patch.object(
-            AlterTableMutationRunner, "enqueue_on_shards", autospec=True, side_effect=enqueue
+            AlterTableMutationRunner, "enqueue_on_shards", autospec=True, return_value={}
         ) as enqueue_on_shards,
-        patch(
-            "posthog.dags.person_overrides.wait_for_mutations_on_shards",
-            side_effect=lambda handle, shard_mutations: phases.append("wait"),
-        ),
+        patch("posthog.dags.person_overrides.wait_for_mutations_on_shards") as wait_for_mutations,
     ):
+        calls.attach_mock(enqueue_on_shards, "enqueue")
+        calls.attach_mock(wait_for_mutations, "wait")
         run_person_id_update_mutations(cluster, dictionary)
 
     assert {call.args[0].table: call.args[1] for call in enqueue_on_shards.call_args_list} == {
@@ -311,7 +299,7 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         EVENTS_JSON_DATA_TABLE: sibling,
         FLAG_EVALUATIONS_DATA_TABLE: sibling,
     }
-    # Waiting on each mutation as it is enqueued would cost the sum of their durations rather than
-    # the longest one, which is the whole reason the op enqueues in one pass.
-    assert phases == ["enqueue"] * 3 + ["wait"] * 3
+    # Waiting on each mutation as it is enqueued would cost the sum of their completion times
+    # rather than the longest, which is the whole reason the op enqueues in one pass.
+    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 3 + ["wait"] * 3
     cluster.any_host(dictionary.source.drop).result()

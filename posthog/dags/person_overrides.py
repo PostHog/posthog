@@ -8,12 +8,7 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog import settings
-from posthog.clickhouse.cluster import (
-    AlterTableMutationRunner,
-    ClickhouseCluster,
-    MutationWaiter,
-    wait_for_mutations_on_shards,
-)
+from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter, wait_for_mutations_on_shards
 from posthog.dags.common import JobOwners
 from posthog.dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
 from posthog.dags.common.staged_dictionary import (
@@ -23,7 +18,6 @@ from posthog.dags.common.staged_dictionary import (
 )
 from posthog.dataclasses import frozen
 from posthog.models.deletion_targets import EVENTS_TARGETS, FLAG_EVALUATIONS, resolve_placements, sweep_clusters
-from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 # Every table the squash rewrites person_id on. sharded_flag_evaluations is not an events table,
@@ -146,22 +140,10 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         return checksum
 
     @property
-    def update_table(self):
-        return EVENTS_DATA_TABLE()
-
-    @property
     def update_commands(self):
         return {
             "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
         }
-
-    def update_mutation_runner_for(self, table: str) -> AlterTableMutationRunner:
-        """The person_id squash applied to one squash target's storage table."""
-        return AlterTableMutationRunner(
-            table=table,
-            commands=self.update_commands,
-            parameters={"name": self.qualified_name},
-        )
 
     @property
     def overrides_table(self):
@@ -307,16 +289,14 @@ def run_person_id_update_mutations(
     the dispatch follows the resolved placement rather than the handle in hand. Skipping one would
     leave its rows on a person_id this run squashed away, and the overrides that record the correct
     one are deleted in the very next op.
-
-    Every mutation is enqueued before any of them is waited on. They run on separate tables, so
-    waiting on each in turn would cost the sum of their durations instead of the longest one. The
-    op still returns only once all of them are complete, which is what the overrides delete needs.
     """
-    enqueued = []
+    enqueued: list[tuple[ClickhouseCluster, dict[int, MutationWaiter]]] = []
     for placement in resolve_placements(cluster, SQUASH_TARGETS):
         runner = dictionary.update_mutation_runner_for(placement.target.data_table)
         enqueued.append((placement.cluster, runner.enqueue_on_shards(placement.cluster)))
 
+    # Every mutation is already in flight, so these waits overlap and cost the longest rather than
+    # their sum. The capacity wait inside enqueue_on_shards is still per table and serial.
     for handle, shard_mutations in enqueued:
         wait_for_mutations_on_shards(handle, shard_mutations)
     return dictionary
