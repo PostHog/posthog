@@ -59,8 +59,13 @@ If the user named a source, go straight to `external-data-sources-retrieve`. Oth
 
 Two kinds of failure:
 
-- **Source-level** (`ExternalDataSource.status = "Error"`): the connection itself is broken — credentials expired,
-  host unreachable, account disabled. Affects every table.
+- **Source-level**: the connection itself is broken — credentials expired, host unreachable, account disabled.
+  Affects every table. In the serialized response from `external-data-sources-list`, treat a source as failing when
+  its `status` is `"Failed"` (or one of the billing values in the Step 2 table), **or** when its `latest_error` is
+  not null. A source often reads `Completed` or `Running` and still carries a `latest_error`, so read both fields.
+  Do not filter on `status == "Error"`: the serializer computes `status` from the source's schemas, and returns the
+  raw `ExternalDataSource.status` model value only when the source has no active schemas, so `"Error"` almost never
+  reaches the API.
 - **Schema-level** — the source connects fine but one or more tables are failing. In the serialized API response
   from `external-data-schemas-list`, look for `status` values `"Failed"`, `"Billing limits"`, or `"Billing limits
 too low"`. (The underlying model enum values are `BillingLimitReached` and `BillingLimitTooLow`, but the
@@ -195,7 +200,7 @@ resync" is rarely the right default.
 User: "Our Stripe sync is broken, can you check?"
 
 Agent:
-- external-data-sources-list → find Stripe source, status = Error
+- external-data-sources-list → find Stripe source, status = Failed with a non-null latest_error
 - external-data-sources-retrieve({id}) → latest_error: "authentication failed: 401 Unauthorized"
 - Report: "Your Stripe source's API key is no longer authenticating.
    All 8 tables under it are failing with 401s. This usually means the key was rotated on the Stripe side.
@@ -217,8 +222,12 @@ Agent:
 
 ## Important notes
 
-- **Source status overrides schema status for diagnosis.** If the source is `Error`, nothing under it will work;
-  fixing the source usually fixes all its schemas at once.
+- **Source status overrides schema status for diagnosis.** If the connection itself is broken — every schema fails
+  with the same credential or host error — nothing under the source will work, and fixing the source usually fixes
+  all its schemas at once.
+- **`latest_error` is the reliable source-level signal, not `status`.** A source with a healthy rollup status can
+  still carry an error from one of its schemas. Read `latest_error` on every source before you report a project as
+  healthy.
 - **`Running` isn't always healthy.** Cross-check `last_synced_at`. A sync stuck in `Running` needs `cancel` then
   `reload`, not `resync`.
 - **Resync is destructive.** It discards synced data. Only recommend it when the data itself is bad (duplicates,
