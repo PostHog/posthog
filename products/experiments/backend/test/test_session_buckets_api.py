@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -122,7 +122,7 @@ PURCHASE = {"kind": "EventsNode", "event": "purchase"}
 SERVER_CHARGE = {"kind": "EventsNode", "event": "server charge"}
 
 
-@freeze_time(NOW)
+@time_machine.travel(NOW, tick=False)
 class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
     def setUp(self) -> None:
         super().setUp()
@@ -536,7 +536,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
             ("before_cutoff", True, -7, "$feature_flag_called"),
         ]
     )
-    @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10))
+    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
     def test_bucket_population_reads_the_resolved_exposure_event(
         self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
     ) -> None:
@@ -585,7 +585,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert other_flag_session not in response.json()["session_ids"]
         assert response.json()["used_exposure_fallback"] is False
 
-    @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10))
+    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
     def test_rollout_exposure_event_captured_server_side_keeps_the_stamped_property_fallback(self) -> None:
         self.client.force_login(self.user)
         experiment = self._create_experiment(
