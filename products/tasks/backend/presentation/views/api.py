@@ -632,6 +632,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ],
         responses={
             201: TaskSerializer,
+            402: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description=(
+                    "The organization is on a Self-driving free trial, so a report implementation opens no "
+                    "pull request (code `self_driving_free_trial`), or the organization reached its "
+                    "self-driving pull request limit"
+                ),
+            ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required for a create that can activate a warm sandbox",
@@ -1152,6 +1160,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
+            402: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description=(
+                    "The organization is on a Self-driving free trial, so a report implementation opens no "
+                    "pull request (code `self_driving_free_trial`)"
+                ),
+            ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
