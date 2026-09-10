@@ -801,7 +801,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             internal_value["_campaign_field_preferences"] = internal_value["campaign_field_preferences"]
         return internal_value
 
+    @transaction.atomic
     def update(self, instance, validated_data):
+        instance.refresh_from_db(from_queryset=TeamMarketingAnalyticsConfig.objects.select_for_update())
         # Handle sources_map with partial updates
         if "sources_map" in validated_data:
             new_sources_map = validated_data["sources_map"]

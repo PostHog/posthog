@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 
+from posthog.api.team import TeamMarketingAnalyticsConfigSerializer
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
@@ -59,6 +60,18 @@ class TestConversionGoalWrites(APIBaseTest):
 
     def stored_goals(self) -> list[dict]:
         return TeamMarketingAnalyticsConfig.objects.get(team=self.team).conversion_goals
+
+    def test_stale_settings_save_preserves_new_goals(self) -> None:
+        stale_config = self.team.marketing_analytics_config
+        response = self.create_goal("Purchases")
+        self.assertEqual(response.status_code, 201)
+        goals = self.stored_goals()
+
+        TeamMarketingAnalyticsConfigSerializer().update(stale_config, {"filter_test_accounts": True})
+
+        stale_config.refresh_from_db()
+        self.assertTrue(stale_config.filter_test_accounts)
+        self.assertEqual(stale_config.conversion_goals, goals)
 
     def test_create_appends_without_touching_existing_goals(self):
         first = self.create_goal("Sign ups").json()["goal"]
