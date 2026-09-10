@@ -163,6 +163,13 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             # Bing's queue, so the next Temporal attempt submits a fresh request and normally clears it.
             # Match the SDK's stable message text, which carries no request or account values.
             "Reporting file download tracking status timeout",
+            # A urllib transport failure reaching Bing's SOAP endpoints — connection refused, DNS or
+            # TLS failure, socket timeout — which suds surfaces as `URLError` and our wrapper re-raises
+            # as `ValueError(... URLError: <urlopen error ...>)`. The endpoints are fixed (see
+            # utils.ENVIRONMENT), so nothing at this layer is customer-configured or deterministic: the
+            # next Temporal attempt normally clears it. Match the exception name plus urllib's fixed
+            # message prefix, which together carry no request or account values.
+            "URLError: <urlopen error",
         }
 
     @property

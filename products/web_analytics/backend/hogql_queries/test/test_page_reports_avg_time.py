@@ -1,7 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 import numpy as np
@@ -63,7 +63,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
     def _create_pageviews(self, distinct_id: str, list_page_view_properties: list[PageViewProperties]):
         person_time = list_page_view_properties[0].timestamp
 
-        with freeze_time(person_time):
+        with time_machine.travel(person_time, tick=False):
             person_result = _create_person(
                 team_id=self.team.pk,
                 distinct_ids=[distinct_id],
@@ -173,7 +173,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         stats = self._calculate_pageview_statistics([page_views])
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = self._run_p90_time_query("/a", "all", "2025-12-15")
 
         result_data = response.results[0]["data"]
@@ -201,7 +201,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views])
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = self._run_p90_time_query("/a", "all", "2025-12-15")
 
         result_data = response.results[0]["data"]
@@ -229,7 +229,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views])
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = self._run_p90_time_query("/a", "all", "2025-12-15")
 
         result_data = response.results[0]["data"]
@@ -264,7 +264,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = self._run_p90_time_query("/a", "all", "2025-12-15")
 
         result_data = response.results[0]["data"]
@@ -279,7 +279,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
         self._create_pageviews("p1", page_views)
         flush_persons_and_events()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = self._run_p90_time_query("/nonexistent", "all", "2025-12-15")
 
         result_data = response.results[0]["data"]
@@ -307,7 +307,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
         day1_stats = self._calculate_pageview_statistics([p1_day1, p2_day1])
         day2_stats = self._calculate_pageview_statistics([p1_day2])
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = self._run_p90_time_query("/a", "all", "2025-12-15")
 
         result_data = response.results[0]["data"]
@@ -325,7 +325,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         stats = self._calculate_pageview_statistics([page_views])
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = self._run_p90_time_query("/a", "all", "2025-12-15", interval=interval)
 
         result_data = response.results[0]["data"]
@@ -357,7 +357,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = self._run_p90_time_query("/start", "all", "2025-12-15")
 
         result_data = response.results[0]["data"]
