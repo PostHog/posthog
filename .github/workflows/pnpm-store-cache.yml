@@ -1,0 +1,93 @@
+name: pnpm store cache
+
+# The one writer of the `pnpm-<os>-<lockhash>` entry that every node job restores
+# (see .github/actions/pnpm-install). A cold install from an empty store gives an
+# entry that holds exactly what the lockfile pins. Consumers only restore: a save
+# from a job that restored an older entry first would carry that entry's packages
+# forward, and the entry would grow with every lockfile change.
+#
+# GitHub-hosted and Depot runners use separate cache stores, so the job runs on both.
+#
+# The ci-storybook visual-regression shards save under the same key from inside the
+# playwright container, where the store sits at another path. actions/cache keys an
+# entry on key plus path, so that is a separate entry this job never touches.
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - pnpm-lock.yaml
+            - .github/workflows/pnpm-store-cache.yml
+    # A PR that edits this file runs the install as a dry run; the save stays master only.
+    pull_request:
+        paths:
+            - .github/workflows/pnpm-store-cache.yml
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+env:
+    # pnpm reads npm_config_*; a cold install fetches every package, so ride out blips.
+    npm_config_fetch_retries: 3
+    npm_config_fetch_retry_mintimeout: 10000
+    npm_config_fetch_retry_maxtimeout: 60000
+
+jobs:
+    write:
+        name: Write pnpm store (${{ matrix.runner }})
+        # The dry run installs with build scripts on a Depot runner, so it is for same-repo PRs only.
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 30
+        strategy:
+            fail-fast: false
+            matrix:
+                runner: [ubuntu-latest, depot-ubuntu-24.04]
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Check for an existing entry
+              id: lookup
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  lookup-only: true
+
+            # Build scripts run on purpose: pnpm keeps their output in the store, so
+            # consumers get prebuilt native packages instead of compiling them per job.
+            # A PR dry run always installs, so a broken writer fails here and not on master.
+            - name: Install into an empty store
+              if: steps.lookup.outputs.cache-hit != 'true' || github.event_name == 'pull_request'
+              run: pnpm install --frozen-lockfile
+
+            # Master only: Depot Cache has no branch isolation, so a dispatch from a
+            # branch would write the key every PR restores.
+            - name: Save pnpm store
+              if: github.ref == 'refs/heads/master' && steps.lookup.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}

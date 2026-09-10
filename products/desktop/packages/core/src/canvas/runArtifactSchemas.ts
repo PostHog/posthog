@@ -59,11 +59,6 @@ export function parseRunArtifacts(
   });
 }
 
-/** Names a version by its position in a newest-first group. */
-export function runArtifactVersionLabel(index: number, total: number): string {
-  return index === 0 ? "Latest" : `Version ${total - index}`;
-}
-
 /** Compact one-based version label: v1 is the oldest upload, v{total} the newest. */
 export function runArtifactVersionShortLabel(
   index: number,

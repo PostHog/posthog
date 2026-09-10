@@ -2,7 +2,7 @@
 name: authoring-scouts
 description: >
   How to author, edit, and adapt PostHog Signals scouts — the scheduled agents that
-  scan a project and write reports into the Signals inbox. Use to customize a
+  scan a project and file what they find. Use to customize a
   canonical scout (narrow its scope, retune thresholds, add disqualifiers), tweak a
   scout's schedule or dry-run posture, write a new scout for a surface the fleet
   doesn't cover, build a measurement scout that records structured output (an
@@ -13,7 +13,8 @@ description: >
   canonical in-repo path, and the test loop. Trigger on
   "write/edit/customize a signals scout", "new scout for X", "tune my scout schedule",
   "make a scout that watches <event>", "score/judge/measure X with a scout",
-  "structured output from a scout", "leave a note for / give feedback to a scout".
+  "structured output from a scout", "scout output to Slack",
+  "leave a note for / give feedback to a scout".
 metadata:
   owner_team: signals
 ---
@@ -26,11 +27,14 @@ This skill helps you and your agent **adapt those canonical scouts to a specific
 
 A scout's output is the **report channel**: it lists `emit_report` / `edit_report` in its frontmatter `allowed_tools` and authors or edits full inbox reports 1:1 directly.
 The canonical fleet runs this way, and **every new scout should too** — always include the `allowed_tools` opt-in when authoring one.
+Where that output _lands_ is a separate, per-scout config decision: the report goes to the Signals inbox, and the same report can be delivered to a Slack channel or DM at the same time (`output_destinations` under Run posture) — so don't rule a scout out of a job because the user wants the result in Slack.
 (A historical signal-emitting channel — weak `emit-signal` findings a pipeline consolidated — still exists in the harness for scouts that never opted in, but it is deprecated: don't author new scouts on it, and opt an old one in rather than extending it.)
 
-A scout is just an `LLMSkill` whose name starts with `signals-scout-`.
-The harness discovers scouts by globbing `signals-scout-*` over the project's skills, loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
-**The `signals-scout-` name prefix is load-bearing: a skill named anything else will never run as a scout.**
+A scout is an `LLMSkill` that holds a `SignalScoutConfig`.
+The harness loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
+**The config row is what makes a skill a scout.** Any valid skill name works, so the `signals-scout-` prefix is optional.
+The prefix controls one thing: the coordinator globs `signals-scout-*` to auto-register a config for a skill that has none.
+A skill with any other name needs its config created alongside it, which is what `scout-create-prepare` / `-execute` does.
 
 ## The job before the writing
 
@@ -76,8 +80,9 @@ See [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md)
 ## Write the scout
 
 First pick the **shape**.
-[`references/scout-patterns.md`](references/scout-patterns.md) is a cookbook of the reference architectures scouts fall into — anomaly watcher, liveness/absence watcher, watchlist explore/exploit, cross-product correlation, recommendation/gap, warehouse-backed source, custom single-event, open-text theme, external-tool/code, state∩code intersection, daily digest/roll-up, triage over a pre-detected stream, first-person dogfooding/probe — each mapped to a canonical scout you can copy as scaffolding.
+[`references/scout-patterns.md`](references/scout-patterns.md) is a cookbook of the reference architectures scouts fall into — anomaly watcher, liveness/absence watcher, zero-result/unmet demand, watchlist explore/exploit, cross-product correlation, recommendation/gap, warehouse-backed source, custom single-event, open-text theme, adversarial/abuse concentration, external-tool/code, state∩code intersection, custom issue-tracker/work-queue, daily digest/roll-up, triage over a pre-detected stream, first-person dogfooding/probe — each mapped to a canonical scout you can copy as scaffolding.
 It also makes the key point that **a scout can watch any source PostHog ingests into the data warehouse, not just analytics events** (a Slack channel sync, a billing system, a CRM, a support inbox), plus external systems reachable from the sandbox.
+And where a built-in signals source already covers the surface (GitHub and Linear issues), the issue-tracker pattern says where that source stops and a scout starts paying for itself.
 Find the closest pattern, then write the body.
 
 Follow [`references/scout-anatomy.md`](references/scout-anatomy.md) — it has the frontmatter schema (including the `allowed_tools` report-channel opt-in every scout needs), the canonical body structure (quick close-out → orient → domain discriminator → explore patterns → save-memory → decide → disqualifiers → close-out), the lean-body rule, and copy-ready skeleton templates for both a specialist and the generalist.
@@ -126,6 +131,21 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   A scout whose reports nobody engages with (no open, rating, or action — the cloud web inbox records reads; other clients don't yet) is warned and then paused automatically (`pause_reason=ignored`) — every run costs a sandbox agent, so a scout producing output no human consumes shouldn't keep running forever. A scout that is merely quiet is only flagged (`pause_reason=no_output`, a warning that never advances to a pause), since a watch scout's silence can be its job.
   `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout with a fresh grace window before the sweep may judge it again.
   Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
+- `write_scopes` — defaults to `[]`: the scout reads the project and writes only what every scout writes (its findings, its memory, and notebooks).
+  Grant `dashboard:write`, `insight:write`, `annotation:write`, `alert:write`, `llm_skill:write`, `warehouse_view:write`, or `warehouse_table:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
+  Each scope is project-wide and covers update and delete of every object of its kind, not only the ones the scout made, so grant only what the scout's body actually tends, and say in the body what it may change and when.
+  `llm_skill:write` is the one to think twice about: custom scouts are skills in the same store, so a scout holding it can edit a sibling scout's body, or the body it runs from itself. Grant it to a scout whose job really is tending a set of skills, name that set in the body, and say there that the scouts are off limits unless tending them is the job.
+  `warehouse_view:write` and `warehouse_table:write` are separate on purpose: a scout that keeps a set of views healthy does not also need to create tables. Take both rows only when the scout tends both.
+  Only the person the scout's runs act as (whoever authored it) or a project admin can set the field, and grants are activity-logged. A scoped API key must itself carry each scope it grants.
+  A granted scout is told in its run prompt which objects it may change, and is asked to name every change in its close-out. The grant is an upper bound: the acting user's own permissions still apply to each object, and the scout reports a refused write rather than retrying it.
+  A dry run (`emit: false`) never holds the grant, so a scout can be previewed without it changing anything.
+  Applies from the scout's next run.
+- `output_destinations` — defaults to none.
+  When adding Slack to an existing scout, first read `output_destinations`, then send the full object with every key preserved. Updates replace the object, so sending only `slack` removes an existing `webhook` pointer.
+  Set `slack` to deliver every report the scout emits to Slack as well as the inbox: an `integration_id` for the workspace, plus either a `channel` (`channel_id|#channel-name`) or up to five `users` to DM (`member_id|@display-name`), never both.
+  `thread_reports: true` posts a report as a short lead message with the rest split into replies at the summary's section labels, so a long report isn't clipped; it doesn't change how findings post.
+  Slack delivery is a firehose of that one scout's output — no priority filter, no reviewer routing — so it suits a scout whose bar is already tight rather than a chatty one you're still calibrating.
+  A Slack-delivered scout is also exempt from the ignored-reports auto-pause, since consumption there isn't measurable.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
   Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.
   Prefer a tag that already exists on the fleet (`-config-list` shows every scout's tags) over minting a near-duplicate — `revenue` and `revenue-analytics` fragment the same group.

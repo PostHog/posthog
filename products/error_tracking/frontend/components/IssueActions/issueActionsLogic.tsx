@@ -220,107 +220,71 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                 })
             },
             resolveIssues: async ({ ids }) => {
-                await runMutation(
-                    'resolveIssues',
-                    async () => {
-                        posthog.capture('error_tracking_issue_bulk_resolve')
-                        await api.errorTracking.bulkMarkStatus(ids, 'resolved')
-                    },
-                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues(ids, { status: 'resolved' })
-                )
+                await runMutation('resolveIssues', async () => {
+                    posthog.capture('error_tracking_issue_bulk_resolve')
+                    await api.errorTracking.bulkMarkStatus(ids, 'resolved')
+                })
 
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ResolveFirstError)
             },
             suppressIssues: async ({ ids }) => {
-                await runMutation(
-                    'suppressIssues',
-                    async () => {
-                        posthog.capture('error_tracking_issue_bulk_suppress')
-                        await api.errorTracking.bulkMarkStatus(ids, 'suppressed')
-                    },
-                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues(ids, { status: 'suppressed' })
-                )
+                await runMutation('suppressIssues', async () => {
+                    posthog.capture('error_tracking_issue_bulk_suppress')
+                    await api.errorTracking.bulkMarkStatus(ids, 'suppressed')
+                })
             },
             activateIssues: async ({ ids }) => {
-                await runMutation(
-                    'activateIssues',
-                    async () => {
-                        posthog.capture('error_tracking_issue_bulk_activate')
-                        await api.errorTracking.bulkMarkStatus(ids, 'active')
-                    },
-                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues(ids, { status: 'active' })
-                )
+                await runMutation('activateIssues', async () => {
+                    posthog.capture('error_tracking_issue_bulk_activate')
+                    await api.errorTracking.bulkMarkStatus(ids, 'active')
+                })
             },
             assignIssues: async ({ ids, assignee }) => {
-                await runMutation(
-                    'assignIssues',
-                    async () => {
-                        posthog.capture('error_tracking_issue_bulk_assign')
-                        await api.errorTracking.bulkAssign(ids, assignee)
-                    },
-                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues(ids, { assignee })
-                )
+                await runMutation('assignIssues', async () => {
+                    posthog.capture('error_tracking_issue_bulk_assign')
+                    await api.errorTracking.bulkAssign(ids, assignee)
+                })
             },
             updateIssueAssignee: async ({ id, assignee }) => {
-                await runMutation(
-                    'updateIssueAssignee',
-                    async () => {
-                        posthog.capture('error_tracking_issue_update_assignee')
-                        await api.errorTracking.assignIssue(id, assignee)
-                    },
-                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { assignee })
-                )
+                await runMutation('updateIssueAssignee', async () => {
+                    posthog.capture('error_tracking_issue_update_assignee')
+                    await api.errorTracking.assignIssue(id, assignee)
+                })
             },
             updateIssueStatus: async ({ id, status }) => {
-                await runMutation(
-                    'updateIssueStatus',
-                    async () => {
-                        posthog.capture('error_tracking_issue_update_status', {
-                            status,
-                            issue_id: id,
-                            source: 'issue_actions',
-                        })
-                        await api.errorTracking.updateIssue(id, { status })
-                    },
-                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { status })
-                )
+                await runMutation('updateIssueStatus', async () => {
+                    posthog.capture('error_tracking_issue_update_status', {
+                        status,
+                        issue_id: id,
+                        source: 'issue_actions',
+                    })
+                    await api.errorTracking.updateIssue(id, { status })
+                })
             },
             updateIssueSeverity: async ({ id, severity }) => {
-                await runMutation(
-                    'updateIssueSeverity',
-                    async () => {
-                        posthog.capture('error_tracking_issue_update_severity', {
-                            severity,
-                            issue_id: id,
-                            source: 'issue_actions',
-                        })
-                        await errorTrackingIssuesPartialUpdate(String(teamLogic.values.currentProjectId), id, {
-                            severity,
-                        })
-                    },
-                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { severity })
-                )
+                await runMutation('updateIssueSeverity', async () => {
+                    posthog.capture('error_tracking_issue_update_severity', {
+                        severity,
+                        issue_id: id,
+                        source: 'issue_actions',
+                    })
+                    await errorTrackingIssuesPartialUpdate(String(teamLogic.values.currentProjectId), id, {
+                        severity,
+                    })
+                })
                 actions.finishIssueSeverityUpdate(id)
             },
             updateIssueName: async ({ id, name }) => {
-                await runMutation(
-                    'updateIssueName',
-                    async () => {
-                        posthog.capture('error_tracking_issue_update_name')
-                        await api.errorTracking.updateIssue(id, { name })
-                    },
-                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { name })
-                )
+                await runMutation('updateIssueName', async () => {
+                    posthog.capture('error_tracking_issue_update_name')
+                    await api.errorTracking.updateIssue(id, { name })
+                })
             },
             updateIssueDescription: async ({ id, description }) => {
-                await runMutation(
-                    'updateIssueDescription',
-                    async () => {
-                        posthog.capture('error_tracking_issue_update_description')
-                        await api.errorTracking.updateIssue(id, { description })
-                    },
-                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { description })
-                )
+                await runMutation('updateIssueDescription', async () => {
+                    posthog.capture('error_tracking_issue_update_description')
+                    await api.errorTracking.updateIssue(id, { description })
+                })
             },
             createIssueCohort: async ({ id, name, description }) => {
                 await runMutation('createIssueCohort', async () => {

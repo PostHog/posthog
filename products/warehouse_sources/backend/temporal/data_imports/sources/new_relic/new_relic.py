@@ -191,7 +191,14 @@ def _execute_graphql(
         logger.error(f"New Relic API error: status={response.status_code}, body={response.text}, url={url}")
         response.raise_for_status()
 
-    body = response.json()
+    try:
+        body = response.json()
+    except requests.exceptions.JSONDecodeError as exc:
+        # A truncated or malformed body after an otherwise-OK response means the transfer was
+        # cut short (dropped connection, an intermediary returning a partial payload). It's
+        # transient, so retry rather than fail the sync.
+        raise NewRelicRetryableError(f"New Relic API error (retryable): malformed JSON response, url={url}") from exc
+
     errors = body.get("errors")
     if errors:
         messages = "; ".join(str(error.get("message", error)) for error in errors)
@@ -199,9 +206,18 @@ def _execute_graphql(
         # "An error occurred resolving this field" is NerdGraph's generic resolver-failure
         # message; it's known to fire intermittently on otherwise-valid queries and clear on
         # retry (e.g. the New Relic Terraform provider retries the same message).
+        # "There was an NRDB error" is NRDB's own generic wrapper for a backend-side query
+        # execution failure (heavy load, an internal engine fault) with no further detail;
+        # New Relic's own docs describe it as clearing on retry, same as the messages above.
         if any(
             term in messages.lower()
-            for term in ("timeout", "deadline", "too many requests", "an error occurred resolving this field")
+            for term in (
+                "timeout",
+                "deadline",
+                "too many requests",
+                "an error occurred resolving this field",
+                "there was an nrdb error",
+            )
         ):
             raise NewRelicRetryableError(f"New Relic GraphQL error (retryable): {messages}")
         raise NewRelicGraphQLError(f"New Relic GraphQL error: {messages}")

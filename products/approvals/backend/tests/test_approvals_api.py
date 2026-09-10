@@ -348,7 +348,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         assert response.json()["can_cancel"] is True
 
     def test_can_approve_true_when_user_in_approver_role(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(organization=self.organization, name="Approvers")
         approver = User.objects.create(email="approver@posthog.com")
@@ -366,7 +366,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         assert response.json()["can_approve"] is True
 
     def test_can_approve_false_when_user_not_in_approver_role(self):
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         role = Role.objects.create(organization=self.organization, name="Approvers")
         outsider = User.objects.create(email="outsider@posthog.com")
@@ -384,7 +384,7 @@ class TestChangeRequestViewSet(APIBaseTest):
 
     @patch("products.approvals.backend.services.apply_change_request")
     def test_approve_succeeds_when_user_in_approver_role(self, mock_apply):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         mock_apply.return_value = type("obj", (object,), {"id": 123, "version": 1})()
 

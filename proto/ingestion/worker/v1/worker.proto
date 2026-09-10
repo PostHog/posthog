@@ -81,6 +81,12 @@ enum SubBatchStatus {
   // sub-batches may already carry the same routing keys, so per-key order on
   // this stream is unrecoverable.
   SUB_BATCH_STATUS_FAILED = 2;
+  // The worker was momentarily at capacity and did not process the sub-batch.
+  // This is transient backpressure, not a failure: the consumer replays the
+  // sub-batch (in order) without treating the worker as broken. The consumer
+  // treats any status it does not recognize the same way, so future non-fatal
+  // statuses stay backward compatible.
+  SUB_BATCH_STATUS_BUSY = 3;
 }
 
 // IngestStreamResponse is one frame on the worker-to-consumer stream.

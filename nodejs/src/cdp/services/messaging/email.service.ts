@@ -1,12 +1,11 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
-    CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionType,
@@ -23,7 +22,11 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService } from './email-suppression.service'
-import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
+import {
+    addTrackingToEmail,
+    resolveEmailEngagementDistinctId,
+    resolveEmailSendingVersion,
+} from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
@@ -97,7 +100,31 @@ function parseWorkflowEmailRateLimit(metadata: HogFunctionType['metadata']): Hog
     return parsed.success ? parsed.data : null
 }
 
-function pickWorkflowRateLimitRetryDelayMs(refillPerSecond: number): number {
+const workflowEmailPausedTotal = new Counter({
+    name: 'cdp_workflow_email_paused_total',
+    help: 'Email sends skipped because the workflow they belong to had its email paused for complaints or hard bounces.',
+})
+
+/**
+ * Whether this workflow's email is paused, and the customer-facing reason.
+ *
+ * Stamped into the synthetic hog function's metadata by HogFlowFunctionsService, which is the only
+ * flow-level state in scope here. The `HogFlow` post_save signal publishes a worker config reload
+ * when the pause is written, so an in-flight run and an already-queued batch send both stop at this
+ * choke point instead of only newly started runs.
+ */
+function parseWorkflowEmailPause(metadata: HogFunctionType['metadata']): { reason: string; byStaff: boolean } | null {
+    if (!metadata?.email_sending_paused_at) {
+        return null
+    }
+    const reason = metadata.email_sending_paused_reason
+    return {
+        reason: typeof reason === 'string' ? reason : '',
+        byStaff: metadata.email_sending_paused_by === 'staff',
+    }
+}
+
+function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
     // Wake around when the next token accrues. The 1x-2x jitter spreads a queued backlog's
     // retries so they don't all re-dequeue (and re-claim against one token) at the same instant.
     // Clamped so second-scale limits don't churn the queue and hour-scale limits still wake
@@ -105,6 +132,125 @@ function pickWorkflowRateLimitRetryDelayMs(refillPerSecond: number): number {
     const tokenIntervalMs = 1000 / refillPerSecond
     const baseMs = Math.min(Math.max(tokenIntervalMs, 1_000), 5 * 60 * 1_000)
     return Math.floor(baseMs * (1 + Math.random()))
+}
+
+// Bounds for the non-reserved cap retry delays (fallbacks and horizon overflow; a
+// reserved slot is parked on exactly). The floor keeps second-scale refills from
+// churning the queue. The ceiling bounds how stale the computed wake time can get:
+// capacity can appear earlier than computed (a limit raise, or an idle bucket
+// expiring back to full capacity), and a parked job only notices when it wakes.
+const CAP_RETRY_MIN_MS = 1_000
+const CAP_RETRY_MAX_MS = 60 * 60 * 1_000
+
+// How far denied sends park. Everything at or below the top bucket is a real slot.
+// Above the top bucket is overflow: the backlog is deeper than one hour of refill.
+// A sustained rate up there means a team queues more email than its limit can send.
+const emailReservedParkMs = new Histogram({
+    name: 'cdp_email_reserved_park_ms',
+    help: 'How far into the future a rate-limit-denied email parked, by limiter.',
+    labelNames: ['limiter'],
+    buckets: [1_000, 5_000, 15_000, 60_000, 300_000, 900_000, 1_800_000, 3_600_000],
+})
+
+function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number, reserved: boolean): number {
+    // No horizon means the limiter itself failed, not that the bucket was empty.
+    // Wake on the short token-bucket cadence, not on a cap that paces in hours.
+    if (retryAfterMs === null) {
+        return pickTokenBucketRetryDelayMs(refillPerSecond)
+    }
+    // A reserved slot is the caller's own, exactly one token interval behind the slot
+    // in front. Park on it as-is, with no floor: waking off the slot in either
+    // direction means the token is not there (the bucket banks no surplus), the send
+    // gets denied again, and it goes to the back of the line.
+    if (reserved) {
+        return retryAfterMs
+    }
+    const parkMs = Math.max(retryAfterMs, CAP_RETRY_MIN_MS)
+    // Past the horizon nothing is reserved: every overflow caller got this same wake
+    // time back. Spread them over the next horizon so they do not arrive as one herd
+    // asking for tokens that will not be there.
+    return Math.floor(parkMs * (1 + Math.random()))
+}
+
+const teamEmailCapDelayedTotal = new Counter({
+    name: 'cdp_team_email_cap_delayed_total',
+    help: 'Workflow email sends delayed by the team trust-tier sending cap (or that would have been, in shadow mode).',
+    labelNames: ['tier', 'bucket', 'mode'],
+})
+
+/**
+ * Rollout mode for the per-team sending cap.
+ *  - `off`: the cap is not consulted at all.
+ *  - `shadow`: the cap is evaluated and every send it would delay is counted and logged, but no
+ *    send is delayed. This is how the tier distribution is checked against real traffic before
+ *    anything is enforced.
+ *  - `enforce`: a denied claim reschedules the send.
+ */
+export type TeamEmailCapMode = 'off' | 'shadow' | 'enforce'
+
+/** An unrecognized mode reads as `off`, so a typo in the env cannot start throttling teams. */
+export function parseTeamEmailCapMode(value: string | undefined): TeamEmailCapMode {
+    const mode = (value ?? '').trim().toLowerCase()
+    return mode === 'shadow' || mode === 'enforce' ? mode : 'off'
+}
+
+/** Parses a comma-separated cap table. Any unusable entry drops the whole table, which turns the
+ * cap off rather than applying a wrong number to a paying customer. */
+export function parseTierCaps(value: string | undefined): number[] {
+    const parts = (value ?? '')
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0)
+    const caps = parts.map((part) => Number(part))
+    if (caps.length === 0 || caps.some((cap) => !Number.isFinite(cap) || cap <= 0)) {
+        return []
+    }
+    return caps
+}
+
+// Mirrors WORKFLOWS_EMAIL_TIER_HOURLY_CAPS / _DAILY_CAPS in posthog/settings/web.py. Both sides
+// read the same tier index, so the two tables must stay in step.
+const DEFAULT_TEAM_EMAIL_TIER_HOURLY_CAPS = [50, 200, 600, 2000, 6000, 20000, 60000, 200000]
+const DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS = [100, 1000, 3000, 10000, 30000, 100000, 300000, 1000000]
+
+// Comfortably longer than the window each bucket paces, so an idle bucket is never reset to full
+// by expiry before it would have refilled on its own. Without that, a team that pauses for a day
+// would get a fresh daily allowance instead of waiting for the refill.
+const TEAM_EMAIL_HOUR_BUCKET_TTL_SECONDS = 6 * 60 * 60
+const TEAM_EMAIL_DAY_BUCKET_TTL_SECONDS = 3 * 24 * 60 * 60
+
+type TeamEmailCapBucket = {
+    name: 'hour' | 'day'
+    key: string
+    capacity: number
+    refillPerSecond: number
+    ttlSeconds: number
+    /** Cap and period as the customer sees them in the log line. */
+    label: string
+}
+
+// The `{teamId}` hash tag puts both bucket keys in the same cluster slot. Enforce mode claims
+// both keys in one Lua call (claimAllOrNothingPair), and clustered Valkey rejects a multi-key
+// call whose keys hash to different slots with a CROSSSLOT error.
+export function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap: number): TeamEmailCapBucket[] {
+    return [
+        {
+            name: 'hour',
+            key: `@posthog/team-email-rate-hour/{${teamId}}`,
+            capacity: hourlyCap,
+            refillPerSecond: hourlyCap / 3600,
+            ttlSeconds: TEAM_EMAIL_HOUR_BUCKET_TTL_SECONDS,
+            label: `${hourlyCap.toLocaleString('en-US')} emails per hour`,
+        },
+        {
+            name: 'day',
+            key: `@posthog/team-email-rate-day/{${teamId}}`,
+            capacity: dailyCap,
+            refillPerSecond: dailyCap / 86400,
+            ttlSeconds: TEAM_EMAIL_DAY_BUCKET_TTL_SECONDS,
+            label: `${dailyCap.toLocaleString('en-US')} emails per day`,
+        },
+    ]
 }
 
 export interface EmailServiceConfig {
@@ -117,9 +263,11 @@ export interface EmailServiceConfig {
     // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
     // sends fall back to the tracked set (with a warning) rather than failing.
     sesUntrackedConfigurationSet: string
-    // When true, sends carry TenantName so SES attributes reputation per team. Requires every
-    // sending identity to have a tenant resource association — see EMAIL_SES_TENANT_ATTRIBUTION_ENABLED.
-    sesTenantAttributionEnabled: boolean
+    // Trust-tiered per-team sending caps. Optional and defaulting to off, so every send path that
+    // builds an EmailService without them keeps its pre-cap behavior.
+    teamEmailCapMode?: TeamEmailCapMode
+    teamEmailTierHourlyCaps?: number[]
+    teamEmailTierDailyCaps?: number[]
 }
 
 /**
@@ -188,7 +336,8 @@ export class EmailService {
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
         private messageAssetsService?: MessageAssetsService,
-        private workflowEmailRateLimiter: RateLimiterService | null = null
+        private workflowEmailRateLimiter: RateLimiterService | null = null,
+        private teamEmailRateLimiter: RateLimiterService | null = null
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -232,12 +381,26 @@ export class EmailService {
         let trackingEnabled = true
 
         try {
-            // Team-level kill switch: staff suspend all workflow email for a team whose sender
-            // reputation endangers shared SES deliverability. Same choke-point placement as the
-            // suppression check below so no upstream route can bypass it. Test sends are blocked
-            // too — they hit SES and count against the tenant all the same.
-            if (await this.teamWorkflowsConfigService.isEmailSendingSuspended(invocation.teamId)) {
-                addLog('warn', 'Skipping send: email sending is suspended for this project')
+            // Team-level kill switches: staff suspend all workflow email for a team whose sender
+            // reputation endangers shared SES deliverability, and AWS pauses the team's SES tenant
+            // for the same underlying reason. Same choke-point placement as the suppression check
+            // below so no upstream route can bypass either. Test sends are blocked too — they hit
+            // SES and count against the tenant all the same. A paused tenant rejects every send, so
+            // gating here turns wasted invocations into one clear skip.
+            const suspensionCause = await this.teamWorkflowsConfigService.getEmailSendingSuspension(invocation.teamId)
+            if (suspensionCause) {
+                addLog(
+                    'warn',
+                    suspensionCause === 'staff'
+                        ? 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.'
+                        : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.'
+                )
+                logger.warn('Skipping email send for a suspended team', {
+                    teamId: invocation.teamId,
+                    cause: suspensionCause,
+                })
+                // One metric for both causes: from the project's side sending is off either way, so
+                // the cause belongs in the log lines above and not in a second metric name.
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -248,6 +411,41 @@ export class EmailService {
                         count: 1,
                     })
                 }
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
+            // Per-workflow pause: this workflow's complaint or hard bounce rate breached a
+            // threshold, so its email is held while the rest of the project keeps sending. Placed
+            // at the same choke point as the team-level switch above, for the same reason. Test
+            // sends are blocked too, because they hit SES and count against the tenant all the same.
+            const workflowPause = parseWorkflowEmailPause(invocation.hogFunction.metadata)
+            if (workflowPause) {
+                workflowEmailPausedTotal.inc()
+                const pauseDetail = workflowPause.reason ? ` ${workflowPause.reason}` : ''
+                // Error rather than warn: the email did not go out, and warn-level lines get skimmed
+                // past in the run logs. The run itself still continues; a pause is policy, not a
+                // fault, so it must not enter retry or abort handling.
+                addLog(
+                    'error',
+                    workflowPause.byStaff
+                        ? `Skipping send: PostHog staff paused email sending for this workflow.${pauseDetail} Contact support to get sending re-enabled.`
+                        : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
+                )
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_paused',
+                        count: 1,
+                    })
+                }
+                // Mark the skip so the flow-level billing gate does not charge for a send that
+                // never reached the provider, and does not re-pin the run's attribution version to
+                // one that delivered nothing. Mirrors the pre-send opt-out and bounce skip paths.
+                result.skipped = true
                 result.invocation.state.vmState?.stack.push({ success: false })
                 return result
             }
@@ -305,13 +503,16 @@ export class EmailService {
                 // A near-empty bucket keeps every window at ~count and spreads sends evenly, which
                 // is what the pacing is for.
                 const capacity = Math.max(1, Math.ceil(refillPerSecond))
-                const granted = await this.workflowEmailRateLimiter.claimUpTo({
-                    key: `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
-                    requested: 1,
-                    capacity,
-                    refillPerSecond,
-                })
-                if (granted === 0) {
+                const claim = await this.workflowEmailRateLimiter.claimOrReserve(
+                    {
+                        key: `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
+                        requested: 1,
+                        capacity,
+                        refillPerSecond,
+                    },
+                    CAP_RETRY_MAX_MS
+                )
+                if (claim.granted === 0) {
                     workflowEmailRateLimitedTotal.inc()
                     result.finished = false
                     // Re-attach the email payload before rescheduling. createInvocationResult cleared
@@ -320,7 +521,8 @@ export class EmailService {
                     // send. Mirrors the fetch-retry (`result.invocation.queueParameters = params`) and
                     // queue-routing paths, which re-attach the same way.
                     result.invocation.queueParameters = params
-                    const retryDelayMs = pickWorkflowRateLimitRetryDelayMs(refillPerSecond)
+                    const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, refillPerSecond, claim.reserved)
+                    emailReservedParkMs.labels('workflow-email').observe(retryDelayMs)
                     result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                     addLog(
                         'info',
@@ -328,6 +530,27 @@ export class EmailService {
                     )
                     return result
                 }
+            }
+
+            // Project-wide pacing from the team's trust tier. Sits next to the per-workflow limit
+            // above and behaves the same way: it delays, never drops, and test sends bypass it.
+            // Charged per recipient, not per send: SES counts every to/cc/bcc address against its
+            // own quota, so a send with many copies must spend that many tokens.
+            const capRecipients =
+                1 + extractEmailsFromAddressList(params.cc).length + extractEmailsFromAddressList(params.bcc).length
+            const capDelay = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
+            if (capDelay) {
+                result.finished = false
+                // Re-attach the email payload before rescheduling, for the same reason as the
+                // per-workflow limit above: createInvocationResult cleared queueParameters, and
+                // without them the rescheduled dequeue resumes the Hog VM and drops the send.
+                result.invocation.queueParameters = params
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
+                addLog(
+                    'info',
+                    `This project reached its email sending limit of ${capDelay.label}. Retrying this email in ${Math.round(capDelay.retryDelayMs / 1000)}s. The limit rises as the project builds a clean sending history.`
+                )
+                return result
             }
 
             switch (integration.config.provider ?? 'ses') {
@@ -437,6 +660,103 @@ export class EmailService {
         }
 
         return result
+    }
+
+    /**
+     * Claims one send (as `recipients` tokens, one per delivered copy) against the team's
+     * trust-tier buckets.
+     *
+     * Returns the delay to reschedule with when a cap is reached, or null when the send may go out.
+     * Two buckets, not one: the daily cap bounds how much damage a team can do to the shared SES
+     * account's reputation, and the hourly cap forces that volume to spread out so complaint
+     * feedback (which lags by hours) arrives while the team's total volume is still small.
+     *
+     * Failure stances differ on purpose. A failed tier lookup lets the send through, because a
+     * config blip must never throttle a legitimate customer. A failed bucket claim returns 0 from
+     * the limiter, which delays the send, because we must not send when we cannot account for it.
+     */
+    private async claimTeamSendingBudget(
+        invocation: CyclotronJobInvocationHogFunction,
+        isTest: boolean,
+        recipients: number = 1
+    ): Promise<{ retryDelayMs: number; label: string } | null> {
+        const mode: TeamEmailCapMode = this.sesConfig.teamEmailCapMode ?? 'off'
+        if (mode === 'off' || isTest || !this.teamEmailRateLimiter) {
+            return null
+        }
+
+        const teamTier = await this.teamWorkflowsConfigService.getEmailSendingTier(invocation.teamId)
+        if (teamTier === null) {
+            return null
+        }
+
+        const hourlyCaps = this.sesConfig.teamEmailTierHourlyCaps?.length
+            ? this.sesConfig.teamEmailTierHourlyCaps
+            : DEFAULT_TEAM_EMAIL_TIER_HOURLY_CAPS
+        const dailyCaps = this.sesConfig.teamEmailTierDailyCaps?.length
+            ? this.sesConfig.teamEmailTierDailyCaps
+            : DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS
+        const topTier = Math.min(hourlyCaps.length, dailyCaps.length) - 1
+        if (topTier < 0) {
+            return null
+        }
+        const tier = Math.min(Math.max(teamTier, 0), topTier)
+
+        const buckets = teamEmailCapBuckets(invocation.teamId, hourlyCaps[tier], dailyCaps[tier])
+        // Clamped to the smaller capacity: a send with more copies than a whole allowance could
+        // never be granted and would reschedule forever. It charges the entire bucket instead, so
+        // it still waits for full capacity and pays everything there is.
+        const requested = Math.min(Math.max(1, recipients), buckets[0].capacity, buckets[1].capacity)
+
+        if (mode === 'enforce') {
+            // Both buckets in one atomic claim, granted whole or not at all. A denial consumes
+            // nothing, so a rescheduled multi-recipient send cannot burn the partial refill on
+            // every retry and starve the team's other emails while never sending itself.
+            const claim = await this.teamEmailRateLimiter.claimAllOrNothingPair(
+                [buckets[0], buckets[1]],
+                requested,
+                CAP_RETRY_MAX_MS
+            )
+            if (claim.granted) {
+                return null
+            }
+            const denied = buckets[claim.deniedIndex ?? 1]
+            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: denied.name, mode })
+            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, denied.refillPerSecond, claim.reserved)
+            emailReservedParkMs.labels('team-email').observe(retryDelayMs)
+            return {
+                retryDelayMs,
+                label: denied.label,
+            }
+        }
+
+        // Shadow mode: the send goes out regardless, so drain each bucket by what the send costs
+        // and log the first cap that would have delayed it, measuring both against real traffic.
+        let firstDenial: TeamEmailCapBucket | null = null
+        for (const bucket of buckets) {
+            const granted = await this.teamEmailRateLimiter.claimUpTo({
+                key: bucket.key,
+                requested,
+                capacity: bucket.capacity,
+                refillPerSecond: bucket.refillPerSecond,
+                ttlSeconds: bucket.ttlSeconds,
+            })
+            if (granted >= requested) {
+                continue
+            }
+            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: bucket.name, mode })
+            firstDenial = firstDenial ?? bucket
+        }
+
+        if (firstDenial) {
+            logger.info('📧', 'Team email sending cap would have delayed this send', {
+                teamId: invocation.teamId,
+                tier,
+                bucket: firstDenial.name,
+                cap: firstDenial.label,
+            })
+        }
+        return null
     }
 
     // Returns a human-readable log string when any destination address is suppressed for the team,
@@ -671,12 +991,7 @@ export class EmailService {
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
-        // A flow's email runs as a hog function invocation built by spreading the flow invocation, so
-        // `hogFlow` is present at runtime even though the type is the narrower hog function shape.
-        const workflowVersion =
-            'hogFlow' in result.invocation
-                ? (result.invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.version
-                : undefined
+        const workflowVersion = resolveEmailSendingVersion(result.invocation)
         const trackingCode = this.trackingCodeSigner.generate(
             { ...result.invocation, distinctId, workflowVersion },
             isTest
@@ -730,19 +1045,17 @@ export class EmailService {
             FeedbackForwardingEmailAddress: from.email,
         }
 
-        if (this.sesConfig.sesTenantAttributionEnabled) {
-            // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
-            // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
-            // is the provisioning convention (products/workflows/backend/providers/ses.py and
-            // posthog/management/commands/migrate_ses_tenants.py). Deliberately NOT gated on
-            // isTest: test-panel sends are real over-the-wire SES sends, so leaving them
-            // unattributed would (a) push their bounces onto the shared account's reputation and
-            // (b) let a paused tenant keep sending via "Run test". The isTest skips elsewhere in
-            // this class only shield our internal metrics, a separate concern from SES-side
-            // attribution; test volume is far below the representative volume AWS needs for a
-            // reputation finding.
-            sendEmailParams.TenantName = `team-${result.invocation.teamId}`
-        }
+        // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
+        // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
+        // is the provisioning convention (products/workflows/backend/providers/ses.py and
+        // posthog/management/commands/migrate_ses_tenants.py). Deliberately NOT gated on
+        // isTest: test-panel sends are real over-the-wire SES sends, so leaving them
+        // unattributed would (a) push their bounces onto the shared account's reputation and
+        // (b) let a paused tenant keep sending via "Run test". The isTest skips elsewhere in
+        // this class only shield our internal metrics, a separate concern from SES-side
+        // attribution; test volume is far below the representative volume AWS needs for a
+        // reputation finding.
+        sendEmailParams.TenantName = `team-${result.invocation.teamId}`
 
         // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
         // 256-char-bounded the way SES tag values are, so they safely carry the signed code

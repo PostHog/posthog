@@ -74,7 +74,7 @@ class TestObservationLabels(_VisionAPITestCase):
     def test_label_write_denied_without_scanner_editor_access_on_session_route(self) -> None:
         # The session route's get_object only checks the observation row; label writes must object-check the scanner.
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
         ):
             resp = self.client.post(
@@ -272,7 +272,7 @@ class TestObservationLabels(_VisionAPITestCase):
     def _deny_editor(self):
         # Viewer-level object checks still pass (reading observations); only editor is withheld.
         return patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj, required_level=None, **_: required_level != "editor",
         )
 

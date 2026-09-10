@@ -3,8 +3,8 @@ from enum import Enum
 from typing import Any
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend.facade import (
     api as notebooks,
     collab,

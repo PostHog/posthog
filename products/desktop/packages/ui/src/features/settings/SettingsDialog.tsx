@@ -32,12 +32,12 @@ export function openSettingsDialog(
   publish({ isOpen: true, category });
 }
 
-export function closeSettingsDialog(): void {
+function closeSettingsDialog(): void {
   useSettingsPageStore.getState().reset();
   publish({ isOpen: false, category: currentDialogState.category });
 }
 
-export function useSettingsDialogState(): DialogState {
+function useSettingsDialogState(): DialogState {
   const [state, setState] = useState(currentDialogState);
   useEffect(() => {
     dialogStateListeners.push(setState);

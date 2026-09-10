@@ -17,7 +17,6 @@ import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
-import { Flex } from "@radix-ui/themes";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 
@@ -127,8 +126,10 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
     [navigate],
   );
 
+  if (!tabId) return null;
+
   return (
-    <Flex className="h-full min-w-0 flex-1">
+    <div className="flex h-full min-w-0 flex-1">
       <div className="min-w-0 flex-1">
         <TaskInput
           key={taskInputSessionId}
@@ -157,7 +158,12 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
           channelRepositories={channel?.repositories}
           channelGithubIntegration={channel?.github_integration}
           // So a prompt handed to openTaskInput survives routing into a channel.
+          // initialContent + recoveredFromKey carry a recovered prompt's chips
+          // and attachments, and let the composer clear the durable record once
+          // applied — same as the unscoped NewTaskScreen.
           initialPrompt={view.initialPrompt}
+          initialContent={view.initialContent}
+          recoveredFromKey={view.recoveredFromKey}
           initialPromptKey={view.taskInputRequestId}
           initialCloudRepository={view.initialCloudRepository}
           initialModel={view.initialModel}
@@ -193,6 +199,6 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
           />
         ) : null}
       </ResizableSidebar>
-    </Flex>
+    </div>
   );
 }

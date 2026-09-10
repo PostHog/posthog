@@ -101,6 +101,8 @@ class TestSignalsProductModuleIntegrity:
             "EmitEvalSignalWorkflow",
             "RunSignalsScoutWorkflow",
             "SignalsScoutCoordinatorWorkflow",
+            "RunScoutSuggestionsWorkflow",
+            "ScoutSuggestionsCoordinatorWorkflow",
             "CustomSignalAgentWorkflow",
             "SignalReportInboxNotificationWorkflow",
         ]
@@ -142,6 +144,9 @@ class TestSignalsProductModuleIntegrity:
             "mark_report_in_progress_activity",
             "mark_report_pending_input_activity",
             "mark_report_ready_activity",
+            "maybe_autostart_implementation_activity",
+            "implementation_buffer_seconds_activity",
+            "report_is_candidate_activity",
             "publish_report_completed_activity",
             "report_has_assigned_signals_activity",
             "revert_report_to_candidate_activity",
@@ -163,6 +168,10 @@ class TestSignalsProductModuleIntegrity:
             "fetch_enabled_signals_scout_runs_activity",
             "stamp_dispatched_signals_scout_runs_activity",
             "run_signals_scout_activity",
+            "resume_signals_scout_workflow_step",
+            "plan_scout_suggestion_runs_activity",
+            "run_scout_suggestions_activity",
+            "stamp_requested_scout_suggestions_activity",
             "run_custom_signal_agent_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]
@@ -193,6 +202,7 @@ class TestAIObservabilityModuleIntegrity:
             "AIObservabilityEvaluationClusteringCoordinatorWorkflow",
             "AIObservabilityEvaluationClusteringWorkflow",
             "RunEvaluationWorkflow",
+            "EvaluationBackfillWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in LLM_ANALYTICS_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -232,6 +242,7 @@ class TestAIObservabilityModuleIntegrity:
             "compute_evaluation_cluster_aggregates_activity",
             "emit_evaluation_cluster_events_activity",
             "fetch_evaluation_activity",
+            "run_local_evaluation_activity",
             "disable_evaluation_activity",
             "send_evaluation_disabled_email_activity",
             "update_key_state_activity",
@@ -241,6 +252,10 @@ class TestAIObservabilityModuleIntegrity:
             "emit_evaluation_event_activity",
             "emit_internal_telemetry_activity",
             "emit_eval_signal_activity",
+            "prepare_evaluation_backfill_tick_activity",
+            "find_evaluation_backfill_candidates_activity",
+            "advance_evaluation_backfill_cursor_activity",
+            "fail_evaluation_backfill_activity",
         ]
         actual_activity_names = [a.__name__ for a in LLM_ANALYTICS_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

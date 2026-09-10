@@ -44,7 +44,7 @@ from posthog.temporal.ai_observability.trace_summarization.models import (
 from posthog.temporal.ai_observability.trace_summarization.workflow import BatchTraceSummarizationWorkflow
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.ai_observability.backend.summarization.models import SummarizationMode
+from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.ai_observability.coordinator_metrics import (
@@ -118,9 +118,9 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             analysis_level="generation" if len(inputs) > 0 and inputs[0] == "generation" else "trace",
             max_items=int(inputs[1]) if len(inputs) > 1 else DEFAULT_MAX_ITEMS_PER_WINDOW,
             batch_size=int(inputs[2]) if len(inputs) > 2 else DEFAULT_BATCH_SIZE,
-            mode=SummarizationMode(inputs[3]) if len(inputs) > 3 else DEFAULT_MODE,
+            mode=SummarizationMode.parse(inputs[3]) if len(inputs) > 3 else DEFAULT_MODE,
             window_minutes=int(inputs[4]) if len(inputs) > 4 else DEFAULT_WINDOW_MINUTES,
-            model=inputs[5] if len(inputs) > 5 else DEFAULT_MODEL,
+            model=OpenAIModel.parse(inputs[5]) if len(inputs) > 5 else DEFAULT_MODEL,
         )
 
     @temporalio.workflow.run

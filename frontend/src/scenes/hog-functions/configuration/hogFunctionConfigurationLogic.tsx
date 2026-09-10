@@ -53,7 +53,7 @@ import {
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     AvailableFeature,
@@ -76,7 +76,6 @@ import {
     PersonType,
     PropertyFilterType,
     PropertyGroupFilter,
-    PropertyGroupFilterValue,
     Survey,
     SurveyEventName,
     SurveyEventProperties,
@@ -84,6 +83,7 @@ import {
 
 import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, ProjectType } from '../../../types'
 import type { TeamPublicType, TeamType } from '../../../types'
+import { matchingFiltersToPropertyGroup } from '../filters/matchingFilters'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
@@ -105,9 +105,7 @@ const VALIDATION_RULES = {
             ? 'You must add at least one mapping'
             : undefined,
     INTERNAL_DESTINATION_REQUIRES_FILTERS: (data: HogFunctionConfigurationType) =>
-        data.type === 'internal_destination' && data.filters?.events?.length === 0
-            ? 'You must choose a filter'
-            : undefined,
+        data.type === 'internal_destination' && !data.filters?.events?.length ? 'You must choose a filter' : undefined,
 } as const
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
@@ -190,12 +188,15 @@ export function sanitizeInputs(
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
     const filters = data.filters ?? {}
-    filters.source = filters.source ?? 'events'
+    filters.source = data.type === 'internal_destination' ? 'internal-events' : (filters.source ?? 'events')
 
     if (filters.source === 'person-updates' || Array.isArray(data?.mappings)) {
         // Ensure we aren't passing in values that aren't supported
         delete filters.actions
         delete filters.events
+    } else if (filters.source === 'internal-events') {
+        delete filters.actions
+        delete filters.data_warehouse
     }
 
     const payload: HogFunctionConfigurationType = {
@@ -1609,16 +1610,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     }
                 }
 
-                const seriesProperties: PropertyGroupFilterValue = {
-                    type: FilterLogicalOperator.Or,
-                    values: [],
-                }
-                const properties: PropertyGroupFilter = {
-                    type: FilterLogicalOperator.And,
-                    values: [seriesProperties],
-                }
-                const allPossibleEventFilters = configuration.filters?.events ?? []
-                const allPossibleActionFilters = configuration.filters?.actions ?? []
+                // Copied before the mappings are merged in: these arrays are the form's own state.
+                const allPossibleEventFilters = [...(configuration.filters?.events ?? [])]
+                const allPossibleActionFilters = [...(configuration.filters?.actions ?? [])]
 
                 if (Array.isArray(configuration.mappings)) {
                     for (const mapping of configuration.mappings) {
@@ -1631,49 +1625,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     }
                 }
 
-                for (const event of allPossibleEventFilters) {
-                    const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
-                    if (event.id) {
-                        eventProperties.push({
-                            type: PropertyFilterType.HogQL,
-                            key: hogql`event = ${event.id}`,
-                        })
-                    }
-                    if (eventProperties.length === 0) {
-                        eventProperties.push({
-                            type: PropertyFilterType.HogQL,
-                            key: 'true',
-                        })
-                    }
-                    seriesProperties.values.push({
-                        type: FilterLogicalOperator.And,
-                        values: eventProperties,
-                    })
-                }
-                for (const action of allPossibleActionFilters) {
-                    const actionProperties: AnyPropertyFilter[] = [...(action.properties ?? [])]
-                    if (action.id) {
-                        actionProperties.push({
-                            type: PropertyFilterType.HogQL,
-                            key: hogql`matchesAction(${parseInt(action.id)})`,
-                        })
-                    }
-                    seriesProperties.values.push({
-                        type: FilterLogicalOperator.And,
-                        values: actionProperties,
-                    })
-                }
-                if ((configuration.filters?.properties?.length ?? 0) > 0) {
-                    const globalProperties: PropertyGroupFilterValue = {
-                        type: FilterLogicalOperator.And,
-                        values: [],
-                    }
-                    for (const property of configuration.filters?.properties ?? []) {
-                        globalProperties.values.push(property as AnyPropertyFilter)
-                    }
-                    properties.values.push(globalProperties)
-                }
-                return properties
+                return matchingFiltersToPropertyGroup({
+                    events: allPossibleEventFilters,
+                    actions: allPossibleActionFilters,
+                    properties: configuration.filters?.properties,
+                })
             },
             { resultEqualityCheck: equal },
         ],
@@ -1985,8 +1941,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             },
                         })
                     } else {
+                        // A nested attr names a path inside a form field (`filters__events`), and the
+                        // form only has a manual-error slot for the field itself — anchoring the
+                        // message at the leaf renders nothing at all.
                         actions.setConfigurationManualErrors({
-                            [maybeValidationError.attr]: maybeValidationError.detail,
+                            [maybeValidationError.attr.split('__')[0]]: maybeValidationError.detail,
                         })
                     }
                 }, 1)

@@ -369,7 +369,7 @@ async def _finalize_sync_bookkeeping(
 
     if not schema.initial_sync_complete:
         await logger.adebug("Setting initial_sync_complete on schema")
-        await set_initial_sync_complete(schema_id=schema.id, team_id=job.team_id)
+        await set_initial_sync_complete(schema_id=schema.id, team_id=job.team_id, logger=logger)
 
     if resource is not None:
         await finalize_desc_sort_incremental_value(resource, schema, last_incremental_field_value, logger)
@@ -616,7 +616,12 @@ async def run_post_load_operations(
     1, 2 and 4 and returns None.
     """
     if delta_table_ref is None or await delta_table_ref.get_delta_table() is None:
-        logger.debug("No deltalake table, not continuing with post-run ops")
+        # A clean run that wrote zero rows creates no delta table, so there is nothing to publish or
+        # register. Finalize the sync bookkeeping anyway: without it last_synced_at and
+        # initial_sync_complete never advance, leaving the schema stuck "completed but not
+        # initial-synced" on every subsequent run.
+        logger.debug("No deltalake table; finalizing bookkeeping for a zero-row run")
+        await _finalize_sync_bookkeeping(job, schema, resource, last_incremental_field_value, logger)
         return None
 
     # Detect CDC companion writes — scd2_append writes always go to the companion _cdc resource.

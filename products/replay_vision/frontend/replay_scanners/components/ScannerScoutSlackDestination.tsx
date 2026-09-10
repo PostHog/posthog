@@ -21,8 +21,13 @@ export function ScannerScoutSlackDestination({
     // `output_destinations` also holds the webhook destination this scout provisioned, and replacing
     // the object would drop that pointer while the destination kept delivering.
     const destination = destinations?.slack
+    // Threading is always on rather than a setting: a scanner report is a heading-structured digest,
+    // so the channel gets a short lead with the sections in the thread, and a summary past one Slack
+    // section is never clipped. A report with no heading still posts as a single message.
     const withSlack = (slack: SignalScoutOutputDestinationsApi['slack'] | undefined): void =>
-        onChange(slack ? { ...destinations, slack } : { ...destinations, slack: null })
+        onChange(
+            slack ? { ...destinations, slack: { ...slack, thread_reports: true } } : { ...destinations, slack: null }
+        )
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
     const header = <span className="text-xs text-default">Slack</span>
 

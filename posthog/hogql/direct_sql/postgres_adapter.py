@@ -6,7 +6,7 @@ from opentelemetry import trace
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.pgwire import (
     MANAGED_WAREHOUSE_CONNECTION_ERROR,
@@ -134,7 +134,7 @@ class PostgresAdapter:
 
                 postgres_source = cast(PostgresSource, SourceRegistry.get_source(ExternalDataSourceType.POSTGRES))
             with timings.measure("postgres_source_parse_config"):
-                config = postgres_source.parse_config(source.job_inputs or {})
+                config = parse_direct_source_config(postgres_source, source)
 
         with timings.measure("postgres_ssh_validation"):
             is_ssh_valid, ssh_valid_errors = postgres_source.ssh_tunnel_is_valid(config, team.pk)
@@ -158,6 +158,7 @@ class PostgresAdapter:
         with request.timings.measure("postgres_source_validation"):
             with request.timings.measure("postgres_source_helpers_import"):
                 from products.warehouse_sources.backend.facade.source_management import (
+                    HostNotAllowedError,
                     _get_sslmode,
                     source_requires_ssl,
                 )
@@ -179,7 +180,13 @@ class PostgresAdapter:
             with request.timings.measure("postgres_execute"):
                 with ExitStack() as tunnel_stack:
                     with request.timings.measure("postgres_tunnel_open", emit_span=True):
-                        host, port = tunnel_stack.enter_context(postgres_source.with_ssh_tunnel(source_config))
+                        try:
+                            host, port = tunnel_stack.enter_context(postgres_source.with_ssh_tunnel(source_config))
+                        except HostNotAllowedError as error:
+                            # `validate_source_config` already ran the host check, but a short-TTL
+                            # record can pass there and resolve private on this second lookup. Surface
+                            # it as a user query error, matching the validation-time rejection.
+                            raise ExposedHogQLError(str(error)) from error
                     connection_kwargs: PostgresConnectionKwargs = {
                         "host": host,
                         "port": port,

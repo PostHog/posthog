@@ -52,6 +52,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_name_for_task,
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
+    mcp_exec_skills_env_vars,
     parse_run_state,
     run_gateway_env_vars,
 )
@@ -145,6 +146,7 @@ def _build_environment_variables(
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
     environment_variables.update(run_gateway_env_vars(ctx, task))
+    environment_variables.update(mcp_exec_skills_env_vars(ctx))
     return environment_variables
 
 
@@ -169,6 +171,10 @@ class GetSandboxForRepositoryOutput:
     clone_ms: int | None = None
     checkout_ms: int | None = None
     launch_ms: int | None = None
+    agent_prepare_ms: int | None = None
+    agent_invoke_ms: int | None = None
+    dev_stack_preview_sized: bool = False
+    agent_shadow_launched: bool = False
 
 
 @activity.defn
@@ -274,7 +280,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         # can be rebuilt from logs even when the filesystem snapshot has expired.
         if run_state.resume_from_run_id:
             environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
-        elif run_state.handoff_resumed:
+        elif run_state.same_run_resume:
             environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
 
         # Check for resume snapshot (takes priority over integration-level snapshots)

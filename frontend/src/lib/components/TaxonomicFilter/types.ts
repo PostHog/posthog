@@ -141,6 +141,12 @@ export interface TaxonomicFilterProps {
     autoSelectItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
+    /**
+     * Keep offering events whose data is moving out of the `events` table. Set it where the surface
+     * still needs such an event: it reads live capture, or it measures experiment exposure. Leave it
+     * unset everywhere else, so a picker stops saving queries that return nothing once the data moves.
+     */
+    includeHiddenEvents?: boolean
     /** use to indicate if a result in a group is selected */
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
@@ -345,6 +351,7 @@ export enum TaxonomicFilterGroupType {
     ReplaySavedFilters = 'replay_saved_filters',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     AccountFields = 'account_fields',
+    AccountRelationships = 'account_relationships',
     AccountCustomProperties = 'account_custom_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',

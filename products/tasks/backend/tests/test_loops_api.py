@@ -17,17 +17,12 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.constants import AvailableFeature
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
-
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, ProjectSecretAPIKey, Team, User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.tasks.backend.facade import loops as loops_facade
 from products.tasks.backend.models import Channel, Loop, LoopTrigger, Task, TaskRun
 from products.tasks.backend.presentation.views.loops import MAX_LOOP_TRIGGER_PAYLOAD_BYTES
@@ -120,8 +115,14 @@ class LoopCRUDAPITest(LoopsAPITestCase):
             ("model_outside_the_adapter_catalog", "claude", "openai/gpt-5.6-sol", None, status.HTTP_400_BAD_REQUEST),
         ]
     )
+    # GLM 5.2 is gated, and these cases are about model/effort validation rather than
+    # entitlement, so the flag is granted here and gating is covered in `test_feature_flags`.
+    @patch(
+        "products.tasks.backend.presentation.serializers_loops.get_model_access_error",
+        return_value=None,
+    )
     def test_create_validates_model_and_reasoning_effort(
-        self, _name, runtime_adapter, model, reasoning_effort, expected_status
+        self, _name, runtime_adapter, model, reasoning_effort, expected_status, _mock_flag
     ):
         payload = self._valid_loop_payload(
             runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort

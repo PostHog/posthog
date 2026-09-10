@@ -1,7 +1,7 @@
-import { UsersThree } from "@phosphor-icons/react";
+import { UsersThreeIcon } from "@phosphor-icons/react";
 import type { TeamSkillInfo } from "@posthog/core/skills/teamSkillsService";
-import { Badge, Flex } from "@radix-ui/themes";
 import { SkillListCard } from "./SkillListCard";
+import { SkillChip } from "./SkillPanelHeader";
 
 interface TeamSkillsSectionProps {
   skills: TeamSkillInfo[];
@@ -16,13 +16,11 @@ export function TeamSkillsSection({
   onSelect,
 }: TeamSkillsSectionProps) {
   return (
-    <Flex direction="column" gap="1">
+    <div className="flex flex-col gap-0.5">
       {skills.map((skill) => (
         <SkillListCard
           key={skill.id}
-          icon={
-            <UsersThree size={14} weight="duotone" className="text-gray-11" />
-          }
+          icon={<UsersThreeIcon size={12} weight="duotone" />}
           title={skill.name}
           subtitle={skill.description || undefined}
           isSelected={selectedName === skill.name}
@@ -30,22 +28,13 @@ export function TeamSkillsSection({
           trailing={
             <>
               {skill.installedLocally && (
-                <Badge
-                  size="1"
-                  variant="soft"
-                  color="green"
-                  className="shrink-0"
-                >
-                  Installed
-                </Badge>
+                <SkillChip tone="positive">Installed</SkillChip>
               )}
-              <Badge size="1" variant="soft" color="gray" className="shrink-0">
-                v{skill.version}
-              </Badge>
+              <SkillChip>v{skill.version}</SkillChip>
             </>
           }
         />
       ))}
-    </Flex>
+    </div>
   );
 }

@@ -1,19 +1,25 @@
 import {
   ChatCircleIcon,
   CheckIcon,
+  ChecksIcon,
   LinkIcon,
   QuestionIcon,
 } from "@phosphor-icons/react";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
-import { Avatar, AvatarFallback, Badge, Button } from "@posthog/quill";
+import { Avatar, AvatarFallback, Badge, Button, cn } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
+import { ActivityRowSurface } from "@posthog/ui/features/canvas/components/ActivityRowSurface";
 import {
   type AgentActivityIconKind,
   activityPresentation,
 } from "@posthog/ui/features/canvas/components/activityPresentation";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
+import {
+  TaskRowDropdownMenu,
+  type TaskRowMenuProps,
+} from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { track } from "@posthog/ui/shell/analytics";
@@ -28,7 +34,7 @@ function AgentActivityIcon({
 }): ReactElement {
   switch (kind) {
     case "check":
-      return <CheckIcon size={13} weight="bold" className={className} />;
+      return <ChecksIcon size={13} weight="bold" className={className} />;
     case "question":
       return <QuestionIcon size={12} weight="bold" className={className} />;
     case "chat":
@@ -40,8 +46,15 @@ function AgentActivityIcon({
   }
 }
 
+// How much of the row's right edge its actions take, by how many it is showing.
+// They overlay the row — it is a button, so they can't sit inside it — and the
+// title and metadata need a lane clear of them.
+const ACTION_LANE_CLASS = ["pr-8", "pr-14", "pr-20"];
+
 interface ActivityRowProps {
   item: TaskActivityItem;
+  /** The row's task actions, built once for the feed by `useActivityTaskMenu`. */
+  menu: TaskRowMenuProps;
   onMarkRead: (item: TaskActivityItem) => void;
   currentUser?: UserBasic | null;
   blockedTaskIds: ReadonlySet<string>;
@@ -49,10 +62,13 @@ interface ActivityRowProps {
   onActivate: (item: TaskActivityItem) => void;
   isSelected?: boolean;
   compact?: boolean;
+  asOption?: boolean;
+  optionValue?: string;
 }
 
 export function ActivityRow({
   item,
+  menu,
   onMarkRead,
   currentUser,
   blockedTaskIds,
@@ -60,6 +76,8 @@ export function ActivityRow({
   onActivate,
   isSelected = false,
   compact = false,
+  asOption = false,
+  optionValue,
 }: ActivityRowProps): ReactElement {
   const presentation = activityPresentation(item, currentUser?.email);
   const channelId = item.channelId;
@@ -72,6 +90,8 @@ export function ActivityRow({
     item.isUnread && !awaitsReply
       ? "bg-primary text-primary-foreground"
       : undefined;
+  const canCopyLink = channelId !== null && !compact;
+  const actionCount = 1 + (item.isUnread ? 1 : 0) + (canCopyLink ? 1 : 0);
   const openTask = (): void => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "open_task",
@@ -90,15 +110,25 @@ export function ActivityRow({
 
   return (
     <div className="group relative">
-      <Button
+      <ActivityRowSurface
         type="button"
+        asOption={asOption}
+        optionValue={optionValue}
         onClick={openTask}
+        aria-label={`${item.taskTitle} ${presentation.metadata}${presentation.spaceLabel ? ` ${presentation.spaceLabel}` : ""}`}
         left
-        className={`h-auto w-full items-start text-left ${compact ? "py-1.5 pr-10" : "py-2"} ${isSelected ? "bg-fill-selected" : ""}`}
+        className={cn(
+          compact ? "py-1.5" : "py-2",
+          ACTION_LANE_CLASS[actionCount - 1],
+          isSelected && "bg-fill-selected",
+        )}
       >
         <span className="mt-0.5 shrink-0">
           {presentation.agentIcon ? (
-            <Avatar size="xs" className={agentIconWrapperClassName}>
+            <Avatar
+              size="xs"
+              className={cn(agentIconWrapperClassName, compact && "size-4")}
+            >
               <AvatarFallback>
                 <AgentActivityIcon
                   kind={presentation.agentIcon}
@@ -108,7 +138,11 @@ export function ActivityRow({
             </Avatar>
           ) : (
             <span className="mt-1 flex shrink-0">
-              <UserAvatar user={item.author ?? currentUser} size="xs" />
+              <UserAvatar
+                user={item.author ?? currentUser}
+                size="xs"
+                className={compact ? "size-4" : undefined}
+              />
             </span>
           )}
         </span>
@@ -121,8 +155,17 @@ export function ActivityRow({
             </span>
             {item.isUnread && !compact && <Badge variant="info">New</Badge>}
           </span>
-          <span className="block truncate text-muted-foreground text-xxs">
-            {presentation.metadata}
+          <span className="flex min-w-0 items-center gap-1 text-muted-foreground text-xxs">
+            <span className="truncate">{presentation.metadata}</span>
+            {presentation.spaceLabel && (
+              <Badge
+                variant="default"
+                className="min-w-0 shrink rounded-xs bg-muted/70 p-0"
+                title={presentation.spaceLabel}
+              >
+                <span className="truncate">{presentation.spaceLabel}</span>
+              </Badge>
+            )}
           </span>
           {item.snippet && !compact && (
             <MentionText
@@ -132,32 +175,35 @@ export function ActivityRow({
             />
           )}
         </span>
-      </Button>
-      {item.isUnread && (
-        <Button
-          variant="default"
-          size="icon-xs"
-          aria-label="Mark as read"
-          title="Mark as read"
-          className={`absolute opacity-0 transition-opacity group-hover:opacity-100 ${compact ? "top-2 right-2" : `top-2 ${channelId ? "right-9" : "right-2"}`}`}
-          onClick={() => onMarkRead(item)}
-        >
-          <CheckIcon size={14} />
-        </Button>
-      )}
-      {channelId && !compact && (
-        <Button
-          variant="default"
-          size="icon-xs"
-          aria-label="Copy thread link"
-          className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100"
-          onClick={() =>
-            void copyChannelLink(channelId, "activity", item.taskId)
-          }
-        >
-          <LinkIcon size={14} />
-        </Button>
-      )}
+      </ActivityRowSurface>
+      {/* An open menu keeps the cluster visible after the pointer has left the
+          row, which the trigger already states as data-popup-open. */}
+      <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 has-[[data-popup-open]]:opacity-100">
+        {item.isUnread && (
+          <Button
+            variant="default"
+            size="icon-xs"
+            aria-label="Mark as read"
+            title="Mark as read"
+            onClick={() => onMarkRead(item)}
+          >
+            <CheckIcon size={14} />
+          </Button>
+        )}
+        {canCopyLink && (
+          <Button
+            variant="default"
+            size="icon-xs"
+            aria-label="Copy thread link"
+            onClick={() =>
+              void copyChannelLink(channelId, "activity", item.taskId)
+            }
+          >
+            <LinkIcon size={14} />
+          </Button>
+        )}
+        <TaskRowDropdownMenu menu={menu} />
+      </div>
     </div>
   );
 }

@@ -17,6 +17,7 @@
     "peerDependencies": {
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
+        "@storybook/react": "catalog:",
         "@testing-library/react": "*",
         "@types/react": "*",
         "clsx": "*",

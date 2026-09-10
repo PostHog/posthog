@@ -50,6 +50,7 @@ from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.team import Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.storage.cache_expiry_manager import (
     CacheRefreshCounts,
     cleanup_stale_expiry_tracking as cleanup_generic,
@@ -1040,9 +1041,12 @@ def get_cache_stats() -> dict[str, Any]:
 #
 # Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
 # _route_to_kafka, get_team_primary_flags_writer (and its config binding on
-# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), _produce_invalidation,
-# _enqueue_invalidation, and the Kafka branch inside it.
-# The signal handlers themselves stay; their tails simplify at cutover.
+# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), SHADOW_COMPARE_FLAG, _shadow_compare_enabled,
+# publish_shadow_invalidation, _produce_invalidation, _enqueue_invalidation,
+# and the Kafka branch inside it.
+# The signal handlers themselves stay; their tails simplify at cutover. The one
+# call site outside this block is the tail of update_team_service_flags_cache in
+# tasks.py, which goes with it.
 
 # Per-team gate that routes invalidation to Kafka instead of Celery — see
 # _enqueue_invalidation for why the two paths are mutually exclusive. The key
@@ -1138,7 +1142,98 @@ def _route_to_kafka(team_id: int) -> bool:
     return bool(result)
 
 
-def _produce_invalidation(team_id: int) -> None:
+# Per-team gate for shadow parity publishing. A different flag from
+# KAFKA_ROUTING_FLAG on purpose: this one never decides which writer serves a
+# team, so the two ramp independently. See flags_cache_messages for what the
+# consumer does with a shadow message.
+SHADOW_COMPARE_FLAG = "flags-cache-shadow-compare"
+
+
+def _shadow_compare_enabled(team_id: int) -> bool:
+    """Return True if shadow parity comparison is enabled for this team.
+
+    Every failure mode returns False, because shadow publishing is telemetry: an
+    outage here must cost parity evidence and never a cache build.
+
+    Unlike `_route_to_kafka`, an unresolvable flag ticks no TOMBSTONE_COUNTER.
+    Local evaluation cannot resolve SHADOW_COMPARE_FLAG for as long as the flag
+    does not exist in PostHog, so a tick would fire on every Celery-owned rebuild,
+    holding a constant high rate on a panel that means "rare anomaly". A client
+    that is actually broken raises instead, and `publish_shadow_invalidation`
+    logs that.
+    """
+    try:
+        return feature_enabled_or_false(
+            SHADOW_COMPARE_FLAG,
+            f"team-{team_id}",
+            groups={"project": str(team_id)},
+            group_properties={"project": {"id": str(team_id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        # Log so a fleet-wide silent disable is visible in Sentry rather than
+        # showing up only as parity evidence that never arrives.
+        logger.warning(
+            "flags_cache_shadow_compare_flag_evaluation_failed",
+            team_id=team_id,
+            flag=SHADOW_COMPARE_FLAG,
+            exc_info=True,
+        )
+        return False
+
+
+def publish_shadow_invalidation(team_id: int) -> None:
+    """Publish a parity-telemetry message for a team the Celery builder just rebuilt.
+
+    Called from the tail of `update_team_service_flags_cache` rather than from
+    `_enqueue_invalidation`, so the Rust builder diffs its build against a cache
+    entry Python has already written. Publishing at invalidation time races that
+    rebuild: the builder reads fresh Postgres against a pre-rebuild Redis entry
+    and reports the gap as drift. The consumer suppresses a one-off mismatch by
+    content hash, but two invalidations that both land inside one stale window
+    hash the same, which promotes pure Celery lag to a confirmed parity defect.
+
+    The Kafka-routing decision still applies, because this task also serves teams
+    Rust owns: `cohort_changed_flags_cache` and the cohort backfill finalizer
+    dispatch it for every team, and a shadow build for a Rust-owned team would
+    diff the Rust output against itself.
+
+    It reads `_evaluate_kafka_routing_flag` rather than `_route_to_kafka` so those
+    callers do not start ticking the routing gate's cold-cache tombstone counter.
+    Neither of them consulted that gate before, so a backfill on a freshly booted
+    worker would otherwise spike a panel that means the flag polling thread is
+    wedged.
+
+    Both steps swallow their own failures, so a shadow publish cannot fail the
+    build that precedes it.
+    """
+    try:
+        routed_to_kafka = _evaluate_kafka_routing_flag(team_id)
+    except Exception:
+        # A raising client means something is broken, unlike an unresolved flag,
+        # which is routine while SHADOW_COMPARE_FLAG does not exist. This is the
+        # only signal that shadow volume went to zero on the worker, because the
+        # web process runs a separate client and reports under its own event.
+        logger.warning(
+            "flags_cache_shadow_routing_evaluation_failed",
+            team_id=team_id,
+            flag=KAFKA_ROUTING_FLAG,
+            exc_info=True,
+        )
+        return
+
+    # Only an explicit False means Celery owns this team. `None` means local
+    # evaluation cannot resolve ownership, and shadow-building a team Rust owns
+    # would diff the Rust output against itself.
+    if routed_to_kafka is not False:
+        return
+
+    if _shadow_compare_enabled(team_id):
+        _produce_invalidation(team_id, shadow=True)
+
+
+def _produce_invalidation(team_id: int, shadow: bool = False) -> None:
     """Produce a single invalidation message; swallow Kafka errors.
 
     A produce failure must not raise out of a signal handler and is deliberately
@@ -1154,7 +1249,7 @@ def _produce_invalidation(team_id: int) -> None:
     `mode="json"` converts `datetime` to ISO string.
     """
     try:
-        msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC))
+        msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC), shadow=shadow)
         with producer_scope(topic=KAFKA_FLAGS_CACHE_INVALIDATION, flush_timeout=0) as producer:
             producer.produce(
                 topic=KAFKA_FLAGS_CACHE_INVALIDATION,
@@ -1164,7 +1259,9 @@ def _produce_invalidation(team_id: int) -> None:
                 log_key_on_delivery_failure=True,
             )
     except Exception as e:
-        logger.warning("flags_cache_invalidation_produce_failed", team_id=team_id, error=str(e), exc_info=True)
+        logger.warning(
+            "flags_cache_invalidation_produce_failed", team_id=team_id, shadow=shadow, error=str(e), exc_info=True
+        )
 
 
 def _enqueue_invalidation(team_id: int) -> None:
@@ -1187,6 +1284,10 @@ def _enqueue_invalidation(team_id: int) -> None:
     the verification grace period, well under an hour rather than the cache
     TTL. Celery's `.delay()` may raise when the flag is off, since it is the
     sole path then and operators want broker failures loud.
+
+    Shadow parity messages are not produced here. They are produced after the
+    Celery build writes the cache, in `publish_shadow_invalidation`, which
+    explains why.
 
     Guarded on FLAGS_REDIS_URL here rather than at each call site so every
     caller gets the same no-op-when-unconfigured behavior.

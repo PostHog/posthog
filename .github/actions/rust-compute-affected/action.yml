@@ -15,6 +15,14 @@ inputs:
         description: 'Previous HEAD for push events (github.event.before)'
         required: false
         default: ''
+    base-branch:
+        description: |
+            Branch to resolve the merge base against, overriding the PR base ref
+            from the event payload. Pass the default branch when the caller's
+            change radius is measured against it rather than against the PR
+            base, which for a stacked PR is the layer below it.
+        required: false
+        default: ''
     rebuild-all:
         description: 'Force a full rebuild (skip diff analysis)'
         required: false
@@ -64,6 +72,7 @@ runs:
               EVENT_NAME: ${{ inputs.event-name }}
               PR_BASE_SHA: ${{ inputs.pr-base-sha }}
               PUSH_BEFORE_SHA: ${{ inputs.push-before-sha }}
+              BASE_BRANCH: ${{ inputs.base-branch }}
               FORCE_REBUILD: ${{ inputs.rebuild-all }}
           working-directory: rust
           run: |
@@ -77,8 +86,8 @@ runs:
                       # Try to resolve the base branch name from the input or
                       # the GitHub event payload so we diff against the current
                       # tip rather than the potentially stale PR base SHA.
-                      base_branch=""
-                      if [ -f "$GITHUB_EVENT_PATH" ]; then
+                      base_branch="$BASE_BRANCH"
+                      if [ -z "$base_branch" ] && [ -f "$GITHUB_EVENT_PATH" ]; then
                           base_branch=$(jq -r '.pull_request.base.ref // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
                       fi
 

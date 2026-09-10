@@ -90,7 +90,7 @@ _REDIRECTED = (
 ClickHouseErrors: dict[str, str] = {
     "authentication failed": "Invalid user or password",
     "code: 516": "Invalid user or password",  # AUTHENTICATION_FAILED
-    "code: 81": "Database does not exist",  # UNKNOWN_DATABASE
+    "code: 81": "Database does not exist. Check the database name is correct.",  # UNKNOWN_DATABASE
     "code: 60": "Table does not exist",  # UNKNOWN_TABLE
     "code: 192": "Permission denied on the requested database or table",  # UNKNOWN_USER
     "code: 497": "Permission denied on the requested database or table",  # ACCESS_DENIED
@@ -183,6 +183,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="play.clickhouse.com",
+                        caption=(
+                            "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
+                            "firewall allowlist (see the docs above) and use a public host. `localhost` and private "
+                            "IPs (10.x, 172.16-31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "exposed publicly, enable the SSH tunnel below."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(

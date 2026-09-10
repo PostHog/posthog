@@ -137,6 +137,7 @@ export function computeMoveEdges(
 
 export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
+export const HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH = 592
 export type HogFlowEditorActionMetrics = {
     actionId: string
     succeeded: number
@@ -178,6 +179,7 @@ export interface hogFlowEditorLogicValues {
     nodeToBeAdded: CreateActionType | HogFlowActionNode | null
     nodes: HogFlowActionNode[]
     nodesById: Record<string, HogFlowActionNode>
+    panelWidth: number | null
     reactFlowInstance: ReactFlowInstance<Node, Edge> | null
     reactFlowWrapper: RefObject<HTMLDivElement> | null
     selectedNode: HogFlowActionNode | null
@@ -486,10 +488,12 @@ export interface hogFlowEditorLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
                                                         | 'task_repository'
+                                                        | 'task_skills'
                                                 }[]
                                               | undefined
                                           name: string
@@ -732,9 +736,11 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          events: any[]
                                           properties?: any[] | undefined
+                                          source: 'internal-events'
                                       }
-                                      type: 'slack-message'
+                                      type: 'internal-event'
                                   }
                                 | {
                                       filters: {
@@ -895,9 +901,11 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
+                                events: any[]
                                 properties?: any[] | undefined
+                                source: 'internal-events'
                             }
-                            type: 'slack-message'
+                            type: 'internal-event'
                         }
                       | {
                             filters: {
@@ -1028,10 +1036,12 @@ export interface hogFlowEditorLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
                                 | 'task_model'
                                 | 'task_repository'
+                                | 'task_skills'
                         }[]
                       | null
                       | undefined
@@ -1333,10 +1343,12 @@ export interface hogFlowEditorLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
                                                         | 'task_repository'
+                                                        | 'task_skills'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1579,9 +1591,11 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          events: any[]
                                           properties?: any[] | undefined
+                                          source: 'internal-events'
                                       }
-                                      type: 'slack-message'
+                                      type: 'internal-event'
                                   }
                                 | {
                                       filters: {
@@ -1742,9 +1756,11 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
+                                events: any[]
                                 properties?: any[] | undefined
+                                source: 'internal-events'
                             }
-                            type: 'slack-message'
+                            type: 'internal-event'
                         }
                       | {
                             filters: {
@@ -1875,10 +1891,12 @@ export interface hogFlowEditorLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
                                 | 'task_model'
                                 | 'task_repository'
+                                | 'task_skills'
                         }[]
                       | null
                       | undefined
@@ -1914,6 +1932,9 @@ export interface hogFlowEditorLogicActions {
         workflow: Partial<HogFlow>
     } // workflowLogic
     clearAnimatingEdgePair: () => {
+        value: true
+    }
+    clearPanelWidth: () => {
         value: true
     }
     copyNodeToHighlightedDropzone: () => {
@@ -2008,6 +2029,9 @@ export interface hogFlowEditorLogicActions {
     setNodesRaw: (nodes: HogFlowActionNode[]) => {
         nodes: HogFlowActionNode[]
     }
+    setPanelWidth: (panelWidth: number) => {
+        panelWidth: number
+    }
     setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => {
         reactFlowInstance: ReactFlowInstance<Node, Edge>
     }
@@ -2100,6 +2124,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => ({ nodeToBeAdded }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
+        setPanelWidth: (panelWidth: number) => ({ panelWidth }),
+        clearPanelWidth: true,
         setAnimatingEdgePair: (from: string, to: string) => ({ from, to }),
         clearAnimatingEdgePair: true,
         startCopyingNode: (node: HogFlowActionNode) => ({ node }),
@@ -2121,6 +2147,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             'build' as HogFlowEditorMode,
             {
                 setMode: (_, { mode }) => mode,
+            },
+        ],
+        panelWidth: [
+            null as number | null,
+            { persist: true, storageKey: 'hogFlowEditorPanelWidth' },
+            {
+                setPanelWidth: (_, { panelWidth }) => panelWidth,
+                clearPanelWidth: () => null,
             },
         ],
         nodes: [
@@ -2783,10 +2817,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 if (!reactFlowWrapper?.current || !reactFlowInstance) {
                     return
                 }
-                // This is a rough estimate which we could improve by getting from the actual panel
-                const PANEL_WIDTH = 580
                 // Get the width of the wrapper
                 const wrapperWidth = reactFlowWrapper.current.getBoundingClientRect()?.width ?? 0
+                const panelWidth = Math.min(values.panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH, wrapperWidth)
                 // Get the width of the thing we are going to fit to the view
                 const nodesWidth =
                     reactFlowInstance.getNodesBounds(values.selectedNode ? [values.selectedNode] : values.nodes)
@@ -2795,7 +2828,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const nodesWidthAdjusted = nodesWidth * reactFlowInstance.getZoom()
                 // Calculate the padding right to fit the panel width to the wrapper width
                 // Looks complicated but its basically the difference between the wrapper width and the nodes width adjusted for the zoom factor
-                const paddingRight = wrapperWidth - nodesWidthAdjusted / 2 - (wrapperWidth - PANEL_WIDTH) / 2
+                const paddingRight = wrapperWidth - nodesWidthAdjusted / 2 - (wrapperWidth - panelWidth) / 2
 
                 reactFlowInstance.fitView({
                     padding: {

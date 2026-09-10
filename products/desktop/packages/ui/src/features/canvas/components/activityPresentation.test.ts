@@ -46,7 +46,7 @@ describe("activityPresentation", () => {
         activityKind: "completed",
         activityAt: "2026-07-26T16:00:00Z",
       }),
-      "18h ago · Agent completed",
+      "18h ago · Agent finished",
       "check",
     ],
     [
@@ -99,6 +99,7 @@ describe("activityPresentation", () => {
     expect(activityPresentation(activity, "me@posthog.com")).toEqual({
       metadata,
       agentIcon,
+      spaceLabel: null,
     });
   });
 
@@ -106,15 +107,49 @@ describe("activityPresentation", () => {
     [
       "shared channel",
       "engineering",
-      "just now · Agent completed · #engineering",
+      "just now · Agent finished in",
+      "#engineering",
     ],
-    ["personal channel", "personal", "just now · Agent completed · Personal"],
-  ])("formats the %s label", (_name, channelName, metadata) => {
+    [
+      "personal channel",
+      "personal",
+      "just now · Agent finished in",
+      "Personal",
+    ],
+  ])("formats the %s label", (_name, channelName, metadata, spaceLabel) => {
     expect(
       activityPresentation(
         item({ activityKind: "completed", channelName }),
         "me@posthog.com",
-      ).metadata,
-    ).toBe(metadata);
+      ),
+    ).toMatchObject({ metadata, spaceLabel });
+  });
+
+  it("describes a created task with the space badge after the sentence", () => {
+    expect(
+      activityPresentation(
+        item({ activityKind: "created", channelName: "personal" }),
+        "me@posthog.com",
+      ),
+    ).toMatchObject({
+      metadata: "just now · You created task in:",
+      spaceLabel: "Personal",
+    });
+  });
+
+  it("avoids a duplicate preposition in thread reply metadata", () => {
+    expect(
+      activityPresentation(
+        item({
+          activityKind: "thread_reply",
+          author: AUTHOR,
+          channelName: "engineering",
+        }),
+        "me@posthog.com",
+      ),
+    ).toMatchObject({
+      metadata: "just now · Ann replied to a thread in",
+      spaceLabel: "#engineering",
+    });
   });
 });

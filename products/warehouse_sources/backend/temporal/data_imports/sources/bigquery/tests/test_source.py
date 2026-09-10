@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from freezegun import freeze_time
@@ -15,7 +16,9 @@ from google.api_core.exceptions import (
     PermissionDenied,
     ServiceUnavailable,
 )
+from google.auth.credentials import Credentials as GoogleAuthCredentials
 from google.auth.exceptions import RefreshError
+from requests.adapters import HTTPAdapter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
@@ -24,10 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
+    BIGQUERY_INVALID_TOKEN_URI_ERROR,
     BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
     BIGQUERY_QUERY_CREATE_RETRY,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_READ_ROWS_RETRY,
+    BIGQUERY_TOKEN_REFRESH_RETRY,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BIGQUERY_VALIDATION_GENERIC_ERROR,
     BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR,
@@ -35,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BigQueryDatasetNotFoundError,
     BigQueryImplementation,
     BigQueryInvalidIdentifierError,
+    BigQueryInvalidTokenUriError,
     BigQueryTokenRefreshError,
     _bq_select_clause,
     _get_primary_keys_for_table,
@@ -104,7 +110,7 @@ def _make_config(
             private_key="private-key",
             private_key_id="private-key-id",
             client_email="client-email",
-            token_uri="token-uri",
+            token_uri="https://oauth2.googleapis.com/token",
         ),
         dataset_id=dataset_id,
         dataset_project=dataset_project,
@@ -184,7 +190,9 @@ def test_bigquery_get_columns_raises_friendly_error_when_dataset_not_found():
     assert BIGQUERY_DATASET_NOT_FOUND_ERROR in BigQuerySource().get_non_retryable_errors()
 
 
-@pytest.mark.parametrize("phrase", ['Invalid dataset ID "(default)"', 'Invalid project ID "bad id"'])
+@pytest.mark.parametrize(
+    "phrase", ['Invalid dataset ID "(default)"', 'Invalid project ID "bad id"', "ProjectId must be non-empty"]
+)
 def test_bigquery_get_columns_raises_friendly_error_for_invalid_identifier(phrase):
     """A syntactically invalid project/dataset ID surfaces as a raw 400 `BadRequest` from
     `client.query()`. Schema discovery must re-raise it with actionable wording instead of leaking
@@ -861,7 +869,7 @@ def _run_delete_all_temp_destination_tables(side_effect, logger):
             private_key="private-key",
             private_key_id="private-key-id",
             client_email="client-email",
-            token_uri="token-uri",
+            token_uri="https://oauth2.googleapis.com/token",
             logger=logger,
         )
     return mock_capture
@@ -1017,7 +1025,7 @@ def test_bigquery_get_columns_trims_whitespace_in_identifiers():
     BigQueryImplementation().get_columns(fake_client, config, names=None)
 
     sql = fake_client.query.call_args.args[0]
-    assert "`524098457564.bigquery_aloalo.INFORMATION_SCHEMA.COLUMNS`" in sql
+    assert "`524098457564.bigquery_aloalo`.INFORMATION_SCHEMA.COLUMNS" in sql
     assert " bigquery_aloalo" not in sql
     assert " 524098457564" not in sql
     assert fake_client.query.call_args.kwargs["project"] == "524098457564"
@@ -1026,7 +1034,10 @@ def test_bigquery_get_columns_trims_whitespace_in_identifiers():
 def test_bigquery_get_columns_qualifies_information_schema_with_dataset_project():
     """When the dataset lives in a different project (`dataset_project`), the INFORMATION_SCHEMA
     reference must carry that project — an unqualified `dataset.INFORMATION_SCHEMA.*` makes BigQuery
-    reject the job with "ProjectId must be non-empty"."""
+    reject the job with "ProjectId must be non-empty". The backtick-quoted identifier must close
+    after the dataset (matching `get_primary_keys`/`get_leading_index_columns`) rather than wrapping
+    `INFORMATION_SCHEMA.COLUMNS` inside it too — quoting the whole path as one identifier stops
+    BigQuery from resolving it as the INFORMATION_SCHEMA view and raises the same error again."""
     fake_client = mock.MagicMock()
     fake_client.query.return_value.result.return_value = []
 
@@ -1038,7 +1049,8 @@ def test_bigquery_get_columns_qualifies_information_schema_with_dataset_project(
     BigQueryImplementation().get_columns(fake_client, config, names=None)
 
     sql = fake_client.query.call_args.args[0]
-    assert "`dataset-project.posthog_export.INFORMATION_SCHEMA.COLUMNS`" in sql
+    assert "`dataset-project.posthog_export`.INFORMATION_SCHEMA.COLUMNS" in sql
+    assert "INFORMATION_SCHEMA.COLUMNS`" not in sql
     assert fake_client.query.call_args.kwargs["project"] == "dataset-project"
 
 
@@ -1093,7 +1105,7 @@ def test_bigquery_validate_credentials_trims_whitespace_before_calling_bigquery(
                 "private_key": "private-key",
                 "private_key_id": "private-key-id",
                 "client_email": "client-email",
-                "token_uri": "token-uri",
+                "token_uri": "https://oauth2.googleapis.com/token",
             },
             dataset_project_id=None,
             location=None,
@@ -1109,7 +1121,7 @@ def _valid_key_file() -> dict[str, str]:
         "private_key": "private-key",
         "private_key_id": "private-key-id",
         "client_email": "client-email",
-        "token_uri": "token-uri",
+        "token_uri": "https://oauth2.googleapis.com/token",
     }
 
 
@@ -1128,6 +1140,65 @@ def test_bigquery_validate_credentials_missing_fields_reports_actionable_message
     mock_client.assert_not_called()
 
 
+_NON_GOOGLE_TOKEN_URIS = [
+    "https://attacker.example.com/relay",
+    "http://oauth2.googleapis.com/token",
+    "https://oauth2.googleapis.com.example.com/token",
+    "http://169.254.169.254/latest/meta-data/",
+]
+
+
+@pytest.mark.parametrize(
+    "token_uri",
+    ["https://oauth2.googleapis.com/token", "https://accounts.google.com/o/oauth2/token"],
+)
+def test_bigquery_validate_credentials_accepts_both_google_token_endpoints(token_uri):
+    key_file = {**_valid_key_file(), "token_uri": token_uri}
+
+    with mock.patch.object(bq_module, "bigquery_client") as mock_client:
+        ok, message = validate_bigquery_credentials(
+            dataset_id="my_dataset", key_file=key_file, dataset_project_id=None, location=None
+        )
+
+    assert (ok, message) == (True, None)
+    assert mock_client.call_args.args[5] == token_uri
+
+
+@pytest.mark.parametrize("token_uri", _NON_GOOGLE_TOKEN_URIS)
+def test_bigquery_validate_credentials_rejects_non_google_token_uri_before_any_request(token_uri):
+    key_file = {**_valid_key_file(), "token_uri": token_uri}
+
+    with mock.patch.object(bq_module, "bigquery_client") as mock_client:
+        ok, message = validate_bigquery_credentials(
+            dataset_id="my_dataset", key_file=key_file, dataset_project_id=None, location=None
+        )
+
+    assert ok is False
+    assert message == BIGQUERY_INVALID_TOKEN_URI_ERROR
+    mock_client.assert_not_called()
+
+
+@pytest.mark.parametrize("token_uri", _NON_GOOGLE_TOKEN_URIS)
+@pytest.mark.parametrize("client_factory", ["bigquery_client", "bigquery_storage_read_client"])
+def test_bigquery_clients_refuse_non_google_token_uri_before_building_credentials(client_factory, token_uri):
+    kwargs = {"location": None} if client_factory == "bigquery_client" else {}
+
+    with mock.patch.object(bq_module.service_account.Credentials, "from_service_account_info") as mock_creds:
+        with pytest.raises(BigQueryInvalidTokenUriError) as exc_info:
+            with getattr(bq_module, client_factory)(
+                project_id="project-id",
+                private_key="private-key",
+                private_key_id="private-key-id",
+                client_email="client-email",
+                token_uri=token_uri,
+                **kwargs,
+            ):
+                pass
+
+    mock_creds.assert_not_called()
+    assert str(exc_info.value) in BigQuerySource().get_non_retryable_errors()
+
+
 @pytest.mark.parametrize(
     "exception,expected_message,should_capture",
     [
@@ -1138,6 +1209,7 @@ def test_bigquery_validate_credentials_missing_fields_reports_actionable_message
         ),
         (RefreshError("('invalid_grant: Invalid JWT Signature.', {})"), BIGQUERY_CREDENTIALS_REJECTED_ERROR, False),
         (BadRequest('Invalid dataset ID "(default)"'), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
+        (BadRequest("400 ProjectId must be non-empty"), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (
             NotFound("404 Not found: Dataset my-project:my_dataset was not found in location US"),
             BIGQUERY_DATASET_NOT_FOUND_ERROR,
@@ -1154,8 +1226,14 @@ def test_bigquery_validate_credentials_missing_fields_reports_actionable_message
 def test_bigquery_validate_credentials_maps_failures_to_actionable_messages(
     exception, expected_message, should_capture
 ):
+    # Validation consumes the first page of `list_tables`, and that page fetch is where the request
+    # actually runs, so surface each failure from page consumption — the real request site. This
+    # also guards the regression: an inert validation that never consumes a page would return
+    # `(True, None)` and fail these assertions.
+    bq = mock.MagicMock()
+    bq.list_tables.return_value.pages.__next__.side_effect = exception
     client_cm = mock.MagicMock()
-    client_cm.__enter__.side_effect = exception
+    client_cm.__enter__.return_value = bq
 
     with (
         mock.patch.object(bq_module, "bigquery_client", return_value=client_cm),
@@ -1194,7 +1272,7 @@ def test_bigquery_source_validate_credentials_wires_config_and_region(use_custom
     dataset_id, key_file, dataset_project_id, region = mock_validate.call_args.args
     assert dataset_id == "dataset-id"
     assert key_file["project_id"] == "project-id"
-    assert key_file["token_uri"] == "token-uri"
+    assert key_file["token_uri"] == "https://oauth2.googleapis.com/token"
     assert dataset_project_id is None
     # A custom region only flows through when the toggle is enabled and non-empty.
     assert region == expected_region
@@ -1923,7 +2001,7 @@ def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
             private_key="private-key",
             private_key_id="private-key-id",
             client_email="client-email",
-            token_uri="token-uri",
+            token_uri="https://oauth2.googleapis.com/token",
         ):
             pass
 
@@ -1931,6 +2009,34 @@ def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
     options = dict(mock_transport_cls.create_channel.call_args.kwargs["options"])
     assert options["grpc.max_receive_message_length"] == -1
     assert options["grpc.max_send_message_length"] == -1
+
+
+def test_bigquery_client_retries_transient_token_refresh_failures():
+    """Regression: `AuthorizedSession`'s default token-refresh session only retries connection
+    errors, not HTTP error responses, so a transient 502/503/504 from Google's OAuth token
+    endpoint escaped every `bigquery_client` call site as an opaque `RefreshError` instead of
+    being retried. `bigquery_client` must hand `AuthorizedSession` an `auth_request` built from
+    a session carrying `BIGQUERY_TOKEN_REFRESH_RETRY`."""
+    with mock.patch.object(
+        bq_module.service_account.Credentials,
+        "from_service_account_info",
+        return_value=mock.Mock(spec=GoogleAuthCredentials),
+    ):
+        with bq_module.bigquery_client(
+            project_id="project-id",
+            location=None,
+            private_key="private-key",
+            private_key_id="private-key-id",
+            client_email="client-email",
+            token_uri="https://oauth2.googleapis.com/token",
+        ) as client:
+            auth_request_session = client._http._auth_request.session
+            adapter = cast(HTTPAdapter, auth_request_session.get_adapter("https://oauth2.googleapis.com"))
+            retry = adapter.max_retries
+
+    assert retry is BIGQUERY_TOKEN_REFRESH_RETRY
+    assert retry.allowed_methods and "POST" in retry.allowed_methods
+    assert retry.status_forcelist and {502, 503, 504} <= set(retry.status_forcelist)
 
 
 def test_bigquery_billing_not_enabled_is_non_retryable():

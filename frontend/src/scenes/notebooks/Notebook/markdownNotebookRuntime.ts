@@ -1,6 +1,7 @@
 import { createContext } from 'react'
 
 import type { MarkdownNotebookAskAIRequest } from 'lib/components/MarkdownNotebook'
+import { stripNotebookMediaFromMarkdown } from 'lib/components/MarkdownNotebook/documentModel'
 import { ThreadMessage } from 'scenes/max/maxThreadLogic'
 import { MaxContextType } from 'scenes/max/maxTypes'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
@@ -43,6 +44,12 @@ export type MarkdownNotebookRuntimeContextValue = {
 
 export const MarkdownNotebookRuntimeContext = createContext<MarkdownNotebookRuntimeContextValue | null>(null)
 
+const INLINE_NOTEBOOK_AI_CONTEXT_MAX_LENGTH = 100_000
+
+function getInlineNotebookAIContextMarkdown(markdown: string): string {
+    return stripNotebookMediaFromMarkdown(markdown).slice(0, INLINE_NOTEBOOK_AI_CONTEXT_MAX_LENGTH)
+}
+
 export function getInlineNotebookAIUIContext({
     notebookShortId,
     notebookTitle,
@@ -66,7 +73,7 @@ export function getInlineNotebookAIUIContext({
                 type: MaxContextType.NOTEBOOK,
                 id: notebookShortId,
                 name: notebookTitle,
-                markdown_with_insertion_placeholder: markdown,
+                markdown_with_insertion_placeholder: getInlineNotebookAIContextMarkdown(markdown),
                 insertion_placeholder_block_id: conversationId,
                 insertion_placeholder_marker: responseMarker,
             },

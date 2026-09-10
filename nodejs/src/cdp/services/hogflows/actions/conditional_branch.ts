@@ -2,7 +2,8 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
-import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-membership-repository'
+import { CyclotronJobInvocationHogFlow, HogFunctionFilters } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
 import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
@@ -34,6 +35,8 @@ export const counterHogflowRekeyWake = new Counter({
 })
 
 export class ConditionalBranchHandler implements ActionHandler {
+    constructor(private cohortMembershipRepository: CohortMembershipRepository) {}
+
     async execute({
         invocation,
         action,
@@ -82,8 +85,7 @@ export class ConditionalBranchHandler implements ActionHandler {
             }
         }
 
-        const conditionResult = await checkConditions(
-            invocation,
+        const conditionalAction: Extract<HogFlowAction, { type: 'conditional_branch' }> =
             action.type === 'conditional_branch'
                 ? action
                 : {
@@ -97,6 +99,11 @@ export class ConditionalBranchHandler implements ActionHandler {
                           delay_duration: action.config.max_wait_duration,
                       },
                   }
+
+        const conditionResult = await checkConditions(
+            invocation,
+            conditionalAction,
+            this.createMemberCohortIdsLoader(invocation)
         )
 
         const isWait = action.type === 'wait_until_condition'
@@ -127,22 +134,74 @@ export class ConditionalBranchHandler implements ActionHandler {
 
         return { nextAction: findContinueAction(invocation), result: { conditionResult } }
     }
+
+    /**
+     * Memoized so one lookup covers every cohort condition in the action. Person-less
+     * invocations (warehouse rows, account audiences) are non-members of everything.
+     */
+    private createMemberCohortIdsLoader(invocation: CyclotronJobInvocationHogFlow): () => Promise<number[]> {
+        let loaded: Promise<number[]> | undefined
+        return () => {
+            if (!loaded) {
+                const personUuid = invocation.person?.id ?? invocation.state.personId
+                loaded = personUuid
+                    ? this.cohortMembershipRepository.getMemberCohortIds(invocation.hogFlow.team_id, personUuid)
+                    : Promise.resolve([])
+            }
+            return loaded
+        }
+    }
+}
+
+// Operation.CALL_GLOBAL from @posthog/hogvm, which is a const enum and can't be imported
+// under isolatedModules
+const CALL_GLOBAL = 2
+
+// Scans the compiled bytecode so expression-authored inCohort(...) calls count too. Matches the
+// call encoding [CALL_GLOBAL, name, argCount] rather than the bare name: string constants and
+// property chains put their text in the same flat array, and a stray match here would couple an
+// unrelated condition's run to the behavioral cohorts DB.
+function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
+    const bytecode = (condition.filters as HogFunctionFilters | null | undefined)?.bytecode
+    if (!Array.isArray(bytecode)) {
+        return false
+    }
+    return bytecode.some(
+        (op, index) =>
+            (op === 'inCohort' || op === 'notInCohort') &&
+            bytecode[index - 1] === CALL_GLOBAL &&
+            typeof bytecode[index + 1] === 'number'
+    )
 }
 
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
-    action: Extract<HogFlowAction, { type: 'conditional_branch' }>
+    action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
+    loadMemberCohortIds?: () => Promise<number[]>
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
 }> {
     // the index is used to find the right edge
     for (const [index, condition] of action.config.conditions.entries()) {
+        // Loaded only when evaluation actually reaches a cohort condition, so a run whose earlier
+        // condition matches never touches the behavioral cohorts DB. A lookup failure throws here
+        // on purpose (following the action's on_error) instead of guessing non-membership; the
+        // inCohort/notInCohort STL functions read the resulting cohort_ids global.
+        const cohortGlobals =
+            loadMemberCohortIds && conditionReferencesCohorts(condition)
+                ? { cohort_ids: await loadMemberCohortIds() }
+                : {}
+
         // TODO(team-workflows): Figure out error handling here - do we throw or just move on to other conditions?
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
             filters: condition.filters,
-            filterGlobals: { ...invocation.filterGlobals, variables: invocation.state.variables },
+            filterGlobals: {
+                ...invocation.filterGlobals,
+                variables: invocation.state.variables,
+                ...cohortGlobals,
+            },
         })
 
         if (filterResults.match) {

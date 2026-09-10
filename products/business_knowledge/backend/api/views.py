@@ -25,7 +25,12 @@ from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
 from .. import logic
-from ..constants import BK_DRILLDOWN_DEFAULT_RADIUS, BK_DRILLDOWN_MAX_RADIUS
+from ..constants import (
+    BK_DRILLDOWN_DEFAULT_RADIUS,
+    BK_DRILLDOWN_MAX_RADIUS,
+    BK_SEARCH_DEFAULT_LIMIT,
+    BK_SEARCH_MAX_LIMIT,
+)
 from ..file_parse import FileParseError
 from ..models import GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
@@ -48,6 +53,11 @@ from .serializers import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _ensure_user_managed_source(source: KnowledgeSource) -> None:
+    if source.is_generated:
+        raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
 
 
 class _ConflictError(exceptions.APIException):
@@ -85,6 +95,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: Request, **kwargs) -> Response:
         source_type = request.data.get("source_type", SourceType.TEXT.value)
+        if str(request.data.get("is_generated", "")).lower() in {"1", "true"}:
+            raise exceptions.ValidationError({"is_generated": "Generated sources are created automatically."})
         if source_type == SourceType.FILE.value:
             return self._create_file_source(request)
         if source_type == SourceType.URL.value:
@@ -235,6 +247,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except KnowledgeSource.DoesNotExist:
             raise exceptions.NotFound()
 
+        _ensure_user_managed_source(source)
         if source.source_type == SourceType.URL.value:
             return self._update_url_source(source, request)
         if source.source_type == SourceType.FILE.value:
@@ -259,6 +272,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.GeneratedSourceReadOnlyError:
+            raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         if updated is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
@@ -278,6 +293,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.GeneratedSourceReadOnlyError:
+            raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         if updated is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
@@ -304,6 +321,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise _ConflictError("A refresh is already in progress for this source.")
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.GeneratedSourceReadOnlyError:
+            raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         if updated is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
@@ -315,7 +334,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             source_id = UUID(pk)
         except (ValueError, DjangoValidationError):
             raise exceptions.NotFound()
-        content = logic.get_source_text_for_team(source_id, self.team_id)
+        try:
+            content = logic.get_source_text_for_team(source_id, self.team_id)
+        except logic.GeneratedSourceReadOnlyError:
+            raise exceptions.PermissionDenied(detail="Generated sources must be read through document windows.")
         if content is None:
             raise exceptions.NotFound()
         return Response({"text": content})
@@ -337,6 +359,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"url": "Only URL sources can be refreshed."})
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.GeneratedSourceReadOnlyError:
+            raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         self._start_background_refresh(source)
         fresh = logic.get_for_team(source.id, self.team_id) or source
         return Response(KnowledgeSourceSerializer(instance=fresh).data)
@@ -365,7 +389,11 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             source_id = UUID(pk)
         except (ValueError, DjangoValidationError):
             raise exceptions.NotFound()
-        if not logic.delete_source(source_id, self.team_id):
+        try:
+            deleted = logic.delete_source(source_id, self.team_id)
+        except logic.GeneratedSourceReadOnlyError:
+            raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
+        if not deleted:
             raise exceptions.NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -452,7 +480,10 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Maximum number of ranked chunks to return. Defaults to 10, capped at 20.",
+                description=(
+                    f"Maximum number of ranked chunks to return. "
+                    f"Defaults to {BK_SEARCH_DEFAULT_LIMIT}, capped at {BK_SEARCH_MAX_LIMIT}."
+                ),
             ),
             OpenApiParameter(
                 "rerank",
@@ -478,12 +509,16 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query = request.query_params.get("query")
         if not query or not query.strip():
             raise exceptions.ValidationError({"query": "This query parameter is required."})
-        limit = self._parse_int_param(request, "limit", required=False, default=10)
+        limit = self._parse_int_param(request, "limit", required=False, default=BK_SEARCH_DEFAULT_LIMIT)
+        limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
         rerank = self._parse_bool_param(request, "rerank", default=False)
         search_limit = limit * 2 if rerank else limit
         results = logic.search_knowledge_for_team(self.team, query.strip(), limit=search_limit)
         if rerank:
             results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit)
+        # `search_knowledge` expands each anchor with its ordinal neighbours, so it
+        # can return up to ~3x the anchor limit. Trim to honor the requested bound.
+        results = results[:limit]
         return Response(KnowledgeSearchResultSerializer(instance=results, many=True).data)
 
     def _parse_bool_param(self, request: Request, name: str, *, default: bool) -> bool:

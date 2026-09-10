@@ -1,0 +1,12 @@
+{
+    "id": "KA10",
+    "file": "products/stamphog/backend/tasks/tasks.py",
+    "lines": "1128-1176",
+    "priority": "must_fix",
+    "title": "Initial review trusts a caller-writable PR URL",
+    "problem": "The task treats `pr_url`, `signal_report_id`, and `task_run_id` as trusted provenance. A team member can change `TaskRun.output.pr_url`. The job then fetches any open PR in an enabled repository and marks it as an Inbox review. This bypasses the bot, draft, fork, and author permission gates. The URL parser also accepts `github.com` inside another host because the regular expression is not anchored.",
+    "suggestion": "Resolve `task_run_id` again inside this task. Require the same team, signal report, repository, implementation stage, active task, and server-protected branch or commit stamp. Compare the fetched PR head and repository with that protected state. Require the configured PostHog GitHub App bot as the author. Anchor the URL pattern to `^https://github\\.com/` and reject trailing path data that is not allowed.",
+    "cluster": 2,
+    "cluster_issue": "Receiver leg (process_inbox_pr_review) stamps inbox_review/self_driving with no positive PR-to-run linkage or bot-author verification, unlike the webhook leg",
+    "cluster_verified": "6/10"
+}

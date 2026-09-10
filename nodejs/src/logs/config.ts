@@ -14,9 +14,6 @@ import { isProdEnv } from '~/common/utils/env-utils'
 
 import { LogsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_LOGS_PRODUCER } from './outputs/producers'
 
-export const DEFAULT_PATTERN_MAX_INPUT_CHARS = 8192
-export const DEFAULT_PATTERN_MAX_OUTPUT_CHARS = 1024
-
 export type LogsIngestionOutputsConfig = {
     LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: string
     LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: LogsProducerName
@@ -68,6 +65,8 @@ export type LogsIngestionConsumerConfig = {
     LOGS_RETENTION_ENABLED_TEAMS: string
     /** When `true`, retention rules are never evaluated (rows keep the team default via the batch header). */
     LOGS_RETENTION_KILLSWITCH: boolean
+    /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable measure-only pattern masking. */
+    LOGS_PATTERN_MASKING_ENABLED_TEAMS: string
     /**
      * When `true`, rows removed by drop rules are credited back to the billed usage metrics
      * (`bytes_ingested` / `records_ingested`). When `false` (default), the credit is only
@@ -119,6 +118,8 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         // Off in prod until per-team rollout; on in dev for local end-to-end testing.
         LOGS_RETENTION_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         LOGS_RETENTION_KILLSWITCH: false,
+        // Off by default: enabling forces decode+re-encode for allowlisted teams.
+        LOGS_PATTERN_MASKING_ENABLED_TEAMS: '',
         LOGS_BILLING_PRORATE_ENABLED: false,
         LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '',
         LOGS_TRANSFORMATIONS_KILLSWITCH: false,
@@ -155,6 +156,9 @@ export type TracesIngestionConsumerConfig = {
     TRACES_LIMITER_TTL_SECONDS: number
     TRACES_LIMITER_TEAM_BUCKET_SIZE_KB: string
     TRACES_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
+    TRACES_METRICS_RULES_ENABLED_TEAMS: string
+    TRACES_METRICS_RULES_KILLSWITCH: boolean
+    TRACES_METRICS_RULES_EXPORT_URL: string
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
@@ -179,6 +183,11 @@ export function getDefaultTracesIngestionConsumerConfig(): TracesIngestionConsum
         TRACES_LIMITER_TTL_SECONDS: 60 * 60 * 24,
         TRACES_LIMITER_TEAM_BUCKET_SIZE_KB: '',
         TRACES_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
+        // Mirror the logs default: enabled for all teams on the dev stack so a span rule
+        // works out of the box locally, off in prod until explicitly enabled per team.
+        TRACES_METRICS_RULES_ENABLED_TEAMS: isProdEnv() ? '' : '*',
+        TRACES_METRICS_RULES_KILLSWITCH: false,
+        TRACES_METRICS_RULES_EXPORT_URL: '',
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport

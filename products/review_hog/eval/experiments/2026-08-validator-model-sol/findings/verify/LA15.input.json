@@ -1,0 +1,12 @@
+{
+    "id": "LA15",
+    "file": "products/tasks/backend/facade/api.py",
+    "lines": "504-509",
+    "priority": "must_fix",
+    "title": "Do not use mutable task attribution as authorization",
+    "problem": "This facade treats `find_task_run` as proof that a self-driving implementation created the PR. That function matches caller-writable `output.pr_url` and non-unique branch values. The remaining checks only require a signal report and `internal=False`. The task API also lets callers set these task fields. A caller can therefore construct data that qualifies a bot PR for the privileged webhook carve-out.",
+    "suggestion": "Base this contract on immutable, server-owned attestation created when Signals starts an implementation. Bind that attestation to the exact team, run, repository, and PR or head. Do not use mutable task output as an authorization decision.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}
