@@ -5,6 +5,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
+from posthog.hogql.database.schema.person_property_mutation_log import PersonPropertyMutationLogTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
 from posthog.constants import GROUP_TYPES_LIMIT
@@ -60,7 +61,7 @@ def restricted_property_keys_for_table_type(
     elif isinstance(table, EventsGroupSubTable):
         prop_def_type = PropertyDefinition.Type.GROUP
         group_type_index = table.group_index
-    elif isinstance(table, EventsTable):
+    elif isinstance(table, (EventsTable, PersonPropertyMutationLogTable)):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
         prop_def_type = PropertyDefinition.Type.PERSON
