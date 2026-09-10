@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
@@ -26,7 +26,7 @@ describe('ThreadView connection state', () => {
         render(
             <Provider>
                 <BindLogic logic={runStreamLogic} props={props}>
-                    <ThreadView virtualized={false} />
+                    <ThreadView virtualized={false} showContextUsage />
                 </BindLogic>
             </Provider>
         )
@@ -74,5 +74,90 @@ describe('ThreadView connection state', () => {
     it('shows no connection banner on a fresh mount', () => {
         expect(screen.queryByText('Reconnecting to agent')).toBeNull()
         expect(screen.queryByText('Connection lost')).toBeNull()
+    })
+
+    it('hides context usage and cost during an optimistic resume and restores them on failure', async () => {
+        act(() => {
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    group: 'setup:previous-run',
+                    step: 'agent',
+                    status: 'completed',
+                    label: 'Started agent',
+                }),
+                'replay'
+            )
+            logic.actions.setContextUsage({ used: 12000, size: 1000000, cost: 0.04 })
+            logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+        })
+        await waitFor(() => expect(screen.getByTestId('max-sandbox-context-usage')).toBeVisible())
+
+        act(() => logic.actions.startOptimisticResume('Continue'))
+        await waitFor(() => expect(screen.queryByTestId('max-sandbox-context-usage')).toBeNull())
+        expect(screen.getByText('Setting up sandbox')).toBeVisible()
+
+        act(() => logic.actions.rollbackOptimisticResume())
+        await waitFor(() => expect(screen.getByTestId('max-sandbox-context-usage')).toBeVisible())
+        expect(screen.getByText('$0.04')).toBeVisible()
+    })
+
+    it('uses the startup activity as the state indicator and keeps completed steps expandable', async () => {
+        act(() => logic.actions.sseOpened())
+        await waitFor(() => expect(screen.getByText('Setting up sandbox')).toBeVisible())
+
+        act(() => {
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    group: 'setup:run-1',
+                    step: 'sandbox',
+                    status: 'in_progress',
+                    label: 'Restoring sandbox',
+                })
+            )
+        })
+        await waitFor(() => expect(screen.getByText('Restoring sandbox')).toBeVisible())
+        expect(screen.queryByText('Setting up sandbox')).toBeNull()
+
+        act(() => {
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    group: 'setup:run-1',
+                    step: 'sandbox',
+                    status: 'completed',
+                    label: 'Restored sandbox',
+                })
+            )
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    group: 'setup:run-1',
+                    step: 'agent',
+                    status: 'in_progress',
+                    label: 'Starting agent',
+                })
+            )
+        })
+        await waitFor(() => expect(screen.getByText('Starting agent', { exact: true })).toBeVisible())
+        expect(screen.getByLabelText('Expand history')).toHaveAttribute('aria-expanded', 'false')
+        expect(screen.queryByText('Setting up sandbox')).toBeNull()
+
+        act(() => {
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    group: 'setup:run-1',
+                    step: 'agent',
+                    status: 'completed',
+                    label: 'Started agent',
+                })
+            )
+        })
+        await waitFor(() => expect(screen.getByLabelText('Expand history')).toHaveAttribute('aria-expanded', 'false'))
+        expect(screen.getByText('Started agent')).toBeVisible()
+        expect(screen.queryByText('Setting up sandbox')).toBeNull()
+
+        act(() => logic.actions.ingestAcpFrame(notification('_posthog/run_started', {})))
+        await waitFor(() => expect(screen.queryByText('Setting up sandbox')).toBeNull())
+        fireEvent.click(screen.getByLabelText('Expand history'))
+        expect(screen.getByText('Restored sandbox')).toBeVisible()
+        expect(screen.getAllByText('Started agent')).toHaveLength(2)
     })
 })

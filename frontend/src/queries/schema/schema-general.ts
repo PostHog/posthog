@@ -5187,15 +5187,6 @@ export interface FileSystemViewLogEntry {
     viewed_at: string
 }
 
-export interface PersistedFolder {
-    id: string
-    type: string
-    protocol: string
-    path: string
-    created_at: string
-    updated_at: string
-}
-
 export type DataWarehouseManagedViewsetKind = 'revenue_analytics'
 
 export type InsightQueryNode =
@@ -10151,6 +10142,7 @@ export enum ProductIntentContext {
     // Session Replay
     SESSION_REPLAY_SET_FILTERS = 'session_replay_set_filters',
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = 'session_replay_experiment_link_clicked',
+    SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER = 'session_replay_save_filters_as_scanner',
 
     // Error Tracking
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',

@@ -14,7 +14,7 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import { nextRunAt, scoutCadenceLabel } from '../../../utils/scoutGroups'
-import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
+import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 
@@ -56,7 +56,7 @@ export function ScoutSummaryRow({
                             subtle
                             className="truncate text-sm font-medium min-w-[6rem]"
                         >
-                            {prettifyScoutSkillName(config.skill_name)}
+                            {scoutDisplayName(config)}
                         </Link>
                     </Tooltip>
                     {!config.emit && (

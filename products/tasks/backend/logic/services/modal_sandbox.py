@@ -105,6 +105,9 @@ STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
 SELF_DRIVING_MODAL_APP_NAME = "posthog-sandbox-self-driving"
 
 
+# The Modal SDK reports an exec that outlives its `timeout` as this return code instead of raising.
+MODAL_EXEC_TIMEOUT_RETURNCODE = -1
+
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_VM_IMAGE = "ghcr.io/posthog/posthog-sandbox-vm"
@@ -1046,8 +1049,21 @@ class ModalSandbox(AgentServerLaunchMixin):
                 error=None,
             )
 
+            if result.exit_code == MODAL_EXEC_TIMEOUT_RETURNCODE:
+                # Not captured: the launcher re-raises this with startup diagnostics and captures that instead.
+                raise SandboxTimeoutError(
+                    f"Execution timed out after {timeout_seconds} seconds",
+                    {"sandbox_id": self.id, "timeout_seconds": timeout_seconds, "command": redacted_command},
+                    cause=TimeoutError(
+                        f"exec returned {MODAL_EXEC_TIMEOUT_RETURNCODE} after {timeout_seconds} seconds"
+                    ),
+                    capture=False,
+                )
+
             return result
 
+        except SandboxTimeoutError:
+            raise
         except TimeoutError as e:
             capture_exception(e)
             raise SandboxTimeoutError(
