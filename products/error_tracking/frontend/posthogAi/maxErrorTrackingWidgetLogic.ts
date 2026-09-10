@@ -76,7 +76,7 @@ export type maxErrorTrackingWidgetLogicType = MakeLogicType<
 >
 
 export const maxErrorTrackingWidgetLogic = kea<maxErrorTrackingWidgetLogicType>([
-    path(['products', 'posthog_ai', 'frontend', 'components', 'tool', 'widgets', 'maxErrorTrackingWidgetLogic']),
+    path(['products', 'error_tracking', 'frontend', 'posthogAi', 'maxErrorTrackingWidgetLogic']),
     props({} as MaxErrorTrackingWidgetLogicProps),
     key((props) => props.toolCallId),
 
