@@ -11,7 +11,6 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -34,7 +33,6 @@ import {
     SCOUT_DAILY_AT_SCHEDULE_MODE,
     SCOUT_WEEKDAY_OPTIONS,
     SCOUT_WEEKLY_ON_SCHEDULE_MODE,
-    SIGNALS_SCOUT_SKILL_PREFIX,
 } from '../../../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAGS, normalizeScoutTags } from '../../../utils/scoutTags'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
@@ -57,7 +55,6 @@ export function ScoutCreateModal({
     onCreated,
     onEnabled,
 }: ScoutCreateModalProps): JSX.Element {
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const logicKey = scoutCreateModalLogicKey(initialValues)
     const formId = `scout-create-form-${logicKey}`
     const logicProps: ScoutCreateModalLogicProps = { logicKey, initialValues, onClose, onCreated, onEnabled }
@@ -156,39 +153,20 @@ export function ScoutCreateModal({
                         name="name"
                         label="Name"
                         help={
-                            !redesign ? (
-                                <>
-                                    Scout names start with{' '}
-                                    <span className="font-mono text-[11px]">{SIGNALS_SCOUT_SKILL_PREFIX}</span>.
-                                </>
-                            ) : touchedNameError ? (
+                            touchedNameError ? (
                                 <span className="text-danger">{touchedNameError}</span>
                             ) : (
                                 'Lowercase letters, numbers, and hyphens.'
                             )
                         }
                     >
-                        {redesign ? (
-                            <LemonInput
-                                autoFocus={!turningOn}
-                                disabledReason={turningOn ? 'This scout already has its name' : undefined}
-                                // The prefix is fixed and shown in the field, so the limit is what is left for the typed part.
-                                maxLength={SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length}
-                                prefix={
-                                    <span className="font-mono text-xs text-muted">{SIGNALS_SCOUT_SKILL_PREFIX}</span>
-                                }
-                                placeholder="checkout-failures"
-                                data-attr="scout-create-name"
-                            />
-                        ) : (
-                            <LemonInput
-                                autoFocus={!turningOn}
-                                disabledReason={turningOn ? 'This scout already has its name' : undefined}
-                                maxLength={64}
-                                placeholder="signals-scout-checkout-failures"
-                                data-attr="scout-create-name"
-                            />
-                        )}
+                        <LemonInput
+                            autoFocus={!turningOn}
+                            disabledReason={turningOn ? 'This scout already has its name' : undefined}
+                            maxLength={SKILL_NAME_MAX_LENGTH}
+                            placeholder="checkout-failures"
+                            data-attr="scout-create-name"
+                        />
                     </LemonField>
 
                     <LemonField
