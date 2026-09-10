@@ -3,6 +3,8 @@ import dataclasses
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.cdp.migrations import coerce_input_value, migrate_legacy_plugins
@@ -15,7 +17,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginSourceFile
 
 
-class TestCoerceInputValue(BaseTest):
+class TestCoerceInputValue(SimpleTestCase):
     @parameterized.expand(
         [
             ("boolean_yes", {"type": "boolean"}, "Yes", True),
