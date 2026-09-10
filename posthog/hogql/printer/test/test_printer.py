@@ -58,6 +58,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clear_locations
 
@@ -1477,6 +1478,61 @@ class TestPrinter(BaseTest):
         self.assertEqual(json.loads(result[0]) if result[0] is not None else None, expected_groups)
         self.assertEqual(result[1:4], (has_groups, has_organization, int(expected_groups is None)))
         self.assertEqual(result[4], (expected_groups or {}).get("organization"))
+
+    @parameterized.expand(
+        [
+            (None, True),
+            ("$feature/flag.with.dot", True),
+            ("$feature_flags", True),
+            (None, False),
+        ]
+    )
+    def test_feature_flag_json_extracts_match_map_document(self, restricted: str | None, populated: bool) -> None:
+        native = settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        flags = {"flag.with.dot": "control", "numeric": "42", "enabled": "true"} if populated else {}
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=native)
+        context.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+        context.restricted_properties = (
+            {RestrictedProperty(name=restricted, property_type=PropertyDefinition.Type.EVENT)} if restricted else set()
+        )
+        extracts = [
+            "JSONExtractString(properties, '$feature_flags', 'flag.with.dot')",
+            "JSONExtractString(properties, '$feature_flags', concat('flag.', 'with.dot'))",
+            "JSONExtractString(properties, '$feature_flags', 'missing')",
+            "JSONExtractRaw(properties, '$feature_flags')",
+            "JSONExtractRaw(properties, '$feature_flags', 'flag.with.dot')",
+            "JSONExtract(properties, '$feature_flags', 'Map(String, String)')",
+            "JSONExtractKeys(properties, '$feature_flags')",
+            "JSONExtractKeysAndValues(properties, '$feature_flags', 'String')",
+            "JSONExtractKeysAndValuesRaw(properties, '$feature_flags')",
+            "JSONExtractArrayRaw(properties, '$feature_flags')",
+            "JSONExtractInt(properties, '$feature_flags', 'numeric')",
+            "JSONExtractUInt(properties, '$feature_flags', 'numeric')",
+            "JSONExtractFloat(properties, '$feature_flags', 'numeric')",
+            "JSONExtractBool(properties, '$feature_flags', 'enabled')",
+        ]
+        expression = "tuple(" + ", ".join(extracts) + ")"
+        printed = self._expr(expression, context)
+        physical_flags = flags if native else {f"$feature/{key}": value for key, value in flags.items()}
+        raw = json.dumps({"$feature_flags": flags} if native else physical_flags)
+        source = "CAST(%(raw)s, %(json_type)s)" if native else "%(raw)s"
+        actual = sync_execute(
+            f"SELECT {printed} FROM (SELECT {source} AS properties, JSONExtract(%(flags)s, 'Map(String, String)') AS properties_group_feature_flags) AS events",
+            {
+                **context.values,
+                "raw": raw,
+                "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
+                "flags": json.dumps(physical_flags),
+            },
+        )
+        visible_flags = {
+            key: value for key, value in flags.items() if restricted not in ("$feature_flags", f"$feature/{key}")
+        }
+        expected = sync_execute(
+            f"SELECT {expression} FROM (SELECT %(raw)s AS properties)",
+            {"raw": json.dumps({"$feature_flags": visible_flags} if visible_flags else {})},
+        )
+        self.assertEqual(actual, expected)
 
     def test_instance_setting_enables_new_events_schema(self) -> None:
         # The production rollout lever is the instance setting, not the env var — a fresh context
