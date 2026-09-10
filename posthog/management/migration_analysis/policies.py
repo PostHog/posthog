@@ -6,6 +6,7 @@ Policies enforce architectural decisions and coding standards.
 
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Optional
 
@@ -13,8 +14,31 @@ from django.conf import settings
 from django.db import models
 from django.db.migrations.loader import MigrationLoader
 
+from posthog.dataclasses import frozen
 from posthog.management.migration_analysis.operations import is_unmanaged_model
 from posthog.products import is_product_module
+
+
+@frozen
+class _TableColumn:
+    """One database column, addressed by its table and column name.
+
+    Both parts are strings, so a tuple lets a caller swap them without a typecheck failure.
+    The class is also the set key this policy matches candidates against.
+    """
+
+    table: str
+    column: str
+
+
+@frozen
+class _ConstrainedForeignKey:
+    """A foreign key the database holds a constraint for."""
+
+    field: str
+    column: str
+    target_table: str
+
 
 # Apps owned by PostHog where policies are enforced
 POSTHOG_OWNED_APPS = ["posthog", "ee"]
@@ -748,12 +772,13 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
             if model_state is None:
                 continue
             table = self._table_of(model_state, migration.app_label, model_name)
-            for field, column, target in self._constrained_foreign_keys(state, model_state, field_name):
-                if raw_drop or (table, column) in dropped:
+            for fk in self._constrained_foreign_keys(state, model_state, field_name):
+                candidate = _TableColumn(table=table, column=fk.column)
+                if raw_drop or candidate in dropped:
                     continue
-                if (table, column) in adopted:
+                if candidate in adopted:
                     continue  # The model moved to another app, which still declares this relation.
-                violations.append(self._violation(model_name, field, table, column, target))
+                violations.append(self._violation(model_name, table, fk))
         return violations
 
     def _state_only_removals(self, migration) -> list[tuple[str, Optional[str]]]:
@@ -774,15 +799,15 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
                     removals.append((state_op.model_name.lower(), state_op.name))
         return removals
 
-    def _dropped_columns(self, migration) -> set[tuple[str, str]]:
-        """(table, column) pairs a DropForeignKey in this migration removes."""
+    def _dropped_columns(self, migration) -> set[_TableColumn]:
+        """Columns a DropForeignKey in this migration removes a constraint from."""
         dropped = set()
         for db_op in self._database_operations(migration):
             if db_op.__class__.__name__ != "DropForeignKey":
                 continue
             column = getattr(db_op, "column", None)
             if column is not None:
-                dropped.add((getattr(db_op, "table", ""), column))
+                dropped.add(_TableColumn(table=getattr(db_op, "table", ""), column=column))
         return dropped
 
     def _has_raw_constraint_drop(self, migration) -> bool:
@@ -801,7 +826,7 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
         return False
 
     def _database_operations(self, migration) -> list[Any]:
-        ops = []
+        ops: list[Any] = []
         for op in migration.operations or []:
             if op.__class__.__name__ == "SeparateDatabaseAndState":
                 ops.extend(getattr(op, "database_operations", []) or [])
@@ -827,8 +852,8 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
             # A migration the graph cannot place is not this policy's problem to report.
             return None
 
-    def _tables_adopted_elsewhere(self, app_label: str) -> set[tuple[str, str]]:
-        """(table, column) pairs that a model in another app still tracks at the graph leaves.
+    def _tables_adopted_elsewhere(self, app_label: str) -> set[_TableColumn]:
+        """Columns that a model in another app still tracks at the graph leaves.
 
         Moving a model between apps deletes it from the source app's state and creates it in
         the destination's, against the same db_table. Only the relations the destination
@@ -849,14 +874,14 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
             for name, field in ms.fields.items():
                 if getattr(field, "remote_field", None) is None:
                     continue
-                adopted.add((table, getattr(field, "db_column", None) or f"{name}_id"))
+                adopted.add(_TableColumn(table=table, column=getattr(field, "db_column", None) or f"{name}_id"))
         return adopted
 
     def _table_of(self, model_state, app_label: str, model_name: str) -> str:
         return model_state.options.get("db_table") or f"{app_label}_{model_name}"
 
-    def _constrained_foreign_keys(self, state, model_state, field_name):
-        """Yield (field name, database column, target table) for foreign keys with a constraint."""
+    def _constrained_foreign_keys(self, state, model_state, field_name) -> Iterator[_ConstrainedForeignKey]:
+        """Yield the foreign keys on this model that the database holds a constraint for."""
         for name, field in model_state.fields.items():
             if field_name is not None and name != field_name:
                 continue
@@ -866,7 +891,7 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
             column = getattr(field, "db_column", None) or f"{name}_id"
             if not getattr(field, "db_constraint", True) and not self._added_by_helper(model_state, column):
                 continue
-            yield name, column, self._target_table(state, remote)
+            yield _ConstrainedForeignKey(field=name, column=column, target_table=self._target_table(state, remote))
 
     def _added_by_helper(self, model_state, column: str) -> bool:
         """True when a migration added a real constraint for a db_constraint=False field.
@@ -902,14 +927,14 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
             return self._table_of(target_state, app_label, model_name.lower())
         return f"{app_label}_{model_name.lower()}"
 
-    def _violation(self, model_name: str, field: str, table: str, column: str, target_table: str) -> str:
-        severity = "❌ BLOCKED" if target_table in _HOT_TABLES else "⚠️ WARNING"
+    def _violation(self, model_name: str, table: str, fk: _ConstrainedForeignKey) -> str:
+        severity = "❌ BLOCKED" if fk.target_table in _HOT_TABLES else "⚠️ WARNING"
         return (
-            f"{severity}: taking {model_name}.{field} out of Django's state leaves its foreign key "
-            f"to {target_table} in the database. Django stops cascading into a relation it cannot "
-            f"see, and the constraint is DEFERRABLE INITIALLY DEFERRED, so a {target_table} delete "
+            f"{severity}: taking {model_name}.{fk.field} out of Django's state leaves its foreign key "
+            f"to {fk.target_table} in the database. Django stops cascading into a relation it cannot "
+            f"see, and the constraint is DEFERRABLE INITIALLY DEFERRED, so a {fk.target_table} delete "
             f"runs its whole cascade and then fails at COMMIT, permanently. Add "
-            f'DropForeignKey("{table}", column="{column}") to this migration\'s database_operations '
+            f'DropForeignKey("{table}", column="{fk.column}") to this migration\'s database_operations '
             f"(posthog.migration_helpers)."
         )
 
